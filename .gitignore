@@ -1,0 +1,31 @@
+# Helm
+charts/lolday/charts/
+charts/lolday/*.tgz
+
+# Python (future phases)
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+
+# Node (future phases)
+node_modules/
+.next/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — NEVER commit
+*.env
+*.env.*
+!*.env.example
+**/secrets/
+
+# Superpowers brainstorm sessions
+.superpowers/
