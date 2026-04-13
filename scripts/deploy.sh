@@ -25,6 +25,10 @@ helm upgrade --install lolday "$CHART_DIR" \
   -n lolday --create-namespace \
   --set cloudflare.enabled="${CF_ENABLED:-false}" \
   --set cloudflare.tunnelToken="${CF_TUNNEL_TOKEN:-}" \
+  --set postgresql.auth.password="${PG_PASSWORD:-lolday-dev-password}" \
+  --set backend.jwtSecret="${JWT_SECRET:-lolday-dev-jwt-secret-32chars!}" \
+  --set backend.firstAdmin.email="${ADMIN_EMAIL:-admin@lolday.dev}" \
+  --set backend.firstAdmin.password="${ADMIN_PASSWORD:-Admin123!}" \
   --wait --timeout 5m
 
 echo ""

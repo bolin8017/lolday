@@ -29,3 +29,35 @@ cloudflare:
   enabled: false  # Enable after domain is purchased
   tunnelToken: "" # Set via --set at deploy time, NEVER commit
   replicas: 2
+
+# =============================================================================
+# Backend API
+# =============================================================================
+backend:
+  enabled: true
+  image: localhost:5000/lolday-backend:latest
+  replicas: 1
+  jwtSecret: ""         # --set at deploy time, NEVER commit
+  firstAdmin:
+    email: ""           # --set at deploy time
+    password: ""        # --set at deploy time
+  env:
+    DOCS_ENABLED: "true"
+
+# =============================================================================
+# PostgreSQL
+# =============================================================================
+postgresql:
+  enabled: true
+  storage:
+    size: 10Gi
+  auth:
+    database: lolday
+    username: lolday
+    password: ""        # --set at deploy time, NEVER commit
+
+# =============================================================================
+# Redis
+# =============================================================================
+redis:
+  enabled: true

@@ -1,0 +1,27 @@
+[project]
+name = "lolday-backend"
+version = "0.1.0"
+description = "Lolday platform backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "fastapi-users[sqlalchemy]>=14.0.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.30.0",
+    "alembic>=1.15.0",
+    "pydantic-settings>=2.8.0",
+    "redis[hiredis]>=5.2.0",
+    "slowapi>=0.1.9",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.25.0",
+    "aiosqlite>=0.21.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

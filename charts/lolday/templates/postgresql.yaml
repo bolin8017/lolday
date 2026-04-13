@@ -1,0 +1,90 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgresql
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/component: postgresql
+    {{- include "lolday.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_USER: {{ .Values.postgresql.auth.username | quote }}
+  POSTGRES_PASSWORD: {{ .Values.postgresql.auth.password | quote }}
+  POSTGRES_DB: {{ .Values.postgresql.auth.database | quote }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/component: postgresql
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  serviceName: postgresql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: postgresql
+    spec:
+      containers:
+        - name: postgresql
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          envFrom:
+            - secretRef:
+                name: postgresql
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgresql.auth.username | quote }}]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgresql.auth.username | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.storage.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/component: postgresql
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/component: postgresql
+{{- end }}
