@@ -4,24 +4,40 @@ Internal ML platform for ISLab malware detector management.
 
 ## Prerequisites
 
-- K3s (installed by admin with `--flannel-backend=none --disable-network-policy`)
-- kubectl, Helm, Cilium CLI, Trivy, Cloudflared, k9s
-- NVIDIA drivers on GPU nodes
+- NVIDIA drivers installed on host (`nvidia-smi` must work)
+- Temporary sudo access for K3s installation
 
-## Quick Start
+## Setup
 
 ```bash
-# 1. Setup cluster-level components (once per cluster)
-./scripts/setup-cluster.sh
+# 1. Install CLI tools (no sudo)
+bash scripts/install-tools.sh
 
-# 2. Deploy the platform
-./scripts/deploy.sh
+# 2. Install K3s (requires sudo — run with a sudo-capable account)
+sudo bash scripts/setup-k3s.sh
 
-# 3. Teardown (removes everything)
-./scripts/teardown.sh
+# 3. Install GPU Operator (no sudo)
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+helm repo update
+helm install gpu-operator nvidia/gpu-operator \
+  -n gpu-operator --create-namespace \
+  --set driver.enabled=false \
+  --set toolkit.enabled=true \
+  --set devicePlugin.enabled=true \
+  --set dcgmExporter.enabled=true \
+  --wait --timeout 5m
+
+# 4. Deploy the platform (no sudo)
+bash scripts/deploy.sh
+```
+
+## Teardown
+
+```bash
+bash scripts/teardown.sh
 ```
 
 ## Documentation
 
 - [Design Spec](docs/superpowers/specs/2026-03-30-lolday-platform-design.md)
-- [Phase 1: Infrastructure](docs/superpowers/plans/2026-03-30-phase1-infrastructure.md)
+- [Phase 1 Plan (v2)](docs/superpowers/plans/2026-04-13-phase1-infrastructure-v2.md)

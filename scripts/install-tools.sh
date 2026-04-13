@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_DIR="${HOME}/.local/bin"
+mkdir -p "$INSTALL_DIR"
+
+echo "=== Installing CLI tools to ${INSTALL_DIR} ==="
+echo ""
+
+# -------------------------------------------------------
+# kubectl
+# -------------------------------------------------------
+echo "[1/3] kubectl..."
+if command -v kubectl &>/dev/null; then
+  echo "  Already installed: $(kubectl version --client --short 2>/dev/null || kubectl version --client 2>&1 | head -1)"
+else
+  KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+  curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+  chmod +x kubectl
+  mv kubectl "${INSTALL_DIR}/"
+  echo "  Installed: ${KUBECTL_VERSION}"
+fi
+
+# -------------------------------------------------------
+# helm
+# -------------------------------------------------------
+echo "[2/3] helm..."
+if command -v helm &>/dev/null; then
+  echo "  Already installed: $(helm version --short 2>/dev/null)"
+else
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | \
+    HELM_INSTALL_DIR="$INSTALL_DIR" USE_SUDO=false bash
+fi
+
+# -------------------------------------------------------
+# k9s
+# -------------------------------------------------------
+echo "[3/3] k9s..."
+if command -v k9s &>/dev/null; then
+  echo "  Already installed: $(k9s version --short 2>/dev/null || echo 'yes')"
+else
+  K9S_VERSION="v0.50.18"
+  curl -sL "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz" | \
+    tar xz -C "${INSTALL_DIR}" k9s
+  echo "  Installed: ${K9S_VERSION}"
+fi
+
+echo ""
+echo "=== Done ==="
+echo ""
+echo "Make sure ${INSTALL_DIR} is in your PATH."
+echo "Add to ~/.zshrc or ~/.bashrc if needed:"
+echo "  export PATH=\"\${HOME}/.local/bin:\${PATH}\""

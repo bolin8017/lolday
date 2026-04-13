@@ -1,0 +1,31 @@
+# =============================================================================
+# Lolday Platform Configuration
+# =============================================================================
+
+global:
+  namespace: lolday
+
+# =============================================================================
+# Private Container Registry (registry:2)
+# =============================================================================
+registry:
+  enabled: true
+  storage:
+    size: 50Gi
+    # Uses K3s default StorageClass (local-path)
+
+# =============================================================================
+# Training Pod Security
+# =============================================================================
+training:
+  # NetworkPolicy: deny all egress from training pods
+  networkPolicy:
+    enabled: true
+
+# =============================================================================
+# Cloudflare Tunnel
+# =============================================================================
+cloudflare:
+  enabled: false  # Enable after domain is purchased
+  tunnelToken: "" # Set via --set at deploy time, NEVER commit
+  replicas: 2
