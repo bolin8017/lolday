@@ -2,8 +2,11 @@ apiVersion: v2
 name: lolday
 description: ISLab Malware Detector Management Platform
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.3.0
+appVersion: "0.3.0"
 
-# No dependencies — Harbor, NFS CSI, Cilium removed.
-# registry:2 and cloudflared are managed as our own templates.
+dependencies:
+  - name: harbor
+    version: "1.16.1"
+    repository: https://helm.goharbor.io
+    condition: harbor.enabled

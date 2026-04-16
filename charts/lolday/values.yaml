@@ -9,7 +9,7 @@ global:
 # Private Container Registry (registry:2)
 # =============================================================================
 registry:
-  enabled: true
+  enabled: false
   storage:
     size: 50Gi
     # Uses K3s default StorageClass (local-path)
@@ -35,14 +35,30 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: localhost:5000/lolday-backend:latest
+  image: localhost:5000/lolday-backend:latest  # will change to Harbor in Task 17
   replicas: 1
   jwtSecret: ""         # --set at deploy time, NEVER commit
   firstAdmin:
     email: ""           # --set at deploy time
     password: ""        # --set at deploy time
+  # NEW for Phase 3:
+  fernetKey: ""                              # --set at deploy time
+  harborAdminPassword: ""                    # --set at deploy time (shared with Harbor release)
   env:
     DOCS_ENABLED: "true"
+    # NEW for Phase 3:
+    HARBOR_URL: "http://harbor.lolday.svc.cluster.local:80"
+    HARBOR_ADMIN_USERNAME: "admin"
+    HARBOR_IMAGE_PREFIX: "harbor.lolday.svc:80"
+    GITHUB_API_URL: "https://api.github.com"
+    BUILD_NAMESPACE: "lolday"
+    BUILD_IMAGE_HELPER: "harbor.lolday.svc:80/lolday/build-helper:v1"
+    BUILD_IMAGE_KANIKO: "gcr.io/kaniko-project/executor:latest"
+    BUILD_IMAGE_GIT: "alpine/git:v2.52.0"
+    BUILD_TIMEOUT_SECONDS: "1200"
+    BUILD_CONCURRENCY_PER_USER: "2"
+    BACKEND_INTERNAL_URL: "http://backend.lolday.svc:8000"
+    RECONCILER_ENABLED: "true"
 
 # =============================================================================
 # PostgreSQL
@@ -61,3 +77,57 @@ postgresql:
 # =============================================================================
 redis:
   enabled: true
+
+# =============================================================================
+# Harbor Container Registry
+# =============================================================================
+harbor:
+  enabled: true
+  expose:
+    type: clusterIP
+    tls:
+      enabled: false
+  externalURL: http://harbor.lolday.svc.cluster.local:80
+  harborAdminPassword: ""          # --set at deploy time
+  persistence:
+    enabled: true
+    persistentVolumeClaim:
+      registry:
+        size: 100Gi
+      jobservice:
+        size: 2Gi
+      database:
+        size: 5Gi
+      redis:
+        size: 2Gi
+      trivy:
+        size: 10Gi
+  trivy:
+    enabled: true
+    skipUpdate: false
+  notary:
+    enabled: false
+  chartmuseum:
+    enabled: false
+  resources:
+    core:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 1, memory: 1Gi }
+    jobservice:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 1, memory: 1Gi }
+    registry:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 1, memory: 2Gi }
+    portal:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+    database:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 1, memory: 1Gi }
+    redis:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+    trivy:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 1, memory: 1Gi }

@@ -1,0 +1,10 @@
+[project]
+name = "demo-detector"
+version = "0.1.0"
+description = "A demo detector"
+requires-python = ">=3.12"
+dependencies = ["islab-malware-detector>=0.4.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -7,8 +7,16 @@ CHART_DIR="$SCRIPT_DIR/../charts/lolday"
 echo "=== Lolday Platform Deploy ==="
 echo ""
 
+# Required secrets
+: "${HARBOR_ADMIN_PASSWORD:?HARBOR_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 24}"
+: "${FERNET_KEY:?FERNET_KEY must be set — generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
+: "${PG_PASSWORD:?PG_PASSWORD must be set — generate with: openssl rand -base64 24}"
+: "${JWT_SECRET:?JWT_SECRET must be set — generate with: openssl rand -base64 48}"
+: "${ADMIN_EMAIL:?ADMIN_EMAIL must be set (e.g. admin@lolday.dev)}"
+: "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}"
+
 # Pre-flight
-echo "[1/2] Pre-flight checks..."
+echo "[1/4] Pre-flight checks..."
 if ! kubectl get nodes &>/dev/null; then
   echo "  ERROR: Cannot reach K8s API. Is K3s running?"
   exit 1
@@ -19,18 +27,52 @@ GPU_COUNT=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\
 echo "  GPUs available: ${GPU_COUNT}"
 echo ""
 
+# Harbor repo + dependency build
+echo "[2/4] Preparing Helm dependencies..."
+helm repo add harbor https://helm.goharbor.io 2>/dev/null || true
+helm repo update >/dev/null
+(cd "$CHART_DIR" && helm dependency build)
+echo "  Dependencies built"
+echo ""
+
+# Ensure namespaces
+echo "[3/4] Ensuring namespaces..."
+kubectl create namespace lolday --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl create namespace harbor --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+echo "  Namespaces ready"
+echo ""
+
 # Deploy
-echo "[2/2] Deploying lolday..."
+echo "[4/4] Deploying lolday..."
 helm upgrade --install lolday "$CHART_DIR" \
-  -n lolday --create-namespace \
+  -n lolday \
   --set cloudflare.enabled="${CF_ENABLED:-false}" \
   --set cloudflare.tunnelToken="${CF_TUNNEL_TOKEN:-}" \
-  --set postgresql.auth.password="${PG_PASSWORD:-lolday-dev-password}" \
-  --set backend.jwtSecret="${JWT_SECRET:-lolday-dev-jwt-secret-32chars!}" \
-  --set backend.firstAdmin.email="${ADMIN_EMAIL:-admin@lolday.dev}" \
-  --set backend.firstAdmin.password="${ADMIN_PASSWORD:-Admin123!}" \
-  --wait --timeout 5m
+  --set postgresql.auth.password="$PG_PASSWORD" \
+  --set backend.jwtSecret="$JWT_SECRET" \
+  --set backend.firstAdmin.email="$ADMIN_EMAIL" \
+  --set backend.firstAdmin.password="$ADMIN_PASSWORD" \
+  --set backend.fernetKey="$FERNET_KEY" \
+  --set backend.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
+  --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
+  --wait --timeout 10m
 
 echo ""
 echo "=== Deploy complete ==="
 kubectl -n lolday get pods
+echo ""
+cat <<EOF
+
+=========================================================================
+  NEXT MANUAL STEP (requires sudo):
+
+    sudo bash scripts/patch-k3s-registries.sh
+
+  This configures K3s containerd to resolve 'harbor.harbor.svc:80' as
+  the in-cluster Harbor. The script is safe: it backs up registries.yaml,
+  diffs the change, and auto-rolls back if k3s fails to restart.
+
+  Without this step, detector builds cannot push images to Harbor and
+  the platform cannot pull build-helper / detector images.
+=========================================================================
+EOF

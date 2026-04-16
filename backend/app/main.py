@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -10,7 +11,8 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.db import async_session_maker, engine
 from app.models import Base, Role, User
-from app.routers import admin
+from app.reconciler import reconciler_loop
+from app.routers import admin, credentials, detectors, internal
 from app.schemas import AdminUserUpdate, UserCreate, UserRead, UserUpdate
 from app.users import auth_backend, fastapi_users, UserManager
 
@@ -49,7 +51,24 @@ async def lifespan(app: FastAPI):
                 session.add(user)
                 await session.commit()
                 logger.info("Seed admin created: %s", user.email)
+
+    # Harbor post-install init: idempotent, safe to retry on every startup
+    try:
+        from app.services.harbor_init import init_harbor
+        await init_harbor()
+    except Exception:
+        logger.exception("harbor init failed — continuing, build pipeline may not work")
+
+    reconciler_task: asyncio.Task | None = None
+    if settings.RECONCILER_ENABLED:
+        stop_event = asyncio.Event()
+        reconciler_task = asyncio.create_task(reconciler_loop(stop_event))
+
     yield
+
+    if reconciler_task is not None:
+        stop_event.set()
+        await reconciler_task
 
 
 app = FastAPI(
@@ -97,6 +116,27 @@ app.include_router(
     admin.router,
     prefix="/api/v1/admin",
     tags=["admin"],
+)
+
+# Credentials routes
+app.include_router(
+    credentials.router,
+    prefix="/api/v1/users",
+    tags=["credentials"],
+)
+
+# Detectors routes
+app.include_router(
+    detectors.router,
+    prefix="/api/v1/detectors",
+    tags=["detectors"],
+)
+
+# Internal routes (build callbacks)
+app.include_router(
+    internal.router,
+    prefix="/api/v1/internal",
+    tags=["internal"],
 )
 
 

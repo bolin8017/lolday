@@ -33,6 +33,7 @@ spec:
       labels:
         app.kubernetes.io/component: backend
     spec:
+      serviceAccountName: backend
       containers:
         - name: backend
           image: {{ .Values.backend.image }}
@@ -42,8 +43,20 @@ spec:
             - secretRef:
                 name: backend
           env:
-            - name: DOCS_ENABLED
-              value: {{ .Values.backend.env.DOCS_ENABLED | quote }}
+            - name: FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backend-fernet-key
+                  key: key
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-harbor-admin
+                  key: password
+            {{- range $k, $v := .Values.backend.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
           resources:
             requests:
               cpu: 100m

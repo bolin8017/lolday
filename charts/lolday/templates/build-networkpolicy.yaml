@@ -1,0 +1,52 @@
+{{- if .Values.backend.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lolday-build-egress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: lolday-build
+  policyTypes: [Egress]
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Harbor (deployed as subchart in same namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+          podSelector:
+            matchLabels:
+              app: harbor
+    # Backend (for validate container schema callback)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Internet, excluding cluster internal ranges
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+              - 169.254.0.0/16
+{{- end }}

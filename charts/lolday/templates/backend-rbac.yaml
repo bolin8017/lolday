@@ -1,0 +1,44 @@
+{{- if .Values.backend.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/component: backend
+    {{- include "lolday.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [get, list, create, update, delete]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, create, delete, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: backend
+    namespace: {{ .Values.global.namespace }}
+roleRef:
+  kind: Role
+  name: backend
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
