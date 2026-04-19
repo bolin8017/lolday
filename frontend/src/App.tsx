@@ -10,15 +10,18 @@ const router = createBrowserRouter([
     path: "/",
     lazy: async () => ({ Component: (await import("./routes/_authed")).default }),
     children: [
-      {
-        index: true,
-        loader: () => redirect("/detectors"),
-      },
+      { index: true, loader: () => redirect("/detectors") },
     ],
   },
   {
-    path: "/login",
-    lazy: async () => ({ Component: (await import("./routes/_public.login")).default }),
+    path: "/",
+    lazy: async () => ({ Component: (await import("./routes/_public")).default }),
+    children: [
+      {
+        path: "login",
+        lazy: async () => ({ Component: (await import("./routes/_public.login")).default }),
+      },
+    ],
   },
 ]);
 
