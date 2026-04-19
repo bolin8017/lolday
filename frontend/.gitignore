@@ -10,3 +10,13 @@ coverage
 *.tsbuildinfo
 *.log
 .DS_Store
+# tsc -b emitted files from tsconfig.node.json composite build
+vite.config.js
+vite.config.d.ts
+tailwind.config.js
+tailwind.config.d.ts
+postcss.config.d.ts
+playwright.config.js
+playwright.config.d.ts
+vitest.config.js
+vitest.config.d.ts
