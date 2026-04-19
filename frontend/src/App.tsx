@@ -22,6 +22,10 @@ const router = createBrowserRouter([
             Component: (await import("./routes/_authed.detectors.new")).default,
             handle: (await import("./routes/_authed.detectors.new")).handle,
           })},
+          { path: ":id", lazy: async () => ({
+            Component: (await import("./routes/_authed.detectors.$id")).default,
+            handle: (await import("./routes/_authed.detectors.$id")).handle,
+          })},
         ],
       },
       {
