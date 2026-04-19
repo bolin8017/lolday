@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client } from "@/api/client";
 import type { components } from "@/api/schema.gen";
 
+const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
+
 export type User = components["schemas"]["UserRead"];
 
 export const authKeys = {
@@ -30,7 +32,7 @@ export function useLogin() {
       body.set("username", args.email);
       body.set("password", args.password);
       const resp = await fetch(
-        `${import.meta.env.VITE_API_BASE}/auth/cookie/login`,
+        `${API_BASE}/auth/cookie/login`,
         { method: "POST", body, credentials: "include" },
       );
       if (!resp.ok) {
@@ -47,7 +49,7 @@ export function useLogout() {
   return useMutation({
     mutationFn: async () => {
       await fetch(
-        `${import.meta.env.VITE_API_BASE}/auth/cookie/logout`,
+        `${API_BASE}/auth/cookie/logout`,
         { method: "POST", credentials: "include" },
       );
     },

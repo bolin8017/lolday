@@ -11,6 +11,10 @@ const router = createBrowserRouter([
     lazy: async () => ({ Component: (await import("./routes/_authed")).default }),
     children: [
       { index: true, loader: () => redirect("/detectors") },
+      {
+        path: "detectors",
+        lazy: async () => ({ Component: (await import("./routes/_authed.detectors")).default }),
+      },
     ],
   },
   {
