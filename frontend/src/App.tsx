@@ -80,6 +80,15 @@ const router = createBrowserRouter([
         ],
       },
       {
+        path: "models",
+        children: [
+          { index: true, lazy: async () => ({
+            Component: (await import("./routes/_authed.models._index")).default,
+            handle: (await import("./routes/_authed.models._index")).handle,
+          })},
+        ],
+      },
+      {
         path: "profile",
         lazy: async () => ({
           Component: (await import("./routes/_authed.profile")).default,
