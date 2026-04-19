@@ -33,6 +33,7 @@ export function useJobs(params: { type?: JobType; status?: JobStatus } = {}) {
 export function useJob(id: string) {
   return useQuery({
     queryKey: jobsKeys.detail(id),
+    enabled: Boolean(id),
     queryFn: async () => {
       const { data, error } = await client.GET("/api/v1/jobs/{job_id}", {
         params: { path: { job_id: id } },
@@ -40,7 +41,7 @@ export function useJob(id: string) {
       if (error) throw error;
       return data as Job;
     },
-    refetchInterval: (q) => (isActive((q.state.data as { data?: Job } | undefined)?.data?.status) ? 2000 : false),
+    refetchInterval: (q) => (isActive((q.state.data as Job | undefined)?.status) ? 2000 : false),
   });
 }
 
