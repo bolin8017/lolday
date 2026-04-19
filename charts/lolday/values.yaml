@@ -181,3 +181,14 @@ jobs:
   idempotencyWindowSeconds: 300
   networkPolicy:
     enabled: true
+
+# =============================================================================
+# Frontend (React SPA served by nginx-unprivileged)
+# =============================================================================
+frontend:
+  image: harbor.lolday.svc:80/lolday/lolday-frontend:phase5
+  host: lolday.islab.local
+  replicas: 1
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits:   { cpu: 100m, memory: 128Mi }
