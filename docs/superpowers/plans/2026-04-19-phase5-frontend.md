@@ -237,7 +237,7 @@ Write `frontend/package.json`:
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -265,6 +265,7 @@ playwright/.cache
 test-results
 coverage
 *.log
+*.tsbuildinfo
 .DS_Store
 ```
 
@@ -341,12 +342,13 @@ Write `frontend/tsconfig.node.json`:
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "skipLibCheck": true,
-    "noEmit": true
+    "skipLibCheck": true
   },
   "include": ["vite.config.ts", "vitest.config.ts", "playwright.config.ts", "tailwind.config.ts", "postcss.config.js"]
 }
 ```
+
+> Note: `noEmit` was intentionally removed from `tsconfig.node.json` — `composite: true` requires the project to emit. The root `tsconfig.json` keeps `"noEmit": true` so `tsc --noEmit` still governs the main typecheck.
 
 - [ ] **Step 6: Create `vite.config.ts`**
 
@@ -494,6 +496,16 @@ pnpm add -D typescript@~5.5 @types/react@^18 @types/react-dom@^18 @types/node@^2
 ```
 
 > Note: Tailwind v3 is chosen intentionally over v4 because shadcn/ui's generator currently targets v3. The spec's mention of "Tailwind v4" is aspirational; ship with v3 and upgrade when shadcn's v4 config lands. Tracking: https://github.com/shadcn-ui/ui
+
+> Note (pnpm 10 security): pnpm 10 blocks postinstall scripts by default, including esbuild's binary download. Add the following to `package.json` so `vite` can run:
+>
+> ```json
+> {
+>   "pnpm": {
+>     "onlyBuiltDependencies": ["esbuild"]
+>   }
+> }
+> ```
 
 - [ ] **Step 4: Verify install and typecheck**
 
