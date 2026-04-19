@@ -39,6 +39,10 @@ const router = createBrowserRouter([
             Component: (await import("./routes/_authed.datasets.new")).default,
             handle: (await import("./routes/_authed.datasets.new")).handle,
           })},
+          { path: ":id", lazy: async () => ({
+            Component: (await import("./routes/_authed.datasets.$id")).default,
+            handle: (await import("./routes/_authed.datasets.$id")).handle,
+          })},
         ],
       },
       {
