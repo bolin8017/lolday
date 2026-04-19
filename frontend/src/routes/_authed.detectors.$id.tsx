@@ -29,6 +29,7 @@ export default function DetectorDetailPage() {
   const cancelBuild = useCancelBuild(id);
   const [pickedTag, setPickedTag] = useState<string | null>(null);
   const [openSchemaTag, setOpenSchemaTag] = useState<string | null>(null);
+  const [buildDialogOpen, setBuildDialogOpen] = useState(false);
 
   if (!det) return <p className="text-muted-foreground">Loading…</p>;
 
@@ -127,7 +128,7 @@ export default function DetectorDetailPage() {
 
         <TabsContent value="builds">
           <div className="mb-3 flex justify-end">
-            <Dialog>
+            <Dialog open={buildDialogOpen} onOpenChange={setBuildDialogOpen}>
               <DialogTrigger asChild>
                 <Button>+ Trigger build</Button>
               </DialogTrigger>
@@ -150,6 +151,7 @@ export default function DetectorDetailPage() {
                     onClick={async () => {
                       await triggerBuild.mutateAsync({ git_tag: pickedTag! });
                       setPickedTag(null);
+                      setBuildDialogOpen(false);
                     }}
                   >
                     Build

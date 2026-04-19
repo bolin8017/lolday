@@ -1153,7 +1153,10 @@ import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "./schema.gen";
 import { parseError } from "./errors";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
+// The generated schema already prefixes operation paths with "/api/v1" (that's
+// what the backend emits in openapi.json), so the baseUrl must be empty —
+// otherwise every request would hit `/api/v1/api/v1/...` and 404.
+const API_BASE = "";
 
 let on401Handler: (() => void) | null = null;
 

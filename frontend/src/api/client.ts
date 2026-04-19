@@ -2,7 +2,12 @@ import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "./schema.gen";
 import { parseError } from "./errors";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
+// openapi-fetch prepends baseUrl to each operation path. The generated schema
+// paths already include the `/api/v1` prefix (that's what the backend emits in
+// openapi.json), so the baseUrl must be empty — otherwise we'd hit
+// `/api/v1/api/v1/...` and 404. Route to a different origin via the dev proxy
+// (vite.config.ts), not via this baseUrl.
+const API_BASE = "";
 
 let on401Handler: (() => void) | null = null;
 
