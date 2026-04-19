@@ -13,7 +13,16 @@ const router = createBrowserRouter([
       { index: true, loader: () => redirect("/detectors") },
       {
         path: "detectors",
-        lazy: async () => ({ Component: (await import("./routes/_authed.detectors")).default }),
+        children: [
+          { index: true, lazy: async () => ({
+            Component: (await import("./routes/_authed.detectors._index")).default,
+            handle: (await import("./routes/_authed.detectors._index")).handle,
+          })},
+          { path: "new", lazy: async () => ({
+            Component: (await import("./routes/_authed.detectors.new")).default,
+            handle: (await import("./routes/_authed.detectors.new")).handle,
+          })},
+        ],
       },
       {
         path: "profile",
