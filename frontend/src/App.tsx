@@ -86,6 +86,10 @@ const router = createBrowserRouter([
             Component: (await import("./routes/_authed.models._index")).default,
             handle: (await import("./routes/_authed.models._index")).handle,
           })},
+          { path: ":name", lazy: async () => ({
+            Component: (await import("./routes/_authed.models.$name")).default,
+            handle: (await import("./routes/_authed.models.$name")).handle,
+          })},
         ],
       },
       {
