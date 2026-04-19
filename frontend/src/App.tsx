@@ -69,6 +69,10 @@ const router = createBrowserRouter([
             Component: (await import("./routes/_authed.runs._index")).default,
             handle: (await import("./routes/_authed.runs._index")).handle,
           })},
+          { path: ":expId", lazy: async () => ({
+            Component: (await import("./routes/_authed.runs.$expId")).default,
+            handle: (await import("./routes/_authed.runs.$expId")).handle,
+          })},
         ],
       },
       {
