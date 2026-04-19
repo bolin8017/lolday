@@ -4,6 +4,7 @@ os.environ.setdefault(
     "FERNET_KEY", "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
 )
 os.environ.setdefault("RECONCILER_ENABLED", "false")
+os.environ.setdefault("COOKIE_SECURE", "false")
 # Point SAMPLES_LOCAL_ROOT to a non-existent dir so dataset integrity spot-checks
 # skip during tests. Production uses /data/{malware,benign}-samples.
 os.environ.setdefault("SAMPLES_LOCAL_ROOT", "/nonexistent-samples-root-for-tests")

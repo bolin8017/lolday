@@ -50,5 +50,11 @@ class Settings(BaseSettings):
     SAMPLES_ROOT: str = "/mnt/samples"                        # parent of malware/, benign/
     SAMPLES_LOCAL_ROOT: str = "/data"                         # for backend-side validation (matches hostPath)
 
+    # Cookie auth (Phase 5)
+    COOKIE_LIFETIME_SECONDS: int = 12 * 60 * 60   # 12 hours sliding
+    COOKIE_SECURE: bool = True                     # set False in dev env
+    COOKIE_NAME: str = "lolday_session"
+    COOKIE_SAMESITE: str = "lax"
+
 
 settings = Settings()
