@@ -29,6 +29,15 @@ const router = createBrowserRouter([
         ],
       },
       {
+        path: "datasets",
+        children: [
+          { index: true, lazy: async () => ({
+            Component: (await import("./routes/_authed.datasets._index")).default,
+            handle: (await import("./routes/_authed.datasets._index")).handle,
+          })},
+        ],
+      },
+      {
         path: "profile",
         lazy: async () => ({
           Component: (await import("./routes/_authed.profile")).default,
