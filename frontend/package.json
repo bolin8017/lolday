@@ -1,0 +1,20 @@
+{
+  "name": "lolday-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "gen-api-types": "bash scripts/gen-api-types.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
