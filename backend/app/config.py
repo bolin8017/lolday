@@ -30,5 +30,25 @@ class Settings(BaseSettings):
     BACKEND_INTERNAL_URL: str = "http://backend.lolday.svc:8000"
     RECONCILER_ENABLED: bool = True
 
+    # Phase 4: Dataset & Jobs (MLflow)
+    JOB_NAMESPACE: str = "lolday"
+    JOB_HELPER_IMAGE: str = "harbor.lolday.svc:80/lolday/job-helper:v1"
+    JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600      # 6h
+    JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800    # 30m
+    JOB_ACTIVE_DEADLINE_PREDICT_SECONDS: int = 3600     # 1h
+    JOB_TTL_SECONDS_AFTER_FINISHED: int = 604800        # 7d
+    JOB_NODE_SELECTOR_HOSTNAME: str = "server30"
+    JOB_PER_USER_CONCURRENCY: int = 2
+    JOB_IDEMPOTENCY_WINDOW_SECONDS: int = 300
+    JOB_BACKEND_URL: str = "http://backend.lolday.svc:8000"
+    MLFLOW_TRACKING_URI: str = "http://mlflow.lolday.svc:5000"
+    MLFLOW_HTTP_TIMEOUT_SECONDS: float = 10.0
+    MLFLOW_HTTP_RETRIES: int = 3
+    DATASET_CSV_MAX_BYTES: int = 10 * 1024 * 1024            # 10 MiB
+    DATASET_SPOT_CHECK_COUNT: int = 100                       # files per job dispatch
+    DATASET_SPOT_CHECK_MISSING_THRESHOLD: int = 1             # fail if >= this many missing
+    SAMPLES_ROOT: str = "/mnt/samples"                        # parent of malware/, benign/
+    SAMPLES_LOCAL_ROOT: str = "/data"                         # for backend-side validation (matches hostPath)
+
 
 settings = Settings()

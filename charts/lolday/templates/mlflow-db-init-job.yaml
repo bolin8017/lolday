@@ -1,0 +1,57 @@
+{{- if .Values.mlflow.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mlflow-db-init-{{ .Release.Revision }}
+  namespace: {{ .Values.global.namespace }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: init
+          image: postgres:16
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              export PGPASSWORD="$PG_ADMIN_PASSWORD"
+              DB_EXISTS=$(psql -h postgresql.{{ .Values.global.namespace }}.svc -U "$PG_ADMIN_USER" -tAc "SELECT 1 FROM pg_database WHERE datname='$MLFLOW_DB'" || true)
+              if [ "$DB_EXISTS" != "1" ]; then
+                psql -h postgresql.{{ .Values.global.namespace }}.svc -U "$PG_ADMIN_USER" -c "CREATE DATABASE \"$MLFLOW_DB\""
+              fi
+              psql -h postgresql.{{ .Values.global.namespace }}.svc -U "$PG_ADMIN_USER" <<SQL
+              DO \$\$ BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$MLFLOW_USER') THEN
+                  CREATE USER "$MLFLOW_USER" WITH PASSWORD '$MLFLOW_PASSWORD';
+                END IF;
+              END \$\$;
+              GRANT ALL PRIVILEGES ON DATABASE "$MLFLOW_DB" TO "$MLFLOW_USER";
+              SQL
+          env:
+            - name: PG_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql
+                  key: POSTGRES_USER
+            - name: PG_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql
+                  key: POSTGRES_PASSWORD
+            - name: MLFLOW_USER
+              valueFrom: { secretKeyRef: { name: mlflow-db, key: username } }
+            - name: MLFLOW_PASSWORD
+              valueFrom: { secretKeyRef: { name: mlflow-db, key: password } }
+            - name: MLFLOW_DB
+              valueFrom: { secretKeyRef: { name: mlflow-db, key: database } }
+{{- end }}

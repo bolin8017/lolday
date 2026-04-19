@@ -1,0 +1,25 @@
+{{- if .Values.samples.enabled }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: samples
+  labels:
+    app.kubernetes.io/name: samples
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  capacity:
+    storage: {{ .Values.samples.storage }}
+  accessModes: [ReadOnlyMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: {{ .Values.samples.hostPath }}
+    type: Directory
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [{{ .Values.samples.nodeHostname }}]
+{{- end }}

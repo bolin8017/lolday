@@ -208,22 +208,273 @@ async def _cleanup_build_secret(build_id) -> None:
 
 
 async def reconciler_loop(stop_event: asyncio.Event) -> None:
-    logger.info("build reconciler started")
+    logger.info("reconciler started (build + job)")
+    iteration = 0
     while not stop_event.is_set():
+        iteration += 1
         try:
             async with async_session_maker() as session:
-                res = await session.execute(
+                # Build reconcile pass
+                res_builds = await session.execute(
                     select(DetectorBuild).where(DetectorBuild.status.in_(IN_FLIGHT))
                 )
-                for b in res.scalars().all():
+                for b in res_builds.scalars().all():
                     try:
                         await reconcile_build(session, b)
                     except Exception:
                         logger.exception("reconcile_build failed", extra={"build_id": str(b.id)})
+
+                # Job reconcile pass (Phase 4)
+                res_jobs = await session.execute(
+                    select(Job).where(Job.status.in_(NON_TERMINAL_STATUSES))
+                )
+                for j in res_jobs.scalars().all():
+                    try:
+                        await reconcile_job(session, j)
+                    except Exception:
+                        logger.exception("reconcile_job failed", extra={"job_id": str(j.id)})
+
+                # Model version sync every 6 iterations (~60s)
+                if iteration % 6 == 0:
+                    try:
+                        await sync_model_versions(session)
+                    except Exception:
+                        logger.exception("sync_model_versions failed")
         except Exception:
             logger.exception("reconciler iteration failed")
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=10)
         except asyncio.TimeoutError:
             pass
-    logger.info("build reconciler stopped")
+    logger.info("reconciler stopped")
+
+
+# =============================================================================
+# Phase 4: Job + Model Registry reconciliation
+# =============================================================================
+
+from app.models.job import Job, JobStatus, JobType, NON_TERMINAL_STATUSES  # noqa: E402
+from app.services.mlflow_client import MlflowClient  # noqa: E402
+
+
+async def reconcile_job(session: AsyncSession, j: Job) -> None:
+    """Poll K8s Job + MLflow state for a single job row, transition DB row."""
+    if j.k8s_job_name is None:
+        return
+
+    try:
+        k8s_job = batch_v1().read_namespaced_job(
+            name=j.k8s_job_name, namespace=settings.JOB_NAMESPACE
+        )
+    except ApiException as e:
+        if e.status == 404:
+            j.status = JobStatus.FAILED
+            j.failure_reason = "k8s_job_missing"
+            j.finished_at = datetime.now(timezone.utc)
+            await session.commit()
+        return
+
+    if j.started_at is not None and _job_timed_out(j, k8s_job):
+        try:
+            batch_v1().delete_namespaced_job(
+                name=j.k8s_job_name,
+                namespace=settings.JOB_NAMESPACE,
+                propagation_policy="Background",
+            )
+        except ApiException:
+            pass
+        j.status = JobStatus.TIMEOUT
+        j.failure_reason = "detector_timeout"
+        j.finished_at = datetime.now(timezone.utc)
+        await session.commit()
+        await _cleanup_job_secret(j)
+        return
+
+    if k8s_job.status.succeeded:
+        await _handle_job_succeeded(session, j)
+    elif k8s_job.status.failed:
+        await _handle_job_failed(session, j)
+    else:
+        await _update_job_progress(session, j)
+
+
+def _job_timed_out(j: Job, k8s_job) -> bool:
+    deadline_map = {
+        JobType.TRAIN: settings.JOB_ACTIVE_DEADLINE_TRAIN_SECONDS,
+        JobType.EVALUATE: settings.JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS,
+        JobType.PREDICT: settings.JOB_ACTIVE_DEADLINE_PREDICT_SECONDS,
+    }
+    deadline = deadline_map.get(j.type, 3600)
+    elapsed = (datetime.now(timezone.utc) - j.started_at.replace(tzinfo=timezone.utc)).total_seconds()
+    return elapsed > deadline + 60
+
+
+async def _update_job_progress(session: AsyncSession, j: Job) -> None:
+    """Transition PREPARING → RUNNING once the detector container starts."""
+    try:
+        pods = core_v1().list_namespaced_pod(
+            namespace=settings.JOB_NAMESPACE,
+            label_selector=f"lolday.job-id={j.id}",
+        )
+    except ApiException:
+        return
+    if not pods.items:
+        return
+    pod = pods.items[0]
+    if pod.status.phase == "Running" and j.status != JobStatus.RUNNING:
+        j.status = JobStatus.RUNNING
+        if j.started_at is None:
+            j.started_at = datetime.now(timezone.utc)
+        await session.commit()
+
+
+async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
+    client = MlflowClient(settings.MLFLOW_TRACKING_URI)
+    run = await client.get_run(j.mlflow_run_id)
+    metrics_raw = run["data"].get("metrics", {})
+    if isinstance(metrics_raw, list):
+        metrics = {m["key"]: m["value"] for m in metrics_raw}
+    else:
+        metrics = dict(metrics_raw)
+
+    log_tail = await _capture_job_log_tail(j)
+
+    j.summary_metrics = metrics
+    j.log_tail = log_tail
+    j.status = JobStatus.SUCCEEDED
+    j.finished_at = datetime.now(timezone.utc)
+
+    if j.type == JobType.TRAIN:
+        try:
+            await _register_model_from_job(session, client, j)
+        except Exception:
+            logger.exception("model registration failed for job %s", j.id)
+
+    await session.commit()
+    await _cleanup_job_secret(j)
+
+
+async def _register_model_from_job(
+    session: AsyncSession, client: MlflowClient, j: Job
+) -> None:
+    from app.models import Detector, DetectorVersion, ModelVersion
+    from app.models.model_registry import ModelVersionStage
+
+    dv = await session.get(DetectorVersion, j.detector_version_id)
+    det = await session.get(Detector, dv.detector_id)
+    name = det.name
+
+    await client.create_registered_model(name)
+    mv_resp = await client.create_model_version(
+        name=name, source=f"runs:/{j.mlflow_run_id}/model", run_id=j.mlflow_run_id
+    )
+    mlflow_version = int(mv_resp["version"])
+
+    mv = ModelVersion(
+        mlflow_name=name,
+        mlflow_version=mlflow_version,
+        mlflow_run_id=j.mlflow_run_id,
+        current_stage=ModelVersionStage.NONE,
+        detector_version_id=j.detector_version_id,
+        source_job_id=j.id,
+        owner_id=j.owner_id,
+    )
+    session.add(mv)
+
+
+async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
+    reason = await _extract_job_failure_reason(j)
+    log_tail = await _capture_job_log_tail(j)
+    j.status = JobStatus.FAILED
+    j.failure_reason = reason
+    j.log_tail = log_tail
+    j.finished_at = datetime.now(timezone.utc)
+    await session.commit()
+    await _cleanup_job_secret(j)
+
+
+async def _extract_job_failure_reason(j: Job) -> str:
+    try:
+        pods = core_v1().list_namespaced_pod(
+            namespace=settings.JOB_NAMESPACE,
+            label_selector=f"lolday.job-id={j.id}",
+        )
+    except ApiException:
+        return "k8s_api_error"
+    if not pods.items:
+        return "pod_missing"
+    pod = pods.items[0]
+
+    for ic in (pod.status.init_container_statuses or []):
+        if ic.state and ic.state.terminated and ic.state.terminated.exit_code not in (0, None):
+            if ic.name == "model-fetcher":
+                return "source_model_not_found"
+            return f"init_{ic.name}_failed"
+
+    for cs in (pod.status.container_statuses or []):
+        if cs.state and cs.state.terminated:
+            ec = cs.state.terminated.exit_code
+            if ec == 137:
+                return "detector_oom"
+            if ec not in (0, None):
+                return "detector_exit_nonzero"
+    return "unknown_failure"
+
+
+async def _capture_job_log_tail(j: Job) -> str:
+    try:
+        pods = core_v1().list_namespaced_pod(
+            namespace=settings.JOB_NAMESPACE,
+            label_selector=f"lolday.job-id={j.id}",
+        )
+        if not pods.items:
+            return ""
+        pod = pods.items[0]
+        log = core_v1().read_namespaced_pod_log(
+            name=pod.metadata.name,
+            namespace=settings.JOB_NAMESPACE,
+            container="detector",
+            tail_lines=200,
+        )
+        return log[-8192:]
+    except ApiException:
+        return ""
+
+
+async def _cleanup_job_secret(j: Job) -> None:
+    try:
+        from app.services.job_spec import _job_token_secret_name
+        core_v1().delete_namespaced_secret(
+            name=_job_token_secret_name(j.id),
+            namespace=settings.JOB_NAMESPACE,
+        )
+    except ApiException:
+        pass
+
+
+async def sync_model_versions(session: AsyncSession) -> None:
+    """Pull latest stages from MLflow; reflect transitions initiated outside lolday."""
+    client = MlflowClient(settings.MLFLOW_TRACKING_URI)
+    from app.models import ModelVersion
+    from app.models.model_registry import ModelVersionStage
+
+    all_local = (await session.execute(select(ModelVersion))).scalars().all()
+    if not all_local:
+        return
+
+    remote = await client.search_model_versions()
+    by_key = {(m["name"], int(m["version"])): m for m in remote}
+
+    for mv in all_local:
+        rem = by_key.get((mv.mlflow_name, mv.mlflow_version))
+        if rem is None:
+            continue
+        remote_stage = rem.get("current_stage", "None")
+        try:
+            stage_enum = ModelVersionStage(remote_stage)
+        except ValueError:
+            continue
+        if stage_enum != mv.current_stage:
+            mv.current_stage = stage_enum
+            mv.last_transitioned_at = datetime.now(timezone.utc)
+    await session.commit()

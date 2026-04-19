@@ -1,12 +1,15 @@
 import secrets
+import uuid
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_async_session
-from app.models import Role, User
+from app.models import Job, Role, User
 from app.models.detector import Detector, DetectorBuild, DetectorBuildStatus
+from app.services.job_tokens import verify_token
 from app.users import current_active_user
 
 ROLE_HIERARCHY = {Role.USER: 0, Role.DEVELOPER: 1, Role.ADMIN: 2}
@@ -79,3 +82,23 @@ async def require_build_token(
     }:
         raise HTTPException(status_code=400, detail="build not in schema-accepting state")
     return build
+
+
+async def require_job_token(
+    job_id: uuid.UUID,
+    authorization: Annotated[str, Header()],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> Job:
+    """Authenticate as a given job's init container via one-time token.
+
+    Expected header: `Authorization: Bearer <token>`
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    token = authorization[7:]
+    job = await session.get(Job, job_id)
+    if job is None or job.token_hash is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not verify_token(token, job.token_hash):
+        raise HTTPException(status_code=403, detail="invalid token")
+    return job

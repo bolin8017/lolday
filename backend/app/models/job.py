@@ -1,0 +1,110 @@
+import enum
+import uuid
+from datetime import datetime
+
+from sqlalchemy import JSON, DateTime
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy import ForeignKey, Index, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.user import Base
+
+# JSONB on PostgreSQL; falls back to plain JSON on SQLite (tests).
+_JSONB = JSONB().with_variant(JSON(), "sqlite")
+
+
+class JobType(str, enum.Enum):
+    TRAIN = "train"
+    EVALUATE = "evaluate"
+    PREDICT = "predict"
+
+
+class JobStatus(str, enum.Enum):
+    PENDING = "pending"
+    PREPARING = "preparing"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    TIMEOUT = "timeout"
+
+
+NON_TERMINAL_STATUSES = frozenset({
+    JobStatus.PENDING,
+    JobStatus.PREPARING,
+    JobStatus.RUNNING,
+})
+
+
+class ResourceProfile(str, enum.Enum):
+    STANDARD = "standard"
+
+
+class Job(Base):
+    __tablename__ = "job"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    type: Mapped[JobType] = mapped_column(
+        SAEnum(JobType, name="job_type_enum",
+               values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
+    status: Mapped[JobStatus] = mapped_column(
+        SAEnum(JobStatus, name="job_status_enum",
+               values_callable=lambda x: [e.value for e in x]),
+        default=JobStatus.PENDING,
+        nullable=False,
+    )
+    detector_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("detector_version.id"), nullable=False
+    )
+    train_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_config.id"), nullable=True
+    )
+    test_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_config.id"), nullable=True
+    )
+    predict_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_config.id"), nullable=True
+    )
+    source_model_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("model_version.id"), nullable=True
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user.id"), nullable=False
+    )
+    resolved_config: Mapped[dict] = mapped_column(_JSONB, nullable=False)
+    mlflow_experiment_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    mlflow_run_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    k8s_job_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    log_tail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_metrics: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
+    resource_profile: Mapped[ResourceProfile] = mapped_column(
+        SAEnum(ResourceProfile, name="resource_profile_enum",
+               values_callable=lambda x: [e.value for e in x]),
+        default=ResourceProfile.STANDARD,
+        nullable=False,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_job_owner_submitted", "owner_id", "submitted_at"),
+        Index(
+            "ix_job_in_flight",
+            "status",
+            postgresql_where=(
+                "status IN ('pending'::job_status_enum,"
+                " 'preparing'::job_status_enum,"
+                " 'running'::job_status_enum)"
+            ),
+            sqlite_where=None,
+        ),
+        Index("ix_job_detector_version", "detector_version_id"),
+        Index("ix_job_idempotency", "idempotency_key", "submitted_at"),
+    )

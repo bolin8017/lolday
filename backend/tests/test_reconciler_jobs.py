@@ -1,0 +1,159 @@
+import uuid
+from datetime import datetime, timezone
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from app.models.job import JobStatus, JobType
+from app.reconciler import reconcile_job
+
+
+@contextmanager
+def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
+    class _S:
+        succeeded = job_succeeded
+        failed = job_failed
+    class _Job:
+        status = _S()
+    class _Pod:
+        class _Meta: name = "pod-xxx"
+        metadata = _Meta()
+        class _St:
+            phase = pod_phase
+            init_container_statuses = []
+            container_statuses = [
+                type("C", (), {
+                    "name": "detector",
+                    "state": type("T", (), {
+                        "terminated": type("TT", (), {"exit_code": exit_code})()
+                    })(),
+                })()
+            ] if job_failed else []
+        status = _St()
+
+    class _BatchStub:
+        def read_namespaced_job(self, name, namespace, **kw):
+            return _Job()
+        def delete_namespaced_job(self, *a, **kw):
+            pass
+
+    class _CoreStub:
+        def list_namespaced_pod(self, namespace, **kw):
+            class _R: items = [_Pod()]
+            return _R()
+        def read_namespaced_pod_log(self, **kw):
+            return "sample log tail"
+        def delete_namespaced_secret(self, *a, **kw):
+            pass
+
+    with patch("app.reconciler.batch_v1", return_value=_BatchStub()):
+        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
+            yield
+
+
+@pytest.fixture
+async def mlflow_stub(monkeypatch):
+    """Replace MLflow client used by the reconciler with an AsyncMock."""
+    stub = AsyncMock()
+    stub.get_run.return_value = {
+        "info": {"status": "FINISHED", "run_id": "r", "experiment_id": "exp-1"},
+        "data": {"metrics": {"accuracy": 0.9, "f1": 0.85}, "params": {}, "tags": {}},
+    }
+    stub.create_registered_model.return_value = {"name": "upxelfdet"}
+    stub.create_model_version.return_value = {
+        "name": "upxelfdet",
+        "version": "1",
+        "run_id": "r",
+    }
+    monkeypatch.setattr("app.reconciler.MlflowClient", lambda *a, **kw: stub)
+    return stub
+
+
+@pytest.fixture
+async def seed_job(db_session, seed_detector_version, seed_dataset, seed_user):
+    async def _seed(
+        status: JobStatus = JobStatus.PENDING,
+        job_type: JobType = JobType.TRAIN,
+        started_at=None,
+    ):
+        from app.models import Job
+        dv_id = await seed_detector_version(name=f"det-{uuid.uuid4().hex[:6]}")
+        tr = await seed_dataset(name=f"ds-{uuid.uuid4().hex[:6]}")
+        te = await seed_dataset(name=f"ds-{uuid.uuid4().hex[:6]}")
+        j = Job(
+            type=job_type,
+            status=status,
+            detector_version_id=uuid.UUID(dv_id),
+            train_dataset_id=uuid.UUID(tr),
+            test_dataset_id=uuid.UUID(te),
+            owner_id=seed_user.id,
+            resolved_config={},
+            mlflow_experiment_id="42",
+            mlflow_run_id=f"run-{uuid.uuid4().hex[:8]}",
+            idempotency_key=uuid.uuid4().hex,
+            token_hash="a" * 64,
+            k8s_job_name=f"job-{job_type.value}-{uuid.uuid4().hex[:8]}",
+            started_at=started_at,
+        )
+        db_session.add(j)
+        await db_session.commit()
+        await db_session.refresh(j)
+        return j
+    return _seed
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_marks_running(db_session, seed_job):
+    j = await seed_job(status=JobStatus.PREPARING)
+    with _patched_k8s(pod_phase="Running", job_succeeded=None, job_failed=None):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.status == JobStatus.RUNNING
+    assert j.started_at is not None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_marks_succeeded_and_registers_model(
+    db_session, seed_job, mlflow_stub
+):
+    j = await seed_job(status=JobStatus.RUNNING, job_type=JobType.TRAIN)
+    with _patched_k8s(pod_phase=None, job_succeeded=1, job_failed=None):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.status == JobStatus.SUCCEEDED
+    assert j.summary_metrics == {"accuracy": 0.9, "f1": 0.85}
+    assert j.finished_at is not None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_marks_failed(db_session, seed_job):
+    j = await seed_job(status=JobStatus.RUNNING)
+    with _patched_k8s(pod_phase=None, job_succeeded=None, job_failed=1, exit_code=1):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.status == JobStatus.FAILED
+    assert j.failure_reason == "detector_exit_nonzero"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_marks_oom(db_session, seed_job):
+    j = await seed_job(status=JobStatus.RUNNING)
+    with _patched_k8s(pod_phase=None, job_succeeded=None, job_failed=1, exit_code=137):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.failure_reason == "detector_oom"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_timeout(db_session, seed_job, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "JOB_ACTIVE_DEADLINE_TRAIN_SECONDS", 1)
+    j = await seed_job(
+        status=JobStatus.RUNNING,
+        started_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+    )
+    with _patched_k8s(pod_phase="Running", job_succeeded=None, job_failed=None):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.status == JobStatus.TIMEOUT

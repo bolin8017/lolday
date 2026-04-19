@@ -16,6 +16,8 @@ dependencies = [
     "kubernetes>=31.0.0",
     "cryptography>=44.0.0",
     "httpx>=0.28.0",
+    "jsonschema>=4.23.0",
+    "mlflow-skinny>=2.20.0",
 ]
 
 [dependency-groups]
@@ -28,3 +30,6 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "no_mock_mlflow: do not apply the MLflow autouse mock",
+]

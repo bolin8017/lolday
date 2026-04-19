@@ -1,0 +1,100 @@
+{{- if .Values.mlflow.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-artifacts
+  namespace: {{ .Values.global.namespace }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.mlflow.storageClassName | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.mlflow.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/component: mlflow
+    app.kubernetes.io/name: mlflow
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: mlflow
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: mlflow
+        app.kubernetes.io/name: mlflow
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: mlflow
+          image: {{ .Values.mlflow.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [mlflow, server]
+          args:
+            - --host=0.0.0.0
+            - --port={{ .Values.mlflow.service.port }}
+            - --backend-store-uri=postgresql+psycopg2://$(PG_USER):$(PG_PASSWORD)@postgresql.{{ .Values.global.namespace }}.svc:5432/$(PG_DB)
+            - --default-artifact-root=mlflow-artifacts:/
+            - --artifacts-destination=/mlflow-artifacts
+            - --serve-artifacts
+          env:
+            - name: PG_USER
+              valueFrom: { secretKeyRef: { name: mlflow-db, key: username } }
+            - name: PG_PASSWORD
+              valueFrom: { secretKeyRef: { name: mlflow-db, key: password } }
+            - name: PG_DB
+              valueFrom: { secretKeyRef: { name: mlflow-db, key: database } }
+          ports:
+            - containerPort: {{ .Values.mlflow.service.port }}
+              name: http
+          volumeMounts:
+            - name: artifacts
+              mountPath: /mlflow-artifacts
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.mlflow.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 45
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: mlflow-artifacts
+        - name: tmp
+          emptyDir: { sizeLimit: 512Mi, medium: Memory }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/component: mlflow
+spec:
+  selector:
+    app.kubernetes.io/component: mlflow
+  ports:
+    - port: {{ .Values.mlflow.service.port }}
+      targetPort: http
+      name: http
+{{- end }}

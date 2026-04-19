@@ -1,0 +1,14 @@
+{{- if .Values.samples.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: samples
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: samples
+  resources:
+    requests:
+      storage: {{ .Values.samples.storage }}
+{{- end }}

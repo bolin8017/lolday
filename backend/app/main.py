@@ -12,7 +12,7 @@ from app.config import settings
 from app.db import async_session_maker, engine
 from app.models import Base, Role, User
 from app.reconciler import reconciler_loop
-from app.routers import admin, credentials, detectors, internal
+from app.routers import admin, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
 from app.schemas import AdminUserUpdate, UserCreate, UserRead, UserUpdate
 from app.users import auth_backend, fastapi_users, UserManager
 
@@ -125,6 +125,13 @@ app.include_router(
     tags=["credentials"],
 )
 
+# Datasets routes
+app.include_router(
+    datasets.router,
+    prefix="/api/v1/datasets",
+    tags=["datasets"],
+)
+
 # Detectors routes
 app.include_router(
     detectors.router,
@@ -132,11 +139,32 @@ app.include_router(
     tags=["detectors"],
 )
 
+# Jobs routes
+app.include_router(
+    jobs.router,
+    prefix="/api/v1/jobs",
+    tags=["jobs"],
+)
+
 # Internal routes (build callbacks)
 app.include_router(
     internal.router,
     prefix="/api/v1/internal",
     tags=["internal"],
+)
+
+# Model Registry routes
+app.include_router(
+    models_registry.router,
+    prefix="/api/v1/models",
+    tags=["models"],
+)
+
+# MLflow proxy routes
+app.include_router(
+    experiments_proxy.router,
+    prefix="/api/v1",
+    tags=["mlflow"],
 )
 
 

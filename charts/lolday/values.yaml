@@ -35,7 +35,7 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: localhost:5000/lolday-backend:latest  # will change to Harbor in Task 17
+  image: harbor.lolday.svc:80/lolday/lolday-backend:phase4
   replicas: 1
   jwtSecret: ""         # --set at deploy time, NEVER commit
   firstAdmin:
@@ -59,6 +59,15 @@ backend:
     BUILD_CONCURRENCY_PER_USER: "2"
     BACKEND_INTERNAL_URL: "http://backend.lolday.svc:8000"
     RECONCILER_ENABLED: "true"
+    MLFLOW_TRACKING_URI: "http://mlflow.lolday.svc:5000"
+    DATASET_CSV_MAX_BYTES: "10485760"
+    JOB_HELPER_IMAGE: "harbor.lolday.svc:80/lolday/job-helper:v2"
+    JOB_PER_USER_CONCURRENCY: "2"
+    JOB_IDEMPOTENCY_WINDOW_SECONDS: "300"
+    JOB_BACKEND_URL: "http://backend.lolday.svc:8000"
+    SAMPLES_ROOT: "/mnt/samples"
+    SAMPLES_LOCAL_ROOT: "/data"
+    JOB_NODE_SELECTOR_HOSTNAME: "server30"
 
 # =============================================================================
 # PostgreSQL
@@ -131,3 +140,44 @@ harbor:
     trivy:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: 1, memory: 1Gi }
+
+# =============================================================================
+# MLflow Experiment Tracking
+# =============================================================================
+mlflow:
+  enabled: true
+  image: harbor.lolday.svc:80/lolday/mlflow-server:v2.20.3
+  storage: 100Gi
+  storageClassName: local-path
+  service:
+    port: 5000
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits:   { cpu: 2, memory: 4Gi }
+  db:
+    username: mlflow
+    database: mlflow
+    password: ""   # injected via --set at deploy time (NEVER commit)
+
+# =============================================================================
+# Sample Datasets (hostPath PVs on server30)
+# =============================================================================
+samples:
+  enabled: true
+  hostPath: /data/samples
+  storage: 600Gi
+  nodeHostname: server30
+
+# =============================================================================
+# ML Training/Evaluation/Predict Jobs
+# =============================================================================
+jobs:
+  helperImage: harbor.lolday.svc:80/lolday/job-helper:v2
+  activeDeadlineSeconds:
+    train: 21600
+    evaluate: 1800
+    predict: 3600
+  perUserConcurrency: 2
+  idempotencyWindowSeconds: 300
+  networkPolicy:
+    enabled: true

@@ -86,6 +86,9 @@ class DetectorVersion(Base):
     harbor_image: Mapped[str] = mapped_column(String(500), nullable=False)
     image_digest: Mapped[str] = mapped_column(String(100), nullable=False)
     config_schema: Mapped[dict] = mapped_column(_JSONB, nullable=False)
+    mlflow_experiment_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True
+    )
     built_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

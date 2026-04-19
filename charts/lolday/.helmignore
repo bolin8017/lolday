@@ -1,0 +1,20 @@
+# Patterns to ignore when building packages.
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.project
+.idea/
+*.tmproj
+.vscode/
+# Python virtualenvs and cache inside helpers
+helpers/.venv
+helpers/build-helper/.venv
+helpers/job-helper/.venv
+helpers/build-helper/__pycache__
+helpers/job-helper/__pycache__
+*.pyc

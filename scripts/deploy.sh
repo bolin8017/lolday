@@ -14,6 +14,10 @@ echo ""
 : "${JWT_SECRET:?JWT_SECRET must be set — generate with: openssl rand -base64 48}"
 : "${ADMIN_EMAIL:?ADMIN_EMAIL must be set (e.g. admin@lolday.dev)}"
 : "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}"
+: "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
+
+# Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
+BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase4}
 
 # Pre-flight
 echo "[1/4] Pre-flight checks..."
@@ -54,7 +58,9 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set backend.firstAdmin.password="$ADMIN_PASSWORD" \
   --set backend.fernetKey="$FERNET_KEY" \
   --set backend.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
+  --set backend.image="$BACKEND_IMAGE" \
   --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
+  --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
   --wait --timeout 10m
 
 echo ""
@@ -68,7 +74,7 @@ cat <<EOF
 
     sudo bash scripts/patch-k3s-registries.sh
 
-  This configures K3s containerd to resolve 'harbor.harbor.svc:80' as
+  This configures K3s containerd to resolve 'harbor.lolday.svc:80' as
   the in-cluster Harbor. The script is safe: it backs up registries.yaml,
   diffs the change, and auto-rolls back if k3s fails to restart.
 
@@ -76,3 +82,20 @@ cat <<EOF
   the platform cannot pull build-helper / detector images.
 =========================================================================
 EOF
+
+# =============================================================================
+# Phase 4: Dataset & Jobs
+# =============================================================================
+
+echo "=== Phase 4: pre-deploy checks ==="
+"$(dirname "$0")/phase4-pre-deploy-check.sh"
+
+echo "=== Phase 4: wait for MLflow ==="
+kubectl -n lolday wait deploy/mlflow --for=condition=Available --timeout=180s
+
+echo "=== Phase 4: smoke test MLflow from backend pod ==="
+kubectl -n lolday exec deploy/backend -- curl -sf http://mlflow.lolday.svc:5000/health || \
+  echo "WARN: MLflow /health failed — may still be initializing. Check 'kubectl -n lolday logs deploy/mlflow'."
+
+echo
+echo "Phase 4 deploy complete."
