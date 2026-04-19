@@ -46,6 +46,15 @@ const router = createBrowserRouter([
         ],
       },
       {
+        path: "jobs",
+        children: [
+          { index: true, lazy: async () => ({
+            Component: (await import("./routes/_authed.jobs._index")).default,
+            handle: (await import("./routes/_authed.jobs._index")).handle,
+          })},
+        ],
+      },
+      {
         path: "profile",
         lazy: async () => ({
           Component: (await import("./routes/_authed.profile")).default,
