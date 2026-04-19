@@ -15,6 +15,13 @@ const router = createBrowserRouter([
         path: "detectors",
         lazy: async () => ({ Component: (await import("./routes/_authed.detectors")).default }),
       },
+      {
+        path: "profile",
+        lazy: async () => ({
+          Component: (await import("./routes/_authed.profile")).default,
+          handle: (await import("./routes/_authed.profile")).handle,
+        }),
+      },
     ],
   },
   {
