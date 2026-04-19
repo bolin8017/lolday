@@ -35,7 +35,7 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/lolday-backend:phase4
+  image: harbor.lolday.svc:80/lolday/lolday-backend:phase5
   replicas: 1
   jwtSecret: ""         # --set at deploy time, NEVER commit
   firstAdmin:
@@ -46,6 +46,7 @@ backend:
   harborAdminPassword: ""                    # --set at deploy time (shared with Harbor release)
   env:
     DOCS_ENABLED: "true"
+    COOKIE_SECURE: "false"
     # NEW for Phase 3:
     HARBOR_URL: "http://harbor.lolday.svc.cluster.local:80"
     HARBOR_ADMIN_USERNAME: "admin"
