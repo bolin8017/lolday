@@ -47,7 +47,7 @@ export function JobSubmitForm() {
   }, [fromJob]);
 
   const datasetsArr = ((datasets as { items?: { id: string; name: string }[] })?.items) ?? (datasets as unknown as { id: string; name: string }[]) ?? [];
-  const versionsArr = (versions as { tag: string; status: string }[] | undefined) ?? [];
+  const versionsArr = ((versions as { items?: { id: string; git_tag: string; status: string }[] })?.items) ?? (versions as unknown as { id: string; git_tag: string; status: string }[] | undefined) ?? [];
   const modelsArr = (models as { name: string }[] | undefined) ?? [];
   const modelVersionsArr = (modelVersions as { items?: { id: string; mlflow_version: number; current_stage: string }[] })?.items ?? [];
 
@@ -66,7 +66,7 @@ export function JobSubmitForm() {
 
   async function submit() {
     setSubmitError(null);
-    const versionId = (versions as { id: string; tag: string }[] | undefined)?.find((v) => v.tag === versionTag)?.id;
+    const versionId = versionsArr.find((v) => v.git_tag === versionTag)?.id;
     if (!versionId) return;
     try {
       const job = await mut.mutateAsync({
@@ -119,7 +119,7 @@ export function JobSubmitForm() {
               <SelectTrigger><SelectValue placeholder="Pick version" /></SelectTrigger>
               <SelectContent>
                 {versionsArr.filter((v) => v.status === "active").map((v) => (
-                  <SelectItem key={v.tag} value={v.tag}>{v.tag}</SelectItem>
+                  <SelectItem key={v.git_tag} value={v.git_tag}>{v.git_tag}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
