@@ -7,5 +7,6 @@ playwright-report
 playwright/.cache
 test-results
 coverage
+*.tsbuildinfo
 *.log
 .DS_Store
