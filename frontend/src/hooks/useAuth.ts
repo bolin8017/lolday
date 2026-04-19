@@ -1,16 +1,12 @@
-// TEMPORARY STUB — replaced by Task 14 with real TanStack Query-backed hook.
-// This exists now so Task 12 (Sidebar) can import it and typecheck.
+import { useCurrentUser, useLogout } from "@/api/queries/auth";
 
-export interface CurrentUserStub {
-  email: string;
-}
-
-export function useAuth(): {
-  currentUser: CurrentUserStub | null;
-  logout: () => void;
-} {
+export function useAuth() {
+  const userQuery = useCurrentUser();
+  const logoutMut = useLogout();
   return {
-    currentUser: null,
-    logout: () => {},
+    currentUser: userQuery.data ?? null,
+    isLoading: userQuery.isLoading,
+    isUnauthenticated: userQuery.isError && (userQuery.error as { status?: number } | undefined)?.status === 401,
+    logout: () => logoutMut.mutate(),
   };
 }
