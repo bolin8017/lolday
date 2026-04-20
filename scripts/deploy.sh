@@ -30,7 +30,13 @@ if ! kubectl get nodes &>/dev/null; then
 fi
 echo "  Cluster OK"
 
-GPU_COUNT=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo "0")
+GPU_COUNT=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo "")
+if [ -z "$GPU_COUNT" ]; then
+  echo "  WARN: could not query GPU allocatable (jsonpath failed — kubectl auth OK?)"
+  GPU_COUNT=0
+elif [ "$GPU_COUNT" = "0" ]; then
+  echo "  WARN: 0 GPUs allocatable — training Jobs will stay Pending"
+fi
 echo "  GPUs available: ${GPU_COUNT}"
 echo ""
 
@@ -54,13 +60,17 @@ kubectl label ns monitoring app.kubernetes.io/managed-by=Helm --overwrite >/dev/
 kubectl annotate ns monitoring meta.helm.sh/release-name=lolday meta.helm.sh/release-namespace=lolday --overwrite >/dev/null
 # Phase 6: kps CRDs must be registered BEFORE helm applies PrometheusRule /
 # ServiceMonitor instances. Apply them up-front from the fetched subchart tarball.
-KPS_TGZ=$(ls "$CHART_DIR/charts/"kube-prometheus-stack-*.tgz 2>/dev/null | tail -1)
-if [ -n "$KPS_TGZ" ]; then
-  KPS_CRD_DIR=$(mktemp -d)
-  tar xzf "$KPS_TGZ" -C "$KPS_CRD_DIR"
-  kubectl apply --server-side -f "$KPS_CRD_DIR"/kube-prometheus-stack/charts/crds/crds/ >/dev/null
-  rm -rf "$KPS_CRD_DIR"
+# Fail fast if the tarball isn't there — otherwise helm upgrade below hits a
+# confusing 'no matches for kind' error mid-apply.
+KPS_TGZ=$(ls "$CHART_DIR/charts/"kube-prometheus-stack-*.tgz 2>/dev/null | tail -1 || true)
+if [ -z "$KPS_TGZ" ]; then
+  echo "  ERROR: kube-prometheus-stack tarball missing under $CHART_DIR/charts/ — helm dependency build did not produce it." >&2
+  exit 1
 fi
+KPS_CRD_DIR=$(mktemp -d)
+tar xzf "$KPS_TGZ" -C "$KPS_CRD_DIR"
+kubectl apply --server-side -f "$KPS_CRD_DIR"/kube-prometheus-stack/charts/crds/crds/
+rm -rf "$KPS_CRD_DIR"
 echo "  Namespaces ready"
 echo ""
 
