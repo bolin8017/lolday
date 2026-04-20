@@ -82,7 +82,7 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
   --set monitoring.grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD" \
   --set monitoring.postgresExporter.password="$PG_EXPORTER_PASSWORD" \
-  --wait --timeout 10m
+  --wait --timeout 20m
 
 echo ""
 echo "=== Deploy complete ==="
