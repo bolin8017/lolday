@@ -9,7 +9,10 @@ metadata:
     {{- include "lolday.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  DATA_SOURCE_NAME: "postgresql://postgres_exporter:{{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password }}@postgresql.{{ .Values.global.namespace }}.svc:5432/lolday?sslmode=disable"
+  # DATA_SOURCE_NAME is consumed by the exporter; `password` is consumed by the
+  # init Job's secretKeyRef (so the password isn't inlined into a Job manifest).
+  DATA_SOURCE_NAME: "postgresql://postgres_exporter:{{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password | urlquery }}@postgresql.{{ .Values.global.namespace }}.svc:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
+  password: {{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password | quote }}
 ---
 apiVersion: apps/v1
 kind: Deployment

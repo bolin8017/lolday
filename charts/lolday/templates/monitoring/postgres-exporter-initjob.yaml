@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: postgres-exporter-init-{{ randAlphaNum 6 | lower }}
+  name: postgres-exporter-init
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "lolday.labels" . | nindent 4 }}
@@ -25,14 +25,20 @@ spec:
             - name: PGHOST
               value: postgresql.{{ .Values.global.namespace }}.svc
             - name: PGUSER
-              value: lolday
+              value: {{ .Values.postgresql.auth.username | quote }}
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
                   name: postgresql
                   key: POSTGRES_PASSWORD
+            # EXPORTER_PW comes from the postgres-exporter-db Secret's `password`
+            # key — NOT inlined in this Job manifest (anyone with RBAC on jobs
+            # could otherwise read the plaintext password from the Job spec).
             - name: EXPORTER_PW
-              value: {{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-exporter-db
+                  key: password
           command:
             - /bin/sh
             - -c
