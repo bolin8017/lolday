@@ -1,0 +1,2 @@
+# Sub-chart tarballs are pulled fresh via `helm dependency update`
+*.tgz
