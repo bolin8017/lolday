@@ -203,6 +203,8 @@ monitoring:
   storage:
     # Dedicated NVMe partition so monitoring doesn't crowd the K3s root FS
     nodePath: /mnt/ssd500g/lolday-monitoring
+  grafana:
+    adminPassword: ""   # --set at deploy time, NEVER commit
 
 # Sub-chart config consumed as values of the kube-prometheus-stack chart (alias: kps)
 kps:
