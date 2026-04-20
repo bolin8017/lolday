@@ -80,6 +80,9 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DOCS_ENABLED else None,
 )
 
+# Intentionally not wrapped in try/except: if metrics wiring fails the pod
+# should CrashLoopBackOff so LoldayCoreServiceDown fires — silently losing
+# scrape targets is worse than a loud restart.
 Instrumentator().instrument(app).expose(
     app, endpoint="/metrics", include_in_schema=False,
 )

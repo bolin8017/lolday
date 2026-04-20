@@ -51,7 +51,7 @@ Run: `bash scripts/phase6-pre-deploy-check.sh && bash scripts/deploy.sh`
 
 - [ ] Delete 1 cloudflared pod → external access continues
 - [ ] Delete both cloudflared pods → external access restores within 30 s; internal port-forward access works during outage
-- [ ] Optional: fill `/mnt/ssd500g/lolday-monitoring` → `NodeDiskAlmostFull` alert fires
+- [ ] Optional: fill `/` above 85% → `NodeDiskAlmostFull` alert fires (monitoring PVs live under `/var/lib/rancher/k3s/storage` on K3s default local-path, not the dedicated `/mnt/ssd500g` path from the earlier design)
 
 ## Security
 
