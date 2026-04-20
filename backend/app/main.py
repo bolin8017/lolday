@@ -79,6 +79,12 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DOCS_ENABLED else None,
 )
 
+from prometheus_fastapi_instrumentator import Instrumentator
+
+Instrumentator().instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False,
+)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
