@@ -201,10 +201,16 @@ monitoring:
   enabled: true
   namespace: monitoring
   storage:
-    # Dedicated NVMe partition so monitoring doesn't crowd the K3s root FS
     nodePath: /mnt/ssd500g/lolday-monitoring
   grafana:
-    adminPassword: ""   # --set at deploy time, NEVER commit
+    adminPassword: ""   # --set at deploy time (from Task 7)
+  postgresExporter:
+    enabled: true
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0
+    password: ""        # --set at deploy time, NEVER commit
+    resources:
+      requests: { cpu: 20m,  memory: 64Mi }
+      limits:   { cpu: 100m, memory: 128Mi }
 
 # Sub-chart config consumed as values of the kube-prometheus-stack chart (alias: kps)
 kps:
