@@ -16,4 +16,6 @@ data:
     {{ .Files.Get "dashboards/postgresql.json" | nindent 4 }}
   reconciler-errors.json: |-
     {{ .Files.Get "dashboards/reconciler-errors.json" | nindent 4 }}
+  trivy-security.json: |-
+    {{ .Files.Get "dashboards/trivy-security.json" | nindent 4 }}
 {{- end }}
