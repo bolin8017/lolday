@@ -259,14 +259,32 @@ kps:
             resources:
               requests:
                 storage: 2Gi
-    # Empty receivers: alerts show up in Alertmanager UI but nothing is sent.
-    # Wiring Resend/Discord is Phase 7.
+      # Phase 7.1: Discord receivers live in an AlertmanagerConfig CR (see
+      # templates/monitoring/alertmanager-config-discord.yaml), NOT inline. The AC
+      # CRD's `apiURL` SecretKeySelector keeps webhook URLs in the
+      # `alertmanager-discord` Secret (created by scripts/deploy.sh from
+      # ~/.lolday-secrets.env) — never in git, values.yaml, or helm release state.
+      # This also works around Prometheus Operator v0.86.2's inline-config
+      # validator rejecting `webhook_url_file` on discord_configs (field added in
+      # Alertmanager v0.28 but not yet in the operator's Go types).
+      alertmanagerConfigSelector:
+        matchLabels:
+          lolday-alertmanager-config: discord
+      alertmanagerConfigNamespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+      # type: None prevents the operator from auto-wrapping AC CR sub-route matchers
+      # in a {namespace=<ac-ns>} filter — lets our severity= matchers stand alone so
+      # alerts from any namespace reach the right Discord channel.
+      alertmanagerConfigMatcherStrategy:
+        type: None
     config:
       route:
         receiver: 'null'
-        group_wait: 10s
+        group_by: [alertname, severity]
+        group_wait: 30s
         group_interval: 5m
-        repeat_interval: 12h
+        repeat_interval: 4h
       receivers:
         - name: 'null'
 
@@ -275,6 +293,13 @@ kps:
       enabled: true
       storageClassName: local-path
       size: 5Gi
+    # Grafana chart 12.x ships the init-chown-data container with `capabilities.drop: [ALL]`
+    # and `runAsUser: 0` — root without DAC_OVERRIDE cannot chown pre-existing files on
+    # an upgraded PVC (fails with 'Permission denied' on /var/lib/grafana/{pdf,png,csv}).
+    # fsGroup: 472 on the pod securityContext already triggers kubelet recursive chown at
+    # mount time, so initChownData is redundant. Disable it to unblock the upgrade.
+    initChownData:
+      enabled: false
     # Credentials come from the Secret we create in templates/monitoring/grafana-admin-secret.yaml
     admin:
       existingSecret: grafana-admin
