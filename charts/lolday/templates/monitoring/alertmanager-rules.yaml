@@ -1,0 +1,54 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: lolday-baseline
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    app: kube-prometheus-stack
+    release: lolday
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: lolday-baseline.rules
+      interval: 30s
+      rules:
+        - alert: NodeDiskAlmostFull
+          expr: |
+            (node_filesystem_size_bytes{mountpoint=~"/|/mnt/ssd500g"}
+             - node_filesystem_avail_bytes{mountpoint=~"/|/mnt/ssd500g"})
+             / node_filesystem_size_bytes{mountpoint=~"/|/mnt/ssd500g"} > 0.85
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node disk > 85% on {{`{{ $labels.instance }}`}} ({{`{{ $labels.mountpoint }}`}})"
+            description: "Filesystem {{`{{ $labels.mountpoint }}`}} on {{`{{ $labels.instance }}`}} is above 85% used for 10m."
+
+        - alert: GPUTemperatureHigh
+          expr: DCGM_FI_DEV_GPU_TEMP > 85
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "GPU {{`{{ $labels.gpu }}`}} on {{`{{ $labels.Hostname }}`}} exceeded 85°C"
+            description: "GPU temperature > 85°C for 5m on {{`{{ $labels.Hostname }}`}}."
+
+        - alert: PodCrashLoopBackOff
+          expr: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}} is CrashLoopBackOff"
+            description: "Container {{`{{ $labels.container }}`}} in pod {{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}} has been CrashLoopBackOff for 5m."
+
+        - alert: LoldayCoreServiceDown
+          expr: up{job=~"backend|postgres-exporter|harbor"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Core service {{`{{ $labels.job }}`}} is down"
+            description: "Prometheus has not been able to scrape {{`{{ $labels.job }}`}} for 2m."
+{{- end }}
