@@ -4,22 +4,18 @@ set -euo pipefail
 
 echo "=== Phase 6 pre-deploy check ==="
 
-# --- Disk space ---
-echo "[1/6] /mnt/ssd500g/lolday-monitoring ..."
-if [ ! -d /mnt/ssd500g/lolday-monitoring ]; then
-  echo "  MISSING — run: sudo mkdir -p /mnt/ssd500g/lolday-monitoring && sudo chown \$USER:\$USER \$_"
+# --- StorageClass + disk space ---
+echo "[1/6] K3s local-path SC + root disk space ..."
+if ! kubectl get sc local-path >/dev/null 2>&1; then
+  echo "  FAIL — local-path StorageClass missing (K3s default)"
   exit 1
 fi
-if [ ! -w /mnt/ssd500g/lolday-monitoring ]; then
-  echo "  NOT WRITABLE — fix ownership"
-  exit 1
-fi
-FREE_G=$(df -BG --output=avail /mnt/ssd500g | tail -1 | tr -d ' G')
+FREE_G=$(df -BG --output=avail / | tail -1 | tr -d ' G')
 if [ "$FREE_G" -lt 60 ]; then
-  echo "  FREE $FREE_G Gi — < 60 Gi required"
+  echo "  FREE $FREE_G Gi on / — < 60 Gi required for monitoring PVs"
   exit 1
 fi
-echo "  OK ($FREE_G Gi free)"
+echo "  OK ($FREE_G Gi free on /)"
 
 # --- Secrets ---
 echo "[2/6] secrets in env ..."

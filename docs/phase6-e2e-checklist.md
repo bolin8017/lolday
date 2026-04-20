@@ -4,7 +4,7 @@
 
 ## Prerequisites
 
-- [ ] `/mnt/ssd500g/lolday-monitoring` exists, writable, ≥ 60 Gi free
+- [ ] K3s `local-path` StorageClass exists, `/` has ≥ 60 Gi free (monitoring PVs use K3s default local-path)
 - [ ] `~/.lolday-secrets.env` sources cleanly, contains `GRAFANA_ADMIN_PASSWORD`, `PG_EXPORTER_PASSWORD`, `CF_ENABLED`, `CF_TUNNEL_TOKEN`
 - [ ] `connlabai.com` is in Cloudflare DNS
 - [ ] Cloudflare Tunnel `lolday-server30` exists

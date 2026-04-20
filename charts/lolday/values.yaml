@@ -208,8 +208,6 @@ frontend:
 monitoring:
   enabled: true
   namespace: monitoring
-  storage:
-    nodePath: /mnt/ssd500g/lolday-monitoring
   grafana:
     adminPassword: ""   # --set at deploy time (from Task 7)
   postgresExporter:
@@ -239,7 +237,7 @@ kps:
       storageSpec:
         volumeClaimTemplate:
           spec:
-            storageClassName: monitoring-local
+            storageClassName: local-path
             accessModes: [ReadWriteOnce]
             resources:
               requests:
@@ -253,7 +251,7 @@ kps:
       storage:
         volumeClaimTemplate:
           spec:
-            storageClassName: monitoring-local
+            storageClassName: local-path
             accessModes: [ReadWriteOnce]
             resources:
               requests:
@@ -272,7 +270,7 @@ kps:
   grafana:
     persistence:
       enabled: true
-      storageClassName: monitoring-local
+      storageClassName: local-path
       size: 5Gi
     # Credentials come from the Secret we create in templates/monitoring/grafana-admin-secret.yaml
     admin:
@@ -338,7 +336,7 @@ loki:
     replicas: 1
     persistence:
       enabled: true
-      storageClass: monitoring-local
+      storageClass: local-path
       size: 30Gi
     resources:
       requests: { cpu: 200m, memory: 512Mi }
