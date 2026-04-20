@@ -183,10 +183,11 @@ class MlflowClient:
         filter_string: str | None = None,
         max_results: int = 200,
     ) -> list[dict[str, Any]]:
-        payload: dict[str, Any] = {"max_results": max_results}
+        # MLflow 2.x exposes /model-versions/search as GET-only (POST returns 405).
+        params: dict[str, Any] = {"max_results": max_results}
         if filter_string:
-            payload["filter"] = filter_string
-        resp = await self._request("POST", "/model-versions/search", json=payload)
+            params["filter"] = filter_string
+        resp = await self._request("GET", "/model-versions/search", params=params)
         return resp.get("model_versions", [])
 
     async def create_registered_model(self, name: str) -> dict[str, Any]:
