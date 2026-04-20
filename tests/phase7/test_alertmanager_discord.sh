@@ -20,7 +20,11 @@
 #   4. The minimal inline config still passes `amtool check-config`.
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# cwd-independent repo root — `git rev-parse --show-toplevel` picks the MAIN
+# repo when a worktree test is invoked from a main-repo cwd, yielding the
+# wrong charts/lolday state (e.g. a stale subchart tgz copy).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CHART="$REPO_ROOT/charts/lolday"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT

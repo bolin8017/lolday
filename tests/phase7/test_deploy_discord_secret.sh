@@ -7,7 +7,9 @@
 # end-to-end is covered by the e2e smoke test post-deploy).
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# cwd-independent repo root (see test_alertmanager_discord.sh for rationale).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEPLOY="$REPO_ROOT/scripts/deploy.sh"
 
 fail() { echo "✗ FAIL: $*" >&2; exit 1; }
