@@ -96,6 +96,31 @@ async def test_reconcile_build_exception_records_error(monkeypatch):
     assert _get("reconcile_build") == before + 1.0
 
 
+def test_job_logs_fetch_exception_records_without_NameError(monkeypatch):
+    """Regression guard for a PR#4 review finding: `_stream_live_logs(job)` used
+    `str(job_id)` in the except-block log-extra, but the parameter is `job` —
+    a NameError would bubble up, turning the intended graceful 503 into a 500.
+    Assert we return 503 AND the counter increments AND the logger.exception
+    line runs cleanly."""
+    from unittest.mock import MagicMock
+
+    from app.routers.jobs import _stream_live_logs
+
+    stub_core = MagicMock()
+    stub_core.list_namespaced_pod.side_effect = RuntimeError("synthetic k8s failure")
+    # Patch the core_v1 name already bound inside routers.jobs (not on the source module).
+    monkeypatch.setattr("app.routers.jobs.core_v1", lambda: stub_core)
+
+    job = MagicMock()
+    job.id = "j-probe"
+
+    before = _get("job_logs_fetch")
+    resp = _stream_live_logs(job)  # must NOT raise NameError
+    assert resp.status_code == 503
+    assert b"logs unavailable" in resp.body
+    assert _get("job_logs_fetch") == before + 1.0
+
+
 @pytest.mark.asyncio
 async def test_metrics_content_is_prometheus_format(client: AsyncClient):
     """Content-Type and body must be Prometheus text exposition format."""

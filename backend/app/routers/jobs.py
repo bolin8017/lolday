@@ -11,8 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_async_session
 from app.metrics import BACKEND_ERRORS
-
-logger = logging.getLogger(__name__)
 from app.users import current_active_user
 from app.models import DatasetConfig, DetectorVersion, Job, ModelVersion, User
 from app.models.dataset import DatasetVisibility
@@ -28,6 +26,8 @@ from app.services.job_spec import build_job_manifest, build_job_token_secret
 from app.services.job_tokens import generate_token, hash_token
 from app.services.k8s import batch_v1, core_v1
 from app.services.mlflow_client import MlflowClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -337,7 +337,7 @@ def _stream_live_logs(job: Job):
         return Response(content=log, media_type="text/plain")
     except Exception:
         BACKEND_ERRORS.labels(stage="job_logs_fetch").inc()
-        logger.exception("job logs fetch failed", extra={"job_id": str(job_id)})
+        logger.exception("job logs fetch failed", extra={"job_id": str(job.id)})
         return Response(content="(logs unavailable)", media_type="text/plain", status_code=503)
 
 

@@ -20,8 +20,6 @@ from app.config import settings
 from app.db import get_async_session
 from app.deps import generate_build_token, require_detector_access, require_role
 from app.metrics import BACKEND_ERRORS
-
-logger = logging.getLogger(__name__)
 from app.models import Role, User
 from app.models.credential import UserGitCredential
 from app.models.detector import (
@@ -31,6 +29,8 @@ from app.models.detector import (
     DetectorVersion,
     DetectorVersionStatus,
 )
+
+logger = logging.getLogger(__name__)
 from app.schemas.detector import (
     AvailableTag,
     BuildCreate,

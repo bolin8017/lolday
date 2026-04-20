@@ -36,7 +36,7 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/lolday-backend:phase6.2
+  image: harbor.lolday.svc:80/lolday/lolday-backend:phase6.3
   replicas: 1
   jwtSecret: ""         # --set at deploy time, NEVER commit
   firstAdmin:

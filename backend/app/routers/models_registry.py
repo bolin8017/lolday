@@ -10,9 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_async_session
 from app.metrics import BACKEND_ERRORS
-from app.users import current_active_user
-
-logger = logging.getLogger(__name__)
 from app.models import ModelTransitionLog, ModelVersion, User
 from app.models.model_registry import ModelVersionStage
 from app.schemas.model_registry import (
@@ -23,6 +20,9 @@ from app.schemas.model_registry import (
 )
 from app.services.mlflow_client import MlflowClient
 from app.services.model_registry import InvalidTransitionError, validate_transition
+from app.users import current_active_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
