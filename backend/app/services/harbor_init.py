@@ -11,6 +11,7 @@ import logging
 from kubernetes.client import ApiException, V1ObjectMeta, V1Secret
 
 from app.config import settings
+from app.metrics import BACKEND_ERRORS
 from app.services.harbor import HarborClient
 from app.services.k8s import core_v1
 
@@ -37,6 +38,7 @@ async def init_harbor() -> None:
         try:
             await client.ensure_project(project, public=True)
         except Exception:
+            BACKEND_ERRORS.labels(stage="ensure_project").inc()
             logger.exception("ensure_project failed for %s", project)
 
     try:
@@ -48,11 +50,13 @@ async def init_harbor() -> None:
         if "secret" in robot:
             _write_docker_config_secret(robot["name"], robot["secret"])
     except Exception:
+        BACKEND_ERRORS.labels(stage="ensure_robot").inc()
         logger.exception("ensure_robot_account failed")
 
     try:
         await client.set_retention_policy("detectors", keep_n_recent=DETECTORS_RETENTION_KEEP_N)
     except Exception:
+        BACKEND_ERRORS.labels(stage="retention_policy").inc()
         logger.exception("set_retention_policy failed for detectors")
 
 

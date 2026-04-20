@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import shutil
 import subprocess
@@ -18,6 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_async_session
 from app.deps import generate_build_token, require_detector_access, require_role
+from app.metrics import BACKEND_ERRORS
+
+logger = logging.getLogger(__name__)
 from app.models import Role, User
 from app.models.credential import UserGitCredential
 from app.models.detector import (
@@ -151,7 +155,11 @@ async def _delete_harbor_images(detector_name: str, session: AsyncSession, detec
             await harbor.delete_artifact("detectors", detector_name, v.image_digest)
             v.status = DetectorVersionStatus.RETENTION_PRUNED
         except Exception:
-            pass
+            BACKEND_ERRORS.labels(stage="detector_retention_prune").inc()
+            logger.exception(
+                "retention prune failed",
+                extra={"detector_version_id": str(v.id), "detector_name": detector_name},
+            )
     await session.commit()
 
 
@@ -265,7 +273,11 @@ async def delete_detector(
     try:
         await _delete_harbor_images(detector_name, session, detector_id)
     except Exception:
-        pass
+        BACKEND_ERRORS.labels(stage="harbor_image_cleanup").inc()
+        logger.exception(
+            "harbor image cleanup on soft-delete failed",
+            extra={"detector_id": str(detector_id), "detector_name": detector_name},
+        )
     return Response(status_code=204)
 
 
@@ -538,7 +550,11 @@ async def cancel_build(
                     propagation_policy="Background",
                 )
             except Exception:
-                pass
+                BACKEND_ERRORS.labels(stage="cancel_build_k8s_cleanup").inc()
+                logger.exception(
+                    "K8s build job cleanup failed on cancel",
+                    extra={"build_id": str(build.id), "k8s_job_name": build.k8s_job_name},
+                )
 
         await loop.run_in_executor(None, _delete_job)
 

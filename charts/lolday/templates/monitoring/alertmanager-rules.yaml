@@ -51,4 +51,13 @@ spec:
           annotations:
             summary: "Core service {{`{{ $labels.job }}`}} is down"
             description: "Prometheus has not been able to scrape {{`{{ $labels.job }}`}} for 2m."
+
+        - alert: LoldayBackendErrorRateElevated
+          expr: rate(lolday_backend_errors_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Backend errors in stage {{`{{ $labels.stage }}`}}"
+            description: "lolday_backend_errors_total rate > 0 in stage '{{`{{ $labels.stage }}`}}' for 5m. This catches silent-failure paths (e.g. reconciler loop exceptions, Harbor init failures, best-effort K8s/MLflow cleanup failures). Check backend logs for the matching `logger.exception` entry."
 {{- end }}

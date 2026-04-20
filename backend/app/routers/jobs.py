@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Annotated
@@ -9,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
+from app.metrics import BACKEND_ERRORS
+
+logger = logging.getLogger(__name__)
 from app.users import current_active_user
 from app.models import DatasetConfig, DetectorVersion, Job, ModelVersion, User
 from app.models.dataset import DatasetVisibility
@@ -332,6 +336,8 @@ def _stream_live_logs(job: Job):
         )
         return Response(content=log, media_type="text/plain")
     except Exception:
+        BACKEND_ERRORS.labels(stage="job_logs_fetch").inc()
+        logger.exception("job logs fetch failed", extra={"job_id": str(job_id)})
         return Response(content="(logs unavailable)", media_type="text/plain", status_code=503)
 
 
@@ -357,7 +363,11 @@ async def cancel_job(
                 propagation_policy="Background",
             )
         except Exception:
-            pass
+            BACKEND_ERRORS.labels(stage="cancel_k8s_cleanup").inc()
+            logger.exception(
+                "K8s job cleanup failed on cancel",
+                extra={"job_id": str(job.id), "k8s_job_name": job.k8s_job_name},
+            )
 
     job.status = JobStatus.CANCELLED
     job.failure_reason = "cancelled_by_user" if job.owner_id == user.id else "cancelled_by_admin"

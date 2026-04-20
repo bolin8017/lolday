@@ -1,0 +1,61 @@
+{
+  "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "datasource", "uid": "grafana"}, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard"}]},
+  "description": "Silent-failure observability for the lolday backend: counts of uncaught exceptions in reconciler loop, Harbor init, and best-effort cleanup paths. Series: lolday_backend_errors_total{stage}.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Error rate by stage (per second, 5m window)",
+      "description": "sum by (stage) (rate(lolday_backend_errors_total[5m])). Any non-zero series sustained for 5m fires LoldayBackendErrorRateElevated.",
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "expr": "sum by (stage) (rate(lolday_backend_errors_total[5m]))", "legendFormat": "{{stage}}", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "stacking": {"mode": "none"}}, "unit": "ops", "min": 0}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Errors in last 1h by stage",
+      "description": "increase(lolday_backend_errors_total[1h]) — a zero column means 'healthy for the last hour' for that stage.",
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "expr": "increase(lolday_backend_errors_total[1h])", "legendFormat": "{{stage}}", "refId": "A", "instant": true}
+      ],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}, "unit": "short"}, "overrides": []},
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 10}
+    },
+    {
+      "type": "table",
+      "title": "Total errors (all time) by stage",
+      "description": "Snapshot of the raw Counter values. Useful for sanity checking that every expected stage appears at least once in the series index.",
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "expr": "lolday_backend_errors_total", "legendFormat": "{{stage}}", "refId": "A", "format": "table", "instant": true}
+      ],
+      "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true, "namespace": true, "pod": true, "container": true, "endpoint": true, "service": true}, "indexByName": {"stage": 0, "Value": 1}}}],
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 18}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["lolday", "backend", "observability"],
+  "templating": {"list": [
+    {"current": {"selected": false, "text": "Prometheus", "value": "prometheus"}, "hide": 0, "includeAll": false, "label": "Data source", "multi": false, "name": "DS_PROMETHEUS", "options": [], "query": "prometheus", "refresh": 1, "regex": "", "skipUrlSync": false, "type": "datasource"}
+  ]},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Lolday / Backend Error Observability",
+  "uid": "lolday-backend-errors",
+  "version": 1,
+  "weekStart": ""
+}
