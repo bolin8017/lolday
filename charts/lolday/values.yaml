@@ -193,3 +193,13 @@ frontend:
   resources:
     requests: { cpu: 10m, memory: 32Mi }
     limits:   { cpu: 100m, memory: 128Mi }
+
+# =============================================================================
+# Monitoring (Phase 6) — kube-prometheus-stack + loki + promtail
+# =============================================================================
+monitoring:
+  enabled: true
+  namespace: monitoring
+  storage:
+    # Dedicated NVMe partition so monitoring doesn't crowd the K3s root FS
+    nodePath: /mnt/ssd500g/lolday-monitoring

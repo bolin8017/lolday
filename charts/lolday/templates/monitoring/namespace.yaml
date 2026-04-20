@@ -1,0 +1,9 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+    monitoring.lolday.io/managed: "true"
+{{- end }}
