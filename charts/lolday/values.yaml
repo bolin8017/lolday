@@ -203,3 +203,87 @@ monitoring:
   storage:
     # Dedicated NVMe partition so monitoring doesn't crowd the K3s root FS
     nodePath: /mnt/ssd500g/lolday-monitoring
+
+# Sub-chart config consumed as values of the kube-prometheus-stack chart (alias: kps)
+kps:
+  namespaceOverride: monitoring
+  fullnameOverride: kps
+  defaultRules:
+    create: true
+
+  prometheus:
+    prometheusSpec:
+      retention: 15d
+      retentionSize: 18GiB            # leave ~10% head-room under 20 Gi PVC
+      # Scrape every ServiceMonitor in the cluster (default scopes to the Helm release label)
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      probeSelectorNilUsesHelmValues: false
+      ruleSelectorNilUsesHelmValues: false
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: monitoring-local
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 20Gi
+      resources:
+        requests: { cpu: 500m, memory: 2Gi }
+        limits:   { cpu: 2,    memory: 8Gi }
+
+  alertmanager:
+    alertmanagerSpec:
+      storage:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: monitoring-local
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 2Gi
+    # Empty receivers: alerts show up in Alertmanager UI but nothing is sent.
+    # Wiring Resend/Discord is Phase 7.
+    config:
+      route:
+        receiver: 'null'
+        group_wait: 10s
+        group_interval: 5m
+        repeat_interval: 12h
+      receivers:
+        - name: 'null'
+
+  grafana:
+    persistence:
+      enabled: true
+      storageClassName: monitoring-local
+      size: 5Gi
+    # Credentials come from the Secret we create in templates/monitoring/grafana-admin-secret.yaml
+    admin:
+      existingSecret: grafana-admin
+      userKey: admin-user
+      passwordKey: admin-password
+    defaultDashboardsEnabled: true
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        searchNamespace: ALL
+      datasources:
+        enabled: true
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits:   { cpu: 500m, memory: 1Gi }
+
+  kubeStateMetrics: { enabled: true }
+  nodeExporter:
+    enabled: true
+
+  # Disable ServiceMonitors that try to scrape K3s-hidden components (apiserver, scheduler, controller-manager).
+  # K3s runs these as embedded goroutines inside the server binary; their metrics are exposed on
+  # 127.0.0.1:10259/10257 which Prometheus cannot reach. Disabling silences noisy "DOWN" alerts.
+  kubeApiServer:         { enabled: true }
+  kubeControllerManager: { enabled: false }
+  kubeScheduler:         { enabled: false }
+  kubeProxy:             { enabled: false }
+  kubeEtcd:              { enabled: false }
