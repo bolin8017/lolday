@@ -1,0 +1,20 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: backend
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames: [{{ .Values.global.namespace }}]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  endpoints:
+    - targetPort: 8000
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+{{- end }}

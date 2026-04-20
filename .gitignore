@@ -1,5 +1,5 @@
-# Helm
-charts/lolday/charts/
+# Helm — tarballs are re-fetched via `helm dependency update`
+charts/lolday/charts/*.tgz
 charts/lolday/*.tgz
 
 # Python (future phases)
@@ -32,3 +32,4 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
+test.db

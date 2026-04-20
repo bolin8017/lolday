@@ -26,16 +26,17 @@ training:
 # Cloudflare Tunnel
 # =============================================================================
 cloudflare:
-  enabled: false  # Enable after domain is purchased
-  tunnelToken: "" # Set via --set at deploy time, NEVER commit
+  enabled: true
+  tunnelToken: ""       # --set at deploy time via $CF_TUNNEL_TOKEN
   replicas: 2
+  image: cloudflare/cloudflared:2026.3.0    # pin explicit tag (no :latest)
 
 # =============================================================================
 # Backend API
 # =============================================================================
 backend:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/lolday-backend:phase5
+  image: harbor.lolday.svc:80/lolday/lolday-backend:phase6
   replicas: 1
   jwtSecret: ""         # --set at deploy time, NEVER commit
   firstAdmin:
@@ -141,6 +142,16 @@ harbor:
     trivy:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: 1, memory: 1Gi }
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        # Must equal Helm release name — kps's default ruleSelector matches by
+        # release label. Values files don't support templating, so if the
+        # install command ever changes the release name, update this too.
+        release: lolday
+      interval: 60s
 
 # =============================================================================
 # MLflow Experiment Tracking
@@ -188,8 +199,193 @@ jobs:
 # =============================================================================
 frontend:
   image: harbor.lolday.svc:80/lolday/lolday-frontend:phase5
-  host: lolday.islab.local
+  host: lolday.connlabai.com
   replicas: 1
   resources:
     requests: { cpu: 10m, memory: 32Mi }
     limits:   { cpu: 100m, memory: 128Mi }
+
+# =============================================================================
+# Monitoring (Phase 6) — kube-prometheus-stack + loki + promtail
+# =============================================================================
+monitoring:
+  enabled: true
+  namespace: monitoring
+  grafana:
+    adminPassword: ""   # --set at deploy time (from Task 7)
+  postgresExporter:
+    enabled: true
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0
+    password: ""        # --set at deploy time, NEVER commit
+    resources:
+      requests: { cpu: 20m,  memory: 64Mi }
+      limits:   { cpu: 100m, memory: 128Mi }
+
+# Sub-chart config consumed as values of the kube-prometheus-stack chart (alias: kps)
+kps:
+  namespaceOverride: monitoring
+  fullnameOverride: kps
+  defaultRules:
+    create: true
+
+  prometheus:
+    prometheusSpec:
+      retention: 15d
+      retentionSize: 18GiB            # leave ~10% head-room under 20 Gi PVC
+      # Scrape every ServiceMonitor in the cluster (default scopes to the Helm release label)
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      probeSelectorNilUsesHelmValues: false
+      ruleSelectorNilUsesHelmValues: false
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 20Gi
+      resources:
+        requests: { cpu: 500m, memory: 2Gi }
+        limits:   { cpu: 2,    memory: 8Gi }
+
+  alertmanager:
+    alertmanagerSpec:
+      storage:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 2Gi
+    # Empty receivers: alerts show up in Alertmanager UI but nothing is sent.
+    # Wiring Resend/Discord is Phase 7.
+    config:
+      route:
+        receiver: 'null'
+        group_wait: 10s
+        group_interval: 5m
+        repeat_interval: 12h
+      receivers:
+        - name: 'null'
+
+  grafana:
+    persistence:
+      enabled: true
+      storageClassName: local-path
+      size: 5Gi
+    # Credentials come from the Secret we create in templates/monitoring/grafana-admin-secret.yaml
+    admin:
+      existingSecret: grafana-admin
+      userKey: admin-user
+      passwordKey: admin-password
+    defaultDashboardsEnabled: true
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        searchNamespace: ALL
+      datasources:
+        enabled: true
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits:   { cpu: 500m, memory: 1Gi }
+
+  kubeStateMetrics: { enabled: true }
+  nodeExporter:
+    enabled: true
+
+  # K3s embeds controller-manager / scheduler / kube-proxy / etcd as goroutines
+  # inside the k3s server binary and only exposes their /metrics on
+  # 127.0.0.1:10257/10259 — unreachable by Prometheus from a pod. Disable those
+  # ServiceMonitors so they don't stay perpetually DOWN. The apiserver, by
+  # contrast, is reachable via the standard kubernetes.default Service, so its
+  # ServiceMonitor stays enabled.
+  kubeApiServer:         { enabled: true }
+  kubeControllerManager: { enabled: false }
+  kubeScheduler:         { enabled: false }
+  kubeProxy:             { enabled: false }
+  kubeEtcd:              { enabled: false }
+
+# =============================================================================
+# Loki — log aggregation (single-binary mode)
+# =============================================================================
+loki:
+  enabled: true
+  # Top-level 'loki' key is consumed by the loki sub-chart directly
+  # Pin fullname so downstream URLs are deterministic ('loki' not 'lolday-loki').
+  fullnameOverride: loki
+  deploymentMode: SingleBinary
+  lokiCanary:
+    enabled: false
+  test:
+    enabled: false
+  loki:
+    commonConfig:
+      replication_factor: 1
+    schemaConfig:
+      configs:
+        - from: 2024-04-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+    storage:
+      type: filesystem
+      bucketNames:
+        chunks: loki-chunks
+        ruler: loki-ruler
+        admin: loki-admin
+    auth_enabled: false
+    limits_config:
+      retention_period: 168h          # 7 days
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: true
+      storageClass: local-path
+      size: 30Gi
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits:   { cpu: 1,    memory: 2Gi }
+  # Required by loki chart's validate.yaml: SingleBinary mode must have
+  # read/write/backend replicas=0 (otherwise the chart refuses to render,
+  # demanding deploymentMode: SingleBinary<->SimpleScalable). The
+  # 'coalesce warning: cannot overwrite table with non table for
+  # loki.backend.image' this emits is a known, harmless quirk of merging a
+  # scalar against the subchart's default image sub-map.
+  read:    { replicas: 0 }
+  write:   { replicas: 0 }
+  backend: { replicas: 0 }
+  # No ingress — internal only
+  gateway:
+    enabled: false
+  # ChunksCache / ResultsCache are not needed at lab scale
+  chunksCache: { enabled: false }
+  resultsCache: { enabled: false }
+
+# =============================================================================
+# Promtail — DaemonSet that ships container logs to Loki
+# =============================================================================
+promtail:
+  enabled: true
+  config:
+    clients:
+      - url: http://loki.lolday.svc:3100/loki/api/v1/push
+    snippets:
+      pipelineStages:
+        - cri: {}
+      extraRelabelConfigs:
+        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+          target_label: component
+  resources:
+    requests: { cpu: 50m,  memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+  serviceMonitor:
+    enabled: true
+    # Leave namespace unset → ServiceMonitor lives in release ns alongside promtail pods.

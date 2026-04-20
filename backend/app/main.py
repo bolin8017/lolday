@@ -7,6 +7,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
 from app.db import async_session_maker, engine
@@ -77,6 +78,13 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs" if settings.DOCS_ENABLED else None,
     redoc_url="/redoc" if settings.DOCS_ENABLED else None,
+)
+
+# Intentionally not wrapped in try/except: if metrics wiring fails the pod
+# should CrashLoopBackOff so LoldayCoreServiceDown fires — silently losing
+# scrape targets is worse than a loud restart.
+Instrumentator().instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False,
 )
 
 app.state.limiter = limiter

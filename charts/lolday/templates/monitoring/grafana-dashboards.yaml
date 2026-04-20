@@ -1,0 +1,17 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-phase6
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    grafana_dashboard: "1"          # Triggers kube-prometheus-stack Grafana sidecar to pick it up
+    {{- include "lolday.labels" . | nindent 4 }}
+data:
+  dcgm.json: |-
+    {{ .Files.Get "dashboards/dcgm.json" | nindent 4 }}
+  traefik.json: |-
+    {{ .Files.Get "dashboards/traefik.json" | nindent 4 }}
+  postgresql.json: |-
+    {{ .Files.Get "dashboards/postgresql.json" | nindent 4 }}
+{{- end }}

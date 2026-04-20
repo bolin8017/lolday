@@ -1,0 +1,86 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.postgresExporter.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-exporter-db
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # DATA_SOURCE_NAME is consumed by the exporter; `password` is consumed by the
+  # init Job's secretKeyRef (so the password isn't inlined into a Job manifest).
+  DATA_SOURCE_NAME: "postgresql://postgres_exporter:{{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password | urlquery }}@postgresql.{{ .Values.global.namespace }}.svc:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
+  password: {{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+    app.kubernetes.io/name: postgres-exporter
+    app.kubernetes.io/component: postgres-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-exporter
+        app.kubernetes.io/component: postgres-exporter
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: exporter
+          image: {{ .Values.monitoring.postgresExporter.image | quote }}
+          args:
+            - "--web.listen-address=:9187"
+            - "--collector.database"
+            - "--collector.stat_activity_autovacuum"
+          envFrom:
+            - secretRef:
+                name: postgres-exporter-db
+          ports:
+            - name: metrics
+              containerPort: 9187
+          readinessProbe:
+            httpGet: { path: /, port: metrics }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: metrics }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.monitoring.postgresExporter.resources | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+    app.kubernetes.io/name: postgres-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: postgres-exporter
+  ports:
+    - name: metrics
+      port: 9187
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

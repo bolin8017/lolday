@@ -15,9 +15,11 @@ echo ""
 : "${ADMIN_EMAIL:?ADMIN_EMAIL must be set (e.g. admin@lolday.dev)}"
 : "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}"
 : "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
+: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
+: "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
-BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase4}
+BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase6}
 FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase5}
 
 # Pre-flight
@@ -28,7 +30,13 @@ if ! kubectl get nodes &>/dev/null; then
 fi
 echo "  Cluster OK"
 
-GPU_COUNT=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo "0")
+GPU_COUNT=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo "")
+if [ -z "$GPU_COUNT" ]; then
+  echo "  WARN: could not query GPU allocatable (jsonpath failed — kubectl auth OK?)"
+  GPU_COUNT=0
+elif [ "$GPU_COUNT" = "0" ]; then
+  echo "  WARN: 0 GPUs allocatable — training Jobs will stay Pending"
+fi
 echo "  GPUs available: ${GPU_COUNT}"
 echo ""
 
@@ -44,6 +52,25 @@ echo ""
 echo "[3/4] Ensuring namespaces..."
 kubectl create namespace lolday --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl create namespace harbor --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# Phase 6: kube-prometheus-stack's pre-upgrade hook creates a ServiceAccount in
+# monitoring ns before helm applies the Namespace template. Pre-create + mark as
+# Helm-owned so the upgrade can adopt it.
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl label ns monitoring app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
+kubectl annotate ns monitoring meta.helm.sh/release-name=lolday meta.helm.sh/release-namespace=lolday --overwrite >/dev/null
+# Phase 6: kps CRDs must be registered BEFORE helm applies PrometheusRule /
+# ServiceMonitor instances. Apply them up-front from the fetched subchart tarball.
+# Fail fast if the tarball isn't there — otherwise helm upgrade below hits a
+# confusing 'no matches for kind' error mid-apply.
+KPS_TGZ=$(ls "$CHART_DIR/charts/"kube-prometheus-stack-*.tgz 2>/dev/null | tail -1 || true)
+if [ -z "$KPS_TGZ" ]; then
+  echo "  ERROR: kube-prometheus-stack tarball missing under $CHART_DIR/charts/ — helm dependency build did not produce it." >&2
+  exit 1
+fi
+KPS_CRD_DIR=$(mktemp -d)
+tar xzf "$KPS_TGZ" -C "$KPS_CRD_DIR"
+kubectl apply --server-side -f "$KPS_CRD_DIR"/kube-prometheus-stack/charts/crds/crds/
+rm -rf "$KPS_CRD_DIR"
 echo "  Namespaces ready"
 echo ""
 
@@ -63,7 +90,9 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set frontend.image="$FRONTEND_IMAGE" \
   --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
-  --wait --timeout 10m
+  --set monitoring.grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD" \
+  --set monitoring.postgresExporter.password="$PG_EXPORTER_PASSWORD" \
+  --wait --timeout 20m
 
 echo ""
 echo "=== Deploy complete ==="
