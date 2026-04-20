@@ -26,9 +26,10 @@ training:
 # Cloudflare Tunnel
 # =============================================================================
 cloudflare:
-  enabled: false  # Enable after domain is purchased
-  tunnelToken: "" # Set via --set at deploy time, NEVER commit
+  enabled: true
+  tunnelToken: ""       # --set at deploy time via $CF_TUNNEL_TOKEN
   replicas: 2
+  image: cloudflare/cloudflared:2026.3.0    # pin explicit tag (no :latest)
 
 # =============================================================================
 # Backend API
@@ -195,7 +196,7 @@ jobs:
 # =============================================================================
 frontend:
   image: harbor.lolday.svc:80/lolday/lolday-frontend:phase5
-  host: lolday.islab.local
+  host: lolday.connlabai.com
   replicas: 1
   resources:
     requests: { cpu: 10m, memory: 32Mi }

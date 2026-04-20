@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: cloudflared
-          image: cloudflare/cloudflared:latest
+          image: {{ .Values.cloudflare.image | default "cloudflare/cloudflared:2026.3.0" }}
           args:
             - tunnel
             - --no-autoupdate
