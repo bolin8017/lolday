@@ -1,0 +1,23 @@
+{{- if .Values.monitoring.enabled }}
+# Phase 7.1.1 — scrape the NVIDIA DCGM exporter so DCGM_FI_* metrics flow into
+# Prometheus. Without this SM the exporter Pod in the gpu-operator ns runs but
+# is invisible to Prometheus, so the GPUTemperatureHigh alert (alertmanager-
+# rules.yaml) silently never fires and dcgm.json dashboard stays empty.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nvidia-dcgm-exporter
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames: [gpu-operator]
+  selector:
+    matchLabels:
+      app: nvidia-dcgm-exporter
+  endpoints:
+    - port: gpu-metrics
+      path: /metrics
+      interval: 30s
+{{- end }}
