@@ -54,7 +54,7 @@ echo "  OK"
 
 # --- Phase 5 frontend health ---
 echo "[5/6] frontend pod Ready ..."
-READY=$(kubectl -n lolday get pod -l app.kubernetes.io/component=frontend -o jsonpath='{.items[0].status.containerStatuses[0].ready}')
+READY=$(kubectl -n lolday get pod -l app=frontend -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "")
 if [ "$READY" != "true" ]; then
   echo "  FAIL — frontend pod not Ready"
   exit 1
