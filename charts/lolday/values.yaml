@@ -287,3 +287,74 @@ kps:
   kubeScheduler:         { enabled: false }
   kubeProxy:             { enabled: false }
   kubeEtcd:              { enabled: false }
+
+# =============================================================================
+# Loki — log aggregation (single-binary mode)
+# =============================================================================
+loki:
+  enabled: true
+  # Top-level 'loki' key is consumed by the loki sub-chart directly
+  deploymentMode: SingleBinary
+  loki:
+    commonConfig:
+      replication_factor: 1
+    schemaConfig:
+      configs:
+        - from: 2024-04-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+    storage:
+      type: filesystem
+      bucketNames:
+        chunks: loki-chunks
+        ruler: loki-ruler
+        admin: loki-admin
+    auth_enabled: false
+    limits_config:
+      retention_period: 168h          # 7 days
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: true
+      storageClass: monitoring-local
+      size: 30Gi
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits:   { cpu: 1,    memory: 2Gi }
+  # Scalable-mode components off
+  read:    { replicas: 0 }
+  write:   { replicas: 0 }
+  backend: { replicas: 0 }
+  # No ingress — internal only
+  gateway:
+    enabled: false
+  # ChunksCache / ResultsCache are not needed at lab scale
+  chunksCache: { enabled: false }
+  resultsCache: { enabled: false }
+
+# =============================================================================
+# Promtail — DaemonSet that ships container logs to Loki
+# =============================================================================
+promtail:
+  enabled: true
+  config:
+    clients:
+      - url: http://loki.monitoring.svc:3100/loki/api/v1/push
+    snippets:
+      pipelineStages:
+        - cri: {}
+      extraRelabelConfigs:
+        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+          target_label: component
+  resources:
+    requests: { cpu: 50m,  memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
