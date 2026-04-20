@@ -14,16 +14,17 @@
 
 Run: `bash scripts/phase6-pre-deploy-check.sh && bash scripts/deploy.sh`
 
-- [ ] All pods in `monitoring` namespace Running
-- [ ] Grafana reachable via `kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-grafana 3000:80`
+- [ ] Prometheus / Alertmanager / kps-operator pods Running in `monitoring` ns
+- [ ] Grafana / Loki / Promtail / kube-state-metrics / prometheus-node-exporter pods Running in `lolday` ns (Grafana subchart ignores parent namespaceOverride, so these land in release ns)
+- [ ] Grafana reachable via `kubectl -n lolday port-forward svc/kps-grafana 3000:80`
 - [ ] Grafana login works with `admin` / `$GRAFANA_ADMIN_PASSWORD`
 - [ ] Dashboard "Kubernetes / Compute Resources / Cluster" has data
 - [ ] Dashboard "NVIDIA DCGM Exporter Dashboard" shows both GPUs
 - [ ] Dashboard "Traefik 3" shows request counters
 - [ ] Dashboard "PostgreSQL Database" shows connections
-- [ ] LogQL `{namespace="lolday"}` returns results
-- [ ] `curl /api/v1/targets` on Prometheus shows ≥ 10 up jobs
-- [ ] Alertmanager UI (port-forward 9093) lists 4 inactive baseline alerts
+- [ ] LogQL `{namespace="lolday"}` returns results (port-forward `svc/loki` in `lolday` ns on :3100, then hit `/loki/api/v1/query_range`)
+- [ ] Prometheus `/api/v1/targets` shows ≥ 10 up jobs (port-forward `svc/kps-prometheus` in `monitoring` ns on :9090, then `curl http://localhost:9090/api/v1/targets`)
+- [ ] Alertmanager UI (port-forward `svc/kps-alertmanager` in `monitoring` ns on :9093) lists 4 inactive baseline alerts
 - [ ] Phase 4 curl E2E passes
 - [ ] Phase 5 Playwright E2E passes
 

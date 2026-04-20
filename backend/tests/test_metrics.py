@@ -13,12 +13,14 @@ async def test_metrics_endpoint_exists(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_metrics_content_is_prometheus_format(client: AsyncClient):
     """Content-Type and body must be Prometheus text exposition format."""
+    # No Accept header → instrumentator defaults to the Prometheus text format
+    # (text/plain). A client that negotiates OpenMetrics via Accept header
+    # would get application/openmetrics-text; we don't test that path because
+    # kube-prometheus-stack scrapes with the default Accept.
     resp = await client.get("/metrics")
     ctype = resp.headers.get("content-type", "")
-    # prometheus_client uses text/plain; version=0.0.4
     assert ctype.startswith("text/plain")
     body = resp.text
-    # Every Prometheus exposition has at least one HELP/TYPE block
     assert "# HELP" in body
     assert "# TYPE" in body
 
