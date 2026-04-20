@@ -46,6 +46,21 @@ echo ""
 echo "[3/4] Ensuring namespaces..."
 kubectl create namespace lolday --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl create namespace harbor --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# Phase 6: kube-prometheus-stack's pre-upgrade hook creates a ServiceAccount in
+# monitoring ns before helm applies the Namespace template. Pre-create + mark as
+# Helm-owned so the upgrade can adopt it.
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl label ns monitoring app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
+kubectl annotate ns monitoring meta.helm.sh/release-name=lolday meta.helm.sh/release-namespace=lolday --overwrite >/dev/null
+# Phase 6: kps CRDs must be registered BEFORE helm applies PrometheusRule /
+# ServiceMonitor instances. Apply them up-front from the fetched subchart tarball.
+KPS_TGZ=$(ls "$CHART_DIR/charts/"kube-prometheus-stack-*.tgz 2>/dev/null | tail -1)
+if [ -n "$KPS_TGZ" ]; then
+  KPS_CRD_DIR=$(mktemp -d)
+  tar xzf "$KPS_TGZ" -C "$KPS_CRD_DIR"
+  kubectl apply --server-side -f "$KPS_CRD_DIR"/kube-prometheus-stack/charts/crds/crds/ >/dev/null
+  rm -rf "$KPS_CRD_DIR"
+fi
 echo "  Namespaces ready"
 echo ""
 
