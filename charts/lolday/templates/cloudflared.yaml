@@ -17,9 +17,16 @@ spec:
       labels:
         app.kubernetes.io/component: cloudflared
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: cloudflared
           image: {{ .Values.cloudflare.image | default "cloudflare/cloudflared:2026.3.0" }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
           args:
             - tunnel
             - --no-autoupdate
@@ -55,5 +62,4 @@ spec:
               port: 2000
             initialDelaySeconds: 5
             periodSeconds: 10
-      restartPolicy: Always
 {{- end }}

@@ -6,7 +6,7 @@ metadata:
   namespace: {{ .Values.monitoring.namespace }}
   labels:
     app: kube-prometheus-stack
-    release: lolday
+    release: {{ .Release.Name }}
     {{- include "lolday.labels" . | nindent 4 }}
 spec:
   groups:

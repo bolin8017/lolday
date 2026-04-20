@@ -147,7 +147,10 @@ harbor:
     serviceMonitor:
       enabled: true
       additionalLabels:
-        release: lolday            # matches kps Prometheus selector
+        # Must equal Helm release name — kps's default ruleSelector matches by
+        # release label. Values files don't support templating, so if the
+        # install command ever changes the release name, update this too.
+        release: lolday
       interval: 60s
 
 # =============================================================================
@@ -293,9 +296,12 @@ kps:
   nodeExporter:
     enabled: true
 
-  # Disable ServiceMonitors that try to scrape K3s-hidden components (apiserver, scheduler, controller-manager).
-  # K3s runs these as embedded goroutines inside the server binary; their metrics are exposed on
-  # 127.0.0.1:10259/10257 which Prometheus cannot reach. Disabling silences noisy "DOWN" alerts.
+  # K3s embeds controller-manager / scheduler / kube-proxy / etcd as goroutines
+  # inside the k3s server binary and only exposes their /metrics on
+  # 127.0.0.1:10257/10259 — unreachable by Prometheus from a pod. Disable those
+  # ServiceMonitors so they don't stay perpetually DOWN. The apiserver, by
+  # contrast, is reachable via the standard kubernetes.default Service, so its
+  # ServiceMonitor stays enabled.
   kubeApiServer:         { enabled: true }
   kubeControllerManager: { enabled: false }
   kubeScheduler:         { enabled: false }
@@ -347,7 +353,12 @@ loki:
     resources:
       requests: { cpu: 200m, memory: 512Mi }
       limits:   { cpu: 1,    memory: 2Gi }
-  # Scalable-mode components off
+  # Required by loki chart's validate.yaml: SingleBinary mode must have
+  # read/write/backend replicas=0 (otherwise the chart refuses to render,
+  # demanding deploymentMode: SingleBinary<->SimpleScalable). The
+  # 'coalesce warning: cannot overwrite table with non table for
+  # loki.backend.image' this emits is a known, harmless quirk of merging a
+  # scalar against the subchart's default image sub-map.
   read:    { replicas: 0 }
   write:   { replicas: 0 }
   backend: { replicas: 0 }
