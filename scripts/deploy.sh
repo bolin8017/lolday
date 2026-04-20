@@ -69,6 +69,13 @@ kubectl create namespace harbor --dry-run=client -o yaml | kubectl apply -f - >/
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl label ns monitoring app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
 kubectl annotate ns monitoring meta.helm.sh/release-name=lolday meta.helm.sh/release-namespace=lolday --overwrite >/dev/null
+# Phase 7.2: pre-create trivy-system ns and mark as Helm-owned — same shape as
+# monitoring. Trivy Operator subchart has `operator.namespace: trivy-system` so
+# its resources render into a ns outside the release ns; helm needs the ns to
+# exist with the Helm-owned annotation before it can adopt resources into it.
+kubectl create namespace trivy-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl label ns trivy-system app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
+kubectl annotate ns trivy-system meta.helm.sh/release-name=lolday meta.helm.sh/release-namespace=lolday --overwrite >/dev/null
 # Phase 6: kps CRDs must be registered BEFORE helm applies PrometheusRule /
 # ServiceMonitor instances. Apply them up-front from the fetched subchart tarball.
 # Fail fast if the tarball isn't there — otherwise helm upgrade below hits a
@@ -82,6 +89,19 @@ KPS_CRD_DIR=$(mktemp -d)
 tar xzf "$KPS_TGZ" -C "$KPS_CRD_DIR"
 kubectl apply --server-side -f "$KPS_CRD_DIR"/kube-prometheus-stack/charts/crds/crds/
 rm -rf "$KPS_CRD_DIR"
+
+# Phase 7.2: Trivy Operator CRDs. Helm auto-installs `crds/` contents on fresh
+# install but NOT on upgrade (deliberate: avoids accidental CRD deletion). Our
+# lolday umbrella is always upgraded, so apply them explicitly pre-helm.
+TRIVY_TGZ=$(ls "$CHART_DIR/charts/"trivy-operator-*.tgz 2>/dev/null | tail -1 || true)
+if [ -z "$TRIVY_TGZ" ]; then
+  echo "  ERROR: trivy-operator tarball missing under $CHART_DIR/charts/ — helm dependency update did not produce it." >&2
+  exit 1
+fi
+TRIVY_CRD_DIR=$(mktemp -d)
+tar xzf "$TRIVY_TGZ" -C "$TRIVY_CRD_DIR"
+kubectl apply --server-side -f "$TRIVY_CRD_DIR"/trivy-operator/crds/
+rm -rf "$TRIVY_CRD_DIR"
 
 # Phase 7.1: Alertmanager Discord webhook Secret. Referenced by the
 # AlertmanagerConfig CR `discord-receivers` (see templates/monitoring/alertmanager-config-discord.yaml)

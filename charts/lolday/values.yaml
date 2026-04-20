@@ -414,3 +414,40 @@ promtail:
   serviceMonitor:
     enabled: true
     # Leave namespace unset → ServiceMonitor lives in release ns alongside promtail pods.
+
+# =============================================================================
+# Trivy Operator — cluster-wide CVE / config / RBAC / secret scanning (Phase 7.2)
+# =============================================================================
+# Upstream chart key is `trivy-operator` (kebab-case); referenced here verbatim.
+# The operator reconciles each workload in-scope into VulnerabilityReport /
+# ConfigAuditReport / ExposedSecretReport / RbacAssessmentReport CRs and
+# publishes per-image CVE counts on a /metrics endpoint. Our chart adds a
+# ServiceMonitor (templates/monitoring/servicemonitor-trivy.yaml) and a
+# PrometheusRule alert (lolday-trivy.rules in alertmanager-rules.yaml) that
+# routes CRITICAL CVEs to Discord critical via the Phase 7.1 AC CR pipeline.
+trivy-operator:
+  enabled: true
+  # Skip system-churn namespaces (kube-system, gpu-operator manage lots of
+  # short-lived pods) + trivy-system itself (don't scan the scanner) + default
+  # (never hosts workloads here). Scans still cover lolday, monitoring, harbor.
+  excludeNamespaces: "kube-system,trivy-system,gpu-operator,default"
+  # The chart's own ServiceMonitor is off — we ship our own in templates/
+  # monitoring/servicemonitor-trivy.yaml for consistency with Phase 7.1.1 DCGM
+  # and Phase 6 SM pattern (cross-ns select from monitoring).
+  serviceMonitor:
+    enabled: false
+  operator:
+    # Install into a dedicated ns so the scanner workload is isolated from the
+    # lolday release ns. Default is .Release.Namespace (=lolday) which we don't
+    # want — same reasoning as kps.namespaceOverride: monitoring in Phase 6.
+    namespace: trivy-system
+    # Emit the trivy_image_vulnerabilities metric (on by default, but pin).
+    metricsFindingsEnabled: true
+    # Don't install Trivy's in-cluster DB server — use on-demand mode. Saves
+    # the ~1.5Gi standalone server Pod; workload scanners pull the DB once per
+    # cycle. For lab scale this is enough.
+    builtInTrivyServer: false
+  trivy:
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits:   { cpu: 500m, memory: 1Gi }

@@ -11,5 +11,8 @@ dependencies:
 - name: promtail
   repository: https://grafana.github.io/helm-charts
   version: 6.0.2
-digest: sha256:a59671ed563c2bab5fc0d0cebbb8c62a622e6fbffb8d33a4583698664c53a7f1
-generated: "2026-04-20T22:00:34.884294041+08:00"
+- name: trivy-operator
+  repository: https://aquasecurity.github.io/helm-charts
+  version: 0.32.1
+digest: sha256:c5652edd3d5be660c631521cea1a0488c630562669f755517f10dcc2fb157f59
+generated: "2026-04-20T23:57:45.657749033+08:00"

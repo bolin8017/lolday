@@ -2,8 +2,8 @@ apiVersion: v2
 name: lolday
 description: ISLab Malware Detector Management Platform
 type: application
-version: 0.5.1
-appVersion: "0.5.1"
+version: 0.6.0
+appVersion: "0.6.0"
 
 dependencies:
   - name: harbor
@@ -23,3 +23,7 @@ dependencies:
     version: "~6.0.0"
     repository: https://grafana.github.io/helm-charts
     condition: promtail.enabled
+  - name: trivy-operator
+    version: "~0.32.1"
+    repository: https://aquasecurity.github.io/helm-charts
+    condition: trivy-operator.enabled

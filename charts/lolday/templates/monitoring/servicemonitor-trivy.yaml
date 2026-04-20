@@ -1,0 +1,24 @@
+{{- if .Values.monitoring.enabled }}
+# Phase 7.2 — scrape the Trivy Operator metrics Service so findings surface in
+# Prometheus (and feed the TrivyCriticalCVE alert + trivy-security dashboard).
+# The Trivy Operator subchart ships its own Service (name: trivy-operator) in
+# the trivy-system ns on port-name `metrics`. We cross-ns-select it from
+# monitoring — same pattern as Phase 7.1.1's DCGM SM.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trivy-operator
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames: [trivy-system]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-operator
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+{{- end }}
