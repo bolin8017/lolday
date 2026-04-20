@@ -2,12 +2,13 @@ import { defineConfig, devices } from "@playwright/test";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 
-// When testing against the deployed stack (lolday.islab.local), Chromium's
-// host-resolver-rules bypass the need for an /etc/hosts entry.
-const deployedHostArgs =
-  BASE_URL.includes("lolday.islab.local")
-    ? ["--host-resolver-rules=MAP lolday.islab.local 127.0.0.1"]
-    : [];
+// When testing against the deployed stack, Chromium's host-resolver-rules
+// bypass the need for an /etc/hosts entry by mapping the ingress host to
+// the local port-forward.
+const DEPLOYED_HOST = "lolday.islab.local";
+const deployedHostArgs = BASE_URL.includes(DEPLOYED_HOST)
+  ? [`--host-resolver-rules=MAP ${DEPLOYED_HOST} 127.0.0.1`]
+  : [];
 
 export default defineConfig({
   testDir: "./tests/e2e",

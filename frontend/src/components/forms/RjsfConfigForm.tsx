@@ -1,5 +1,7 @@
 import Form from "@rjsf/core";
+import type { RJSFSchema } from "@rjsf/utils";
 import validator from "@rjsf/validator-ajv8";
+import { useMemo } from "react";
 
 interface Props {
   schema: object;
@@ -7,36 +9,30 @@ interface Props {
   onChange: (value: Record<string, unknown>) => void;
 }
 
-type SchemaNode = { [key: string]: unknown };
+// Sibling keywords RJSF tolerates next to `$ref` without the allOf wrap.
+// Keep this set minimal — adding annotation keywords like `default` would
+// defeat the workaround, since `default` is the trigger we're working around.
+const NON_WRAPPING_SIBLINGS = new Set(["title", "description"]);
 
 /**
- * Normalize a JSON Schema so that properties with sibling keywords alongside
- * `$ref` are wrapped in `allOf`.  RJSF v5 / ajv8 processes `allOf` correctly;
- * bare `$ref`+sibling patterns (valid in JSON Schema draft 2019-09+) can cause
- * a TypeError in RJSF's production bundle.
- *
- * Transforms:
+ * Wrap `$ref` in `allOf` when sibling keywords are present.  Bare `$ref`+sibling
+ * patterns (valid in JSON Schema 2019-09+) crash RJSF v5's production bundle:
  *   { "$ref": "#/$defs/X", "default": {...} }
- * into:
- *   { "allOf": [{ "$ref": "#/$defs/X" }], "default": {...} }
+ *     → { "allOf": [{ "$ref": "#/$defs/X" }], "default": {...} }
+ * Idempotent — re-running on already-wrapped schemas is a no-op.
  */
 function normalizeSchema(node: unknown): unknown {
   if (node === null || typeof node !== "object") return node;
   if (Array.isArray(node)) return node.map(normalizeSchema);
 
-  const obj = node as SchemaNode;
-  const out: SchemaNode = {};
-
-  for (const [k, v] of Object.entries(obj)) {
-    out[k] = typeof v === "object" && v !== null ? normalizeSchema(v) : v;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(node)) {
+    out[k] = normalizeSchema(v);
   }
 
-  // If this object has both "$ref" and other meaningful sibling keys, wrap $ref in allOf
-  if ("$ref" in out) {
-    const { $ref, ...rest } = out as { $ref: string } & SchemaNode;
-    const hasSiblings = Object.keys(rest).some(
-      (k) => !["title", "description"].includes(k),
-    );
+  if (typeof out.$ref === "string") {
+    const { $ref, ...rest } = out;
+    const hasSiblings = Object.keys(rest).some((k) => !NON_WRAPPING_SIBLINGS.has(k));
     if (hasSiblings) {
       return { allOf: [{ $ref }], ...rest };
     }
@@ -46,7 +42,7 @@ function normalizeSchema(node: unknown): unknown {
 }
 
 export function RjsfConfigForm({ schema, value, onChange }: Props) {
-  const normalizedSchema = normalizeSchema(schema) as object;
+  const normalizedSchema = useMemo(() => normalizeSchema(schema) as RJSFSchema, [schema]);
   return (
     <div className="rjsf-wrap rounded-md border bg-card p-4 text-sm">
       <Form
