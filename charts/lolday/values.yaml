@@ -141,6 +141,13 @@ harbor:
     trivy:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: 1, memory: 1Gi }
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: lolday            # matches kps Prometheus selector
+      interval: 60s
 
 # =============================================================================
 # MLflow Experiment Tracking
