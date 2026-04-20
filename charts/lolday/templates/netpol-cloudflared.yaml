@@ -23,7 +23,10 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # In-cluster Traefik Service
+    # In-cluster Traefik — K3s's bundled Traefik runs rootless and listens on
+    # :8000 (web) and :8443 (websecure) inside the pod; Service ports 80/443
+    # are DNAT'd to these. NetworkPolicy filters AFTER DNAT, so allow the
+    # actual pod-listen ports.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -33,9 +36,9 @@ spec:
               app.kubernetes.io/name: traefik
       ports:
         - protocol: TCP
-          port: 80
+          port: 8000
         - protocol: TCP
-          port: 443
+          port: 8443
     # Cloudflare edge (IP allowlist; the full list is long — allow any destination on :443
     # within the cloudflared namespace scope and rely on the above rules to keep traffic local.
     # Since K8s NetworkPolicy cannot match by destination hostname, use a broad rule for public 443.
