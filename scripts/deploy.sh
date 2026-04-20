@@ -17,10 +17,17 @@ echo ""
 : "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
-# Phase 7.1: Discord webhook URLs for Alertmanager critical / warning channels.
-# Create webhooks in Discord -> Channel Settings -> Integrations -> Webhooks.
 : "${DISCORD_WEBHOOK_URL_CRITICAL:?DISCORD_WEBHOOK_URL_CRITICAL must be set — webhook URL for #lolday-alerts-critical}"
 : "${DISCORD_WEBHOOK_URL_WARNING:?DISCORD_WEBHOOK_URL_WARNING must be set — webhook URL for #lolday-alerts-warning}"
+# Reject obvious typos / wrong-service pastes before kubectl apply. A malformed
+# webhook URL silently creates a Secret that only fails at alert-dispatch time
+# (Discord returns 401), defeating "alerts must reach the human".
+for _var in DISCORD_WEBHOOK_URL_CRITICAL DISCORD_WEBHOOK_URL_WARNING; do
+  _url="${!_var}"
+  [[ "$_url" =~ ^https://(discord\.com|discordapp\.com)/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$ ]] \
+    || { echo "  ERROR: $_var is not a valid Discord webhook URL shape" >&2; exit 1; }
+done
+unset _var _url
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
 BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase6.3}

@@ -41,9 +41,7 @@ spec:
           sendResolved: true
           title: '🚨 [CRITICAL] {{`{{ .GroupLabels.alertname }}`}}'
           message: '{{`{{ template "discord.default.message" . }}`}}'
-          # @here on the content field triggers a Discord mention push (channel
-          # notification). Supported from Alertmanager v0.28+; the AC CR proxies
-          # this through to the rendered runtime config.
+          # @here triggers a Discord channel mention push (requires Alertmanager v0.28+).
           content: '@here'
     - name: discord-warning
       discordConfigs:

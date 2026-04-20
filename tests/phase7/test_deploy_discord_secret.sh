@@ -41,6 +41,20 @@ grep -qE "from-literal=webhook-url-warning=" "$DEPLOY" \
   || fail "Secret create missing --from-literal=webhook-url-warning=..."
 pass "Secret includes both webhook-url-critical and webhook-url-warning"
 
+# Pin variable interpolation so a crit↔warn copy-paste swap false-fails the test
+# instead of shipping a Secret with the wrong URL in each key.
+grep -qE 'from-literal=webhook-url-critical="\$DISCORD_WEBHOOK_URL_CRITICAL"' "$DEPLOY" \
+  || fail "webhook-url-critical must interpolate \$DISCORD_WEBHOOK_URL_CRITICAL (guards against crit↔warn swap)"
+grep -qE 'from-literal=webhook-url-warning="\$DISCORD_WEBHOOK_URL_WARNING"' "$DEPLOY" \
+  || fail "webhook-url-warning must interpolate \$DISCORD_WEBHOOK_URL_WARNING"
+pass "Secret create uses correct env var per key (no swap)"
+
+# Webhook URL shape validation (regex gate) must run before kubectl create —
+# catches typos / wrong-service pastes before they produce a silent Secret.
+grep -qE "discord\\\\\\.com.*discordapp\\\\\\.com.*api/webhooks" "$DEPLOY" \
+  || fail "deploy.sh must regex-validate DISCORD_WEBHOOK_URL_{CRITICAL,WARNING} before kubectl create (catches typos)"
+pass "Discord URL shape validation present"
+
 grep -qE "dry-run=client.*\|.*kubectl apply" "$DEPLOY" \
   || fail "Secret create should pipe through 'kubectl ... --dry-run=client -o yaml | kubectl apply -f -' for idempotency"
 pass "Secret create is idempotent (dry-run piped to apply)"

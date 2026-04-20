@@ -260,12 +260,13 @@ kps:
               requests:
                 storage: 2Gi
       # Phase 7.1: Discord receivers live in an AlertmanagerConfig CR (see
-      # templates/monitoring/alertmanager-config-discord.yaml), NOT inline.
-      # Prometheus Operator v0.86.2's inline-config validator does not yet mirror
-      # Alertmanager v0.28+ `webhook_url_file` for discord_configs; the AC CRD
-      # v1alpha1 natively supports `apiURL` as a SecretKeySelector, which keeps
-      # webhook URLs in the `alertmanager-discord` Secret only (created by
-      # scripts/deploy.sh from ~/.lolday-secrets.env) — never in helm release state.
+      # templates/monitoring/alertmanager-config-discord.yaml), NOT inline. The AC
+      # CRD's `apiURL` SecretKeySelector keeps webhook URLs in the
+      # `alertmanager-discord` Secret (created by scripts/deploy.sh from
+      # ~/.lolday-secrets.env) — never in git, values.yaml, or helm release state.
+      # This also works around Prometheus Operator v0.86.2's inline-config
+      # validator rejecting `webhook_url_file` on discord_configs (field added in
+      # Alertmanager v0.28 but not yet in the operator's Go types).
       alertmanagerConfigSelector:
         matchLabels:
           lolday-alertmanager-config: discord

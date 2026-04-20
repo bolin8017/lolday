@@ -129,6 +129,20 @@ assert_eq '.spec.route.routes[] | select(.receiver == "discord-warning") | .matc
   "warning sub-route matcher[0].matchType must be '='"
 pass "warning sub-route: severity=warning → discord-warning"
 
+# Default receiver pin — unlabeled / unknown-severity alerts must fall through to
+# discord-warning so no alert silently black-holes. A refactor to 'null' here would
+# swallow the whole class.
+assert_eq '.spec.route.receiver' 'discord-warning' \
+  "AC CR default route.receiver must be discord-warning (fall-through for alerts without severity=critical|warning)"
+pass "AC CR default route falls through to discord-warning"
+
+# Routing timings pinned — regression to the Phase 6 'repeat_interval: 12h' or
+# similar degrades UX without breaking structure; pin the current tuned values.
+assert_eq '.spec.route.groupWait' '30s' "AC CR route.groupWait must stay 30s"
+assert_eq '.spec.route.groupInterval' '5m' "AC CR route.groupInterval must stay 5m"
+assert_eq '.spec.route.repeatInterval' '4h' "AC CR route.repeatInterval must stay 4h"
+pass "AC CR routing timings pinned (30s / 5m / 4h)"
+
 # --- Step 6: Alertmanager CR has matching selector + matcherStrategy ---
 yq eval-all 'select(.kind == "Alertmanager")' "$TMPDIR/rendered.yaml" > "$TMPDIR/am_cr.yaml"
 [ -s "$TMPDIR/am_cr.yaml" ] || fail "Alertmanager CR not rendered"
@@ -137,11 +151,15 @@ assert_eq '.spec.alertmanagerConfigSelector.matchLabels."lolday-alertmanager-con
   'discord' \
   "Alertmanager CR must select AC CRs with label lolday-alertmanager-config=discord" \
   "$TMPDIR/am_cr.yaml"
+assert_eq '.spec.alertmanagerConfigNamespaceSelector.matchLabels."kubernetes.io/metadata.name"' \
+  'monitoring' \
+  "alertmanagerConfigNamespaceSelector must pin monitoring ns — without it the operator finds no AC CRs and Discord delivery silently dies" \
+  "$TMPDIR/am_cr.yaml"
 assert_eq '.spec.alertmanagerConfigMatcherStrategy.type' \
   'None' \
   "alertmanagerConfigMatcherStrategy.type must be 'None' (so AC CR sub-route matchers are not wrapped in ns filter)" \
   "$TMPDIR/am_cr.yaml"
-pass "Alertmanager CR: configSelector + matcherStrategy=None"
+pass "Alertmanager CR: configSelector + nsSelector=monitoring + matcherStrategy=None"
 
 # --- Step 7: inline kps-generated alertmanager.yaml is minimal (no Discord inline) ---
 am_b64="$(
@@ -163,6 +181,25 @@ if grep -q "discord_configs:" "$TMPDIR/inline.yaml"; then
 fi
 pass "no discord_configs in inline config"
 
+# webhook_url_file / plain webhook_url forbid in inline — reintroducing either
+# would either re-trigger the Operator v0.86.2 validator reject (webhook_url_file)
+# or leak the URL into the kps-generated Secret (webhook_url).
+if grep -qE "^[[:space:]]*webhook_url_file:" "$TMPDIR/inline.yaml"; then
+  fail "inline config must not use webhook_url_file — operator v0.86.2 rejects it on discord_configs"
+fi
+if grep -qE "^[[:space:]]*webhook_url:" "$TMPDIR/inline.yaml"; then
+  fail "inline config must not use plain webhook_url — URL must stay in Secret via AC CR apiURL"
+fi
+pass "no webhook_url_file / webhook_url in inline config"
+
+# Strongest invariant: no real Discord webhook URL anywhere in the rendered chart
+# (should live ONLY in the out-of-band alertmanager-discord Secret, which is NOT
+# templated from the chart — it's kubectl-applied by deploy.sh from env vars).
+if grep -qE 'https://discord(app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+' "$TMPDIR/rendered.yaml"; then
+  fail "real Discord webhook URL leaked into rendered chart — must stay in out-of-band Secret only"
+fi
+pass "no Discord webhook URL in rendered chart"
+
 # --- Step 8: minimal inline config still passes amtool ---
 if amtool check-config "$TMPDIR/inline.yaml" >"$TMPDIR/amtool.out" 2>&1; then
   pass "amtool check-config passed on minimal inline config"
@@ -170,6 +207,23 @@ else
   cat "$TMPDIR/amtool.out" >&2
   fail "amtool check-config failed"
 fi
+
+# --- Step 9: Grafana 12 init-chown-data regression pin ---
+# Grafana chart 12.x ships init-chown with `capabilities.drop: [ALL]`, losing
+# DAC_OVERRIDE, so it fails `chown` on an upgraded PVC — the container
+# CrashLoopBackOffs the whole Grafana Deployment. We disable it via values and
+# rely on fsGroup: 472 for ownership. A future values-cleanup or chart bump that
+# reverts `initChownData.enabled: false` would silently regress.
+grafana_init_chown="$(
+  yq eval-all '
+    select(.kind == "Deployment" and .metadata.name == "lolday-grafana")
+    | .spec.template.spec.initContainers[]?
+    | select(.name == "init-chown-data")
+  ' "$TMPDIR/rendered.yaml"
+)"
+[ -z "$grafana_init_chown" ] \
+  || fail "Grafana Deployment still renders init-chown-data — v12 chart will CrashLoopBackOff on upgraded PVC (capabilities.drop:[ALL] removes DAC_OVERRIDE; fsGroup handles ownership)"
+pass "Grafana init-chown-data disabled (chart 12.x regression pin)"
 
 echo ""
 echo "All assertions passed."
