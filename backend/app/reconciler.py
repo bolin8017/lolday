@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import async_session_maker
+from app.metrics import BACKEND_ERRORS
 from app.models.detector import (
     DetectorBuild,
     DetectorBuildStatus,
@@ -28,6 +29,10 @@ IN_FLIGHT = {
     DetectorBuildStatus.BUILDING,
     DetectorBuildStatus.SCANNING,
 }
+
+# Loop tuning. Module-level so tests can monkeypatch to collapse iteration time.
+SYNC_EVERY_N_ITERATIONS = 6
+RECONCILER_WAIT_SECONDS = 10
 
 
 async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
@@ -222,6 +227,7 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                     try:
                         await reconcile_build(session, b)
                     except Exception:
+                        BACKEND_ERRORS.labels(stage="reconcile_build").inc()
                         logger.exception("reconcile_build failed", extra={"build_id": str(b.id)})
 
                 # Job reconcile pass (Phase 4)
@@ -232,18 +238,21 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                     try:
                         await reconcile_job(session, j)
                     except Exception:
+                        BACKEND_ERRORS.labels(stage="reconcile_job").inc()
                         logger.exception("reconcile_job failed", extra={"job_id": str(j.id)})
 
-                # Model version sync every 6 iterations (~60s)
-                if iteration % 6 == 0:
+                # Model version sync every N iterations (~60s at default N=6)
+                if iteration % SYNC_EVERY_N_ITERATIONS == 0:
                     try:
                         await sync_model_versions(session)
                     except Exception:
+                        BACKEND_ERRORS.labels(stage="sync_model_versions").inc()
                         logger.exception("sync_model_versions failed")
         except Exception:
+            BACKEND_ERRORS.labels(stage="reconciler_iteration").inc()
             logger.exception("reconciler iteration failed")
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=10)
+            await asyncio.wait_for(stop_event.wait(), timeout=RECONCILER_WAIT_SECONDS)
         except asyncio.TimeoutError:
             pass
     logger.info("reconciler stopped")
@@ -348,6 +357,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
         try:
             await _register_model_from_job(session, client, j)
         except Exception:
+            BACKEND_ERRORS.labels(stage="model_registration").inc()
             logger.exception("model registration failed for job %s", j.id)
 
     await session.commit()

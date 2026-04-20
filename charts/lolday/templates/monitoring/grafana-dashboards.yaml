@@ -14,4 +14,6 @@ data:
     {{ .Files.Get "dashboards/traefik.json" | nindent 4 }}
   postgresql.json: |-
     {{ .Files.Get "dashboards/postgresql.json" | nindent 4 }}
+  reconciler-errors.json: |-
+    {{ .Files.Get "dashboards/reconciler-errors.json" | nindent 4 }}
 {{- end }}

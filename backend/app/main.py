@@ -58,6 +58,8 @@ async def lifespan(app: FastAPI):
         from app.services.harbor_init import init_harbor
         await init_harbor()
     except Exception:
+        from app.metrics import BACKEND_ERRORS
+        BACKEND_ERRORS.labels(stage="harbor_init").inc()
         logger.exception("harbor init failed — continuing, build pipeline may not work")
 
     reconciler_task: asyncio.Task | None = None
