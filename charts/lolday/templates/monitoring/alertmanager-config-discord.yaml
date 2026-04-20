@@ -1,0 +1,56 @@
+{{- if .Values.monitoring.enabled }}
+# Phase 7.1 — Discord receivers via AlertmanagerConfig CRD.
+#
+# Picked up by Alertmanager through `alertmanagerConfigSelector.matchLabels` +
+# `alertmanagerConfigNamespaceSelector` in values.yaml under kps.alertmanager.alertmanagerSpec.
+# Webhook URLs are NOT stored in this CR — they live only in the Secret
+# `alertmanager-discord` (created by scripts/deploy.sh from DISCORD_WEBHOOK_URL_*
+# env vars in ~/.lolday-secrets.env), referenced below via apiURL.name / apiURL.key.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: discord-receivers
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    lolday-alertmanager-config: discord
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  route:
+    receiver: discord-warning
+    groupBy: [alertname, severity]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 4h
+    routes:
+      - receiver: discord-critical
+        matchers:
+          - name: severity
+            value: critical
+            matchType: "="
+      - receiver: discord-warning
+        matchers:
+          - name: severity
+            value: warning
+            matchType: "="
+  receivers:
+    - name: discord-critical
+      discordConfigs:
+        - apiURL:
+            name: alertmanager-discord
+            key: webhook-url-critical
+          sendResolved: true
+          title: '🚨 [CRITICAL] {{`{{ .GroupLabels.alertname }}`}}'
+          message: '{{`{{ template "discord.default.message" . }}`}}'
+          # @here on the content field triggers a Discord mention push (channel
+          # notification). Supported from Alertmanager v0.28+; the AC CR proxies
+          # this through to the rendered runtime config.
+          content: '@here'
+    - name: discord-warning
+      discordConfigs:
+        - apiURL:
+            name: alertmanager-discord
+            key: webhook-url-warning
+          sendResolved: true
+          title: '⚠️ [WARNING] {{`{{ .GroupLabels.alertname }}`}}'
+          message: '{{`{{ template "discord.default.message" . }}`}}'
+{{- end }}

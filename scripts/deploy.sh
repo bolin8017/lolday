@@ -17,6 +17,10 @@ echo ""
 : "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
+# Phase 7.1: Discord webhook URLs for Alertmanager critical / warning channels.
+# Create webhooks in Discord -> Channel Settings -> Integrations -> Webhooks.
+: "${DISCORD_WEBHOOK_URL_CRITICAL:?DISCORD_WEBHOOK_URL_CRITICAL must be set — webhook URL for #lolday-alerts-critical}"
+: "${DISCORD_WEBHOOK_URL_WARNING:?DISCORD_WEBHOOK_URL_WARNING must be set — webhook URL for #lolday-alerts-warning}"
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
 BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase6.3}
@@ -71,6 +75,16 @@ KPS_CRD_DIR=$(mktemp -d)
 tar xzf "$KPS_TGZ" -C "$KPS_CRD_DIR"
 kubectl apply --server-side -f "$KPS_CRD_DIR"/kube-prometheus-stack/charts/crds/crds/
 rm -rf "$KPS_CRD_DIR"
+
+# Phase 7.1: Alertmanager Discord webhook Secret. Referenced by the
+# AlertmanagerConfig CR `discord-receivers` (see templates/monitoring/alertmanager-config-discord.yaml)
+# via apiURL.name/key SecretKeySelector, so the Prometheus Operator resolves
+# these webhook URLs when building the runtime Alertmanager config. Must exist
+# in the monitoring ns (same as Alertmanager pod + AC CR) before helm upgrade.
+kubectl -n monitoring create secret generic alertmanager-discord \
+  --from-literal=webhook-url-critical="$DISCORD_WEBHOOK_URL_CRITICAL" \
+  --from-literal=webhook-url-warning="$DISCORD_WEBHOOK_URL_WARNING" \
+  --dry-run=client -o yaml | kubectl apply -f -
 echo "  Namespaces ready"
 echo ""
 

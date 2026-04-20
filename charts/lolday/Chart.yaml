@@ -2,8 +2,8 @@ apiVersion: v2
 name: lolday
 description: ISLab Malware Detector Management Platform
 type: application
-version: 0.4.0
-appVersion: "0.4.0"
+version: 0.5.0
+appVersion: "0.5.0"
 
 dependencies:
   - name: harbor
@@ -11,7 +11,7 @@ dependencies:
     repository: https://helm.goharbor.io
     condition: harbor.enabled
   - name: kube-prometheus-stack
-    version: "~60.0.0"
+    version: "~79.12.0"
     repository: https://prometheus-community.github.io/helm-charts
     alias: kps
     condition: monitoring.enabled
