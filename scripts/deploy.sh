@@ -15,9 +15,11 @@ echo ""
 : "${ADMIN_EMAIL:?ADMIN_EMAIL must be set (e.g. admin@lolday.dev)}"
 : "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}"
 : "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
+: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
+: "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
-BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase4}
+BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase6}
 FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase5}
 
 # Pre-flight
@@ -63,6 +65,8 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set frontend.image="$FRONTEND_IMAGE" \
   --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
+  --set monitoring.grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD" \
+  --set monitoring.postgresExporter.password="$PG_EXPORTER_PASSWORD" \
   --wait --timeout 10m
 
 echo ""
