@@ -17,9 +17,9 @@ metadata:
   name: postgres-exporter
   namespace: {{ .Values.global.namespace }}
   labels:
+    {{- include "lolday.labels" . | nindent 4 }}
     app.kubernetes.io/name: postgres-exporter
     app.kubernetes.io/component: postgres-exporter
-    {{- include "lolday.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -70,8 +70,8 @@ metadata:
   name: postgres-exporter
   namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: postgres-exporter
     {{- include "lolday.labels" . | nindent 4 }}
+    app.kubernetes.io/name: postgres-exporter
 spec:
   selector:
     app.kubernetes.io/name: postgres-exporter
