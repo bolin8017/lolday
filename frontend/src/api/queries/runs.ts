@@ -1,0 +1,51 @@
+import { useQuery } from "@tanstack/react-query";
+import { client } from "@/api/client";
+
+export const runsKeys = {
+  experiments: ["runs", "experiments"] as const,
+  experimentRuns: (expId: string) => ["runs", "experiment", expId, "runs"] as const,
+  run: (runId: string) => ["runs", "run", runId] as const,
+  artifacts: (runId: string, path: string | null) => ["runs", "run", runId, "artifacts", path ?? ""] as const,
+};
+
+export function useExperiments() {
+  return useQuery({
+    queryKey: runsKeys.experiments,
+    queryFn: async () => {
+      const { data, error } = await client.GET("/api/v1/experiments");
+      if (error) throw error;
+      return data as { experiment_id: string; name: string; artifact_location?: string }[];
+    },
+  });
+}
+
+export function useExperimentRuns(expId: string) {
+  return useQuery({
+    queryKey: runsKeys.experimentRuns(expId),
+    queryFn: async () => {
+      const { data, error } = await client.GET("/api/v1/experiments/{experiment_id}/runs", {
+        params: { path: { experiment_id: expId } },
+      });
+      if (error) throw error;
+      return data as {
+        run_id: string; run_name?: string; status: string; start_time?: number; end_time?: number;
+        metrics?: Record<string, number>; params?: Record<string, string>; tags?: Record<string, string>;
+      }[];
+    },
+    enabled: Boolean(expId),
+  });
+}
+
+export function useRun(runId: string) {
+  return useQuery({
+    queryKey: runsKeys.run(runId),
+    queryFn: async () => {
+      const { data, error } = await client.GET("/api/v1/runs/{run_id}", {
+        params: { path: { run_id: runId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    enabled: Boolean(runId),
+  });
+}

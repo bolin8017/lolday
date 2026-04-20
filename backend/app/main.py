@@ -14,7 +14,7 @@ from app.models import Base, Role, User
 from app.reconciler import reconciler_loop
 from app.routers import admin, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
 from app.schemas import AdminUserUpdate, UserCreate, UserRead, UserUpdate
-from app.users import auth_backend, fastapi_users, UserManager
+from app.users import auth_backend, cookie_auth_backend, fastapi_users, UserManager
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(
     fastapi_users.get_auth_router(auth_backend),
     prefix="/api/v1/auth",
+    tags=["auth"],
+)
+app.include_router(
+    fastapi_users.get_auth_router(cookie_auth_backend),
+    prefix="/api/v1/auth/cookie",
     tags=["auth"],
 )
 app.include_router(

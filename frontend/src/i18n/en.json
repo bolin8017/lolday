@@ -1,0 +1,42 @@
+{
+  "app": { "name": "Lolday" },
+  "nav": {
+    "detectors": "Detectors",
+    "datasets": "Datasets",
+    "jobs": "Jobs",
+    "runs": "Runs",
+    "models": "Models",
+    "profile": "Profile",
+    "logout": "Log out"
+  },
+  "login": {
+    "title": "Sign in to Lolday",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in",
+    "invalidCredentials": "Invalid email or password.",
+    "rateLimited": "Too many attempts. Try again in a moment."
+  },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "loading": "Loading…",
+    "noData": "No data.",
+    "error": "Error",
+    "retry": "Retry"
+  },
+  "status": {
+    "pending": "Pending",
+    "preparing": "Preparing",
+    "running": "Running",
+    "succeeded": "Succeeded",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "timeout": "Timed out",
+    "scanning": "Scanning",
+    "building": "Building",
+    "success": "Success"
+  }
+}

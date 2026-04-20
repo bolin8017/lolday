@@ -18,6 +18,7 @@ echo ""
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
 BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase4}
+FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase5}
 
 # Pre-flight
 echo "[1/4] Pre-flight checks..."
@@ -59,6 +60,7 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set backend.fernetKey="$FERNET_KEY" \
   --set backend.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set backend.image="$BACKEND_IMAGE" \
+  --set frontend.image="$FRONTEND_IMAGE" \
   --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
   --wait --timeout 10m
