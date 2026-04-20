@@ -109,12 +109,25 @@ async def test_search_registered_models_paginates():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_search_model_versions():
-    respx.post("http://mlflow/api/2.0/mlflow/model-versions/search").mock(
+async def test_search_model_versions_uses_get_with_query_params():
+    """MLflow 2.20 /api/2.0/mlflow/model-versions/search is GET-only; POST returns 405.
+
+    Regression guard: earlier code sent POST with a JSON body and silently raised
+    MlflowError("UNKNOWN: 405 Method Not Allowed") on every reconciler iteration.
+    """
+    route = respx.get("http://mlflow/api/2.0/mlflow/model-versions/search").mock(
         return_value=httpx.Response(200, json=MODEL_VERSIONS_SEARCH)
     )
     c = MlflowClient("http://mlflow")
-    versions = await c.search_model_versions(filter_string="name = 'upxelfdet'")
+    versions = await c.search_model_versions(filter_string="name = 'upxelfdet'", max_results=200)
+
+    assert route.called
+    sent = route.calls.last.request
+    assert sent.method == "GET"
+    qs = sent.url.params
+    assert qs["filter"] == "name = 'upxelfdet'"
+    assert qs["max_results"] == "200"
+    assert sent.read() == b""  # no body on GET
     assert len(versions) == 1
 
 
