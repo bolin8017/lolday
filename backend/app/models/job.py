@@ -39,6 +39,36 @@ NON_TERMINAL_STATUSES = frozenset({
 
 class ResourceProfile(str, enum.Enum):
     STANDARD = "standard"
+    GPU2 = "gpu2"
+
+    @property
+    def gpu_count(self) -> int:
+        """GPUs allocated by build_volcano_job_manifest for this profile.
+
+        Carried on the enum (not a module-level dict) so a new enum value
+        added without the corresponding allocation entry fails loudly at
+        import time rather than with a KeyError on the first reconcile
+        tick against a persisted Job row.
+        """
+        return _RESOURCE_PROFILE_GPU_COUNT[self]
+
+
+# Kept as a frozen module-level constant (via MappingProxyType) instead of
+# a plain dict so accidental `RESOURCE_PROFILE_GPU_COUNT[x] = 99` at
+# runtime raises TypeError. Verified total against the enum below.
+from types import MappingProxyType  # noqa: E402 — kept adjacent to the map
+
+_RESOURCE_PROFILE_GPU_COUNT: "MappingProxyType[ResourceProfile, int]" = MappingProxyType({
+    ResourceProfile.STANDARD: 1,
+    ResourceProfile.GPU2: 2,
+})
+assert set(_RESOURCE_PROFILE_GPU_COUNT.keys()) == set(ResourceProfile), (
+    "RESOURCE_PROFILE map not total over ResourceProfile — adding an enum "
+    "value without updating the map would silently break scheduling."
+)
+
+# Public alias preserves the Phase 8 import site (services/job_spec.py).
+RESOURCE_PROFILE_GPU_COUNT = _RESOURCE_PROFILE_GPU_COUNT
 
 
 class Job(Base):

@@ -104,6 +104,46 @@ async def test_set_retention_policy_creates_when_no_retention_id():
 
 
 @pytest.mark.asyncio
+async def test_trigger_scan_202_returns_none():
+    """Contract: returns None on success; raises on failure."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.post(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x/scan"
+        ).mock(return_value=httpx.Response(202))
+        client = HarborClient("http://harbor", "admin", "pw")
+        assert await client.trigger_scan("detectors", "foo", "sha256:x") is None
+
+
+@pytest.mark.asyncio
+async def test_trigger_scan_409_treated_as_success():
+    """Harbor returns 409 if another caller already queued a scan for the
+    same digest. Idempotent no-op, not a raise, or concurrent reconciler
+    replicas would churn indefinitely.
+    """
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.post(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x/scan"
+        ).mock(return_value=httpx.Response(409, json={"errors": [{"code": "CONFLICT"}]}))
+        client = HarborClient("http://harbor", "admin", "pw")
+        assert await client.trigger_scan("detectors", "foo", "sha256:x") is None
+
+
+@pytest.mark.asyncio
+async def test_trigger_scan_500_raises_so_reconciler_can_log():
+    """A Harbor 500 must surface as httpx.HTTPStatusError. Silencing it
+    reproduces the exact "build stuck at scanning forever" class of bug
+    the reconciler hook was added to prevent.
+    """
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.post(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x/scan"
+        ).mock(return_value=httpx.Response(500))
+        client = HarborClient("http://harbor", "admin", "pw")
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.trigger_scan("detectors", "foo", "sha256:x")
+
+
+@pytest.mark.asyncio
 async def test_get_scan_unknown_status_falls_back_to_error():
     with respx.mock(base_url="http://harbor") as mock:
         mock.get(

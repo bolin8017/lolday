@@ -1,10 +1,12 @@
 from uuid import uuid4
 
 from app.services.build import (
+    JOB_TTL_SECONDS,
+    _slugify,
     build_git_credential_secret,
+    build_job_name,
     build_job_spec,
 )
-from app.services.build import _slugify, build_job_name
 
 
 def test_job_spec_has_three_containers_and_security():
@@ -30,7 +32,9 @@ def test_job_spec_has_three_containers_and_security():
         assert sc["capabilities"]["drop"] == ["ALL"]
 
     assert job["spec"]["activeDeadlineSeconds"] == 1200
-    assert job["spec"]["ttlSecondsAfterFinished"] == 604800
+    # Contract: spec reflects the module constant — don't hardcode the
+    # value so tuning JOB_TTL_SECONDS doesn't require a test update.
+    assert job["spec"]["ttlSecondsAfterFinished"] == JOB_TTL_SECONDS
     assert job["spec"]["backoffLimit"] == 0
 
 
@@ -86,3 +90,25 @@ def test_build_job_name_k8s_safe():
     assert len(name) <= 63
     assert "." not in name
     assert name.startswith("build-upxelfdet-v0-1-0-")
+
+
+def test_build_containers_have_ephemeral_storage_limits():
+    """Without these, a runaway build (e.g. a DL-image layer) triggers
+    node-level eviction instead of just getting its own pod evicted.
+    Phase 8 run saw 5 failed DL build pods collectively fill 28Gi of node
+    ephemeral storage because none of the containers had the limit set.
+    """
+    job = build_job_spec(
+        build_id=uuid4(),
+        detector_name="x",
+        git_tag="v0.1.0",
+        owner_repo="o/x",
+    )
+    spec = job["spec"]["template"]["spec"]
+    for c in spec["initContainers"] + spec["containers"]:
+        assert "ephemeral-storage" in c["resources"]["requests"], (
+            f"{c['name']} missing ephemeral-storage request"
+        )
+        assert "ephemeral-storage" in c["resources"]["limits"], (
+            f"{c['name']} missing ephemeral-storage limit"
+        )

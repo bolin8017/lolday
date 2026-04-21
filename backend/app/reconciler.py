@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Callable
 
+import httpx
 from kubernetes.client import ApiException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -169,7 +170,30 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         return
 
     scan = await harbor.get_scan("detectors", detector.name, digest)
-    if scan.status in {ScanStatus.PENDING, ScanStatus.RUNNING, ScanStatus.NOT_SCANNED}:
+    if scan.status == ScanStatus.NOT_SCANNED:
+        # Harbor Scan-on-Push is a per-project toggle. We do not rely on it
+        # — the reconciler kicks the scan itself so a toggle flip (or a
+        # Harbor upgrade) cannot silently leave builds queued at
+        # NotScanned. Idempotent: Harbor returns 409 on a concurrent scan
+        # for the same digest, treated as success by trigger_scan. All
+        # other non-2xx responses + network errors raise httpx.HTTPError
+        # here.
+        try:
+            await harbor.trigger_scan("detectors", detector.name, digest)
+        except httpx.HTTPError as e:
+            BACKEND_ERRORS.labels(stage="harbor_trigger_scan").inc()
+            logger.warning(
+                "trigger_scan failed for build=%s detector=%s digest=%s: %s "
+                "(will retry next reconcile cycle)",
+                b.id, detector.name, digest, e,
+            )
+            # Do NOT flip to SCANNING — leave the build in its current status
+            # so the next loop pass re-enters this branch and retries.
+            return
+        b.status = DetectorBuildStatus.SCANNING
+        await session.commit()
+        return
+    if scan.status in {ScanStatus.PENDING, ScanStatus.RUNNING}:
         b.status = DetectorBuildStatus.SCANNING
         await session.commit()
         return
@@ -193,19 +217,74 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
             build_url=_ui_url(f"/detectors/{b.detector_id}"),
         ))
     else:
-        # record version
-        version = DetectorVersion(
-            detector_id=b.detector_id,
-            git_tag=b.git_tag,
-            git_sha=await _read_git_sha_from_log(b),
-            harbor_image=f"{settings.HARBOR_IMAGE_PREFIX}/detectors/{detector.name}:{b.git_tag}",
-            image_digest=digest,
-            config_schema=b.pending_schema or {},
-            status=DetectorVersionStatus.ACTIVE,
-        )
-        session.add(version)
+        # A DetectorVersion may already exist for this (detector_id, git_tag)
+        # from a prior build of the same tag. Two legitimate replay paths:
+        #
+        #   A. Long-stuck `scanning` build finishes after a newer build has
+        #      already produced the version row → same image, same digest.
+        #      Drop-in no-op; preserve existing version.
+        #   B. Git tag was force-pushed and a second build legitimately
+        #      produces a different artifact. We refuse to rebind the tag
+        #      silently — the build is marked FAILED with a clear reason
+        #      and the operator must bump the tag or delete the existing
+        #      version first. This surfaces the anomaly instead of handing
+        #      the user stale inference results.
+        existing_version = (await session.execute(
+            select(DetectorVersion).where(
+                DetectorVersion.detector_id == b.detector_id,
+                DetectorVersion.git_tag == b.git_tag,
+            )
+        )).scalar_one_or_none()
+        if existing_version is None:
+            version = DetectorVersion(
+                detector_id=b.detector_id,
+                git_tag=b.git_tag,
+                git_sha=await _read_git_sha_from_log(b),
+                harbor_image=f"{settings.HARBOR_IMAGE_PREFIX}/detectors/{detector.name}:{b.git_tag}",
+                image_digest=digest,
+                config_schema=b.pending_schema or {},
+                status=DetectorVersionStatus.ACTIVE,
+            )
+            session.add(version)
+            commit_sha = version.git_sha or ""
+            b.git_sha = commit_sha
+        else:
+            if existing_version.image_digest != digest:
+                BACKEND_ERRORS.labels(stage="detector_version_digest_mismatch").inc()
+                logger.warning(
+                    "digest divergence for (detector_id=%s, tag=%s): "
+                    "existing=%s new=%s — refusing to rebind",
+                    b.detector_id, b.git_tag,
+                    existing_version.image_digest, digest,
+                )
+                b.status = DetectorBuildStatus.FAILED
+                b.failure_reason = (
+                    f"tag {b.git_tag!r} already bound to digest "
+                    f"{existing_version.image_digest[:19]}…; refusing to rebind to "
+                    f"{digest[:19]}… — bump tag or delete existing version first"
+                )
+                b.finished_at = datetime.now(timezone.utc)
+                await session.commit()
+                user_name, discord_id = await _user_context(session, b.triggered_by_id)
+                label = await _detector_label(session, b.detector_id)
+                asyncio.create_task(notify_build_failed(
+                    user_name=user_name,
+                    user_discord_id=discord_id,
+                    detector_label=label,
+                    git_tag=b.git_tag,
+                    failure_reason=b.failure_reason,
+                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ))
+                await _cleanup_build_secret(b.id)
+                return
+            commit_sha = existing_version.git_sha or ""
+            b.git_sha = commit_sha
+            logger.warning(
+                "detector_version replay for (%s, %s) digest=%s — "
+                "idempotent no-op on the existing row",
+                b.detector_id, b.git_tag, digest,
+            )
         b.status = DetectorBuildStatus.SUCCEEDED
-        b.git_sha = version.git_sha
         b.trivy_critical = scan.critical
         b.trivy_high = scan.high
         b.finished_at = datetime.now(timezone.utc)
@@ -217,7 +296,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
             user_discord_id=discord_id,
             detector_label=label,
             git_tag=b.git_tag,
-            commit_sha=version.git_sha or "",
+            commit_sha=commit_sha,
             build_url=_ui_url(f"/detectors/{b.detector_id}"),
         ))
     await _cleanup_build_secret(b.id)
