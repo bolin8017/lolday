@@ -5,9 +5,11 @@ runtime, so migrations and runtime share a single source of truth for the
 connection URL. `target_metadata` is `app.models.Base.metadata`, aggregating
 every ORM model imported in `app.models.__init__`.
 
-The `postgresql+asyncpg://` URL used by the async runtime is automatically
-rewritten to the sync `postgresql+psycopg2://` driver — Alembic still runs
-its migrations synchronously even when the app is async.
+URL driver rewriting: URLs using the async driver prefix
+(`postgresql+asyncpg://`) are rewritten to the sync equivalent
+(`postgresql+psycopg2://`) for Alembic's sync engine. Any other URL shape
+(plain `postgresql://`, SQLite, etc.) is passed through unmodified —
+SQLAlchemy's default dispatch handles them.
 """
 from logging.config import fileConfig
 

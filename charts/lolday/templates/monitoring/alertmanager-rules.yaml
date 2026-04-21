@@ -65,7 +65,7 @@ spec:
         # to sample the age of Pending Volcano Jobs. Catches scheduler hangs,
         # webhook races, or orphan CRs without masking them with an autocronjob.
         - alert: VolcanoJobsStuckPending
-          expr: lolday_volcano_pending_stale_total > 5
+          expr: lolday_volcano_pending_stale > 5
           for: 10m
           labels:
             severity: warning

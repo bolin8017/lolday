@@ -39,19 +39,25 @@ spec:
       containers:
         - name: alembic
           image: {{ .Values.backend.image }}
-          imagePullPolicy: IfNotPresent
+          # Schema migrations must use the freshest bits — a tag re-pushed
+          # in place (e.g. `phase7.5` hotfix) would silently apply stale
+          # migrations under IfNotPresent.
+          imagePullPolicy: Always
           command: ["uv", "run", "alembic", "upgrade", "head"]
           env:
+            # Alembic only needs DATABASE_URL. `app.config.Settings` uses a
+            # default `FERNET_KEY: str = ""`, so importing `app.models` does
+            # NOT require the Fernet secret — the earlier env binding was a
+            # mis-attribution and also caused a fresh-install crash because
+            # `backend-fernet-key` (a normal template) doesn't exist when the
+            # pre-install hook fires.
+            #
+            # DATABASE_URL is rendered inline. The password also lives in the
+            # helm release Secret (same ns, same RBAC) so the hook manifest
+            # doesn't add any exposure beyond what `helm get manifest` already
+            # returns.
             - name: DATABASE_URL
               value: "postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@postgresql:5432/{{ .Values.postgresql.auth.database }}"
-            # Fernet + Harbor are irrelevant to alembic but the backend image
-            # refuses to import app.config without them. Keep these minimal —
-            # the Job only needs enough to import app.models.
-            - name: FERNET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: backend-fernet-key
-                  key: key
           resources:
             requests:
               cpu: 50m

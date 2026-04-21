@@ -17,6 +17,50 @@ from app.users import auth_backend, cookie_auth_backend, fastapi_users, UserMana
 logger = logging.getLogger(__name__)
 
 
+async def _assert_schema_at_head() -> None:
+    """Fail-fast if the DB's alembic revision doesn't match the code's.
+
+    Running against an older schema would 500 on any query referencing a
+    column the code assumes exists. Loud crash here halts the rollout so
+    k8s keeps the previous replica serving traffic.
+    """
+    import pathlib
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    try:
+        async with engine.begin() as conn:
+            current = (await conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            )).scalar_one_or_none()
+    except (ProgrammingError, OperationalError):
+        # Table doesn't exist — not an alembic-managed DB. Tests hit this
+        # path (SQLite + conftest's create_all) and skip the check.
+        return
+
+    if current is None:
+        return
+
+    ini_path = pathlib.Path(__file__).resolve().parent.parent / "alembic.ini"
+    if not ini_path.exists():
+        # Image didn't ship migrations (unlikely after Phase 7.5 Dockerfile);
+        # don't crash — just warn.
+        logger.warning("alembic.ini not found at %s — skipping schema head check", ini_path)
+        return
+    cfg = Config(str(ini_path))
+    cfg.set_main_option("script_location", str(ini_path.parent / "migrations"))
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+
+    if current != head:
+        raise RuntimeError(
+            f"DB schema mismatch: alembic_version={current!r}, code expects "
+            f"head={head!r}. The `alembic-upgrade` pre-upgrade hook either "
+            f"didn't run or rolled back. Investigate before rolling out."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Phase 7.4: flag misconfigured deploy before a user waits weeks for
@@ -30,7 +74,12 @@ async def lifespan(app: FastAPI):
     # Phase 7.5: schema is managed by Alembic via the `alembic-upgrade` helm
     # pre-upgrade hook Job (templates/alembic-upgrade-hook.yaml). The previous
     # `Base.metadata.create_all` here couldn't ALTER existing tables and
-    # silently masked schema drift on column additions.
+    # silently masked schema drift on column additions. Verify the hook
+    # actually ran to head — otherwise this pod would 500 on queries that
+    # reference new columns, and k8s readiness would pass until traffic hits.
+    # Skip gracefully when alembic_version is absent (tests: SQLite create_all;
+    # fresh install before stamp).
+    await _assert_schema_at_head()
     if settings.FIRST_ADMIN_EMAIL and settings.FIRST_ADMIN_PASSWORD:
         async with async_session_maker() as session:
             result = await session.execute(

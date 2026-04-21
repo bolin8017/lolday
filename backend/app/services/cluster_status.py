@@ -14,12 +14,13 @@ handful of users would multiply list_pod_for_all_namespaces traffic by N.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from cachetools import TTLCache, cached
 
 from app.config import settings
-from app.metrics import VOLCANO_PENDING_STALE
+from app.metrics import BACKEND_ERRORS, VOLCANO_PENDING_STALE
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
@@ -27,6 +28,8 @@ from app.services.k8s import (
     core_v1,
     volcano_v1alpha1,
 )
+
+logger = logging.getLogger(__name__)
 
 GPU_RESOURCE = "nvidia.com/gpu"
 DEFAULT_QUEUE = "lolday-training"
@@ -91,25 +94,45 @@ def get_queue_depth(queue_name: str = DEFAULT_QUEUE) -> int:
     jobs = _list_queue_jobs(queue_name)
     non_terminal = [j for j in jobs if _phase(j) not in _TERMINAL_PHASES]
 
-    # Side-effect: also refresh the stale-Pending gauge so a Prometheus alert
-    # can fire if the scheduler is hung. Cheap because the job list is already
-    # in hand, and only runs once per 10s per queue thanks to the TTL cache.
-    cutoff = datetime.now(timezone.utc).timestamp() - VOLCANO_STALE_SECONDS
-    stale = 0
-    for j in non_terminal:
-        if _phase(j) not in _PENDING_PHASES:
-            continue  # Running is expected-pending-turned-active; don't flag
-        created = (j.get("metadata") or {}).get("creationTimestamp")
-        if created and _parse_iso8601(created).timestamp() < cutoff:
-            stale += 1
-    VOLCANO_PENDING_STALE.set(stale)
+    # Side-effect: refresh the stale-Pending gauge so a Prometheus alert can
+    # fire if the scheduler is hung. Any failure here (malformed timestamp,
+    # unexpected CR shape) must NOT propagate or the gauge would stick at its
+    # last value — a frozen gauge is invisible to the alert rule, so a real
+    # scheduler outage would look like "all OK" until the next clean read.
+    # Instead, count what we can and let per-job errors degrade gracefully.
+    try:
+        cutoff = datetime.now(timezone.utc).timestamp() - VOLCANO_STALE_SECONDS
+        stale = 0
+        for j in non_terminal:
+            if _phase(j) not in _PENDING_PHASES:
+                continue  # Running is expected-pending-turned-active; don't flag
+            created = (j.get("metadata") or {}).get("creationTimestamp")
+            parsed = _parse_iso8601(created)
+            if parsed is not None and parsed.timestamp() < cutoff:
+                stale += 1
+        VOLCANO_PENDING_STALE.set(stale)
+    except Exception:
+        BACKEND_ERRORS.labels(stage="queue_stale_gauge").inc()
+        logger.exception("stale-gauge refresh failed (queue=%s)", queue_name)
 
     return len(non_terminal)
 
 
-def _parse_iso8601(s: str) -> datetime:
-    """Parse the RFC3339 form k8s emits (`2026-04-21T01:00:00Z`)."""
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+def _parse_iso8601(s: str | None) -> datetime | None:
+    """Parse the RFC3339 form k8s emits (e.g. `2026-04-21T01:00:00Z`).
+
+    Returns `None` on any unparseable input so callers can skip the bad row
+    without propagating. A single malformed `creationTimestamp` in the
+    Volcano CR list must not poison the entire `get_queue_depth` call.
+    """
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        BACKEND_ERRORS.labels(stage="queue_stale_parse").inc()
+        logger.warning("unparseable k8s creationTimestamp: %r", s)
+        return None
 
 
 def get_job_queue_position(
