@@ -37,7 +37,7 @@ export function useClusterQueueDepth() {
   });
 }
 
-export function useJobQueuePosition(jobId: string, enabled: boolean) {
+export function useJobQueuePosition(jobId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: clusterKeys.jobPosition(jobId),
     enabled: enabled && Boolean(jobId),

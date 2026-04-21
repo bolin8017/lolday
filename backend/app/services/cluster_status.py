@@ -1,13 +1,20 @@
 """Cluster-level status queries for the lolday UI.
 
-GPU allocation semantics intentionally reflect the *scheduler's* view
-(node allocatable − sum of Running pod GPU limits), not the device
-utilization sampled by DCGM. That answers the user question "can my job
-start right now?" — a GPU that's reserved but idling kernels is still
-unavailable to a new pod.
+GPU allocation answers "can my job start right now?" — we sum
+node-level `allocatable."nvidia.com/gpu"` and subtract the same resource
+from Running pods' container limits. For `nvidia.com/gpu` the device
+plugin enforces `requests == limits`, so this matches what the scheduler
+sees; using limits lets us share one code path with CPU/RAM accounting
+should we extend it later.
+
+Results are memoised with a 10 s TTL cache — `/cluster/gpu-status`
+is polled every 15 s per logged-in UI client, so without the cache a
+handful of users would multiply list_pod_for_all_namespaces traffic by N.
 """
 
 from __future__ import annotations
+
+from cachetools import TTLCache, cached
 
 from app.config import settings
 from app.services.k8s import (
@@ -21,6 +28,10 @@ from app.services.k8s import (
 GPU_RESOURCE = "nvidia.com/gpu"
 DEFAULT_QUEUE = "lolday-training"
 _TERMINAL_PHASES = {"Completed", "Failed", "Aborted", "Terminated"}
+_PENDING_PHASES = {"Pending", "Inqueue", None, ""}
+
+_gpu_cache: TTLCache = TTLCache(maxsize=1, ttl=10)
+_queue_cache: TTLCache = TTLCache(maxsize=8, ttl=10)
 
 
 def _int_from_quantity(value: str | int | None) -> int:
@@ -32,6 +43,7 @@ def _int_from_quantity(value: str | int | None) -> int:
         return 0
 
 
+@cached(_gpu_cache)
 def get_gpu_allocation() -> dict:
     c = core_v1()
     total = 0
@@ -67,6 +79,7 @@ def _phase(job: dict) -> str | None:
     return ((job.get("status") or {}).get("state") or {}).get("phase")
 
 
+@cached(_queue_cache)
 def get_queue_depth(queue_name: str = DEFAULT_QUEUE) -> int:
     return sum(
         1 for j in _list_queue_jobs(queue_name)
@@ -78,8 +91,9 @@ def get_job_queue_position(
     k8s_job_name: str,
     queue_name: str = DEFAULT_QUEUE,
 ) -> int | None:
-    pending_phases = {"Pending", "Inqueue", None, ""}
-    pending = [j for j in _list_queue_jobs(queue_name) if _phase(j) in pending_phases]
+    # Not cached: result is per-job and queue_name + name uniqueness would
+    # require a per-(queue,name) key, which blows up the cache for little gain.
+    pending = [j for j in _list_queue_jobs(queue_name) if _phase(j) in _PENDING_PHASES]
     pending.sort(key=lambda j: (j.get("metadata") or {}).get("creationTimestamp", ""))
     for idx, job in enumerate(pending, start=1):
         if (job.get("metadata") or {}).get("name") == k8s_job_name:

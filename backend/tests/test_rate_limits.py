@@ -29,6 +29,24 @@ async def test_login_over_limit_returns_429(client):
 
 
 @pytest.mark.asyncio
+async def test_cookie_login_also_rate_limited(client):
+    """Both /auth/login (bearer) and /auth/cookie/login share the same
+    IP-keyed bucket — regression guard against accidentally limiting only
+    one transport."""
+    for i in range(10):
+        r = await client.post(
+            "/api/v1/auth/cookie/login",
+            data={"username": "nobody@example.dev", "password": "wrong"},
+        )
+        assert r.status_code != 429
+    r = await client.post(
+        "/api/v1/auth/cookie/login",
+        data={"username": "nobody@example.dev", "password": "wrong"},
+    )
+    assert r.status_code == 429
+
+
+@pytest.mark.asyncio
 async def test_job_create_over_limit_returns_429(
     user_client, seed_detector_version, seed_dataset, monkeypatch
 ):

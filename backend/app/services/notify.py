@@ -1,9 +1,14 @@
 """Discord notification delivery for user-facing lolday events.
 
-Fire-and-forget semantics: failures are logged + counted into
-`BACKEND_ERRORS{stage="discord_notify"}` but never propagate. Callers schedule
-these via `asyncio.create_task(...)` so the request/reconciler path doesn't
-block on Discord.
+Each `notify_*` coroutine builds the embed payload and awaits
+`post_webhook`. Internal failures (`httpx` errors, non-2xx Discord response)
+are logged + counted into `BACKEND_ERRORS{stage="discord_notify"}` and
+swallowed — never propagate to the caller.
+
+Callers wrap in `asyncio.create_task(notify_*(...))` for fire-and-forget
+semantics (see `app.reconciler`). A 5-second httpx timeout guards against
+a slow Discord from pinning the task; since failures are swallowed, the
+scheduled task always terminates cleanly.
 """
 
 from __future__ import annotations

@@ -9,8 +9,6 @@ class Settings(BaseSettings):
     FIRST_ADMIN_EMAIL: str = ""
     FIRST_ADMIN_PASSWORD: str = ""
     DOCS_ENABLED: bool = True
-    RATE_LIMIT_DEFAULT: str = "60/minute"
-    RATE_LIMIT_AUTH: str = "10/minute"
 
     # Phase 3: Detector Lifecycle
     FERNET_KEY: str = ""  # base64-encoded 32-byte Fernet key

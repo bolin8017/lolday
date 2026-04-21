@@ -5,9 +5,10 @@ Backs three call sites:
 - POST /api/v1/jobs (user-keyed dependency)
 - POST /api/v1/detectors/{id}/builds (user-keyed dependency)
 
-Fixed-window semantics: INCR the bucket key; first hit installs TTL; >limit
-returns 429. Coarser than sliding window but simpler and resilient across the
-2-replica backend Deployment because Redis is shared.
+Fixed-window semantics: INCR the bucket key; first hit installs a TTL; the
+N-th hit (where N > limit) returns 429. Coarser than sliding window but
+simpler and correct across the 2-replica backend Deployment because the
+Redis counter is shared.
 """
 
 from __future__ import annotations
@@ -46,7 +47,12 @@ def rate_limit_user(prefix: str, limit: int, window_seconds: int):
 
 def rate_limit_ip(prefix: str, limit: int, window_seconds: int):
     async def _dep(request: Request) -> None:
-        ip = request.client.host if request.client else "unknown"
+        if request.client is None:
+            # No client address = misconfigured proxy or malformed request;
+            # reject rather than bucket everyone under "unknown" (that shared
+            # bucket is trivially DoS-able).
+            raise HTTPException(status_code=400, detail="client address required")
+        ip = request.client.host
         if not await check_rate(f"rl:{prefix}:{ip}", limit, window_seconds):
             raise HTTPException(status_code=429, detail="rate limited")
     return _dep

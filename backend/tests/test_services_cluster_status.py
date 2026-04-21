@@ -4,7 +4,19 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from app.services import cluster_status
+
+
+@pytest.fixture(autouse=True)
+def _clear_cluster_caches():
+    """Drop the TTL caches before each test so stubs don't bleed across cases."""
+    cluster_status._gpu_cache.clear()
+    cluster_status._queue_cache.clear()
+    yield
+    cluster_status._gpu_cache.clear()
+    cluster_status._queue_cache.clear()
 
 
 def _node(gpu_count: str):

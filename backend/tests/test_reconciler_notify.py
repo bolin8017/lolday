@@ -1,5 +1,6 @@
 """Verify reconciler fires Discord notify on job/build terminal transitions."""
 
+import asyncio
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -15,6 +16,9 @@ from app.reconciler import (
     _handle_job_failed,
     _handle_job_succeeded,
     _handle_succeeded,
+    _handle_timeout,
+    reconcile_build,
+    reconcile_job,
 )
 
 
@@ -67,6 +71,7 @@ async def test_handle_job_succeeded_calls_notify_completed(
 
     with _patch_notify() as notify:
         await _handle_job_succeeded(db_session, job)
+        await asyncio.sleep(0)  # let create_task-scheduled notify run
     assert notify.job_completed.await_count == 1
     kwargs = notify.job_completed.await_args.kwargs
     assert kwargs["job_type"] == "train"
@@ -101,6 +106,7 @@ async def test_handle_job_failed_calls_notify_failed(
 
     with _patch_notify() as notify:
         await _handle_job_failed(db_session, job)
+        await asyncio.sleep(0)
     assert notify.job_failed.await_count == 1
     assert notify.job_completed.await_count == 0
 
@@ -139,6 +145,7 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
     with patch("app.reconciler.HarborClient", return_value=_StubHarbor()), \
          _patch_notify() as notify:
         await _handle_succeeded(db_session, build)
+        await asyncio.sleep(0)
     assert notify.build_completed.await_count == 1
     assert notify.trivy_blocked.await_count == 0
 
@@ -177,6 +184,7 @@ async def test_handle_build_succeeded_fires_trivy_blocked_on_critical_cve(
     with patch("app.reconciler.HarborClient", return_value=_StubHarbor()), \
          _patch_notify() as notify:
         await _handle_succeeded(db_session, build)
+        await asyncio.sleep(0)
     assert notify.trivy_blocked.await_count == 1
     assert notify.build_completed.await_count == 0
 
@@ -207,4 +215,125 @@ async def test_handle_build_failed_fires_notify_build_failed(
     with _patch_notify() as notify:
         # job arg only used for signature symmetry by _handle_failed
         await _handle_failed(db_session, build, job=None)
+        await asyncio.sleep(0)
     assert notify.build_failed.await_count == 1
+
+
+# -- C3: timeout + k8s_job_missing paths ---------------------------------------
+
+@pytest.mark.asyncio
+async def test_handle_build_timeout_fires_notify_failed(
+    db_session, seed_user, monkeypatch
+):
+    from app.models import Detector
+    det = Detector(
+        name="timeout-det", display_name="t", git_url="https://g/t",
+        owner_id=seed_user.id,
+    )
+    db_session.add(det)
+    await db_session.flush()
+    build = DetectorBuild(
+        detector_id=det.id,
+        git_tag="v1",
+        status=DetectorBuildStatus.BUILDING,
+        started_at=datetime.now(timezone.utc),
+        triggered_by_id=seed_user.id,
+        k8s_job_name="bld-to",
+    )
+    db_session.add(build)
+    await db_session.commit()
+    await db_session.refresh(build)
+
+    # _handle_timeout tries to delete the k8s job — stub to ignore
+    from app.reconciler import _handle_timeout as _ht  # noqa: F401 (re-import after patch)
+    with _patch_notify() as notify:
+        await _handle_timeout(db_session, build)
+        await asyncio.sleep(0)
+    assert notify.build_failed.await_count == 1
+    kwargs = notify.build_failed.await_args.kwargs
+    assert "timeout" in kwargs["failure_reason"].lower()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_build_k8s_missing_fires_notify_failed(
+    db_session, seed_user
+):
+    from app.models import Detector
+    from kubernetes.client.exceptions import ApiException
+    det = Detector(
+        name="missing-det", display_name="m", git_url="https://g/m",
+        owner_id=seed_user.id,
+    )
+    db_session.add(det)
+    await db_session.flush()
+    build = DetectorBuild(
+        detector_id=det.id,
+        git_tag="v1",
+        status=DetectorBuildStatus.BUILDING,
+        started_at=datetime.now(timezone.utc),
+        triggered_by_id=seed_user.id,
+        k8s_job_name="bld-missing",
+    )
+    db_session.add(build)
+    await db_session.commit()
+    await db_session.refresh(build)
+
+    class _Stub:
+        def read_namespaced_job(self, **kw):
+            raise ApiException(status=404)
+        def delete_namespaced_secret(self, **kw):
+            pass
+    with patch("app.reconciler.batch_v1", return_value=_Stub()), \
+         patch("app.reconciler.core_v1", return_value=_Stub()), \
+         _patch_notify() as notify:
+        await reconcile_build(db_session, build)
+        await asyncio.sleep(0)
+    assert notify.build_failed.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_k8s_missing_fires_notify_failed(
+    db_session, seed_user, seed_detector_version, seed_dataset
+):
+    from kubernetes.client.exceptions import ApiException
+    dv_id = uuid.UUID(await seed_detector_version())
+    tr = uuid.UUID(await seed_dataset(name="tr"))
+    te = uuid.UUID(await seed_dataset(name="te"))
+    job = Job(
+        type=JobType.TRAIN,
+        status=JobStatus.RUNNING,
+        detector_version_id=dv_id,
+        train_dataset_id=tr,
+        test_dataset_id=te,
+        owner_id=seed_user.id,
+        resolved_config={},
+        mlflow_experiment_id="42",
+        mlflow_run_id="r",
+        idempotency_key="k-miss",
+        started_at=datetime.now(timezone.utc),
+        k8s_job_name="job-missing",
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+
+    class _Volcano:
+        def get_namespaced_custom_object(self, **kw):
+            raise ApiException(status=404)
+        def delete_namespaced_custom_object(self, **kw):
+            pass
+    class _Core:
+        def list_namespaced_pod(self, **kw):
+            class _R: items = []
+            return _R()
+        def read_namespaced_pod_log(self, **kw):
+            return ""
+        def delete_namespaced_secret(self, **kw):
+            pass
+
+    with patch("app.reconciler.volcano_v1alpha1", return_value=_Volcano()), \
+         patch("app.reconciler.core_v1", return_value=_Core()), \
+         _patch_notify() as notify:
+        await reconcile_job(db_session, job)
+        await asyncio.sleep(0)
+    assert notify.job_failed.await_count == 1

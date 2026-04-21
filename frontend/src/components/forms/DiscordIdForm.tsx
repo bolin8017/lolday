@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useCurrentUser } from "@/api/queries/auth";
-import { useUpdatePassword } from "@/api/queries/users";
+import { useUpdateMe } from "@/api/queries/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +18,7 @@ type Values = z.infer<typeof schema>;
 
 export function DiscordIdForm() {
   const me = useCurrentUser();
-  const update = useUpdatePassword();  // accepts any UserUpdate field
+  const update = useUpdateMe();
   const { toast } = useToast();
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } =
     useForm<Values>({ resolver: zodResolver(schema), defaultValues: { discord_user_id: "" } });

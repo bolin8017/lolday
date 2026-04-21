@@ -3,9 +3,6 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -19,15 +16,17 @@ from app.users import auth_backend, cookie_auth_backend, fastapi_users, UserMana
 
 logger = logging.getLogger(__name__)
 
-limiter = Limiter(
-    key_func=get_remote_address,
-    storage_uri=settings.REDIS_URL,
-    default_limits=[settings.RATE_LIMIT_DEFAULT],
-)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Phase 7.4: flag misconfigured deploy before a user waits weeks for
+    # notifications that never arrive. No metric — "disabled" is a config
+    # state, not an error; a startup log is the right level.
+    if not settings.DISCORD_WEBHOOK_URL_EVENTS:
+        logger.warning(
+            "DISCORD_WEBHOOK_URL_EVENTS is empty — user-event Discord notifications "
+            "are disabled. Set the secret `discord-events/webhook-url` to enable."
+        )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     if settings.FIRST_ADMIN_EMAIL and settings.FIRST_ADMIN_PASSWORD:
@@ -89,12 +88,13 @@ Instrumentator().instrument(app).expose(
     app, endpoint="/metrics", include_in_schema=False,
 )
 
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Phase 7.4 rate limiting: per-user / per-IP dependencies live in
+# `app.services.rate_limit` (Redis fixed-window). The older `slowapi` wiring
+# was removed as unused — our login path is owned by fastapi-users and can't
+# take a decorator, and user-keyed limits need auth-resolved user ids which
+# slowapi key funcs can't access without bespoke middleware.
 
-
-# Phase 7.4: IP-based rate limit on login endpoints (fastapi-users owns the
-# route, so intercept via middleware rather than endpoint decorator).
+# IP-based rate limit on login endpoints (fastapi-users owns the route).
 _LOGIN_PATHS = {"/api/v1/auth/login", "/api/v1/auth/cookie/login"}
 
 
@@ -103,8 +103,11 @@ async def _login_rate_limit(request, call_next):
     if request.method == "POST" and request.url.path in _LOGIN_PATHS:
         from fastapi.responses import JSONResponse
         from app.services.rate_limit import check_rate
-        ip = request.client.host if request.client else "unknown"
-        if not await check_rate(f"rl:login:{ip}", 10, 60):
+        if request.client is None:
+            return JSONResponse(
+                {"detail": "client address required"}, status_code=400,
+            )
+        if not await check_rate(f"rl:login:{request.client.host}", 10, 60):
             return JSONResponse(
                 {"detail": "too many login attempts"}, status_code=429,
             )
