@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_async_session
 from app.deps import generate_build_token, require_detector_access, require_role
+from app.services.rate_limit import rate_limit_user
 from app.metrics import BACKEND_ERRORS
 from app.models import Role, User
 from app.models.credential import UserGitCredential
@@ -385,7 +386,12 @@ async def _create_k8s_resources(
     return job_name
 
 
-@router.post("/{detector_id}/builds", response_model=BuildRead, status_code=201)
+@router.post(
+    "/{detector_id}/builds",
+    response_model=BuildRead,
+    status_code=201,
+    dependencies=[Depends(rate_limit_user("builds_create", 10, 3600))],
+)
 async def create_build(
     body: BuildCreate,
     detector: Detector = Depends(require_detector_access(write=True)),

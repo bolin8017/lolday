@@ -22,4 +22,5 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         SAEnum(Role, name="role_enum"), default=Role.USER, nullable=False
     )
     display_name: Mapped[str | None] = mapped_column(String(100))
+    discord_user_id: Mapped[str | None] = mapped_column(String(60), nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

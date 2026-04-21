@@ -9,8 +9,6 @@ class Settings(BaseSettings):
     FIRST_ADMIN_EMAIL: str = ""
     FIRST_ADMIN_PASSWORD: str = ""
     DOCS_ENABLED: bool = True
-    RATE_LIMIT_DEFAULT: str = "60/minute"
-    RATE_LIMIT_AUTH: str = "10/minute"
 
     # Phase 3: Detector Lifecycle
     FERNET_KEY: str = ""  # base64-encoded 32-byte Fernet key
@@ -55,6 +53,11 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = True                     # set False in dev env
     COOKIE_NAME: str = "lolday_session"
     COOKIE_SAMESITE: str = "lax"
+
+    # Phase 7.4: Discord user-event notifications + UI base URL for embed links
+    DISCORD_WEBHOOK_URL_EVENTS: str = ""
+    DISCORD_HTTP_TIMEOUT_SECONDS: float = 5.0
+    LOLDAY_UI_BASE_URL: str = "https://lolday.connlabai.com"
 
 
 settings = Settings()

@@ -154,6 +154,15 @@ async def db_session():
 
 
 @pytest.fixture(autouse=True)
+def fake_redis_for_rate_limit(monkeypatch):
+    """Autouse fakeredis so rate_limit service uses an in-memory store per test."""
+    from fakeredis.aioredis import FakeRedis
+    fake = FakeRedis(decode_responses=True)
+    monkeypatch.setattr("app.services.rate_limit._redis", fake)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def mock_k8s_batch(monkeypatch):
     """Autouse: replace kubernetes BatchV1Api + CoreV1Api create/delete with in-memory stubs."""
     class _StubBatch:
@@ -182,6 +191,28 @@ def mock_k8s_batch(monkeypatch):
             return _R()
         def read_namespaced_pod_log(self, **kw): return ""
     monkeypatch.setattr("app.services.k8s.core_v1", lambda: _StubCore())
+
+    # Phase 7.3 routed training jobs through Volcano CRDs via
+    # CustomObjectsApi.create_namespaced_custom_object(). Without this stub,
+    # `test_jobs` and `test_rate_limits` POST /api/v1/jobs calls leak real
+    # `batch.volcano.sh/v1alpha1 Job` CRs onto whatever cluster kubectl is
+    # pointed at (observed: 515 stale Pending Jobs on server30 from a single
+    # dev run).
+    class _StubVolcano:
+        def __init__(self):
+            self.objects = {}
+        def create_namespaced_custom_object(self, group, version, namespace, plural, body, **kw):
+            name = (body.get("metadata") or {}).get("name") if isinstance(body, dict) else body.metadata.name
+            self.objects[name] = body
+            return body
+        def get_namespaced_custom_object(self, *a, **kw):
+            from kubernetes.client.exceptions import ApiException
+            raise ApiException(status=404)
+        def delete_namespaced_custom_object(self, *a, **kw):
+            return {}
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": list(self.objects.values())}
+    monkeypatch.setattr("app.services.k8s.volcano_v1alpha1", lambda: _StubVolcano())
 
 
 @pytest.fixture(autouse=True)

@@ -1,0 +1,63 @@
+"""Tests for User.discord_user_id column + UserUpdate schema exposure."""
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_new_user_has_null_discord_id(user_client):
+    r = await user_client.get("/api/v1/users/me")
+    assert r.status_code == 200
+    body = r.json()
+    assert "discord_user_id" in body
+    assert body["discord_user_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_user_can_set_discord_id_via_patch_me(user_client):
+    r = await user_client.patch(
+        "/api/v1/users/me", json={"discord_user_id": "987654321098765432"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["discord_user_id"] == "987654321098765432"
+
+    me = await user_client.get("/api/v1/users/me")
+    assert me.json()["discord_user_id"] == "987654321098765432"
+
+
+@pytest.mark.asyncio
+async def test_user_can_clear_discord_id_by_setting_null(user_client):
+    await user_client.patch(
+        "/api/v1/users/me", json={"discord_user_id": "987654321098765432"}
+    )
+    r = await user_client.patch("/api/v1/users/me", json={"discord_user_id": None})
+    assert r.status_code == 200
+    assert r.json()["discord_user_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_non_digit_discord_id(user_client):
+    r = await user_client.patch("/api/v1/users/me", json={"discord_user_id": "not-a-number"})
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_too_short_discord_id(user_client):
+    # 14 digits — Discord IDs are 15-20.
+    r = await user_client.patch("/api/v1/users/me", json={"discord_user_id": "12345678901234"})
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_too_long_discord_id(user_client):
+    # 21 digits — over range.
+    r = await user_client.patch("/api/v1/users/me", json={"discord_user_id": "1" * 21})
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_empty_string_coerced_to_null(user_client):
+    """Frontend form submits '' when user clears the field — treat as null."""
+    await user_client.patch("/api/v1/users/me", json={"discord_user_id": "987654321098765432"})
+    r = await user_client.patch("/api/v1/users/me", json={"discord_user_id": ""})
+    assert r.status_code == 200
+    assert r.json()["discord_user_id"] is None

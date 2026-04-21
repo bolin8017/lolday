@@ -1,5 +1,6 @@
 import { useParams, Link, useNavigate } from "react-router";
 import { useJob, useJobLogs, useCancelJob } from "@/api/queries/jobs";
+import { useJobQueuePosition } from "@/api/queries/cluster";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,8 @@ export default function JobDetailPage() {
   const { data: logText } = useJobLogs(id, job?.status);
   const cancel = useCancelJob();
   const nav = useNavigate();
+  const isPending = job?.status === "pending" || job?.status === "preparing";
+  const { data: queuePos } = useJobQueuePosition(id, isPending);
   if (!job) return <p className="text-muted-foreground">Loading…</p>;
 
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;
@@ -61,6 +64,12 @@ export default function JobDetailPage() {
               <div><span className="text-muted-foreground">Duration:</span> {formatDuration(job.started_at, job.finished_at)}</div>
               <div><span className="text-muted-foreground">MLflow run:</span> <code>{job.mlflow_run_id ?? "—"}</code></div>
               <div><span className="text-muted-foreground">Failure reason:</span> {job.failure_reason ?? "—"}</div>
+              {isPending && queuePos?.position != null && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Queue position:</span>{" "}
+                  <strong>#{queuePos.position}</strong>
+                </div>
+              )}
             </CardContent>
           </Card>
           <Card>
