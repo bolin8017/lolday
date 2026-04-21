@@ -417,14 +417,13 @@ async def create_build(
     )
     in_flight = user_in_flight.scalar()
     if in_flight >= settings.BUILD_CONCURRENCY_PER_USER:
+        from app.schemas.errors import ConcurrencyLimitDetail
         raise HTTPException(
             status_code=429,
-            detail={
-                "code": "concurrency_limit",
-                "message": "too many in-flight builds",
-                "limit": settings.BUILD_CONCURRENCY_PER_USER,
-                "in_flight": in_flight,
-            },
+            detail=ConcurrencyLimitDetail(
+                limit=settings.BUILD_CONCURRENCY_PER_USER,
+                in_flight=in_flight,
+            ).model_dump(),
         )
 
     # Check for in-flight build for same detector + tag

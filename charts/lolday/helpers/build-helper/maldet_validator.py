@@ -101,9 +101,21 @@ def _discover_via_ast(repo: Path) -> dict:
             if any(p.startswith(".") or p in {"tests", "test"} for p in rel):
                 continue
             try:
-                tree = ast.parse(py.read_text(errors="ignore"), filename=str(py))
-            except SyntaxError:
-                continue
+                tree = ast.parse(py.read_text(errors="strict"), filename=str(py))
+            except SyntaxError as e:
+                # Don't silently skip — this file may be the one containing
+                # our BaseDetector subclass. Fail fast with the file + line
+                # so the detector author can fix it. (Test files are already
+                # excluded above.)
+                raise ValidationError(
+                    "repo_syntax_error",
+                    f"{py}:{e.lineno}:{e.offset or ''} {e.msg}",
+                ) from e
+            except UnicodeDecodeError as e:
+                raise ValidationError(
+                    "repo_encoding_error",
+                    f"{py}: {e}. Save as UTF-8.",
+                ) from e
 
             # Collect imports in this module so we can resolve `config_class = X`
             import_map = _build_import_map(tree)
@@ -200,11 +212,19 @@ def _name_of(node: ast.AST) -> str:
 
 
 def _resolve_module_file(search_dirs: list[Path], module_name: str) -> Path | None:
-    """Find the .py file for a module, handling relative and absolute names."""
+    """Find the .py file for a module, handling relative and absolute names.
+
+    Refuses to pick arbitrarily when the repo has >1 file matching the
+    basename (e.g. src/foo/config.py + src/bar/config.py) — silent
+    first-match wins was the old trap. Returns ``None`` if no match.
+    """
     # Relative like ".config" or "..constants" — search the tree for config.py
     basename = module_name.lstrip(".").split(".")[-1]
     if not basename:
         return None
+    # Dedup by resolved path — `search_dirs` nests (repo + repo/src),
+    # so the same file is otherwise reported twice.
+    hits: set[Path] = set()
     for d in search_dirs:
         for candidate in d.rglob(f"{basename}.py"):
             if any(
@@ -212,8 +232,17 @@ def _resolve_module_file(search_dirs: list[Path], module_name: str) -> Path | No
                 for p in candidate.relative_to(d).parts
             ):
                 continue
-            return candidate
-    return None
+            hits.add(candidate.resolve())
+    if not hits:
+        return None
+    if len(hits) > 1:
+        raise ValidationError(
+            "config_module_ambiguous",
+            f"module {module_name!r} matched multiple files: "
+            f"{sorted(str(h) for h in hits)}. Rename or use absolute "
+            "imports to disambiguate.",
+        )
+    return next(iter(hits))
 
 
 def _module_path_of(search_dirs: list[Path], py: Path) -> str:
@@ -277,11 +306,23 @@ def _load_config_class(repo: Path, info: dict):
        directly; the loader only runs that file plus any relative
        siblings it transitively imports.
     """
+    import traceback
     import types
 
     config_path = Path(info["config_module_file"])
     pkg_dir = config_path.parent
     pkg_name = "_maldet_probe_pkg"
+
+    # Guard non-idempotent sys.modules pollution. If the validator is ever
+    # called twice in the same process (tests, batch validation), stale
+    # state from the first call's __path__ would silently resolve relative
+    # imports against the first detector's source tree.
+    if pkg_name in sys.modules:
+        raise ValidationError(
+            "validator_not_reentrant",
+            f"{pkg_name} already registered — _load_config_class is "
+            "single-use per process. Spawn a subprocess for each detector.",
+        )
 
     # Register a stub parent package so relative imports like
     # `from .constants import X` resolve. We do NOT run the real
@@ -312,7 +353,22 @@ def _load_config_class(repo: Path, info: dict):
             f"loading {config_path.name} needs heavyweight deps ({e}); "
             "split heavy imports (torch, sklearn, etc.) out of config.py "
             "and into detector.py — lolday's validator only installs "
-            "maldet + pydantic.",
+            "maldet + pydantic + pydantic-settings.",
+        ) from e
+    except SyntaxError as e:
+        raise ValidationError(
+            "config_syntax_error",
+            f"{config_path}:{e.lineno}:{e.offset or ''} {e.msg}",
+        ) from e
+    except Exception as e:
+        # Pydantic validation errors, AttributeError, TypeError on a bad
+        # metaclass, etc. Surface the specific exception type+message
+        # rather than Python's default traceback format so the detector
+        # author can act on the failure reason.
+        tb = "".join(traceback.format_exception_only(type(e), e)).strip()
+        raise ValidationError(
+            "config_load_error",
+            f"loading {config_path.name} raised {tb}",
         ) from e
 
     try:
