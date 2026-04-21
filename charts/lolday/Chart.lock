@@ -14,5 +14,8 @@ dependencies:
 - name: trivy-operator
   repository: https://aquasecurity.github.io/helm-charts
   version: 0.32.1
-digest: sha256:c5652edd3d5be660c631521cea1a0488c630562669f755517f10dcc2fb157f59
-generated: "2026-04-20T23:57:45.657749033+08:00"
+- name: volcano
+  repository: https://volcano-sh.github.io/helm-charts
+  version: 1.14.1
+digest: sha256:c775d4d679de20e7118410a8c47143a3b33ee3ad73a01a4127ea34694a7f80f6
+generated: "2026-04-21T00:34:32.682439923+08:00"

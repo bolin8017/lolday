@@ -1,0 +1,31 @@
+{{- if .Values.volcano.enabled }}
+# Phase 7.3 — declarative Volcano Queue for all training jobs.
+# Backend's job_spec.build_volcano_job_manifest() sets `spec.queue: lolday-training`
+# on every batch.volcano.sh/v1alpha1 Job it creates, so every train/eval/predict
+# is ordered by Volcano scheduler against this queue.
+#
+# Queue is cluster-scoped (no .metadata.namespace). weight=1 is arbitrary while
+# this is the only Queue; reclaimable=true lets the scheduler rebalance GPU
+# allocations back to this queue when jobs in other (future) queues finish.
+#
+# Apply as a post-install/post-upgrade hook: creating a Queue calls the Volcano
+# `mutatequeue.volcano.sh` mutating webhook, which needs the Volcano admission
+# Deployment+Service to already be Ready. Running Queue as part of the main
+# helm wave races against admission pod startup and fails with "no endpoints
+# available for service ...-admission-service". Post-hook runs after helm's
+# --wait finishes, so admission is guaranteed Ready.
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: lolday-training
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    # Idempotent on re-runs: delete the existing Queue before re-applying.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  weight: 1
+  reclaimable: true
+{{- end }}

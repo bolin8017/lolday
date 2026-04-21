@@ -22,9 +22,15 @@ from app.services.job_config import (
     compute_idempotency_key,
     resolve_source_model_path,
 )
-from app.services.job_spec import build_job_manifest, build_job_token_secret
+from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
 from app.services.job_tokens import generate_token, hash_token
-from app.services.k8s import batch_v1, core_v1
+from app.services.k8s import (
+    VOLCANO_BATCH_GROUP,
+    VOLCANO_BATCH_VERSION,
+    VOLCANO_JOB_PLURAL,
+    core_v1,
+    volcano_v1alpha1,
+)
 from app.services.mlflow_client import MlflowClient
 
 logger = logging.getLogger(__name__)
@@ -216,7 +222,7 @@ async def create_job(
     # 11. Launch K8s Job
     secret = build_job_token_secret(job.id, raw_token)
     core_v1().create_namespaced_secret(namespace=settings.JOB_NAMESPACE, body=secret)
-    manifest = build_job_manifest(
+    manifest = build_volcano_job_manifest(
         job_id=job.id,
         job_type=body.type,
         detector_image=dv.harbor_image,
@@ -229,7 +235,13 @@ async def create_job(
         model_name=_registered_model_name(det_name),
     )
     try:
-        batch_v1().create_namespaced_job(namespace=settings.JOB_NAMESPACE, body=manifest)
+        volcano_v1alpha1().create_namespaced_custom_object(
+            group=VOLCANO_BATCH_GROUP,
+            version=VOLCANO_BATCH_VERSION,
+            namespace=settings.JOB_NAMESPACE,
+            plural=VOLCANO_JOB_PLURAL,
+            body=manifest,
+        )
     except Exception:
         try:
             core_v1().delete_namespaced_secret(
