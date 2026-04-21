@@ -1,10 +1,12 @@
 from uuid import uuid4
 
 from app.services.build import (
+    JOB_TTL_SECONDS,
+    _slugify,
     build_git_credential_secret,
+    build_job_name,
     build_job_spec,
 )
-from app.services.build import _slugify, build_job_name
 
 
 def test_job_spec_has_three_containers_and_security():
@@ -30,9 +32,9 @@ def test_job_spec_has_three_containers_and_security():
         assert sc["capabilities"]["drop"] == ["ALL"]
 
     assert job["spec"]["activeDeadlineSeconds"] == 1200
-    # Short TTL so failed build pods don't keep their large EmptyDir volumes
-    # on disk for days; log tails are persisted in the DB separately.
-    assert job["spec"]["ttlSecondsAfterFinished"] == 3600
+    # Contract: spec reflects the module constant — don't hardcode the
+    # value so tuning JOB_TTL_SECONDS doesn't require a test update.
+    assert job["spec"]["ttlSecondsAfterFinished"] == JOB_TTL_SECONDS
     assert job["spec"]["backoffLimit"] == 0
 
 

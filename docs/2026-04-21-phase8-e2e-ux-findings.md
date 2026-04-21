@@ -76,20 +76,23 @@ cusparse, nccl, cuda-nvrtc) into `/tmp` and kaniko then has to snapshot
 that entire filesystem. The build pipeline was only sized for
 sklearn-class deps.
 
-### Recommended follow-up (deferred — out of this PR's scope)
+### Follow-up now landed (Phase 8.1, commit d2b5462)
 
-- **Short term:** add `ephemeral-storage: requests=4Gi, limits=16Gi` to
-  both the validate and kaniko containers so they don't evict cheaply.
-  Emit a warning from the build pipeline when an image layer is
-  projected to exceed N GiB.
-- **Medium term:** change `maldet_validator.py` to install the detector
-  with `--no-deps` and only import the `config_class` module. If the
-  config module itself imports heavyweight deps, publish a convention:
-  detector authors split `config.py` (pydantic only) from `detector.py`
-  (ML stack).
-- **Long term:** replace Kaniko with BuildKit rootless or with a
-  dedicated builder node. Kaniko's full-filesystem snapshot model scales
-  poorly to DL-era dependency footprints.
+- **ephemeral-storage req/limit on validate + kaniko containers** — see
+  `backend/app/services/build.py`. Rows 3 / 5 / 6 in the summary table.
+- **Validator redesigned to --no-deps + AST discovery** — see
+  `charts/lolday/helpers/build-helper/maldet_validator.py`. Convention
+  published: `config.py` must only import `maldet` + `pydantic` +
+  `pydantic-settings` + pure-python siblings.
+
+### Still deferred
+
+- **Replace Kaniko with BuildKit rootless** — long-term architectural
+  change. Kaniko's full-filesystem snapshot model is a poor fit for
+  DL-scale dependency footprints even after the validator redesign,
+  because the final image layer (detector + base) still needs to be
+  snapshotted. BuildKit's layer-level diff is fundamentally more
+  memory-efficient. Not blocking Phase 8.
 
 ## Fixed in this PR
 
