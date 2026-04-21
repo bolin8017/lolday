@@ -9,6 +9,7 @@ from app.models import Role
 class UserRead(schemas.BaseUser[uuid.UUID]):
     role: Role
     display_name: str | None = None
+    discord_user_id: str | None = None
     created_at: datetime | None = None
 
 
@@ -18,8 +19,10 @@ class UserCreate(schemas.BaseUserCreate):
 
 class UserUpdate(schemas.BaseUserUpdate):
     display_name: str | None = None
+    discord_user_id: str | None = None
 
 
 class AdminUserUpdate(schemas.BaseUserUpdate):
     role: Role | None = None
     display_name: str | None = None
+    discord_user_id: str | None = None

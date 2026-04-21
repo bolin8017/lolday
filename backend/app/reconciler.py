@@ -18,6 +18,13 @@ from app.models.detector import (
 )
 from app.services.build import build_secret_name
 from app.services.harbor import HarborClient, ScanResult, ScanStatus
+from app.services.notify import (
+    notify_build_completed,
+    notify_build_failed,
+    notify_job_completed,
+    notify_job_failed,
+    notify_trivy_blocked,
+)
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
@@ -36,6 +43,39 @@ IN_FLIGHT = {
     DetectorBuildStatus.BUILDING,
     DetectorBuildStatus.SCANNING,
 }
+
+
+# ---- notify helpers ----------------------------------------------------------
+
+
+async def _user_context(session: AsyncSession, user_id) -> tuple[str, str | None]:
+    """Returns (display/name, discord_user_id) for the given user_id."""
+    from app.models import User
+    user = await session.get(User, user_id)
+    if user is None:
+        return ("unknown", None)
+    name = user.display_name or (user.email.split("@")[0] if user.email else "user")
+    return (name, user.discord_user_id)
+
+
+async def _detector_label(session: AsyncSession, detector_id) -> str:
+    from app.models import Detector
+    det = await session.get(Detector, detector_id)
+    if det is None:
+        return "unknown"
+    return det.display_name or det.name
+
+
+def _ui_url(path: str) -> str:
+    return f"{settings.LOLDAY_UI_BASE_URL.rstrip('/')}{path}"
+
+
+def _primary_metric(metrics: dict) -> tuple[str, float] | None:
+    for key in ("f1", "accuracy", "precision", "recall"):
+        val = metrics.get(key)
+        if isinstance(val, (int, float)):
+            return (key, float(val))
+    return None
 
 # Loop tuning. Module-level so tests can monkeypatch to collapse iteration time.
 SYNC_EVERY_N_ITERATIONS = 6
@@ -94,6 +134,16 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         b.trivy_high = scan.high
         b.finished_at = datetime.now(timezone.utc)
         await session.commit()
+        user_name, discord_id = await _user_context(session, b.triggered_by_id)
+        label = await _detector_label(session, b.detector_id)
+        await notify_trivy_blocked(
+            user_name=user_name,
+            user_discord_id=discord_id,
+            detector_label=label,
+            git_tag=b.git_tag,
+            cve_summary=f"{scan.critical} critical, {scan.high} high",
+            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+        )
     else:
         # record version
         version = DetectorVersion(
@@ -112,6 +162,16 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         b.trivy_high = scan.high
         b.finished_at = datetime.now(timezone.utc)
         await session.commit()
+        user_name, discord_id = await _user_context(session, b.triggered_by_id)
+        label = await _detector_label(session, b.detector_id)
+        await notify_build_completed(
+            user_name=user_name,
+            user_discord_id=discord_id,
+            detector_label=label,
+            git_tag=b.git_tag,
+            commit_sha=version.git_sha or "",
+            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+        )
     await _cleanup_build_secret(b.id)
 
 
@@ -122,6 +182,16 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
     b.log_tail = await _capture_log_tail(b)
     b.finished_at = datetime.now(timezone.utc)
     await session.commit()
+    user_name, discord_id = await _user_context(session, b.triggered_by_id)
+    label = await _detector_label(session, b.detector_id)
+    await notify_build_failed(
+        user_name=user_name,
+        user_discord_id=discord_id,
+        detector_label=label,
+        git_tag=b.git_tag,
+        failure_reason=reason,
+        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+    )
     await _cleanup_build_secret(b.id)
 
 
@@ -387,6 +457,39 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
             logger.exception("model registration failed for job %s", j.id)
 
     await session.commit()
+
+    # Notify user of completion.
+    user_name, discord_id = await _user_context(session, j.owner_id)
+    from app.models import DetectorVersion
+    dv = await session.get(DetectorVersion, j.detector_version_id)
+    det_label = await _detector_label(session, dv.detector_id) if dv else "unknown"
+    detector_label = f"{det_label} {dv.git_tag}" if dv else det_label
+    dataset_name = None
+    if j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id:
+        from app.models import DatasetConfig
+        ds_id = j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id
+        ds = await session.get(DatasetConfig, ds_id)
+        dataset_name = ds.name if ds else None
+    duration = None
+    if j.started_at and j.finished_at:
+        sa = j.started_at if j.started_at.tzinfo else j.started_at.replace(tzinfo=timezone.utc)
+        fa = j.finished_at if j.finished_at.tzinfo else j.finished_at.replace(tzinfo=timezone.utc)
+        duration = int((fa - sa).total_seconds())
+    mlflow_url = (
+        _ui_url(f"/runs/{j.mlflow_experiment_id}/{j.mlflow_run_id}")
+        if j.mlflow_experiment_id and j.mlflow_run_id else None
+    )
+    await notify_job_completed(
+        user_name=user_name,
+        user_discord_id=discord_id,
+        job_type=j.type.value,
+        detector_label=detector_label,
+        dataset_name=dataset_name,
+        duration_seconds=duration,
+        primary_metric=_primary_metric(metrics),
+        job_url=_ui_url(f"/jobs/{j.id}"),
+        mlflow_url=mlflow_url,
+    )
     await _cleanup_job_secret(j)
 
 
@@ -426,6 +529,27 @@ async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
     j.log_tail = log_tail
     j.finished_at = datetime.now(timezone.utc)
     await session.commit()
+
+    user_name, discord_id = await _user_context(session, j.owner_id)
+    from app.models import DetectorVersion
+    dv = await session.get(DetectorVersion, j.detector_version_id)
+    det_label = await _detector_label(session, dv.detector_id) if dv else "unknown"
+    detector_label = f"{det_label} {dv.git_tag}" if dv else det_label
+    dataset_name = None
+    if j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id:
+        from app.models import DatasetConfig
+        ds_id = j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id
+        ds = await session.get(DatasetConfig, ds_id)
+        dataset_name = ds.name if ds else None
+    await notify_job_failed(
+        user_name=user_name,
+        user_discord_id=discord_id,
+        job_type=j.type.value,
+        detector_label=detector_label,
+        dataset_name=dataset_name,
+        failure_reason=reason,
+        job_url=_ui_url(f"/jobs/{j.id}"),
+    )
     await _cleanup_job_secret(j)
 
 

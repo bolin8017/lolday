@@ -53,6 +53,14 @@ spec:
                 secretKeyRef:
                   name: backend-harbor-admin
                   key: password
+            # Phase 7.4 — user-event Discord webhook URL.
+            # Optional: backend tolerates empty string (notify becomes a no-op).
+            - name: DISCORD_WEBHOOK_URL_EVENTS
+              valueFrom:
+                secretKeyRef:
+                  name: discord-events
+                  key: webhook-url
+                  optional: true
             {{- range $k, $v := .Values.backend.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

@@ -13,7 +13,7 @@ from app.config import settings
 from app.db import async_session_maker, engine
 from app.models import Base, Role, User
 from app.reconciler import reconciler_loop
-from app.routers import admin, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
+from app.routers import admin, cluster, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
 from app.schemas import AdminUserUpdate, UserCreate, UserRead, UserUpdate
 from app.users import auth_backend, cookie_auth_backend, fastapi_users, UserManager
 
@@ -91,6 +91,24 @@ Instrumentator().instrument(app).expose(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# Phase 7.4: IP-based rate limit on login endpoints (fastapi-users owns the
+# route, so intercept via middleware rather than endpoint decorator).
+_LOGIN_PATHS = {"/api/v1/auth/login", "/api/v1/auth/cookie/login"}
+
+
+@app.middleware("http")
+async def _login_rate_limit(request, call_next):
+    if request.method == "POST" and request.url.path in _LOGIN_PATHS:
+        from fastapi.responses import JSONResponse
+        from app.services.rate_limit import check_rate
+        ip = request.client.host if request.client else "unknown"
+        if not await check_rate(f"rl:login:{ip}", 10, 60):
+            return JSONResponse(
+                {"detail": "too many login attempts"}, status_code=429,
+            )
+    return await call_next(request)
 
 # Auth routes
 app.include_router(
@@ -180,6 +198,13 @@ app.include_router(
     experiments_proxy.router,
     prefix="/api/v1",
     tags=["mlflow"],
+)
+
+# Cluster status routes (GPU allocation, Volcano queue depth)
+app.include_router(
+    cluster.router,
+    prefix="/api/v1/cluster",
+    tags=["cluster"],
 )
 
 

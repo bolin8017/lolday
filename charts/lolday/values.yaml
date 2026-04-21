@@ -36,7 +36,7 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/lolday-backend:phase6.3
+  image: harbor.lolday.svc:80/lolday/lolday-backend:phase7.4
   replicas: 1
   jwtSecret: ""         # --set at deploy time, NEVER commit
   firstAdmin:
@@ -70,6 +70,8 @@ backend:
     SAMPLES_ROOT: "/mnt/samples"
     SAMPLES_LOCAL_ROOT: "/data"
     JOB_NODE_SELECTOR_HOSTNAME: "server30"
+    # Phase 7.4 — UI base used to build Discord embed link buttons.
+    LOLDAY_UI_BASE_URL: "https://lolday.connlabai.com"
 
 # =============================================================================
 # PostgreSQL

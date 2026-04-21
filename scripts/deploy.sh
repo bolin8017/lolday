@@ -19,6 +19,10 @@ echo ""
 : "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${DISCORD_WEBHOOK_URL_CRITICAL:?DISCORD_WEBHOOK_URL_CRITICAL must be set — webhook URL for #lolday-alerts-critical}"
 : "${DISCORD_WEBHOOK_URL_WARNING:?DISCORD_WEBHOOK_URL_WARNING must be set — webhook URL for #lolday-alerts-warning}"
+# Phase 7.4 — user-event Discord webhook (#lolday-alerts-events).
+# Optional: backend treats empty string as "notify disabled". Hard-fail only if
+# present-but-malformed (silent half-config is the worst outcome).
+DISCORD_WEBHOOK_URL_EVENTS="${DISCORD_WEBHOOK_URL_EVENTS:-}"
 # Reject obvious typos / wrong-service pastes before kubectl apply. A malformed
 # webhook URL silently creates a Secret that only fails at alert-dispatch time
 # (Discord returns 401), defeating "alerts must reach the human".
@@ -27,10 +31,14 @@ for _var in DISCORD_WEBHOOK_URL_CRITICAL DISCORD_WEBHOOK_URL_WARNING; do
   [[ "$_url" =~ ^https://(discord\.com|discordapp\.com)/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$ ]] \
     || { echo "  ERROR: $_var is not a valid Discord webhook URL shape" >&2; exit 1; }
 done
+if [ -n "$DISCORD_WEBHOOK_URL_EVENTS" ]; then
+  [[ "$DISCORD_WEBHOOK_URL_EVENTS" =~ ^https://(discord\.com|discordapp\.com)/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$ ]] \
+    || { echo "  ERROR: DISCORD_WEBHOOK_URL_EVENTS is not a valid Discord webhook URL shape" >&2; exit 1; }
+fi
 unset _var _url
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
-BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase6.3}
+BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase7.4}
 FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase5}
 
 # Pre-flight
@@ -123,6 +131,19 @@ kubectl -n monitoring create secret generic alertmanager-discord \
   --from-literal=webhook-url-critical="$DISCORD_WEBHOOK_URL_CRITICAL" \
   --from-literal=webhook-url-warning="$DISCORD_WEBHOOK_URL_WARNING" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+# Phase 7.4: backend reads DISCORD_WEBHOOK_URL_EVENTS from this Secret in the
+# release namespace. Create only if a value was supplied — empty value would
+# mask config errors (notify becomes silent no-op). The Deployment env binding
+# is `optional: true`, so absence of the Secret is also tolerated.
+if [ -n "$DISCORD_WEBHOOK_URL_EVENTS" ]; then
+  kubectl -n lolday create secret generic discord-events \
+    --from-literal=webhook-url="$DISCORD_WEBHOOK_URL_EVENTS" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  echo "  Discord events webhook Secret applied"
+else
+  echo "  WARN: DISCORD_WEBHOOK_URL_EVENTS unset — user-event Discord notify will be a no-op"
+fi
 echo "  Namespaces ready"
 echo ""
 
@@ -147,6 +168,18 @@ helm upgrade --install lolday "$CHART_DIR" \
   --wait --timeout 20m
 
 echo ""
+
+# Phase 7.4 — backend uses SQLAlchemy create_all() at startup, which creates
+# tables but doesn't ALTER existing ones. The new User.discord_user_id column
+# must be added manually on upgraded clusters. Idempotent (`IF NOT EXISTS`),
+# safe to re-run on every deploy.
+if kubectl -n lolday get pod postgresql-0 &>/dev/null; then
+  kubectl -n lolday exec postgresql-0 -- psql -U lolday -d lolday \
+    -c 'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS discord_user_id VARCHAR(60);' \
+    >/dev/null
+  echo "  user.discord_user_id column ensured (Phase 7.4)"
+fi
+
 echo "=== Deploy complete ==="
 kubectl -n lolday get pods
 echo ""

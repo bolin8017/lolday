@@ -2,6 +2,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PasswordChangeForm } from "@/components/forms/PasswordChangeForm";
 import { GitCredentialForm } from "@/components/forms/GitCredentialForm";
+import { DiscordIdForm } from "@/components/forms/DiscordIdForm";
 
 export const handle = { breadcrumb: "Profile" };
 
@@ -23,6 +24,10 @@ export default function ProfilePage() {
       <Card>
         <CardHeader><CardTitle>GitHub PAT</CardTitle></CardHeader>
         <CardContent><GitCredentialForm /></CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Discord notifications</CardTitle></CardHeader>
+        <CardContent><DiscordIdForm /></CardContent>
       </Card>
     </div>
   );

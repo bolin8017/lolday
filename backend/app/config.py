@@ -56,5 +56,10 @@ class Settings(BaseSettings):
     COOKIE_NAME: str = "lolday_session"
     COOKIE_SAMESITE: str = "lax"
 
+    # Phase 7.4: Discord user-event notifications + UI base URL for embed links
+    DISCORD_WEBHOOK_URL_EVENTS: str = ""
+    DISCORD_HTTP_TIMEOUT_SECONDS: float = 5.0
+    LOLDAY_UI_BASE_URL: str = "https://lolday.connlabai.com"
+
 
 settings = Settings()

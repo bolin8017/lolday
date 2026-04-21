@@ -154,6 +154,15 @@ async def db_session():
 
 
 @pytest.fixture(autouse=True)
+def fake_redis_for_rate_limit(monkeypatch):
+    """Autouse fakeredis so rate_limit service uses an in-memory store per test."""
+    from fakeredis.aioredis import FakeRedis
+    fake = FakeRedis(decode_responses=True)
+    monkeypatch.setattr("app.services.rate_limit._redis", fake)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def mock_k8s_batch(monkeypatch):
     """Autouse: replace kubernetes BatchV1Api + CoreV1Api create/delete with in-memory stubs."""
     class _StubBatch:

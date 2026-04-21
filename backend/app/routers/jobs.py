@@ -24,6 +24,8 @@ from app.services.job_config import (
 )
 from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
 from app.services.job_tokens import generate_token, hash_token
+from app.services.cluster_status import get_job_queue_position
+from app.services.rate_limit import rate_limit_user
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
@@ -86,7 +88,12 @@ def _registered_model_name(det_name: str) -> str:
     return det_name
 
 
-@router.post("", status_code=202, response_model=JobRead)
+@router.post(
+    "",
+    status_code=202,
+    response_model=JobRead,
+    dependencies=[Depends(rate_limit_user("jobs_create", 30, 60))],
+)
 async def create_job(
     body: JobCreate,
     session: Annotated[AsyncSession, Depends(get_async_session)],
@@ -351,6 +358,19 @@ def _stream_live_logs(job: Job):
         BACKEND_ERRORS.labels(stage="job_logs_fetch").inc()
         logger.exception("job logs fetch failed", extra={"job_id": str(job.id)})
         return Response(content="(logs unavailable)", media_type="text/plain", status_code=503)
+
+
+@router.get("/{job_id}/queue-position")
+async def get_job_queue_position_endpoint(
+    job_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+):
+    job = await session.get(Job, job_id)
+    if job is None or (job.owner_id != user.id and user.role.value != "admin"):
+        raise HTTPException(status_code=404, detail="job not found")
+    position = get_job_queue_position(job.k8s_job_name) if job.k8s_job_name else None
+    return {"position": position}
 
 
 @router.post("/{job_id}/cancel", response_model=JobRead)
