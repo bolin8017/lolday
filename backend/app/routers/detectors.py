@@ -415,10 +415,16 @@ async def create_build(
             DetectorBuild.status.in_(in_flight_statuses),
         )
     )
-    if user_in_flight.scalar() >= settings.BUILD_CONCURRENCY_PER_USER:
+    in_flight = user_in_flight.scalar()
+    if in_flight >= settings.BUILD_CONCURRENCY_PER_USER:
         raise HTTPException(
             status_code=429,
-            detail={"code": "concurrency_limit", "message": "too many in-flight builds"},
+            detail={
+                "code": "concurrency_limit",
+                "message": "too many in-flight builds",
+                "limit": settings.BUILD_CONCURRENCY_PER_USER,
+                "in_flight": in_flight,
+            },
         )
 
     # Check for in-flight build for same detector + tag

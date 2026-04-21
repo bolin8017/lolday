@@ -6,9 +6,15 @@ not an automated regression test.
 **Scope:** Two new detector templates (`elfrfdet`, `elfcnndet`), the
 `gpu2` ResourceProfile, the 500M+500B dataset, and every job lifecycle
 (train, evaluate, predict).
-**Result:** RF path works end-to-end (F1 = 0.994). DL path was blocked
-at image build. 7 distinct UX / platform gaps surfaced, 4 fixed in this
-PR, 3 deferred as explicit follow-ups.
+**Result:** RF path works end-to-end (F1 = 0.994). DL path cleanly builds
+after the Phase 8.1 follow-up commits (auto-Trivy + ephemeral-storage +
+TTL + validator redesign); the v0.1.1 CNN image itself is correctly
+CVE-blocked by the platform security policy (1 Critical from the torch
+wheel set), which is **expected** behaviour rather than a bug. A clean
+CUDA base image would let the DL job proceed to 2-GPU scheduling
+verification. 8 distinct UX / platform gaps surfaced, **5 fixed in this
+PR** (original 4 + validator redesign), 2 documented as deferred, 1
+reclassified as data-quality rather than bug.
 
 Severity: **S1** = blocking, **S2** = rough, **S3** = nit.
 
@@ -18,15 +24,15 @@ Severity: **S1** = blocking, **S2** = rough, **S3** = nit.
 
 | # | Finding | Sev | Fixed here | Follow-up |
 |---|---------|-----|-----------|-----------|
-| 1 | `GET /api/v1/builds/<id>` does not exist — path is nested under detector | S3 | — | Document or add alias |
-| 2 | Harbor Trivy scan never auto-triggers; builds sit at `scanning` forever | S1 | — | Either auto-trigger from reconciler or add `POST …/retry-scan` |
-| 3 | Build validator `/tmp` EmptyDir is 512Mi — any torch detector evicted | S1 | **12Gi** | Redesign validator to use `--no-deps` |
-| 4 | Validator RSS limit 2Gi — torch install OOMs | S1 | **8Gi** | Same as #3 |
-| 5 | Kaniko container RSS 4Gi — DL-image snapshot OOMs | S1 | **20Gi** | Same as #3 or switch away from Kaniko |
-| 6 | Kaniko (even at 20Gi RSS) triggers **node-level ephemeral-storage eviction** when building DL detectors | S1 | — | Add `ephemeral-storage` req/limit + periodic node GC of failed build pods |
-| 7 | `elfrfdet` 500M+500B run → **155 of 800 samples (19 %)** skipped with *no .text section* or *ELF parse error* | S2 | elfrfdet catches the whole `ELFError` hierarchy now | Revisit dataset curation; many are statically linked Go binaries / stripped binaries without `.text` |
-| 8 | Build concurrency-limit 429 response does not state the limit | S3 | — | Include `limit` + `in-flight` in the detail |
-| 9 | Every 422/429/500 from API is shown as a bare JSON blob via curl — no structured error code surface | S3 | — | Out of scope — frontend work |
+| 1 | `GET /api/v1/builds/<id>` does not exist — path is nested under detector | S3 | **✅ flat alias** | — |
+| 2 | Harbor Trivy scan never auto-triggers; builds sit at `scanning` forever | S1 | **✅ reconciler auto-triggers** | — |
+| 3 | Build validator `/tmp` EmptyDir 512Mi → any torch detector evicted | S1 | **✅ validator redesign (AST + --no-deps)** | — |
+| 4 | Validator RSS 2Gi → OOM on torch install | S1 | **✅ same as #3** | — |
+| 5 | Kaniko container RSS 4Gi → DL snapshot OOMs | S1 | **✅ 20Gi** | Switch to BuildKit long-term |
+| 6 | Kaniko triggers **node-level ephemeral-storage eviction** building DL detectors | S1 | **✅ ephemeral-storage req/limit + 1h TTL for failed builds** | — |
+| 7 | 19 % of samples have no `.text` section / fail to parse | S2 | **✅ elfrfdet+elfcnndet catch ELFError** | Revisit dataset curation (statically linked Go / heavily stripped ELFs) |
+| 8 | Build concurrency-limit 429 does not state the limit | S3 | **✅ includes `limit` + `in_flight`** | — |
+| 9 | DL detector image has 1 Critical + 9 High CVE from torch transitive deps | N/A | — (expected) | Detector author picks a CVE-clean CUDA base image |
 
 ---
 

@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     HARBOR_IMAGE_PREFIX: str = "harbor.harbor.svc:80"
     GITHUB_API_URL: str = "https://api.github.com"
     BUILD_NAMESPACE: str = "lolday"
-    BUILD_IMAGE_HELPER: str = "harbor.harbor.svc:80/lolday/build-helper:v1"
+    BUILD_IMAGE_HELPER: str = "harbor.harbor.svc:80/lolday/build-helper:v2"
     BUILD_IMAGE_KANIKO: str = "gcr.io/kaniko-project/executor:latest"
     BUILD_IMAGE_GIT: str = "alpine/git:2.45"
     BUILD_TIMEOUT_SECONDS: int = 1200

@@ -51,6 +51,12 @@ async def test_per_user_concurrency_cap(auth_client_developer, seed_detector, mo
             f"/api/v1/detectors/{seed_detector}/builds", json={"git_tag": "v0.2.0"}
         )
         assert r2.status_code == 429
+        detail = r2.json()["detail"]
+        # 429 detail must state the limit + current in-flight count so the
+        # caller doesn't need out-of-band knowledge of the platform config.
+        assert detail["code"] == "concurrency_limit"
+        assert detail["limit"] == 1
+        assert detail["in_flight"] == 1
     finally:
         settings.BUILD_CONCURRENCY_PER_USER = original
 
@@ -92,3 +98,31 @@ async def test_build_creation_returns_500_and_marks_failed_on_k8s_error(auth_cli
         build = res.scalar_one()
         assert build.status == DetectorBuildStatus.FAILED
         assert "simulated k8s job creation failure" in (build.failure_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_flat_builds_get_resolves_detector(
+    auth_client_developer, seed_detector, monkeypatch
+):
+    """GET /api/v1/builds/<id> returns the same shape as the nested route.
+    Phase 8 finding: polling scripts naturally reach for this path first.
+    """
+    from app.routers import detectors as dr
+    monkeypatch.setattr(dr, "_create_k8s_resources", AsyncMock(return_value="b-x"))
+    create = await auth_client_developer.post(
+        f"/api/v1/detectors/{seed_detector}/builds", json={"git_tag": "v0.1.0"}
+    )
+    assert create.status_code == 201
+    build_id = create.json()["id"]
+
+    flat = await auth_client_developer.get(f"/api/v1/builds/{build_id}")
+    assert flat.status_code == 200, flat.text
+    assert flat.json()["id"] == build_id
+    assert flat.json()["git_tag"] == "v0.1.0"
+
+
+@pytest.mark.asyncio
+async def test_flat_builds_get_unknown_id_404(auth_client_developer):
+    bogus = "00000000-0000-0000-0000-000000000000"
+    resp = await auth_client_developer.get(f"/api/v1/builds/{bogus}")
+    assert resp.status_code == 404

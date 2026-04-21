@@ -104,6 +104,26 @@ async def test_set_retention_policy_creates_when_no_retention_id():
 
 
 @pytest.mark.asyncio
+async def test_trigger_scan_accepts_202():
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.post(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x/scan"
+        ).mock(return_value=httpx.Response(202))
+        client = HarborClient("http://harbor", "admin", "pw")
+        assert await client.trigger_scan("detectors", "foo", "sha256:x") is True
+
+
+@pytest.mark.asyncio
+async def test_trigger_scan_returns_false_on_non_accepted():
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.post(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x/scan"
+        ).mock(return_value=httpx.Response(409, json={"errors": [{"code": "CONFLICT"}]}))
+        client = HarborClient("http://harbor", "admin", "pw")
+        assert await client.trigger_scan("detectors", "foo", "sha256:x") is False
+
+
+@pytest.mark.asyncio
 async def test_get_scan_unknown_status_falls_back_to_error():
     with respx.mock(base_url="http://harbor") as mock:
         mock.get(

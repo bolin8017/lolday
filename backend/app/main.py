@@ -10,7 +10,7 @@ from app.config import settings
 from app.db import async_session_maker, engine
 from app.models import Role, User
 from app.reconciler import reconciler_loop
-from app.routers import admin, cluster, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
+from app.routers import admin, builds, cluster, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
 from app.schemas import AdminUserUpdate, UserCreate, UserRead, UserUpdate
 from app.users import auth_backend, cookie_auth_backend, fastapi_users, UserManager
 
@@ -224,6 +224,13 @@ app.include_router(
     detectors.router,
     prefix="/api/v1/detectors",
     tags=["detectors"],
+)
+
+# Flat builds alias — /api/v1/builds/<id>
+app.include_router(
+    builds.router,
+    prefix="/api/v1/builds",
+    tags=["builds"],
 )
 
 # Jobs routes

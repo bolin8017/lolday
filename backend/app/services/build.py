@@ -5,7 +5,12 @@ from uuid import UUID
 from app.config import settings
 
 # K8s Job TTL: delete Job 7 days after completion. Matches spec §Build Pipeline ttlSecondsAfterFinished.
-JOB_TTL_SECONDS = 7 * 24 * 3600
+# Short TTL: failed build pods keep their EmptyDir volumes (workspace + /tmp,
+# 2Gi + 12Gi reserved) on node disk until GC. With 1h we bound the node
+# ephemeral-storage pressure from a string of failing builds. Log tails and
+# build-failure reasons are persisted in the DB, so 1h is enough lead time
+# for a human to `kubectl logs` the pod if they need raw detail.
+JOB_TTL_SECONDS = 3600
 
 
 def _slugify(s: str) -> str:
@@ -144,8 +149,16 @@ def build_job_spec(
                             ],
                             "securityContext": ro_sc,
                             "resources": {
-                                "requests": {"cpu": "100m", "memory": "128Mi"},
-                                "limits": {"cpu": "500m", "memory": "512Mi"},
+                                "requests": {
+                                    "cpu": "100m",
+                                    "memory": "128Mi",
+                                    "ephemeral-storage": "128Mi",
+                                },
+                                "limits": {
+                                    "cpu": "500m",
+                                    "memory": "512Mi",
+                                    "ephemeral-storage": "3Gi",
+                                },
                             },
                         },
                         {
@@ -170,11 +183,30 @@ def build_job_spec(
                             ],
                             "securityContext": base_sc,
                             "resources": {
-                                "requests": {"cpu": "200m", "memory": "256Mi"},
-                                # 8Gi RSS headroom for `uv pip install` of
-                                # torch + nvidia cu12 wheels (peak resident
-                                # ~5Gi including unpack buffers).
-                                "limits": {"cpu": "1", "memory": "8Gi"},
+                                "requests": {
+                                    "cpu": "200m",
+                                    "memory": "256Mi",
+                                    # Validator now runs with --no-deps and
+                                    # extracts the config schema via importlib
+                                    # on a single file — peak /tmp usage is
+                                    # well under 256Mi. Request stays modest.
+                                    "ephemeral-storage": "256Mi",
+                                },
+                                # RSS upper bound: even though the --no-deps
+                                # validator never loads torch, leave the 8Gi
+                                # headroom in case a detector author's config
+                                # module accidentally imports something heavy.
+                                "limits": {
+                                    "cpu": "1",
+                                    "memory": "8Gi",
+                                    # /tmp EmptyDir has a 12Gi sizeLimit; the
+                                    # limit here matches so kubelet evicts the
+                                    # container (not the whole node) if the
+                                    # validator runs away. Prevents the stale
+                                    # /tmp usage from the old design
+                                    # triggering node-level eviction.
+                                    "ephemeral-storage": "14Gi",
+                                },
                             },
                         },
                     ],
@@ -200,14 +232,28 @@ def build_job_spec(
                             ],
                             "securityContext": kaniko_sc,
                             "resources": {
-                                "requests": {"cpu": "1", "memory": "2Gi"},
+                                "requests": {
+                                    "cpu": "1",
+                                    "memory": "2Gi",
+                                    # Reserve enough ephemeral-storage that
+                                    # kaniko is never the first-to-evict when
+                                    # the node comes under disk pressure. DL
+                                    # image builds unpack ~7Gi of torch +
+                                    # nvidia-cu12 wheels into kaniko's own
+                                    # filesystem during build.
+                                    "ephemeral-storage": "4Gi",
+                                },
                                 # Kaniko loads the full post-RUN filesystem
                                 # into memory to snapshot each layer. For DL
                                 # detectors a single RUN that installs torch
                                 # + nvidia cu12 wheels leaves ~5Gi unpacked
                                 # site-packages — snapshot peaks at ~14Gi
                                 # (filesystem copy + layer diff). 12Gi OOMs.
-                                "limits": {"cpu": "2", "memory": "20Gi"},
+                                "limits": {
+                                    "cpu": "2",
+                                    "memory": "20Gi",
+                                    "ephemeral-storage": "16Gi",
+                                },
                             },
                         }
                     ],

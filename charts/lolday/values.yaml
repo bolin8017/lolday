@@ -56,7 +56,7 @@ backend:
     # BUILD_NAMESPACE + JOB_NAMESPACE are injected from `global.namespace` in
     # templates/backend.yaml — Phase 7.5 narrowed the pods Role to that ns, so
     # letting these two drift silently 403s GPU accounting.
-    BUILD_IMAGE_HELPER: "harbor.lolday.svc:80/lolday/build-helper:v1"
+    BUILD_IMAGE_HELPER: "harbor.lolday.svc:80/lolday/build-helper:v2"
     BUILD_IMAGE_KANIKO: "gcr.io/kaniko-project/executor:latest"
     BUILD_IMAGE_GIT: "alpine/git:v2.52.0"
     BUILD_TIMEOUT_SECONDS: "1200"

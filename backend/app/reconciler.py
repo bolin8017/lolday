@@ -169,7 +169,17 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         return
 
     scan = await harbor.get_scan("detectors", detector.name, digest)
-    if scan.status in {ScanStatus.PENDING, ScanStatus.RUNNING, ScanStatus.NOT_SCANNED}:
+    if scan.status == ScanStatus.NOT_SCANNED:
+        # Harbor does not auto-scan on push (goharbor/harbor#15077), so the
+        # reconciler kicks the scan itself. Trivy-operator on the cluster
+        # picks it up within ~30s. Idempotent — Harbor dedupes concurrent
+        # scans for the same digest. Before this hook, builds silently sat
+        # at `scanning` forever until an operator ran the curl manually.
+        await harbor.trigger_scan("detectors", detector.name, digest)
+        b.status = DetectorBuildStatus.SCANNING
+        await session.commit()
+        return
+    if scan.status in {ScanStatus.PENDING, ScanStatus.RUNNING}:
         b.status = DetectorBuildStatus.SCANNING
         await session.commit()
         return
@@ -193,19 +203,38 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
             build_url=_ui_url(f"/detectors/{b.detector_id}"),
         ))
     else:
-        # record version
-        version = DetectorVersion(
-            detector_id=b.detector_id,
-            git_tag=b.git_tag,
-            git_sha=await _read_git_sha_from_log(b),
-            harbor_image=f"{settings.HARBOR_IMAGE_PREFIX}/detectors/{detector.name}:{b.git_tag}",
-            image_digest=digest,
-            config_schema=b.pending_schema or {},
-            status=DetectorVersionStatus.ACTIVE,
-        )
-        session.add(version)
+        # A DetectorVersion may already exist for this (detector_id, git_tag)
+        # when the same tag was rebuilt — the unique constraint prevents
+        # a second INSERT. This happens on replay: e.g. a long-stuck
+        # `scanning` build finishes after a *newer* build for the same
+        # tag has already produced its version row. Treat the old build
+        # as succeeded (don't create a duplicate), and keep the winning
+        # version as-is.
+        existing_version = (await session.execute(
+            select(DetectorVersion).where(
+                DetectorVersion.detector_id == b.detector_id,
+                DetectorVersion.git_tag == b.git_tag,
+            )
+        )).scalar_one_or_none()
+        if existing_version is None:
+            version = DetectorVersion(
+                detector_id=b.detector_id,
+                git_tag=b.git_tag,
+                git_sha=await _read_git_sha_from_log(b),
+                harbor_image=f"{settings.HARBOR_IMAGE_PREFIX}/detectors/{detector.name}:{b.git_tag}",
+                image_digest=digest,
+                config_schema=b.pending_schema or {},
+                status=DetectorVersionStatus.ACTIVE,
+            )
+            session.add(version)
+            b.git_sha = version.git_sha
+        else:
+            b.git_sha = existing_version.git_sha
+            logger.info(
+                "detector_version exists for (%s, %s) — skipping re-insert",
+                b.detector_id, b.git_tag,
+            )
         b.status = DetectorBuildStatus.SUCCEEDED
-        b.git_sha = version.git_sha
         b.trivy_critical = scan.critical
         b.trivy_high = scan.high
         b.finished_at = datetime.now(timezone.utc)
