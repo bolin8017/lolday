@@ -19,6 +19,7 @@ dependencies = [
     "mlflow-skinny>=2.20.0",
     "prometheus-fastapi-instrumentator~=7.0",
     "cachetools>=7.0.5",
+    "psycopg2-binary>=2.9.12",
 ]
 
 [dependency-groups]

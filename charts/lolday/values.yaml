@@ -36,7 +36,7 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/lolday-backend:phase7.4
+  image: harbor.lolday.svc:80/lolday/lolday-backend:phase7.5
   replicas: 1
   jwtSecret: ""         # --set at deploy time, NEVER commit
   firstAdmin:
@@ -53,7 +53,9 @@ backend:
     HARBOR_ADMIN_USERNAME: "admin"
     HARBOR_IMAGE_PREFIX: "harbor.lolday.svc:80"
     GITHUB_API_URL: "https://api.github.com"
-    BUILD_NAMESPACE: "lolday"
+    # BUILD_NAMESPACE + JOB_NAMESPACE are injected from `global.namespace` in
+    # templates/backend.yaml — Phase 7.5 narrowed the pods Role to that ns, so
+    # letting these two drift silently 403s GPU accounting.
     BUILD_IMAGE_HELPER: "harbor.lolday.svc:80/lolday/build-helper:v1"
     BUILD_IMAGE_KANIKO: "gcr.io/kaniko-project/executor:latest"
     BUILD_IMAGE_GIT: "alpine/git:v2.52.0"

@@ -61,6 +61,14 @@ spec:
                   name: discord-events
                   key: webhook-url
                   optional: true
+            # Phase 7.5: derive BUILD_NAMESPACE + JOB_NAMESPACE from the release
+            # namespace so they cannot drift out of sync with the namespaced
+            # pods Role (which only grants list/get in this ns). A mismatch
+            # silently 403s GPU accounting → `in_use=0` → over-schedule.
+            - name: BUILD_NAMESPACE
+              value: {{ .Values.global.namespace | quote }}
+            - name: JOB_NAMESPACE
+              value: {{ .Values.global.namespace | quote }}
             {{- range $k, $v := .Values.backend.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

@@ -42,7 +42,10 @@ def _patched_core(nodes, pods):
     class Stub:
         def list_node(self):
             return SimpleNamespace(items=nodes)
-        def list_pod_for_all_namespaces(self):
+        def list_namespaced_pod(self, namespace=None):
+            # Phase 7.5: get_gpu_allocation now reads only from the job
+            # namespace. The stub returns the seeded list regardless of the
+            # namespace arg since tests don't exercise cross-ns filtering.
             return SimpleNamespace(items=pods)
     with patch("app.services.cluster_status.core_v1", return_value=Stub()):
         yield
@@ -146,6 +149,80 @@ def test_get_queue_depth_handles_missing_status_state():
     items = [_vjob("a", "lolday-training", None, "2026-04-21T01:00:00Z")]
     with _patched_volcano(items):
         assert cluster_status.get_queue_depth() == 1
+
+
+def test_get_queue_depth_updates_stale_gauge():
+    """Pending jobs older than VOLCANO_STALE_SECONDS are reflected in the
+    lolday_volcano_pending_stale gauge so an alert can fire on scheduler
+    hangs."""
+    from datetime import datetime, timedelta, timezone
+    from app.metrics import VOLCANO_PENDING_STALE
+
+    now = datetime.now(timezone.utc)
+    fresh = (now - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stale = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    items = [
+        _vjob("fresh", "lolday-training", "Pending", fresh),
+        _vjob("stale1", "lolday-training", "Pending", stale),
+        _vjob("stale2", "lolday-training", "Inqueue", stale),
+        _vjob("done", "lolday-training", "Completed", stale),  # excluded: terminal
+    ]
+    with _patched_volcano(items):
+        cluster_status.get_queue_depth()
+    assert VOLCANO_PENDING_STALE._value.get() == 2.0
+
+
+def test_stale_gauge_drops_to_zero_when_no_stale_pending():
+    """Gauge must reset to 0 when the stale condition clears — `.set(0)`
+    must be reached on the happy path, not short-circuited."""
+    from datetime import datetime, timedelta, timezone
+    from app.metrics import VOLCANO_PENDING_STALE
+
+    # Seed a non-zero value first (simulate "earlier tick said 3 stale").
+    VOLCANO_PENDING_STALE.set(3)
+    now = datetime.now(timezone.utc)
+    fresh = (now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    items = [
+        _vjob("a", "lolday-training", "Pending", fresh),
+        _vjob("b", "lolday-training", "Running", fresh),
+    ]
+    with _patched_volcano(items):
+        cluster_status.get_queue_depth()
+    assert VOLCANO_PENDING_STALE._value.get() == 0.0
+
+
+def test_stale_gauge_survives_bad_creationtimestamp():
+    """A single malformed timestamp in the Volcano CR list must NOT crash
+    get_queue_depth — else the gauge would stick at its previous value and
+    the alert could falsely fire or falsely silence."""
+    from datetime import datetime, timedelta, timezone
+    from app.metrics import VOLCANO_PENDING_STALE
+
+    now = datetime.now(timezone.utc)
+    stale = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    items = [
+        _vjob("good", "lolday-training", "Pending", stale),
+        {
+            "metadata": {"name": "bad", "creationTimestamp": "not-a-date"},
+            "spec": {"queue": "lolday-training"},
+            "status": {"state": {"phase": "Pending"}},
+        },
+    ]
+    with _patched_volcano(items):
+        depth = cluster_status.get_queue_depth()
+    # good job counted; bad job skipped without raising
+    assert depth == 2
+    assert VOLCANO_PENDING_STALE._value.get() == 1.0
+
+
+def test_parse_iso8601_returns_none_on_bad_input():
+    assert cluster_status._parse_iso8601(None) is None
+    assert cluster_status._parse_iso8601("") is None
+    assert cluster_status._parse_iso8601("not-a-date") is None
+    # Happy path still works
+    parsed = cluster_status._parse_iso8601("2026-04-21T01:00:00Z")
+    assert parsed is not None
+    assert parsed.year == 2026
 
 
 # --- Queue position ---
