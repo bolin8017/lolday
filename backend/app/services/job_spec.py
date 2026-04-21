@@ -176,7 +176,7 @@ def _detector_container(
     }
 
 
-def build_job_manifest(
+def build_volcano_job_manifest(
     *,
     job_id: uuid.UUID,
     job_type: JobType,
@@ -189,7 +189,17 @@ def build_job_manifest(
     source_artifact_path: str | None,
     model_name: str = "",
 ) -> dict[str, Any]:
-    """Render a full K8s Job manifest as a Python dict."""
+    """Render a ``batch.volcano.sh/v1alpha1`` Job manifest as a Python dict.
+
+    Routes all training jobs through Volcano scheduler against the
+    ``lolday-training`` Queue. Gang scheduling is trivially satisfied for
+    single-pod jobs (replicas=1, minAvailable=1). Builds use a separate
+    ``batch/v1`` Job path in services/build.py — they do not need queueing.
+
+    Task-level policies translate the Phase 4 ``backoffLimit: 0`` semantics:
+    ``PodFailed → AbortJob`` marks the whole Volcano Job failed on any pod
+    failure, matching the old no-automatic-retry behaviour.
+    """
 
     name = job_name(job_type, job_id)
     pod_labels = {
@@ -222,8 +232,36 @@ def build_job_manifest(
         {"name": "tmp", "emptyDir": {"sizeLimit": "1Gi", "medium": "Memory"}},
     ]
 
+    pod_spec = {
+        "activeDeadlineSeconds": _active_deadline(job_type),
+        "restartPolicy": "Never",
+        "automountServiceAccountToken": False,
+        "nodeSelector": {
+            "kubernetes.io/hostname": settings.JOB_NODE_SELECTOR_HOSTNAME
+        },
+        "securityContext": {
+            "runAsNonRoot": True,
+            "runAsUser": 1000,
+            "fsGroup": 1000,
+            "seccompProfile": {"type": "RuntimeDefault"},
+        },
+        "volumes": volumes,
+        "initContainers": init_containers,
+        "containers": [
+            _detector_container(
+                detector_image=detector_image,
+                detector_cli_command=detector_cli_command,
+                action=job_type.value,
+                mlflow_tracking_uri=mlflow_tracking_uri,
+                mlflow_run_id=mlflow_run_id,
+                mlflow_experiment_id=mlflow_experiment_id,
+                model_name=model_name,
+            )
+        ],
+    }
+
     return {
-        "apiVersion": "batch/v1",
+        "apiVersion": "batch.volcano.sh/v1alpha1",
         "kind": "Job",
         "metadata": {
             "name": name,
@@ -231,37 +269,23 @@ def build_job_manifest(
             "labels": pod_labels,
         },
         "spec": {
-            "activeDeadlineSeconds": _active_deadline(job_type),
+            "schedulerName": "volcano",
+            "minAvailable": 1,
+            "queue": "lolday-training",
             "ttlSecondsAfterFinished": settings.JOB_TTL_SECONDS_AFTER_FINISHED,
-            "backoffLimit": 0,
-            "template": {
-                "metadata": {"labels": pod_labels},
-                "spec": {
-                    "restartPolicy": "Never",
-                    "automountServiceAccountToken": False,
-                    "nodeSelector": {
-                        "kubernetes.io/hostname": settings.JOB_NODE_SELECTOR_HOSTNAME
-                    },
-                    "securityContext": {
-                        "runAsNonRoot": True,
-                        "runAsUser": 1000,
-                        "fsGroup": 1000,
-                        "seccompProfile": {"type": "RuntimeDefault"},
-                    },
-                    "volumes": volumes,
-                    "initContainers": init_containers,
-                    "containers": [
-                        _detector_container(
-                            detector_image=detector_image,
-                            detector_cli_command=detector_cli_command,
-                            action=job_type.value,
-                            mlflow_tracking_uri=mlflow_tracking_uri,
-                            mlflow_run_id=mlflow_run_id,
-                            mlflow_experiment_id=mlflow_experiment_id,
-                            model_name=model_name,
-                        )
+            "tasks": [
+                {
+                    "name": "main",
+                    "replicas": 1,
+                    "policies": [
+                        {"event": "TaskCompleted", "action": "CompleteJob"},
+                        {"event": "PodFailed", "action": "AbortJob"},
                     ],
-                },
-            },
+                    "template": {
+                        "metadata": {"labels": pod_labels},
+                        "spec": pod_spec,
+                    },
+                }
+            ],
         },
     }

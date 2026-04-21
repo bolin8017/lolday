@@ -18,7 +18,14 @@ from app.models.detector import (
 )
 from app.services.build import build_secret_name
 from app.services.harbor import HarborClient, ScanResult, ScanStatus
-from app.services.k8s import batch_v1, core_v1
+from app.services.k8s import (
+    VOLCANO_BATCH_GROUP,
+    VOLCANO_BATCH_VERSION,
+    VOLCANO_JOB_PLURAL,
+    batch_v1,
+    core_v1,
+    volcano_v1alpha1,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -267,13 +274,23 @@ from app.services.mlflow_client import MlflowClient  # noqa: E402
 
 
 async def reconcile_job(session: AsyncSession, j: Job) -> None:
-    """Poll K8s Job + MLflow state for a single job row, transition DB row."""
+    """Poll Volcano Job + MLflow state for a single job row, transition DB row.
+
+    Phase 7.3: training jobs are ``batch.volcano.sh/v1alpha1`` Jobs (queued on
+    ``lolday-training``), accessed via the generic CustomObjectsApi. Phase state
+    lives at ``.status.state.phase`` (Volcano-specific enum: Pending / Running /
+    Completed / Failed / Aborted / Terminated / …).
+    """
     if j.k8s_job_name is None:
         return
 
     try:
-        k8s_job = batch_v1().read_namespaced_job(
-            name=j.k8s_job_name, namespace=settings.JOB_NAMESPACE
+        vjob = volcano_v1alpha1().get_namespaced_custom_object(
+            group=VOLCANO_BATCH_GROUP,
+            version=VOLCANO_BATCH_VERSION,
+            namespace=settings.JOB_NAMESPACE,
+            plural=VOLCANO_JOB_PLURAL,
+            name=j.k8s_job_name,
         )
     except ApiException as e:
         if e.status == 404:
@@ -283,11 +300,14 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
             await session.commit()
         return
 
-    if j.started_at is not None and _job_timed_out(j, k8s_job):
+    if j.started_at is not None and _job_timed_out(j, vjob):
         try:
-            batch_v1().delete_namespaced_job(
-                name=j.k8s_job_name,
+            volcano_v1alpha1().delete_namespaced_custom_object(
+                group=VOLCANO_BATCH_GROUP,
+                version=VOLCANO_BATCH_VERSION,
                 namespace=settings.JOB_NAMESPACE,
+                plural=VOLCANO_JOB_PLURAL,
+                name=j.k8s_job_name,
                 propagation_policy="Background",
             )
         except ApiException:
@@ -299,15 +319,21 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
         await _cleanup_job_secret(j)
         return
 
-    if k8s_job.status.succeeded:
+    phase = (vjob.get("status") or {}).get("state", {}).get("phase", "")
+    if phase == "Completed":
         await _handle_job_succeeded(session, j)
-    elif k8s_job.status.failed:
+    elif phase in ("Failed", "Aborted", "Terminated"):
         await _handle_job_failed(session, j)
     else:
         await _update_job_progress(session, j)
 
 
-def _job_timed_out(j: Job, k8s_job) -> bool:
+def _job_timed_out(j: Job, vjob: dict) -> bool:
+    """Check wall-clock timeout against settings.JOB_ACTIVE_DEADLINE_*.
+
+    Only uses the DB timestamp ``j.started_at`` — vjob is accepted for signature
+    symmetry with the (batch/v1) predecessor but its fields aren't consulted.
+    """
     deadline_map = {
         JobType.TRAIN: settings.JOB_ACTIVE_DEADLINE_TRAIN_SECONDS,
         JobType.EVALUATE: settings.JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS,

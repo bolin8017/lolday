@@ -11,11 +11,24 @@ from app.reconciler import reconcile_job
 
 @contextmanager
 def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
-    class _S:
-        succeeded = job_succeeded
-        failed = job_failed
-    class _Job:
-        status = _S()
+    # Phase 7.3: reconcile_job reads the job via CustomObjectsApi as a Volcano
+    # Job (batch.volcano.sh/v1alpha1), not a batch/v1 Job. Translate the old
+    # succeeded/failed booleans into Volcano's .status.state.phase enum so
+    # existing test arguments stay readable.
+    if job_succeeded:
+        phase = "Completed"
+    elif job_failed:
+        phase = "Failed"
+    else:
+        phase = "Running"
+
+    vjob = {
+        "apiVersion": "batch.volcano.sh/v1alpha1",
+        "kind": "Job",
+        "metadata": {"name": "job-xxx"},
+        "status": {"state": {"phase": phase}},
+    }
+
     class _Pod:
         class _Meta: name = "pod-xxx"
         metadata = _Meta()
@@ -32,10 +45,10 @@ def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
             ] if job_failed else []
         status = _St()
 
-    class _BatchStub:
-        def read_namespaced_job(self, name, namespace, **kw):
-            return _Job()
-        def delete_namespaced_job(self, *a, **kw):
+    class _VolcanoStub:
+        def get_namespaced_custom_object(self, *a, **kw):
+            return vjob
+        def delete_namespaced_custom_object(self, *a, **kw):
             pass
 
     class _CoreStub:
@@ -47,7 +60,7 @@ def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
         def delete_namespaced_secret(self, *a, **kw):
             pass
 
-    with patch("app.reconciler.batch_v1", return_value=_BatchStub()):
+    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
         with patch("app.reconciler.core_v1", return_value=_CoreStub()):
             yield
 

@@ -76,6 +76,10 @@ kubectl annotate ns monitoring meta.helm.sh/release-name=lolday meta.helm.sh/rel
 kubectl create namespace trivy-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl label ns trivy-system app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
 kubectl annotate ns trivy-system meta.helm.sh/release-name=lolday meta.helm.sh/release-namespace=lolday --overwrite >/dev/null
+# Phase 7.3: Volcano subchart hardcodes `.Release.Namespace` in every template
+# (no namespaceOverride option), so its controller / scheduler / admission pods
+# land in the release ns (lolday) alongside the backend / frontend / mlflow.
+# No pre-create step needed — helm already owns the lolday ns.
 # Phase 6: kps CRDs must be registered BEFORE helm applies PrometheusRule /
 # ServiceMonitor instances. Apply them up-front from the fetched subchart tarball.
 # Fail fast if the tarball isn't there — otherwise helm upgrade below hits a
@@ -102,6 +106,13 @@ TRIVY_CRD_DIR=$(mktemp -d)
 tar xzf "$TRIVY_TGZ" -C "$TRIVY_CRD_DIR"
 kubectl apply --server-side -f "$TRIVY_CRD_DIR"/trivy-operator/crds/
 rm -rf "$TRIVY_CRD_DIR"
+
+# Phase 7.3: Volcano CRDs are rendered from the subchart's `templates/` dir
+# (batch_v1alpha1_job.yaml, scheduling_v1beta1_queue.yaml, etc.), so Helm owns
+# and reconciles them on every `helm upgrade` — no pre-apply needed here. The
+# chart's `crd/v1/` tarball files are redundant and should NOT be kubectl-
+# applied separately (doing so creates unowned CRDs that Helm then refuses to
+# adopt: "invalid ownership metadata; missing key app.kubernetes.io/managed-by").
 
 # Phase 7.1: Alertmanager Discord webhook Secret. Referenced by the
 # AlertmanagerConfig CR `discord-receivers` (see templates/monitoring/alertmanager-config-discord.yaml)

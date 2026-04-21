@@ -451,3 +451,25 @@ trivy-operator:
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits:   { cpu: 500m, memory: 1Gi }
+
+# =============================================================================
+# Volcano — batch scheduler for GPU training jobs (Phase 7.3)
+# =============================================================================
+# Upstream chart `volcano` (volcano-sh/helm-charts). Our backend emits
+# `batch.volcano.sh/v1alpha1 Job` via job_spec.build_volcano_job_manifest()
+# against the `lolday-training` Queue (templates/volcano-queue.yaml).
+# Build Jobs (kaniko image builds) stay on `batch/v1 Job` — no need for queue
+# or gang scheduling for non-GPU workloads.
+#
+# The subchart hardcodes `{{ .Release.Namespace }}` across all its templates
+# (no namespaceOverride option), so its controller / scheduler / admission
+# pods land in the release ns (lolday) — NOT the conventional volcano-system.
+volcano:
+  # Controls both the subchart condition (Chart.yaml) and the Queue /
+  # ServiceMonitor templates below.
+  enabled: true
+  custom:
+    # Export Prometheus metrics from the scheduler / controller — our chart's
+    # ServiceMonitor (templates/monitoring/servicemonitor-volcano.yaml) scrapes
+    # these. Default is false; explicit opt-in here.
+    metrics_enable: true
