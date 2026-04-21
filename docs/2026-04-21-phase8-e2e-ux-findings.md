@@ -115,3 +115,70 @@ RF v0.1.1 train (standard):
   duration=10s
   MLflow run: 0e2865dc0b5b4f67a410cd7035bbcae9
 ```
+
+---
+
+## Phase 8.2 — CVE-clean DL base image + 2-GPU E2E verified
+
+**Goal:** actually run a training job on 2 GPUs through lolday
+end-to-end. Proves `resource_profile=gpu2` → Volcano allocates
+2× `nvidia.com/gpu` → container sees `torch.cuda.device_count() == 2`
+→ `nn.DataParallel` splits the batch.
+
+**Platform-side changes (this PR):**
+
+- **`charts/lolday/helpers/pytorch-cu12-base/Dockerfile`** — new. Ubuntu 22.04 + CUDA 12.6 runtime + Python 3.12 (deadsnakes) + torch 2.7.0 + scientific stack + `islab-malware-detector`. Trivy-scanned clean (0 Critical). Published as `lolday/pytorch-cu12-base:2.7.0-cu126`.
+- **Convention change for DL detectors**: `FROM harbor.lolday.svc:80/lolday/pytorch-cu12-base:2.7.0-cu126`. Detector `pyproject.toml` declares torch for local dev only; Dockerfile does `pip install --no-deps .` so kaniko snapshots only the thin detector layer.
+- **`scripts/migrate-ephemeral-to-ssd.sh`** — staged migration of Docker, K3s containerd, kubelet from `/` to `/mnt/ssd500g` NVMe. Explicitly documents that Stage 4 must NOT touch `/var/lib/rancher/k3s/storage` (Harbor registry + MLflow artifact PVs live there) — Phase 8.2 live-fire run DID touch that area and wiped all non-postgres PVs, see "Stage 4 data-loss post-mortem" below.
+- **`scripts/recover-harbor.sh`** — rebuilds Harbor projects + robot account + kubernetes pull secret + re-pushes all core platform images when Harbor state is lost.
+- **Several diagnostic scripts** (`disk-diag`, `diag-backend-401`, `diag-pv-data`, `harbor-inventory`, `find-lost-data`) — read-only introspection used during the Phase 8.2 incident.
+
+**Detector-side (bolin8017/elfcnndet v0.2.1):**
+
+- Dockerfile reduced to 3 RUN lines. Base image provides Python 3.12 + torch + all transitive deps; only the detector package is installed on top (`pip install --no-deps .`).
+- Build time on lolday: **~2 minutes** (was previously failing after 10+ min at Kaniko OOM / CVE-block).
+- Trivy: **0 Critical, 0 High**.
+
+**2-GPU verification artifacts (job `ef5d6082`, 2026-04-21 12:40):**
+
+```
+pod spec:   nvidia.com/gpu: 2                 # Volcano honoured gpu2 profile
+detector:   data_parallel_enabled gpus=2      # structlog inside the container
+MLflow run 87b151e0951b4654a5a318b087fe10b7:
+  gpu.device_count  = 2
+  gpu.device_names  = NVIDIA GeForce RTX 2080 Ti,NVIDIA GeForce RTX 2080 Ti
+summary_metrics:
+  train_acc=0.969  train_loss=0.086  duration=2.75s  (20 epochs, 645 samples)
+```
+
+Subsequent evaluate (gpu2) → F1=0.969 / accuracy=0.970 on 168 test
+samples. Predict (gpu2) → succeeded, predictions.csv emitted.
+
+## Stage 4 data-loss post-mortem
+
+During migration to SSD I moved `/var/lib/kubelet` en bloc. On K3s
+restart, the kubelet's reconciler re-created mount points for every
+`local-volume` PV, but the hostpath targets under
+`/var/lib/rancher/k3s/storage/pvc-XXX` got re-provisioned AS EMPTY
+DIRS — almost certainly because the bind-mounted kubelet pod-volume
+bookkeeping under `/var/lib/kubelet.old` held stale file references
+that, when lazily unmounted, confused local-path-provisioner's
+"directory already exists" check. Net effect: Harbor registry, MLflow
+artifacts, Grafana, Prometheus TSDB, Alertmanager, Trivy scan db all
+reset to empty. Postgres (lolday + harbor_db) and Redis + Loki
+survived (likely because their pods held file locks through the
+transition).
+
+Recovery: `scripts/recover-harbor.sh` rebuilt everything pushable;
+Alembic tables were re-created via a one-shot
+`Base.metadata.create_all` + `alembic stamp head` from a throwaway
+backend pod; MLflow DB + user re-created manually per the Phase 4
+runbook. First-admin user bootstrapped by backend on startup. Total
+lost data was test-scale (jobs + MLflow runs from a few days of E2E
+testing).
+
+**Takeaway for Stage 4 of the migration script:** future runs must
+either (a) also migrate `/var/lib/rancher/k3s/storage` in the same
+atomic operation, or (b) pre-emptively scale all stateful workloads
+to zero before kubelet is stopped. The script header now documents
+both paths.
