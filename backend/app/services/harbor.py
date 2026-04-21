@@ -172,16 +172,22 @@ class HarborClient:
             if resp.status_code not in (200, 404):
                 resp.raise_for_status()
 
-    async def trigger_scan(self, project: str, repo: str, digest: str) -> bool:
-        """Kick off a Trivy scan on an artifact. Returns True if accepted.
+    async def trigger_scan(self, project: str, repo: str, digest: str) -> None:
+        """Kick off a Trivy scan on an artifact. Raises on failure.
 
-        Harbor does NOT auto-scan on push; without an explicit POST the build
-        reconciler sees ``scan_status: NotScanned`` forever. Safe to call
-        multiple times — Harbor dedupes concurrent scans for the same digest.
+        Harbor does not auto-scan on push — without an explicit POST the
+        build reconciler sees ``scan_status: NotScanned`` forever. Safe to
+        call multiple times: Harbor's 409 response on "scan already queued"
+        is treated as success since another caller already did the right
+        thing. All other non-2xx responses + network errors propagate via
+        ``httpx.HTTPError`` so the caller can log + count them rather than
+        silently loop.
         """
         async with self._client() as c:
             resp = await c.post(
                 f"/api/v2.0/projects/{project}/repositories/{repo}/"
                 f"artifacts/{digest}/scan"
             )
-            return resp.status_code in (200, 202)
+            if resp.status_code in (200, 202, 409):
+                return
+            resp.raise_for_status()

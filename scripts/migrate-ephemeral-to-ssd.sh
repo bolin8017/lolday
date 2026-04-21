@@ -21,7 +21,7 @@
 #   sudo STAGE=2 bash scripts/migrate-ephemeral-to-ssd.sh
 #   etc.
 
-set -eu
+set -euo pipefail
 SSD=/mnt/ssd500g
 STAGE=${STAGE:-0}
 
@@ -34,6 +34,51 @@ if ! mountpoint -q "$SSD"; then
   echo "ERROR: $SSD is not mounted." >&2
   exit 1
 fi
+
+# rsync_and_verify SRC DST — copy then GATE the bind-mount flip on
+# byte-size + file-count agreement. This is the integrity check whose
+# absence caused the Phase 8.2 live-fire data loss (see docs/2026-04-21-
+# phase8-e2e-ux-findings.md post-mortem).
+rsync_and_verify() {
+  local SRC=$1 DST=$2
+  echo ">>> rsync $SRC -> $DST"
+  rsync -aHAX --one-file-system --info=progress2 --itemize-changes \
+    --numeric-ids "$SRC/" "$DST/"
+
+  local src_files dst_files src_bytes dst_bytes diff tol
+  src_files=$(find "$SRC" -xdev -type f 2>/dev/null | wc -l)
+  dst_files=$(find "$DST" -xdev -type f 2>/dev/null | wc -l)
+  src_bytes=$(du -sxb "$SRC" 2>/dev/null | awk '{print $1}')
+  dst_bytes=$(du -sxb "$DST" 2>/dev/null | awk '{print $1}')
+
+  echo "  src: $src_files files / $src_bytes bytes"
+  echo "  dst: $dst_files files / $dst_bytes bytes"
+
+  if [ "$src_files" -ne "$dst_files" ]; then
+    echo "FATAL: file count mismatch — NOT flipping bind mount" >&2
+    return 1
+  fi
+  diff=$(( src_bytes > dst_bytes ? src_bytes - dst_bytes : dst_bytes - src_bytes ))
+  # 0.1% of source size, floor 1 MiB — covers sparse/xattr accounting noise
+  tol=$(( src_bytes / 1000 )); [ "$tol" -lt 1048576 ] && tol=1048576
+  if [ "$diff" -gt "$tol" ]; then
+    echo "FATAL: size divergence ${diff}B > tolerance ${tol}B — NOT flipping" >&2
+    return 1
+  fi
+  echo "  OK."
+}
+
+# umount_recursive PATH — lazy-unmount every active mount below PATH.
+# Stage 4 must call this before mv /var/lib/kubelet or the rename drags
+# active bind-mounts into .old, confusing local-path-provisioner on
+# restart (the 2026-04-21 data-loss root cause).
+umount_recursive() {
+  local ROOT=$1
+  echo ">>> umount bind-mounts under $ROOT"
+  mount | awk -v r="$ROOT" '$3 ~ "^"r { print $3 }' | tac | while read -r m; do
+    umount -l "$m" 2>/dev/null || echo "  (skip) $m"
+  done
+}
 
 echo "=== pre-flight ==="
 df -h / "$SSD" | awk 'NR==1 || /\//'
@@ -56,7 +101,7 @@ case "$STAGE" in
   systemctl stop containerd
 
   echo "[2/7] rsync /var/lib/containerd → $SSD/containerd… (large — ~40GB expected)"
-  rsync -aHAX --info=progress2 /var/lib/containerd/ "$SSD/containerd/"
+  rsync_and_verify /var/lib/containerd "$SSD/containerd"
 
   echo "[3/7] shelving /var/lib/containerd → /var/lib/containerd.old …"
   mv /var/lib/containerd /var/lib/containerd.old
@@ -99,7 +144,7 @@ case "$STAGE" in
   systemctl stop docker docker.socket
 
   echo "[2/6] rsync /var/lib/docker → $SSD/docker…"
-  rsync -aHAX --info=progress2 /var/lib/docker/ "$SSD/docker/"
+  rsync_and_verify /var/lib/docker "$SSD/docker"
 
   echo "[3/6] shelving old /var/lib/docker → /var/lib/docker.old …"
   mv /var/lib/docker /var/lib/docker.old
@@ -148,7 +193,7 @@ case "$STAGE" in
   sleep 5
 
   echo "[2/7] rsync $OLD_PATH → $SSD/pvs/harbor-registry…"
-  rsync -aHAX --info=progress2 "$OLD_PATH/" "$SSD/pvs/harbor-registry/"
+  rsync_and_verify "$OLD_PATH" "$SSD/pvs/harbor-registry"
 
   echo "[3/7] shelving old dir…"
   mv "$OLD_PATH" "${OLD_PATH}.old"
@@ -163,9 +208,19 @@ case "$STAGE" in
   kubectl -n lolday wait --for=condition=ready pod -l app=harbor,component=registry --timeout=180s
 
   echo "[7/7] smoke test: pull a known tag…"
-  kubectl -n lolday exec deploy/backend -- sh -c '
-    uv run python -c "import httpx; r = httpx.get(\"http://harbor.lolday.svc/v2/lolday/lolday-backend/manifests/phase8\", timeout=10); print(r.status_code)"
-  ' || true
+  # No `|| true` — a failing smoke test after a PV migration means the
+  # migration was incomplete; abort loudly so the operator rolls back
+  # (${OLD_PATH}.old is still the authoritative data) rather than silently
+  # "complete" with a broken Harbor.
+  if ! kubectl -n lolday exec deploy/backend -- sh -c '
+      uv run python -c "import httpx; import sys; r = httpx.get(\"http://harbor.lolday.svc/v2/lolday/lolday-backend/manifests/phase8\", timeout=10); sys.exit(0 if r.status_code < 500 else 1)"
+    '; then
+    echo "FATAL: Harbor smoke test failed — ${OLD_PATH}.old still holds good data." >&2
+    echo "  Rollback: kubectl patch pv $PV_NAME --type merge \\" >&2
+    echo "            -p '{\"spec\":{\"local\":{\"path\":\"${OLD_PATH}\"}}}' && \\" >&2
+    echo "            mv ${OLD_PATH}.old ${OLD_PATH}" >&2
+    exit 1
+  fi
   df -h /
 
   echo
@@ -231,15 +286,46 @@ EOF
   # We explicitly do NOT touch /var/lib/rancher/k3s/storage (local-path PVs
   # — Harbor registry, Postgres, MLflow, etc. live there; migrating those
   # belongs in Stage 2 per-PV for controlled downtime).
-  echo "=== STAGE 4 — K3s containerd + kubelet → $SSD ==="
-  echo "Cluster goes DOWN for ~1–3 min during this stage."
-  echo "SSH on port 9453 is systemd-managed and NOT affected."
-  echo "Press ctrl+c in 8s to abort…"
-  sleep 8
+  cat <<'BANNER'
+=== STAGE 4 — K3s containerd + kubelet → /mnt/ssd500g ===
+
+┌─────────────────────────────────────────────────────────────────┐
+│ DATA LOSS HISTORY                                               │
+│                                                                 │
+│ On 2026-04-21 this exact stage wiped the Harbor registry, MLflow│
+│ artifacts, Grafana, Prometheus TSDB, Alertmanager, and Trivy    │
+│ scan-DB local-path PVs. Root cause: kubelet bookkeeping under   │
+│ /var/lib/kubelet.old confused local-path-provisioner into       │
+│ re-provisioning the PV directories as empty.                    │
+│                                                                 │
+│ This revision adds:                                             │
+│   • pre-stage scale-to-zero of stateful workloads (so they let  │
+│     go of their volume mounts before kubelet is stopped)        │
+│   • lazy umount of every bind-mount under /var/lib/kubelet      │
+│     BEFORE the mv that would otherwise drag them into .old      │
+│   • rsync_and_verify integrity gate (file-count + byte-size)    │
+│     before each bind-mount flip                                 │
+│                                                                 │
+│ See docs/2026-04-21-phase8-e2e-ux-findings.md § "Stage 4        │
+│ data-loss post-mortem" for the full detail.                     │
+└─────────────────────────────────────────────────────────────────┘
+
+Type exactly "I UNDERSTAND" at the prompt to continue, or ctrl+c.
+BANNER
+  read -r -p "> " CONFIRM
+  if [ "$CONFIRM" != "I UNDERSTAND" ]; then
+    echo "aborted (did not type 'I UNDERSTAND')." >&2
+    exit 1
+  fi
 
   mkdir -p "$SSD/k3s-containerd" "$SSD/kubelet"
 
-  echo "[1/10] stopping k3s…"
+  echo "[1/11] scaling stateful workloads to 0 (so kubelet releases volumes)…"
+  kubectl -n lolday scale statefulset --all --replicas=0 2>/dev/null || true
+  kubectl -n lolday scale deployment --all --replicas=0 2>/dev/null || true
+  sleep 15
+
+  echo "[2/11] stopping k3s…"
   systemctl stop k3s
   # Wait for child processes (kubelet, containerd-shims) to fully exit so
   # no file is held open while we rsync.
@@ -247,21 +333,26 @@ EOF
   pkill -f '/var/lib/rancher/k3s/data/.*/bin/' 2>/dev/null || true
   sleep 3
 
-  echo "[2/10] rsync K3s containerd (~12G) → $SSD/k3s-containerd…"
-  rsync -aHAX --one-file-system --info=progress2 \
-    /var/lib/rancher/k3s/agent/containerd/ "$SSD/k3s-containerd/"
+  echo "[3/11] umount any bind-mounts still hanging under kubelet path…"
+  # Critical: running mv on a tree with live bind-mounts leaves orphan mount
+  # entries pointing to .old paths; local-path-provisioner then re-creates
+  # the PV hostpath dirs empty on restart. This was the 2026-04-21 root
+  # cause. Lazy umount everything under /var/lib/kubelet first.
+  umount_recursive /var/lib/kubelet
 
-  echo "[3/10] rsync kubelet (~9G) → $SSD/kubelet…"
-  rsync -aHAX --one-file-system --info=progress2 \
-    /var/lib/kubelet/ "$SSD/kubelet/"
+  echo "[4/11] rsync K3s containerd (~12G) → $SSD/k3s-containerd…"
+  rsync_and_verify /var/lib/rancher/k3s/agent/containerd "$SSD/k3s-containerd"
 
-  echo "[4/10] shelving originals → *.old …"
+  echo "[5/11] rsync kubelet (~9G) → $SSD/kubelet…"
+  rsync_and_verify /var/lib/kubelet "$SSD/kubelet"
+
+  echo "[6/11] shelving originals → *.old …"
   mv /var/lib/rancher/k3s/agent/containerd /var/lib/rancher/k3s/agent/containerd.old
   mkdir /var/lib/rancher/k3s/agent/containerd
   mv /var/lib/kubelet /var/lib/kubelet.old
   mkdir /var/lib/kubelet
 
-  echo "[5/10] adding fstab entries…"
+  echo "[7/11] adding fstab entries…"
   if ! grep -q "$SSD/k3s-containerd /var/lib/rancher/k3s/agent/containerd " /etc/fstab; then
     echo "$SSD/k3s-containerd /var/lib/rancher/k3s/agent/containerd none bind 0 0" >> /etc/fstab
   fi
@@ -270,16 +361,16 @@ EOF
   fi
   systemctl daemon-reload
 
-  echo "[6/10] activating bind mounts…"
+  echo "[8/11] activating bind mounts…"
   mount /var/lib/rancher/k3s/agent/containerd
   mount /var/lib/kubelet
   mountpoint /var/lib/rancher/k3s/agent/containerd || { echo "MOUNT FAILED"; exit 1; }
   mountpoint /var/lib/kubelet || { echo "MOUNT FAILED"; exit 1; }
 
-  echo "[7/10] starting k3s…"
+  echo "[9/11] starting k3s…"
   systemctl start k3s
 
-  echo "[8/10] waiting for cluster to converge (up to 3min)…"
+  echo "[10/11] waiting for cluster to converge (up to 3min)…"
   for i in $(seq 1 36); do
     if kubectl get nodes >/dev/null 2>&1; then
       echo "  kubectl reachable after $((i*5))s"
@@ -287,12 +378,13 @@ EOF
     fi
     sleep 5
   done
+  # Scale statefulsets + deployments back up
+  kubectl -n lolday scale statefulset --all --replicas=1 2>/dev/null || true
+  kubectl -n lolday scale deployment --all --replicas=1 2>/dev/null || true
 
-  echo "[9/10] current pod state:"
+  echo "[11/11] pod + df state:"
   kubectl get nodes
   kubectl -n lolday get pods --no-headers 2>/dev/null | awk '{print "  "$1" "$3}' | head -20
-
-  echo "[10/10] df after migration:"
   df -h / "$SSD" | awk 'NR==1 || /mapper|nvme0n1/'
 
   echo

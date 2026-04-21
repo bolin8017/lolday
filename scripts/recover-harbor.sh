@@ -1,12 +1,17 @@
 #!/bin/bash
-# Recover Harbor after the Stage-4 data loss.
+# Recover Harbor after a catastrophic data loss (e.g. Stage-4 incident).
 #
-# Creates lolday + detectors projects (public), a robot$build-pusher
-# account, updates the kubernetes harbor-push-cred secret, then rebuilds
-# and pushes all core platform images. Uses harbor.lolday.svc.cluster.local
-# directly (host/etc/hosts + daemon.json insecure-registries already set
-# up in Phase 3). Port-forward is only used for admin API calls.
-set -eu
+# Idempotent: safe to re-run. Handles both fresh (no harbor-push-cred
+# secret yet) and partially-recovered (robot account exists, secret
+# needs rotation) states.
+#
+# Creates lolday + detectors projects (public), rotates the
+# robot$build-pusher secret, upserts the kubernetes harbor-push-cred
+# secret, then rebuilds and pushes all core platform images. Uses
+# harbor.lolday.svc.cluster.local directly (host /etc/hosts +
+# daemon.json insecure-registries already set up in Phase 3).
+# Port-forward is only used for admin API calls.
+set -euo pipefail
 
 SECRETS=${SECRETS:-$HOME/.lolday-secrets.env}
 . "$SECRETS"
@@ -14,17 +19,18 @@ SECRETS=${SECRETS:-$HOME/.lolday-secrets.env}
 REPO=${REPO:-/home/bolin8017/Documents/repositories/lolday}
 HARBOR_HOST=harbor.lolday.svc.cluster.local:80
 
+# Clean up any stale port-forward, start fresh
 pkill -f "kubectl.*port-forward svc/harbor 8181:" 2>/dev/null || true
 sleep 2
 kubectl -n lolday port-forward svc/harbor 8181:80 >/tmp/harbor-pf.log 2>&1 &
 PF=$!
-trap "kill $PF 2>/dev/null || true" EXIT
+trap "kill $PF 2>/dev/null || true; rm -f /tmp/recover-harbor-patch-*.json 2>/dev/null || true" EXIT
 sleep 4
 
 adm="admin:$HARBOR_ADMIN_PASSWORD"
 api="http://localhost:8181/api/v2.0"
 
-# ---------------------------------------------------- 1. create projects
+# ---------------------------------------------------- 1. create projects (idempotent)
 for P in lolday detectors; do
   CODE=$(curl -s -o /dev/null -w "%{http_code}" -u "$adm" "$api/projects/$P")
   if [ "$CODE" = "200" ]; then
@@ -38,60 +44,133 @@ for P in lolday detectors; do
   fi
 done
 
-# ---------------------------------------------------- 2. robot account
-# Harbor's "system" robot with cross-project push. Name ends up as
-# "robot$build-pusher" externally.
+# ---------------------------------------------------- 2. robot account (upsert + rotate)
+#
+# On a re-run the robot already exists; Harbor's POST /robots returns 409.
+# We detect that and rotate the secret via PATCH /robots/{id}/sec. That's
+# the only way to get a fresh secret back — Harbor doesn't expose the
+# existing secret via GET.
 echo
-echo "creating robot account…"
-ROBOT_JSON=$(curl -s -u "$adm" -X POST "$api/robots" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "build-pusher",
-    "description": "lolday build-pipeline pusher (regenerated after Stage-4 data loss)",
-    "duration": -1,
-    "disable": false,
-    "level": "system",
-    "permissions": [
-      {"kind":"project","namespace":"lolday","access":[
-        {"resource":"repository","action":"push"},
-        {"resource":"repository","action":"pull"}]},
-      {"kind":"project","namespace":"detectors","access":[
-        {"resource":"repository","action":"push"},
-        {"resource":"repository","action":"pull"}]}
-    ]
-  }')
-echo "$ROBOT_JSON"
+echo "robot account upsert…"
+LIST_JSON=$(curl -sf -u "$adm" "$api/robots?q=name%3Dbuild-pusher")
+EXISTING_ID=$(echo "$LIST_JSON" | python3 -c '
+import sys, json
+try:
+    rows = json.loads(sys.stdin.read())
+    ids = [r["id"] for r in rows if r.get("name") in ("robot$build-pusher", "build-pusher")]
+    print(ids[0] if ids else "")
+except Exception:
+    print("")
+')
 
-ROBOT_NAME=$(echo "$ROBOT_JSON" | python3 -c 'import sys,json
-try: print(json.loads(sys.stdin.read()).get("name",""))
-except: pass')
-ROBOT_SECRET=$(echo "$ROBOT_JSON" | python3 -c 'import sys,json
-try: print(json.loads(sys.stdin.read()).get("secret",""))
-except: pass')
+if [ -n "$EXISTING_ID" ]; then
+  echo "  robot$build-pusher already exists (id=$EXISTING_ID), rotating secret…"
+  ROBOT_JSON=$(curl -sf -u "$adm" -X PATCH "$api/robots/$EXISTING_ID/sec" \
+    -H "Content-Type: application/json" -d '{}')
+else
+  echo "  creating robot account…"
+  ROBOT_JSON=$(curl -sf -u "$adm" -X POST "$api/robots" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "name": "build-pusher",
+      "description": "lolday build-pipeline pusher",
+      "duration": -1,
+      "disable": false,
+      "level": "system",
+      "permissions": [
+        {"kind":"project","namespace":"lolday","access":[
+          {"resource":"repository","action":"push"},
+          {"resource":"repository","action":"pull"}]},
+        {"kind":"project","namespace":"detectors","access":[
+          {"resource":"repository","action":"push"},
+          {"resource":"repository","action":"pull"}]}
+      ]
+    }')
+fi
 
-if [ -z "$ROBOT_NAME" ] || [ -z "$ROBOT_SECRET" ]; then
-  echo "ERROR: robot creation failed — see response above" >&2
+# Redacted log — never print the secret. Only show shape of response.
+echo "$ROBOT_JSON" | python3 -c '
+import sys, json
+try:
+    d = json.loads(sys.stdin.read())
+    redacted = {k: ("<redacted>" if k == "secret" else v) for k, v in d.items()}
+    print("  response:", json.dumps(redacted))
+except Exception as e:
+    print("  unparseable response:", repr(e), file=sys.stderr)
+    sys.exit(2)
+' >&2
+
+ROBOT_NAME=$(echo "$ROBOT_JSON" | python3 -c '
+import sys, json
+d = json.loads(sys.stdin.read())
+# PATCH response only carries {name, secret}; POST carries same + id.
+# If name missing (e.g. PATCH does not echo it on older Harbor), assume
+# the canonical form.
+print(d.get("name") or "robot$build-pusher")
+')
+ROBOT_SECRET=$(echo "$ROBOT_JSON" | python3 -c '
+import sys, json
+d = json.loads(sys.stdin.read())
+print(d.get("secret", ""))
+')
+
+if [ -z "$ROBOT_SECRET" ]; then
+  echo "ERROR: robot response had no secret field — see redacted shape above" >&2
   exit 1
 fi
 
-# ---------------------------------------------------- 3. update harbor-push-cred
-echo
-echo "updating kubernetes secret harbor-push-cred…"
-DOCKER_CFG=$(python3 <<EOF
-import json, base64
-auth = base64.b64encode(b"$ROBOT_NAME:$ROBOT_SECRET").decode()
-cfg = {"auths": {"$HARBOR_HOST": {"auth": auth}}}
-print(base64.b64encode(json.dumps(cfg).encode()).decode())
-EOF
-)
-kubectl -n lolday patch secret harbor-push-cred \
-  --type='json' \
-  -p="[{\"op\":\"replace\",\"path\":\"/data/.dockerconfigjson\",\"value\":\"$DOCKER_CFG\"}]"
-
-# ---------------------------------------------------- 4. docker login to Harbor (direct)
+# ---------------------------------------------------- 3. docker login
+# docker login BEFORE patching the k8s secret so that if login fails
+# (e.g. clock skew, wrong Harbor), we don't leave a freshly-patched
+# secret with credentials the cluster can't verify.
 echo
 echo "docker login $HARBOR_HOST as $ROBOT_NAME…"
 echo "$ROBOT_SECRET" | docker login "$HARBOR_HOST" -u "$ROBOT_NAME" --password-stdin
+
+# ---------------------------------------------------- 4. upsert k8s harbor-push-cred
+# Build dockerconfig in Python without shell interpolation (avoids
+# shell-injection if secret ever contains $/\/`/"). Write the JSON Patch
+# to a temp file with 0600 perms so neither the robot secret nor the
+# dockerconfigjson appears on any kubectl command line visible to other
+# users via /proc/<pid>/cmdline.
+echo
+echo "upserting kubernetes secret harbor-push-cred…"
+DOCKER_CFG_B64=$(
+  ROBOT_NAME="$ROBOT_NAME" ROBOT_SECRET="$ROBOT_SECRET" HARBOR_HOST="$HARBOR_HOST" \
+  python3 - <<'EOF'
+import os, json, base64
+auth = base64.b64encode(
+    f"{os.environ['ROBOT_NAME']}:{os.environ['ROBOT_SECRET']}".encode()
+).decode()
+# Register both hostnames — K3s containerd pulls via harbor.lolday.svc:80
+# (Service DNS) while host docker uses .cluster.local.
+cfg = {"auths": {
+    "harbor.lolday.svc:80": {"auth": auth},
+    os.environ["HARBOR_HOST"]: {"auth": auth},
+}}
+print(base64.b64encode(json.dumps(cfg).encode()).decode())
+EOF
+)
+
+# Upsert: check existence, then PATCH or CREATE.
+PATCH_FILE=$(mktemp /tmp/recover-harbor-patch-XXXX.json)
+chmod 600 "$PATCH_FILE"
+printf '[{"op":"replace","path":"/data/.dockerconfigjson","value":"%s"}]' \
+  "$DOCKER_CFG_B64" > "$PATCH_FILE"
+
+if kubectl -n lolday get secret harbor-push-cred >/dev/null 2>&1; then
+  kubectl -n lolday patch secret harbor-push-cred --type=json --patch-file "$PATCH_FILE"
+else
+  echo "  harbor-push-cred not found — creating"
+  DECODED=$(mktemp /tmp/recover-harbor-dcfg-XXXX.json)
+  chmod 600 "$DECODED"
+  echo "$DOCKER_CFG_B64" | base64 -d > "$DECODED"
+  kubectl -n lolday create secret generic harbor-push-cred \
+    --type=kubernetes.io/dockerconfigjson \
+    --from-file=.dockerconfigjson="$DECODED"
+  rm -f "$DECODED"
+fi
+rm -f "$PATCH_FILE"
 
 # ---------------------------------------------------- 5. build + push core images
 echo
@@ -106,11 +185,21 @@ build_push() {
   docker push "$HARBOR_HOST/$IMG"
 }
 
-build_push "$REPO/backend"                                   "lolday/lolday-backend:phase8"
-build_push "$REPO/charts/lolday/helpers/build-helper"        "lolday/build-helper:v2"
-[ -d "$REPO/charts/lolday/helpers/job-helper" ]     && build_push "$REPO/charts/lolday/helpers/job-helper"     "lolday/job-helper:v2"
-[ -d "$REPO/charts/lolday/helpers/mlflow-server" ]  && build_push "$REPO/charts/lolday/helpers/mlflow-server"  "lolday/mlflow-server:v2.20.3"
-[ -d "$REPO/frontend" ]                              && build_push "$REPO/frontend"                              "lolday/lolday-frontend:phase5"
+skip_if_missing() {
+  local SRC=$1 IMG=$2
+  if [ -d "$SRC" ]; then
+    build_push "$SRC" "$IMG"
+  else
+    echo
+    echo "WARN: skipping $IMG — directory missing: $SRC" >&2
+  fi
+}
+
+build_push      "$REPO/backend"                                   "lolday/lolday-backend:phase8"
+build_push      "$REPO/charts/lolday/helpers/build-helper"        "lolday/build-helper:v2"
+skip_if_missing "$REPO/charts/lolday/helpers/job-helper"          "lolday/job-helper:v2"
+skip_if_missing "$REPO/charts/lolday/helpers/mlflow-server"       "lolday/mlflow-server:v2.20.3"
+skip_if_missing "$REPO/frontend"                                  "lolday/lolday-frontend:phase5"
 
 echo
 echo "=== done. kick backend + wait for pull: ==="
