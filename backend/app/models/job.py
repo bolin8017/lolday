@@ -39,6 +39,13 @@ NON_TERMINAL_STATUSES = frozenset({
 
 class ResourceProfile(str, enum.Enum):
     STANDARD = "standard"
+    GPU2 = "gpu2"
+
+
+RESOURCE_PROFILE_GPU_COUNT: dict[ResourceProfile, int] = {
+    ResourceProfile.STANDARD: 1,
+    ResourceProfile.GPU2: 2,
+}
 
 
 class Job(Base):

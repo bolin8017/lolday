@@ -15,7 +15,7 @@ import uuid
 from typing import Any
 
 from app.config import settings
-from app.models.job import JobType
+from app.models.job import RESOURCE_PROFILE_GPU_COUNT, JobType, ResourceProfile
 
 POD_LABEL_NAME = "lolday-job"
 
@@ -136,6 +136,7 @@ def _detector_container(
     mlflow_run_id: str,
     mlflow_experiment_id: str,
     model_name: str,
+    gpu_count: int,
 ) -> dict[str, Any]:
     return {
         "name": "detector",
@@ -163,7 +164,7 @@ def _detector_container(
             "limits": {
                 "cpu": "4",
                 "memory": "16Gi",
-                "nvidia.com/gpu": 1,
+                "nvidia.com/gpu": gpu_count,
             },
         },
         "securityContext": {
@@ -188,6 +189,7 @@ def build_volcano_job_manifest(
     source_run_id: str | None,
     source_artifact_path: str | None,
     model_name: str = "",
+    resource_profile: ResourceProfile = ResourceProfile.STANDARD,
 ) -> dict[str, Any]:
     """Render a ``batch.volcano.sh/v1alpha1`` Job manifest as a Python dict.
 
@@ -256,6 +258,7 @@ def build_volcano_job_manifest(
                 mlflow_run_id=mlflow_run_id,
                 mlflow_experiment_id=mlflow_experiment_id,
                 model_name=model_name,
+                gpu_count=RESOURCE_PROFILE_GPU_COUNT[resource_profile],
             )
         ],
     }

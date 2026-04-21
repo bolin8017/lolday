@@ -240,6 +240,7 @@ async def create_job(
         source_run_id=source_run_id,
         source_artifact_path=(resolve_source_model_path(f"runs:/{source_run_id}/model") if source_run_id else None),
         model_name=_registered_model_name(det_name),
+        resource_profile=body.resource_profile,
     )
     try:
         volcano_v1alpha1().create_namespaced_custom_object(

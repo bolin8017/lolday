@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from app.models.job import JobType
+from app.models.job import JobType, ResourceProfile
 from app.services.job_spec import (
     build_job_token_secret,
     build_volcano_job_manifest,
@@ -150,3 +150,35 @@ def test_manifest_labels_include_job_id(manifest_args):
     assert pod_labels["app.kubernetes.io/name"] == "lolday-job"
     assert pod_labels["lolday.job-id"] == str(manifest_args["job_id"])
     assert pod_labels["lolday.job-type"] == "train"
+
+
+def test_standard_profile_requests_one_gpu(manifest_args):
+    m = build_volcano_job_manifest(
+        **manifest_args, resource_profile=ResourceProfile.STANDARD
+    )
+    main = next(
+        c for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
+        if c["name"] == "detector"
+    )
+    assert main["resources"]["limits"]["nvidia.com/gpu"] == 1
+
+
+def test_gpu2_profile_requests_two_gpus(manifest_args):
+    m = build_volcano_job_manifest(
+        **manifest_args, resource_profile=ResourceProfile.GPU2
+    )
+    main = next(
+        c for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
+        if c["name"] == "detector"
+    )
+    assert main["resources"]["limits"]["nvidia.com/gpu"] == 2
+
+
+def test_default_profile_is_standard(manifest_args):
+    """Omitting resource_profile must keep Phase 7.5 behaviour (1 GPU)."""
+    m = build_volcano_job_manifest(**manifest_args)
+    main = next(
+        c for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
+        if c["name"] == "detector"
+    )
+    assert main["resources"]["limits"]["nvidia.com/gpu"] == 1
