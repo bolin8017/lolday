@@ -8,7 +8,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
 from app.db import async_session_maker, engine
-from app.models import Base, Role, User
+from app.models import Role, User
 from app.reconciler import reconciler_loop
 from app.routers import admin, cluster, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
 from app.schemas import AdminUserUpdate, UserCreate, UserRead, UserUpdate
@@ -27,8 +27,10 @@ async def lifespan(app: FastAPI):
             "DISCORD_WEBHOOK_URL_EVENTS is empty — user-event Discord notifications "
             "are disabled. Set the secret `discord-events/webhook-url` to enable."
         )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Phase 7.5: schema is managed by Alembic via the `alembic-upgrade` helm
+    # pre-upgrade hook Job (templates/alembic-upgrade-hook.yaml). The previous
+    # `Base.metadata.create_all` here couldn't ALTER existing tables and
+    # silently masked schema drift on column additions.
     if settings.FIRST_ADMIN_EMAIL and settings.FIRST_ADMIN_PASSWORD:
         async with async_session_maker() as session:
             result = await session.execute(

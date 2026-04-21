@@ -38,7 +38,7 @@ fi
 unset _var _url
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
-BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase7.4}
+BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase7.5}
 FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase5}
 
 # Pre-flight
@@ -169,16 +169,22 @@ helm upgrade --install lolday "$CHART_DIR" \
 
 echo ""
 
-# Phase 7.4 — backend uses SQLAlchemy create_all() at startup, which creates
-# tables but doesn't ALTER existing ones. The new User.discord_user_id column
-# must be added manually on upgraded clusters. Idempotent (`IF NOT EXISTS`),
-# safe to re-run on every deploy.
-if kubectl -n lolday get pod postgresql-0 &>/dev/null; then
-  kubectl -n lolday exec postgresql-0 -- psql -U lolday -d lolday \
-    -c 'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS discord_user_id VARCHAR(60);' \
-    >/dev/null
-  echo "  user.discord_user_id column ensured (Phase 7.4)"
-fi
+# Phase 7.5 — schema migrations are handled by the `alembic-upgrade` helm
+# pre-upgrade hook Job, not by hand-edited ALTER statements.
+#
+# One-time bootstrap for clusters upgrading FROM Phase 7.4 or earlier
+# (DB has all tables via the old `Base.metadata.create_all` path but no
+# `alembic_version` table yet): the operator must run `alembic stamp head`
+# before the first alembic-backed deploy. Uncomment + run ONCE:
+#
+#     kubectl -n lolday run alembic-stamp --rm -it --restart=Never \
+#       --image=$BACKEND_IMAGE --image-pull-policy=IfNotPresent \
+#       --env="DATABASE_URL=postgresql+asyncpg://lolday:$PG_PASSWORD@postgresql:5432/lolday" \
+#       --env="FERNET_KEY=$FERNET_KEY" \
+#       --command -- uv run alembic stamp head
+#
+# After stamp, subsequent `helm upgrade` runs fire the pre-upgrade Job which
+# idempotently runs `alembic upgrade head` (no-op if already at head).
 
 echo "=== Deploy complete ==="
 kubectl -n lolday get pods

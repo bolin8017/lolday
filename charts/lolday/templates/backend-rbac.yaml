@@ -50,8 +50,10 @@ roleRef:
   name: backend
   apiGroup: rbac.authorization.k8s.io
 ---
-# Phase 7.4 — cluster_status.get_gpu_allocation() lists Nodes (cluster-scope)
-# + pods across all namespaces to count GPU requests. Read-only.
+# Phase 7.5 — cluster_status.get_gpu_allocation() needs Nodes (cluster-scope).
+# Pods are read via the namespaced Role above (GPU workloads only land in
+# {{ .Values.global.namespace }}), so pods are NOT in this ClusterRole — that
+# was the Phase 7.4 initial over-grant that exposed all-namespace topology.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -60,7 +62,7 @@ metadata:
     {{- include "lolday.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: [nodes, pods]
+    resources: [nodes]
     verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

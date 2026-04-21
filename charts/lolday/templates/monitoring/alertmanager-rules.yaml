@@ -61,6 +61,18 @@ spec:
             summary: "Backend errors in stage {{`{{ $labels.stage }}`}}"
             description: "lolday_backend_errors_total rate > 0 in stage '{{`{{ $labels.stage }}`}}' for 5m. This catches silent-failure paths (e.g. reconciler loop exceptions, Harbor init failures, best-effort K8s/MLflow cleanup failures). Check backend logs for the matching `logger.exception` entry."
 
+        # Phase 7.5 — backend piggybacks on get_queue_depth (updated every 10s)
+        # to sample the age of Pending Volcano Jobs. Catches scheduler hangs,
+        # webhook races, or orphan CRs without masking them with an autocronjob.
+        - alert: VolcanoJobsStuckPending
+          expr: lolday_volcano_pending_stale_total > 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{`{{ $value }}`}} Volcano Jobs pending > 30min"
+            description: "More than 5 batch.volcano.sh/v1alpha1 Jobs have been in Pending phase for > 30min. Check `kubectl -n lolday get jobs.batch.volcano.sh --field-selector=status.state.phase=Pending`. Typical causes: Volcano scheduler crash/restart loop, admission webhook misconfigured, or orphan CRs from a runaway script. If orphans, delete with the selector above."
+
     - name: lolday-trivy.rules
       interval: 60s
       rules:

@@ -14,9 +14,12 @@ handful of users would multiply list_pod_for_all_namespaces traffic by N.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from cachetools import TTLCache, cached
 
 from app.config import settings
+from app.metrics import VOLCANO_PENDING_STALE
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
@@ -27,6 +30,7 @@ from app.services.k8s import (
 
 GPU_RESOURCE = "nvidia.com/gpu"
 DEFAULT_QUEUE = "lolday-training"
+VOLCANO_STALE_SECONDS = 1800  # 30m — alert on Pending jobs older than this
 _TERMINAL_PHASES = {"Completed", "Failed", "Aborted", "Terminated"}
 _PENDING_PHASES = {"Pending", "Inqueue", None, ""}
 
@@ -45,6 +49,9 @@ def _int_from_quantity(value: str | int | None) -> int:
 
 @cached(_gpu_cache)
 def get_gpu_allocation() -> dict:
+    """GPU allocation summary. Pods are scoped to `settings.JOB_NAMESPACE`
+    (Phase 7.5 RBAC narrow) — GPU workloads only run in the lolday ns via
+    Volcano, so counting other namespaces was pure over-grant."""
     c = core_v1()
     total = 0
     for node in c.list_node().items:
@@ -52,7 +59,7 @@ def get_gpu_allocation() -> dict:
         total += _int_from_quantity(allocatable.get(GPU_RESOURCE))
 
     in_use = 0
-    for pod in c.list_pod_for_all_namespaces().items:
+    for pod in c.list_namespaced_pod(namespace=settings.JOB_NAMESPACE).items:
         if not pod.status or pod.status.phase != "Running":
             continue
         for container in (pod.spec.containers or []) if pod.spec else []:
@@ -81,10 +88,28 @@ def _phase(job: dict) -> str | None:
 
 @cached(_queue_cache)
 def get_queue_depth(queue_name: str = DEFAULT_QUEUE) -> int:
-    return sum(
-        1 for j in _list_queue_jobs(queue_name)
-        if _phase(j) not in _TERMINAL_PHASES
-    )
+    jobs = _list_queue_jobs(queue_name)
+    non_terminal = [j for j in jobs if _phase(j) not in _TERMINAL_PHASES]
+
+    # Side-effect: also refresh the stale-Pending gauge so a Prometheus alert
+    # can fire if the scheduler is hung. Cheap because the job list is already
+    # in hand, and only runs once per 10s per queue thanks to the TTL cache.
+    cutoff = datetime.now(timezone.utc).timestamp() - VOLCANO_STALE_SECONDS
+    stale = 0
+    for j in non_terminal:
+        if _phase(j) not in _PENDING_PHASES:
+            continue  # Running is expected-pending-turned-active; don't flag
+        created = (j.get("metadata") or {}).get("creationTimestamp")
+        if created and _parse_iso8601(created).timestamp() < cutoff:
+            stale += 1
+    VOLCANO_PENDING_STALE.set(stale)
+
+    return len(non_terminal)
+
+
+def _parse_iso8601(s: str) -> datetime:
+    """Parse the RFC3339 form k8s emits (`2026-04-21T01:00:00Z`)."""
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
 def get_job_queue_position(
