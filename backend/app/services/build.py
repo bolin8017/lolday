@@ -88,7 +88,13 @@ def build_job_spec(
                     },
                     "volumes": [
                         {"name": "workspace", "emptyDir": {"sizeLimit": "2Gi"}},
-                        {"name": "tmp", "emptyDir": {"sizeLimit": "512Mi"}},
+                        # Sized for the heaviest realistic DL detector: a
+                        # `uv pip install <repo>` of a torch-dependent detector
+                        # pulls torch (~2Gi) plus its full nvidia-cu12 wheel
+                        # set (nvidia-cudnn, cublas, cufft, cusolver,
+                        # cusparse, nccl, cuda-nvrtc…) totalling ~7Gi
+                        # extracted. Plus the venv + uv staging buffer.
+                        {"name": "tmp", "emptyDir": {"sizeLimit": "12Gi"}},
                         {
                             "name": "git-cred",
                             "secret": {"secretName": secret_name, "defaultMode": 0o400},
@@ -165,7 +171,10 @@ def build_job_spec(
                             "securityContext": base_sc,
                             "resources": {
                                 "requests": {"cpu": "200m", "memory": "256Mi"},
-                                "limits": {"cpu": "1", "memory": "2Gi"},
+                                # 8Gi RSS headroom for `uv pip install` of
+                                # torch + nvidia cu12 wheels (peak resident
+                                # ~5Gi including unpack buffers).
+                                "limits": {"cpu": "1", "memory": "8Gi"},
                             },
                         },
                     ],
@@ -192,7 +201,13 @@ def build_job_spec(
                             "securityContext": kaniko_sc,
                             "resources": {
                                 "requests": {"cpu": "1", "memory": "2Gi"},
-                                "limits": {"cpu": "2", "memory": "4Gi"},
+                                # Kaniko loads the full post-RUN filesystem
+                                # into memory to snapshot each layer. For DL
+                                # detectors a single RUN that installs torch
+                                # + nvidia cu12 wheels leaves ~5Gi unpacked
+                                # site-packages — snapshot peaks at ~14Gi
+                                # (filesystem copy + layer diff). 12Gi OOMs.
+                                "limits": {"cpu": "2", "memory": "20Gi"},
                             },
                         }
                     ],
