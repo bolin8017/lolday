@@ -28,6 +28,11 @@ rules:
   - apiGroups: [batch]
     resources: [jobs]
     verbs: [get, list, create, delete, watch]
+  # Phase 7.3 + 7.4 — Volcano training Jobs: reconciler reads + deletes,
+  # cluster_status.get_queue_depth lists.
+  - apiGroups: [batch.volcano.sh]
+    resources: [jobs]
+    verbs: [get, list, create, delete, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -43,5 +48,33 @@ subjects:
 roleRef:
   kind: Role
   name: backend
+  apiGroup: rbac.authorization.k8s.io
+---
+# Phase 7.4 — cluster_status.get_gpu_allocation() lists Nodes (cluster-scope)
+# + pods across all namespaces to count GPU requests. Read-only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.global.namespace }}-backend-cluster-reader
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes, pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.global.namespace }}-backend-cluster-reader
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: backend
+    namespace: {{ .Values.global.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.global.namespace }}-backend-cluster-reader
   apiGroup: rbac.authorization.k8s.io
 {{- end }}
