@@ -79,7 +79,14 @@ backend:
     # backend verifies the signature against this team's JWKS and validates
     # `aud` equals CF_ACCESS_APP_AUD.
     CF_ACCESS_TEAM_DOMAIN: "bolin8017.cloudflareaccess.com"
-    CF_ACCESS_APP_AUD: "d4271ba9-ff82-4f25-8684-b1324749d236"
+    # NOT the Access App UUID (d4271ba9-...). Cloudflare's Access App has two
+    # identifiers — `uid` (UUID, used in API URLs) and `aud` (64-char hex used
+    # in the JWT `aud` claim). JWT validation checks `aud`, so this is the
+    # right value. Fetch with:
+    #   curl -H "Authorization: Bearer $CF_API_TOKEN" \
+    #        https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/access/apps/<uid> \
+    #        | jq .result.aud
+    CF_ACCESS_APP_AUD: "b4175457e4dca534925f0559e32c22aefb46d1caaa1ccc713f742d53825e6584"
     CF_ACCESS_JWKS_CACHE_TTL_SECONDS: "600"
     AUTH_DEV_MODE: "false"                 # NEVER set to "true" in production
     # One-time Alembic phase10_sso_admin_email migration renames the seeded
