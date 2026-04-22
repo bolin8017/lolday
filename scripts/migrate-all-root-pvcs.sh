@@ -109,7 +109,13 @@ for i in $(seq 0 $((N-1))); do
     exit 1
   fi
   OLD=$(kubectl get pv "$PV" -o jsonpath='{.spec.local.path}' 2>/dev/null || true)
+  STATE="?"
   case "$OLD" in
+    /mnt/ssd500g/*)
+      # PV was re-provisioned directly on SSD (e.g. after a retention-policy-
+      # induced PVC delete + fresh StatefulSet-driven claim that landed on
+      # the Phase-9 local-path default). Nothing to migrate.
+      STATE="D-already-on-ssd" ;;
     /var/lib/rancher/k3s/storage/*) ;;
     *)
       echo "  FATAL: unexpected PV path for $NS/$PVC: $OLD" >&2
@@ -117,20 +123,21 @@ for i in $(seq 0 $((N-1))); do
   esac
   NEW_BASE=$(basename "$OLD")
   NEW="$SSD/k3s-storage/$NEW_BASE"
-  STATE="?"
-  if mountpoint -q "$OLD" 2>/dev/null; then
-    STATE="B-migrated"
-  elif [ -d "$OLD" ] && [ ! -e "$NEW" ]; then
-    STATE="A-fresh"
-  elif [ ! -e "$OLD" ] && [ -d "${OLD}.old" ] && [ -d "$NEW" ]; then
-    STATE="C-resume"
-  else
-    echo "  FATAL: unexpected on-disk state for $NS/$PVC" >&2
-    echo "    OLD ($OLD): $( [ -e "$OLD" ] && echo exists || echo absent )" >&2
-    echo "    NEW ($NEW): $( [ -e "$NEW" ] && echo exists || echo absent )" >&2
-    echo "    ${OLD}.old: $( [ -e "${OLD}.old" ] && echo exists || echo absent )" >&2
-    echo "    mount: $( mountpoint -q "$OLD" 2>/dev/null && echo yes || echo no )" >&2
-    exit 1
+  if [ "$STATE" = "?" ]; then
+    if mountpoint -q "$OLD" 2>/dev/null; then
+      STATE="B-migrated"
+    elif [ -d "$OLD" ] && [ ! -e "$NEW" ]; then
+      STATE="A-fresh"
+    elif [ ! -e "$OLD" ] && [ -d "${OLD}.old" ] && [ -d "$NEW" ]; then
+      STATE="C-resume"
+    else
+      echo "  FATAL: unexpected on-disk state for $NS/$PVC" >&2
+      echo "    OLD ($OLD): $( [ -e "$OLD" ] && echo exists || echo absent )" >&2
+      echo "    NEW ($NEW): $( [ -e "$NEW" ] && echo exists || echo absent )" >&2
+      echo "    ${OLD}.old: $( [ -e "${OLD}.old" ] && echo exists || echo absent )" >&2
+      echo "    mount: $( mountpoint -q "$OLD" 2>/dev/null && echo yes || echo no )" >&2
+      exit 1
+    fi
   fi
   printf "  %-18s %s\n" "${LABELS[$i]}" "$STATE"
 done
@@ -144,12 +151,18 @@ for i in $(seq 0 $((N-1))); do
   PVC=${PVCS[$i]}
   PV=$(kubectl -n "$NS" get pvc "$PVC" -o jsonpath='{.spec.volumeName}')
   OLD=$(kubectl get pv "$PV" -o jsonpath='{.spec.local.path}')
-  # Skip if already a bind-mount (Stage 5 would also early-return with exit 0,
-  # but short-circuiting here avoids the banner + extra kubectl churn).
+  # Skip when the PV is already on SSD. Two sub-cases:
+  #   B-migrated: OLD is a bind-mount inside /var/lib/rancher/k3s/storage/
+  #   D-already-on-ssd: OLD itself lives under /mnt/ssd500g/ (fresh PV)
   if mountpoint -q "$OLD" 2>/dev/null; then
     echo "=== [$STEP/$N] ${LABELS[$i]} — $OLD already bind-mounted, skipping ==="
     continue
   fi
+  case "$OLD" in
+    /mnt/ssd500g/*)
+      echo "=== [$STEP/$N] ${LABELS[$i]} — PV already on SSD ($OLD), skipping ==="
+      continue ;;
+  esac
   echo
   echo "==============================================================="
   echo "=== [$STEP/$N] ${LABELS[$i]}  (PVC=$PVC)"
