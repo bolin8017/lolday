@@ -326,8 +326,23 @@ case "$STAGE" in
     # Wait for pods to disappear — `kubectl wait --for=delete` needs a live
     # resource to reference; use a polling fallback if nothing matches.
     if [ -n "$READY_SELECTOR" ]; then
-      kubectl -n "$NS" wait --for=delete pod $READY_SELECTOR --timeout=120s 2>/dev/null || true
+      kubectl -n "$NS" wait --for=delete pod $READY_SELECTOR --timeout=60s 2>/dev/null || true
     fi
+    # StatefulSet pods that exit 0 on graceful shutdown can linger in
+    # Succeeded phase indefinitely (deletionTimestamp set, no finalizers, but
+    # kubelet never finalizes the API object when containerStatus is already
+    # Completed). Scale-up then stalls because the SS controller sees
+    # `<sts>-0` still exists and won't create a new one. Observed with Loki
+    # AND Postgres on 2026-04-22. Force-delete anything that lingers.
+    case "$WORKLOAD" in
+      statefulset/*|sts/*)
+        POD="${WORKLOAD#*/}-0"
+        if kubectl -n "$NS" get pod "$POD" -o name >/dev/null 2>&1; then
+          echo "  $POD lingering post-scale-down — force-deleting so SS can reconcile"
+          kubectl -n "$NS" delete pod "$POD" --grace-period=0 --force --wait=false 2>&1 | head
+        fi
+        ;;
+    esac
     sleep 5
 
     echo "[2/8] rsync $OLD_PATH → $NEW_PATH…"
