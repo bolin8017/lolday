@@ -94,10 +94,11 @@ echo "Pre-flight:"
 df -h / "$SSD" | awk 'NR==1 || /mapper|nvme0n1/'
 echo
 
-# Classify every PVC's current state — Stage 5 handles all three:
-#   A. Fresh:       OLD exists, NEW absent                       → full migration
-#   B. Migrated:    OLD is a bind-mount                          → skip
-#   C. Half-done:   OLD absent, ${OLD}.old present, NEW present  → resume at mount step
+# Classify every PVC's current state — Stage 5 handles all four:
+#   A-fresh:          OLD exists, NEW absent                       → full migration
+#   B-migrated:       OLD is a bind-mount                          → skip
+#   C-resume:         OLD absent, ${OLD}.old + NEW present         → resume at mount step
+#   D-already-on-ssd: PV's .spec.local.path under /mnt/ssd500g/    → skip
 # Any other shape aborts here so the operator can inspect before we touch data.
 echo "[pre-flight] classifying PVC states…"
 for i in $(seq 0 $((N-1))); do

@@ -62,10 +62,19 @@ for i in "${!LABELS[@]}"; do
   read -r NS WL IN_POD_PATH UID_BASE <<<"${CHECKS[$i]}"
   C_FLAG=()
   [ -n "${EXEC_C[$i]}" ] && C_FLAG=(-c "${EXEC_C[$i]}")
-  DEV=$(kubectl -n "$NS" exec "${C_FLAG[@]}" "$WL" -- df "$IN_POD_PATH" 2>/dev/null \
-    | awk 'END{print $1}')
+  # Distinguish "exec failed" (pod restarting, API throttle, RBAC, missing df
+  # in scratch image) from "wrong device". A swallowed exec error would leave
+  # DEV="" and print a confusing FATAL that tempts an operator to bypass a
+  # real data-protecting gate. Capture stderr + exit status separately.
+  if ! DF_OUT=$(kubectl -n "$NS" exec "${C_FLAG[@]}" "$WL" -- df "$IN_POD_PATH" 2>&1); then
+    echo "  FATAL: kubectl exec on ${LABELS[$i]} ($NS/$WL) failed — cannot verify backing device." >&2
+    printf '%s\n' "$DF_OUT" | sed 's/^/    /' >&2
+    echo "  Investigate pod health before retrying (shelf is the last copy)." >&2
+    exit 1
+  fi
+  DEV=$(printf '%s\n' "$DF_OUT" | awk 'END{print $1}')
   if [ "$DEV" != "$SSD_DEV" ]; then
-    echo "  FATAL: ${LABELS[$i]} ($NS/$WL $IN_POD_PATH) still on $DEV — refusing to delete shelf." >&2
+    echo "  FATAL: ${LABELS[$i]} ($NS/$WL $IN_POD_PATH) reports backing device $DEV (expected $SSD_DEV) — refusing to delete shelf." >&2
     echo "  If this is unexpected, investigate before re-running (shelf is the last copy)." >&2
     exit 1
   fi
@@ -104,7 +113,9 @@ if [ -d "$LOKI_OLD_MNT" ]; then
 fi
 if grep -qF "$LOKI_OLD_BASE" /etc/fstab; then
   echo "  prune /etc/fstab entry for $LOKI_OLD_BASE"
-  sed -i "\|k3s-storage/$LOKI_OLD_BASE |d" /etc/fstab
+  # Anchor at line start — a bare substring match would nuke any other line
+  # referencing this UUID (e.g. a commented-out rollback hint).
+  sed -i "\|^$LOKI_OLD_SRC $LOKI_OLD_MNT |d" /etc/fstab
 fi
 if [ -d "$LOKI_OLD_SRC" ]; then
   echo "  rm $LOKI_OLD_SRC"
@@ -115,7 +126,9 @@ echo
 echo "[3/3] final state"
 df -h / "$SSD" | awk 'NR==1 || /mapper|nvme0n1/'
 echo
-ACTIVE_BIND=$(grep -c 'k3s/storage/pvc-' /proc/mounts || echo 0)
-FSTAB_BIND=$(grep -c 'k3s-storage/pvc-' /etc/fstab || echo 0)
+ACTIVE_BIND=$(grep -c 'k3s/storage/pvc-' /proc/mounts || true)
+FSTAB_BIND=$(grep -c 'k3s-storage/pvc-' /etc/fstab || true)
+: "${ACTIVE_BIND:=0}"
+: "${FSTAB_BIND:=0}"
 echo "  active k3s-storage bind mounts: $ACTIVE_BIND (expected 5)"
 echo "  fstab k3s-storage bind entries: $FSTAB_BIND (expected 5)"

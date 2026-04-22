@@ -49,10 +49,12 @@ rsync_and_verify() {
     --numeric-ids "$SRC/" "$DST/"
 
   local src_files dst_files src_bytes dst_bytes diff tol
-  src_files=$(find "$SRC" -xdev -type f 2>/dev/null | wc -l)
-  dst_files=$(find "$DST" -xdev -type f 2>/dev/null | wc -l)
-  src_bytes=$(du -sxb "$SRC" 2>/dev/null | awk '{print $1}')
-  dst_bytes=$(du -sxb "$DST" 2>/dev/null | awk '{print $1}')
+  # Let find/du errors (I/O, permission, vanished path) surface via pipefail
+  # rather than silently under-counting and slipping past the integrity gate.
+  src_files=$(find "$SRC" -xdev -type f | wc -l)
+  dst_files=$(find "$DST" -xdev -type f | wc -l)
+  src_bytes=$(du -sxb "$SRC" | awk '{print $1}')
+  dst_bytes=$(du -sxb "$DST" | awk '{print $1}')
 
   echo "  src: $src_files files / $src_bytes bytes"
   echo "  dst: $dst_files files / $dst_bytes bytes"
@@ -211,10 +213,12 @@ case "$STAGE" in
   #
   # Fail-loud semantics:
   #   * `set -euo pipefail` at top of script → any unchecked failure aborts.
-  #   * rsync_and_verify aborts BEFORE the PV patch if the integrity gate fails.
+  #   * rsync_and_verify aborts BEFORE the bind-mount flip if the integrity
+  #     gate fails.
   #   * The old data directory is preserved at ${OLD_PATH}.old until the
   #     operator confirms the workload is healthy. Do NOT clean it up within
-  #     this script — PV patches are reversible only while that data exists.
+  #     this script — bind-mount flips are reversible only while that data
+  #     exists.
   : "${NS:?STAGE=5 requires NS=<namespace>}"
   : "${PVC:?STAGE=5 requires PVC=<pvc-name>}"
   : "${WORKLOAD:?STAGE=5 requires WORKLOAD=<kind>/<name>, e.g. deploy/mlflow}"
@@ -326,6 +330,7 @@ case "$STAGE" in
     # Wait for pods to disappear — `kubectl wait --for=delete` needs a live
     # resource to reference; use a polling fallback if nothing matches.
     if [ -n "$READY_SELECTOR" ]; then
+      # shellcheck disable=SC2086  # READY_SELECTOR must word-split into -l + expr
       kubectl -n "$NS" wait --for=delete pod $READY_SELECTOR --timeout=60s 2>/dev/null || true
     fi
     # StatefulSet pods that exit 0 on graceful shutdown can linger in
@@ -377,7 +382,10 @@ case "$STAGE" in
   if ! grep -qxF "$FSTAB_LINE" /etc/fstab; then
     echo "$FSTAB_LINE" >> /etc/fstab
   fi
-  systemctl daemon-reload 2>/dev/null || true
+  # No `|| true`: a daemon-reload failure means systemd's fstab generator
+  # choked (malformed entry, path with spaces) — we want the script to halt
+  # so the operator can inspect before `mount $OLD_PATH` silently no-ops.
+  systemctl daemon-reload
   mount "$OLD_PATH"
   mountpoint -q "$OLD_PATH" || { echo "FATAL: mount did not take effect" >&2; exit 1; }
 
