@@ -213,7 +213,7 @@ case "$STAGE" in
   # (${OLD_PATH}.old is still the authoritative data) rather than silently
   # "complete" with a broken Harbor.
   if ! kubectl -n lolday exec deploy/backend -- sh -c '
-      uv run python -c "import httpx; import sys; r = httpx.get(\"http://harbor.lolday.svc/v2/lolday/lolday-backend/manifests/phase8\", timeout=10); sys.exit(0 if r.status_code < 500 else 1)"
+      uv run python -c "import httpx; import sys; r = httpx.get(\"http://harbor.lolday.svc/v2/lolday/lolday-backend/manifests/phase9.5\", timeout=10); sys.exit(0 if r.status_code < 500 else 1)"
     '; then
     echo "FATAL: Harbor smoke test failed — ${OLD_PATH}.old still holds good data." >&2
     echo "  Rollback: kubectl patch pv $PV_NAME --type merge \\" >&2

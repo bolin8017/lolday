@@ -36,7 +36,7 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/lolday-backend:phase8
+  image: harbor.lolday.svc:80/lolday/lolday-backend:phase9.5
   replicas: 1
   jwtSecret: ""         # --set at deploy time, NEVER commit
   firstAdmin:
@@ -563,7 +563,12 @@ volcano:
   # ServiceMonitor templates below.
   enabled: true
   custom:
-    # Export Prometheus metrics from the scheduler / controller — our chart's
-    # ServiceMonitor (templates/monitoring/servicemonitor-volcano.yaml) scrapes
-    # these. Default is false; explicit opt-in here.
-    metrics_enable: true
+    # Phase 9.5: keep scheduler / controller /metrics endpoints (defaults
+    # scheduler_metrics_enable=true, controller_metrics_enable=true — our
+    # servicemonitor-volcano.yaml scrapes them), but do NOT deploy the
+    # subchart's bundled kube-state-metrics / Prometheus / Grafana. The
+    # bundled KSM ships `volcanosh/kube-state-metrics:v2.0.0-beta` (2020-
+    # era) carrying 6 Critical CVEs, and kube-prometheus-stack already
+    # provides the real KSM + Prometheus + Grafana for the cluster. The
+    # master `metrics_enable` flag gates those three extra templates only.
+    metrics_enable: false

@@ -279,7 +279,7 @@ skip_if_missing() {
   fi
 }
 
-build_push      "$REPO/backend"                                   "lolday/lolday-backend:phase8"
+build_push      "$REPO/backend"                                   "lolday/lolday-backend:phase9.5"
 build_push      "$REPO/charts/lolday/helpers/build-helper"        "lolday/build-helper:v2"
 skip_if_missing "$REPO/charts/lolday/helpers/job-helper"          "lolday/job-helper:v2"
 skip_if_missing "$REPO/charts/lolday/helpers/mlflow-server"       "lolday/mlflow-server:v2.20.3"
