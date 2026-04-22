@@ -68,5 +68,10 @@ fastapi_users = FastAPIUsers[User, uuid.UUID](
     [auth_backend, cookie_auth_backend],
 )
 
-current_active_user = fastapi_users.current_user(active=True)
+# Phase 10: primary auth dependency is now Cloudflare Access SSO.
+# The fastapi-users password/cookie routes remain mounted in PR 10.1 for
+# test compatibility and break-glass; they get removed in PR 10.2.
+from app.auth.cf_access import cf_access_user  # noqa: E402
+
+current_active_user = cf_access_user
 current_superuser = fastapi_users.current_user(active=True, superuser=True)

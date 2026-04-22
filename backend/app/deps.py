@@ -86,8 +86,8 @@ async def require_build_token(
 
 async def require_job_token(
     job_id: uuid.UUID,
-    authorization: Annotated[str, Header()],
     session: Annotated[AsyncSession, Depends(get_async_session)],
+    authorization: Annotated[str | None, Header()] = None,
 ) -> Job:
     """Authenticate as a given job's init container via one-time token.
 

@@ -191,9 +191,11 @@ app.include_router(
     tags=["auth"],
 )
 
-# User routes
+# User routes — Phase 10: /me served by custom router using cf_access_user.
+# fastapi_users.get_users_router(...) removed so /users/me authenticates via SSO.
+from app.routers import users_me  # noqa: E402
 app.include_router(
-    fastapi_users.get_users_router(UserRead, UserUpdate),
+    users_me.router,
     prefix="/api/v1/users",
     tags=["users"],
 )

@@ -49,12 +49,11 @@ async def test_login_wrong_password(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_get_profile(client: AsyncClient):
-    await register_user(client, "me@example.com", "Str0ngP@ss!")
-    headers = await auth_header(client, "me@example.com", "Str0ngP@ss!")
-    resp = await client.get("/api/v1/users/me", headers=headers)
+async def test_get_profile(auth_client_user: AsyncClient):
+    """Phase 10: /users/me now authenticated via Cloudflare Access SSO."""
+    resp = await auth_client_user.get("/api/v1/users/me")
     assert resp.status_code == 200
-    assert resp.json()["email"] == "me@example.com"
+    assert resp.json()["email"] == "user@example.dev"
 
 
 @pytest.mark.asyncio
@@ -64,15 +63,13 @@ async def test_get_profile_unauthenticated(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_user_cannot_self_promote_role(client: AsyncClient):
-    await register_user(client, "sneaky@example.com", "Str0ngP@ss!")
-    headers = await auth_header(client, "sneaky@example.com", "Str0ngP@ss!")
-    resp = await client.patch(
+async def test_user_cannot_self_promote_role(auth_client_user: AsyncClient):
+    """UserSelfUpdate forbids extra fields so role/is_superuser cannot leak through."""
+    resp = await auth_client_user.patch(
         "/api/v1/users/me",
         json={"role": "admin"},
-        headers=headers,
     )
-    assert resp.status_code == 422 or resp.json().get("role") == "user"
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio

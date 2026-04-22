@@ -59,5 +59,12 @@ class Settings(BaseSettings):
     DISCORD_HTTP_TIMEOUT_SECONDS: float = 5.0
     LOLDAY_UI_BASE_URL: str = "https://lolday.connlabai.com"
 
+    # Phase 10: Cloudflare Access SSO
+    CF_ACCESS_TEAM_DOMAIN: str = ""        # e.g. "bolin8017.cloudflareaccess.com"
+    CF_ACCESS_APP_AUD: str = ""            # Access Application UUID (aud claim)
+    CF_ACCESS_JWKS_CACHE_TTL_SECONDS: int = 600
+    AUTH_DEV_MODE: bool = False            # bypass Cloudflare JWT for local dev
+    AUTH_DEV_EMAIL: str = ""               # synthetic user email when AUTH_DEV_MODE=true
+
 
 settings = Settings()

@@ -74,6 +74,18 @@ backend:
     JOB_NODE_SELECTOR_HOSTNAME: "server30"
     # Phase 7.4 — UI base used to build Discord embed link buttons.
     LOLDAY_UI_BASE_URL: "https://lolday.connlabai.com"
+    # Phase 10 — Cloudflare Access SSO (IAP). Every request is expected to
+    # carry the `Cf-Access-Jwt-Assertion` header injected by cloudflared;
+    # backend verifies the signature against this team's JWKS and validates
+    # `aud` equals CF_ACCESS_APP_AUD.
+    CF_ACCESS_TEAM_DOMAIN: "bolin8017.cloudflareaccess.com"
+    CF_ACCESS_APP_AUD: "d4271ba9-ff82-4f25-8684-b1324749d236"
+    CF_ACCESS_JWKS_CACHE_TTL_SECONDS: "600"
+    AUTH_DEV_MODE: "false"                 # NEVER set to "true" in production
+    # One-time Alembic phase10_sso_admin_email migration renames the seeded
+    # admin@lolday.dev row to this email so the operator's first SSO login
+    # maps onto the existing row (preserving legacy owner_id values).
+    SSO_ADMIN_EMAIL: "bolin8017@gmail.com"
 
 # =============================================================================
 # PostgreSQL

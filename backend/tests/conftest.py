@@ -5,17 +5,16 @@ os.environ.setdefault(
 )
 os.environ.setdefault("RECONCILER_ENABLED", "false")
 os.environ.setdefault("COOKIE_SECURE", "false")
-# Point SAMPLES_LOCAL_ROOT to a non-existent dir so dataset integrity spot-checks
-# skip during tests. Production uses /data/{malware,benign}-samples.
 os.environ.setdefault("SAMPLES_LOCAL_ROOT", "/nonexistent-samples-root-for-tests")
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db import get_async_session
-from app.models import Base
+from app.models import Base, Role, User
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 test_engine = create_async_engine(TEST_DATABASE_URL)
@@ -31,22 +30,9 @@ async def setup_db():
         await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest_asyncio.fixture
-async def client():
-    from app.main import app
-
-    async def override():
-        async with test_session_maker() as session:
-            yield session
-
-    app.dependency_overrides[get_async_session] = override
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-    app.dependency_overrides.clear()
-
-
 async def register_user(client: AsyncClient, email: str, password: str) -> dict:
+    """Legacy helper used by password-auth tests (test_auth.py, test_auth_cookie.py).
+    Password auth routes remain mounted in PR 10.1 for these tests; removed in PR 10.2."""
     resp = await client.post(
         "/api/v1/auth/register",
         json={"email": email, "password": password},
@@ -67,71 +53,66 @@ async def auth_header(client: AsyncClient, email: str, password: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest_asyncio.fixture
-async def auth_client_user(client):
-    """Authenticated AsyncClient for a 'user'-role user."""
-    await register_user(client, "user@example.dev", "Password123!")
-    token = await login_user(client, "user@example.dev", "Password123!")
-    client.headers.update({"Authorization": f"Bearer {token}"})
-    return client
-
-
-@pytest_asyncio.fixture
-async def auth_client_developer(client):
-    """AsyncClient authenticated as a developer-role user.
-
-    Uses direct DB update to set role (seed admin isn't set up in tests).
-    """
-    await register_user(client, "dev@example.dev", "DevPass123!")
-    token = await login_user(client, "dev@example.dev", "DevPass123!")
-    # Promote to developer via direct DB update
-    from sqlalchemy import update
-    from app.models import Role, User
+async def _make_user(
+    email: str,
+    role: Role = Role.USER,
+    is_superuser: bool = False,
+) -> User:
+    """Insert or return a test User row with the given role."""
     async with test_session_maker() as session:
-        await session.execute(
-            update(User)
-            .where(User.email == "dev@example.dev")
-            .values(role=Role.DEVELOPER)
+        existing = (
+            await session.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none()
+        if existing is not None:
+            return existing
+        user = User(
+            email=email,
+            hashed_password="!testing-only!",
+            role=role,
+            display_name=email.split("@", 1)[0],
+            is_active=True,
+            is_superuser=is_superuser,
+            is_verified=True,
         )
+        session.add(user)
         await session.commit()
-    client.headers.update({"Authorization": f"Bearer {token}"})
-    return client
+        await session.refresh(user)
+        return user
 
 
-@pytest_asyncio.fixture
-async def auth_client_admin(client):
-    """AsyncClient authenticated as an admin-role user."""
-    await register_user(client, "adm@example.dev", "AdmPass123!")
-    token = await login_user(client, "adm@example.dev", "AdmPass123!")
-    from sqlalchemy import update
-    from app.models import Role, User
-    async with test_session_maker() as session:
-        await session.execute(
-            update(User)
-            .where(User.email == "adm@example.dev")
-            .values(role=Role.ADMIN, is_superuser=True)
-        )
-        await session.commit()
-    client.headers.update({"Authorization": f"Bearer {token}"})
-    return client
+def _install_header_based_auth_override() -> None:
+    """Install a cf_access_user override keyed by the X-Test-User-Email request header.
 
-
-@pytest_asyncio.fixture
-async def user_client(client):
-    """Authenticated AsyncClient for a regular user (alias used by dataset tests)."""
-    await register_user(client, "user1@example.dev", "Password123!")
-    token = await login_user(client, "user1@example.dev", "Password123!")
-    client.headers.update({"Authorization": f"Bearer {token}"})
-    return client
-
-
-@pytest_asyncio.fixture
-async def second_user_client():
-    """Distinct authenticated client with a different user from `user_client`.
-
-    Creates its own AsyncClient so it doesn't share headers with user_client.
-    Uses the same test DB (same test_session_maker / test_engine).
+    This preserves per-client identity when tests run two clients side-by-side
+    (e.g. `user_client` + `second_user_client`). The real production dependency
+    parses identity out of a JWT; in tests each client just sets a test header
+    pointing at a pre-seeded user row.
     """
+    from fastapi import Depends, HTTPException, Request
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.auth.cf_access import cf_access_user
+    from app.main import app
+
+    async def _fake_auth(
+        request: Request,
+        session: AsyncSession = Depends(get_async_session),
+    ) -> User:
+        email = request.headers.get("x-test-user-email")
+        if not email:
+            raise HTTPException(401, "missing X-Test-User-Email (test fixture)")
+        row = (
+            await session.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(401, f"test fixture: user not seeded: {email}")
+        return row
+
+    app.dependency_overrides[cf_access_user] = _fake_auth
+
+
+@pytest_asyncio.fixture
+async def client():
     from app.main import app
 
     async def override():
@@ -139,11 +120,58 @@ async def second_user_client():
             yield session
 
     app.dependency_overrides[get_async_session] = override
+    _install_header_based_auth_override()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
-        await register_user(c, "user2@example.dev", "Password123!")
-        token = await login_user(c, "user2@example.dev", "Password123!")
-        c.headers.update({"Authorization": f"Bearer {token}"})
+        yield c
+    app.dependency_overrides.clear()
+
+
+def _as_user(client: AsyncClient, email: str) -> AsyncClient:
+    client.headers["x-test-user-email"] = email
+    return client
+
+
+@pytest_asyncio.fixture
+async def auth_client_user(client):
+    await _make_user("user@example.dev", role=Role.USER)
+    return _as_user(client, "user@example.dev")
+
+
+@pytest_asyncio.fixture
+async def auth_client_developer(client):
+    await _make_user("dev@example.dev", role=Role.DEVELOPER)
+    return _as_user(client, "dev@example.dev")
+
+
+@pytest_asyncio.fixture
+async def auth_client_admin(client):
+    await _make_user("adm@example.dev", role=Role.ADMIN, is_superuser=True)
+    return _as_user(client, "adm@example.dev")
+
+
+@pytest_asyncio.fixture
+async def user_client(client):
+    """Alias used by dataset tests; regular USER-role user."""
+    await _make_user("user1@example.dev", role=Role.USER)
+    return _as_user(client, "user1@example.dev")
+
+
+@pytest_asyncio.fixture
+async def second_user_client():
+    """Distinct client with a different user so it can run alongside user_client."""
+    from app.main import app
+
+    async def override():
+        async with test_session_maker() as session:
+            yield session
+
+    app.dependency_overrides[get_async_session] = override
+    _install_header_based_auth_override()
+    await _make_user("user2@example.dev", role=Role.USER)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        c.headers["x-test-user-email"] = "user2@example.dev"
         yield c
 
 
@@ -218,8 +246,6 @@ def mock_k8s_batch(monkeypatch):
 @pytest.fixture(autouse=True)
 def mock_mlflow(request, monkeypatch):
     if "no_mock_mlflow" in request.keywords:
-        # Restore experiments_proxy.MlflowClient to the real class in case a
-        # previous test's mock_mlflow stub leaked into the module binding.
         import app.services.mlflow_client as mc
         import app.routers.experiments_proxy as ep_mod
         ep_mod.MlflowClient = mc.MlflowClient
@@ -269,22 +295,19 @@ def mock_mlflow(request, monkeypatch):
         async def search_runs(self, experiment_ids, filter_string=None, max_results=100):
             return []
 
-    # Ensure app modules are imported before patching so we can restore correctly.
     import app.services.mlflow_client as mc
     import app.routers.jobs as jobs_mod
     import app.routers.models_registry as mr_mod
     import app.routers.experiments_proxy as ep_mod
 
-    real_mlflow_cls = mc.MlflowClient  # capture original before any patching
+    real_mlflow_cls = mc.MlflowClient
 
     stub = _Stub()
     monkeypatch.setattr(mc, "MlflowClient", lambda *a, **kw: stub)
-    # Also patch where it's imported in routers
     monkeypatch.setattr(jobs_mod, "MlflowClient", lambda *a, **kw: stub)
     monkeypatch.setattr(mr_mod, "MlflowClient", lambda *a, **kw: stub)
     monkeypatch.setattr(ep_mod, "MlflowClient", lambda *a, **kw: stub)
     yield
-    # Restore ep_mod explicitly in case monkeypatch didn't capture it before first import
     if ep_mod.MlflowClient is not real_mlflow_cls:
         ep_mod.MlflowClient = real_mlflow_cls
 
@@ -351,7 +374,6 @@ async def seed_detector(auth_client_developer, monkeypatch):
         return {"name": "upxelfdet", "description": "demo", "display_name": "upxelfdet"}
 
     monkeypatch.setattr(dr, "_clone_and_validate", fake_meta)
-    # Register a PAT so build can proceed
     await auth_client_developer.put(
         "/api/v1/users/me/git-credential",
         json={"provider": "github", "token": "ghp_testtoken1234567890"},
@@ -375,7 +397,6 @@ async def seed_model_version(db_session, seed_user, seed_detector_version, seed_
     from app.models.job import JobStatus, JobType
     from app.models.model_registry import ModelVersionStage
 
-    # Promote seed_user to DEVELOPER so transition rules allow owner transitions
     async with test_session_maker() as _s:
         await _s.execute(
             sa_update(User)
@@ -385,8 +406,6 @@ async def seed_model_version(db_session, seed_user, seed_detector_version, seed_
         await _s.commit()
 
     async def _seed(name: str = "upxelfdet"):
-        # Use a unique detector name per call to avoid UNIQUE constraint on
-        # (owner_id, git_url) and name when _seed is called multiple times.
         unique_det_name = f"{name}-{uuid4().hex[:8]}"
         dv_id_str = await seed_detector_version(name=unique_det_name)
         ds_id_str = await seed_dataset(name=f"ds-for-{name}-{uuid4().hex[:6]}")
