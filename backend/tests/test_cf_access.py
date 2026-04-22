@@ -90,6 +90,27 @@ async def test_get_or_create_user_creates_new_row_with_defaults(db_session):
     assert row.id == user.id
 
 
+async def test_get_or_create_user_persists_across_sessions(db_session):
+    """Real bug: `session.flush()` without commit would make the row visible
+    in the same session (passing naive same-session tests) but vanish when
+    the request-scoped session closed in production, because `async with
+    async_session_maker() as s:` does NOT auto-commit on context exit."""
+    from sqlalchemy import select
+
+    from app.auth.cf_access import get_or_create_user_by_email
+    from app.models import User
+    from tests.conftest import test_session_maker
+
+    await get_or_create_user_by_email(db_session, "persists@example.com")
+    await db_session.close()  # simulate request-scope session termination
+
+    async with test_session_maker() as fresh:
+        row = (
+            await fresh.execute(select(User).where(User.email == "persists@example.com"))
+        ).scalar_one_or_none()
+    assert row is not None, "row lost on session close — get_or_create forgot to commit"
+
+
 async def test_get_or_create_user_returns_existing_row(db_session):
     """Subsequent visits re-use the existing User row without creating duplicates."""
     from sqlalchemy import func, select

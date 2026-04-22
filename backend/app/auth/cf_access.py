@@ -66,14 +66,19 @@ async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User
         is_verified=True,
     )
     session.add(user)
+    # Commit (not flush) so the INSERT survives the request-scope session
+    # closing without an explicit commit. fastapi-users style dependencies
+    # don't auto-commit; new users would otherwise rollback into the void
+    # on first visit and never make it into /admin/users.
     try:
-        await session.flush()
+        await session.commit()
     except IntegrityError:
         await session.rollback()
         existing = (
             await session.execute(select(User).where(User.email == email))
         ).scalar_one()
         return existing
+    await session.refresh(user)
     return user
 
 
