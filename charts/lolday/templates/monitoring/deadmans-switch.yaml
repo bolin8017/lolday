@@ -1,0 +1,179 @@
+{{- if .Values.monitoring.enabled }}
+# Phase 9.1 — Dead Man's Switch.
+#
+# Every 5 minutes, this CronJob asks Alertmanager for the always-firing
+# `Watchdog` alert. If it is missing or its `startsAt` is older than
+# 10 minutes, the job POSTs directly to Discord critical webhook —
+# bypassing Prometheus and Alertmanager entirely, so that a broken
+# monitoring stack (Prometheus TSDB corruption, Alertmanager pod crash,
+# operator misconfiguration) cannot silence the page.
+#
+# The root incident driving this was Phase 8 → 9 Prometheus WAL corruption
+# (2026-04-21 13:11 UTC, 18 hours silent before human eyeballs noticed):
+# rule evaluation health went to `err`, so every recording rule and
+# every alert — including `PrometheusTSDBCompactionsFailing` and the
+# `KubeAPIDown` / `KubeletDown` cascade — failed to reach Alertmanager.
+# Industry-standard remediation (SRE book, "dead man's switch pattern"):
+# an independent external watcher confirms the heartbeat alert is still
+# being delivered, and pages via an independent channel when it stops.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deadmans-switch-script
+  namespace: monitoring
+  labels: {{- include "lolday.labels" . | nindent 4 }}
+data:
+  check.py: |
+    """Verify Watchdog alert freshness in Alertmanager; Discord on failure.
+
+    Exits 0 on both happy-path and after-sending-Discord-alert. A failed
+    Job would fire KubeJobFailed via kube-state-metrics and double-page;
+    we already delivered the signal via the independent Discord channel.
+    """
+    import json
+    import os
+    import sys
+    import urllib.error
+    import urllib.request
+    from datetime import datetime, timezone
+
+    AM_URL = "http://kps-alertmanager.monitoring:9093/api/v2/alerts"
+    MAX_AGE_SECONDS = 600  # 10 min: covers 5-min cron jitter plus one missed eval
+    TIMEOUT_SECONDS = 15
+    USER_AGENT = "lolday-deadmans-switch/1.0 (+https://github.com/louiskyee/lolday)"
+
+    def fetch_alerts():
+        req = urllib.request.Request(
+            AM_URL,
+            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+        )
+        with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
+            return json.load(resp)
+
+    def check():
+        try:
+            alerts = fetch_alerts()
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return f"Alertmanager unreachable: {type(exc).__name__}: {exc}"
+        watchdog = next(
+            (a for a in alerts if a.get("labels", {}).get("alertname") == "Watchdog"),
+            None,
+        )
+        if watchdog is None:
+            return "Watchdog alert is not present in Alertmanager — the entire Prometheus → Alertmanager chain is broken"
+        # `updatedAt` refreshes every time Alertmanager receives this alert
+        # from Prometheus; `startsAt` would only move when the alert first
+        # fires, so it is useless as a heartbeat. If `updatedAt` ages out,
+        # Prometheus has stopped evaluating-and-sending.
+        updated_at_raw = watchdog.get("updatedAt", "")
+        try:
+            updated_at = datetime.fromisoformat(updated_at_raw.replace("Z", "+00:00"))
+        except ValueError:
+            return f"Watchdog.updatedAt unparseable: {updated_at_raw!r}"
+        age = (datetime.now(timezone.utc) - updated_at).total_seconds()
+        if age > MAX_AGE_SECONDS:
+            return f"Watchdog.updatedAt is {int(age)}s old (max {MAX_AGE_SECONDS}s) — Prometheus has stopped sending"
+        print(f"OK: Watchdog updated {int(age)}s ago")
+        return None
+
+    def alert_discord(reason):
+        url = os.environ["DISCORD_URL"]
+        payload = {
+            "content": "@here",
+            "embeds": [{
+                "title": "🚨 Dead Man's Switch — Prometheus/Alertmanager chain is broken",
+                "color": 15158332,
+                "description": reason,
+                "fields": [
+                    {"name": "Cluster", "value": os.environ.get("CLUSTER_NAME", "lolday"), "inline": True},
+                    {"name": "Timestamp", "value": datetime.now(timezone.utc).isoformat(timespec="seconds"), "inline": True},
+                    {"name": "Next check", "value": "5 minutes", "inline": True},
+                    {"name": "Investigate", "value": "`kubectl -n monitoring get pods -l app.kubernetes.io/name=alertmanager` / `prometheus` — check WAL, rule health, scrape target state"},
+                ],
+            }],
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+        )
+        with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS):
+            pass
+
+    def main():
+        reason = check()
+        if reason is None:
+            return 0
+        print(f"ALERT: {reason}", file=sys.stderr)
+        try:
+            alert_discord(reason)
+            print(f"Discord alerted: {reason}")
+        except Exception as exc:  # last-resort channel; log everything
+            print(f"Discord POST failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
+        return 0
+
+    sys.exit(main())
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: deadmans-switch
+  namespace: monitoring
+  labels: {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 60
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: deadmans-switch
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            fsGroup: 65534
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: check
+              image: python:3.13-alpine
+              imagePullPolicy: IfNotPresent
+              command: [python, /scripts/check.py]
+              env:
+                - name: CLUSTER_NAME
+                  value: lolday
+                - name: DISCORD_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: alertmanager-discord
+                      key: webhook-url-critical
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {cpu: 100m, memory: 64Mi}
+              volumeMounts:
+                - {name: scripts, mountPath: /scripts, readOnly: true}
+          volumes:
+            - name: scripts
+              configMap:
+                name: deadmans-switch-script
+                defaultMode: 0o444
+{{- end }}
