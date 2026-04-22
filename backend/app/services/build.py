@@ -64,11 +64,29 @@ def build_job_spec(
         "capabilities": {"drop": ["ALL"]},
     }
     ro_sc = {**base_sc, "readOnlyRootFilesystem": True}
-    # Kaniko needs root to unpack image layers and chown files
-    kaniko_sc = {
-        "allowPrivilegeEscalation": False,
-        "runAsUser": 0,
-        "capabilities": {"drop": ["ALL"], "add": ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]},
+    # Rootless BuildKit matches the upstream moby/buildkit
+    # examples/kubernetes/job.rootless.yaml security context: the pod runs
+    # as a non-root user, but rootlesskit uses setuid newuidmap/newgidmap
+    # to set up the user namespace — those require no_new_privs=false
+    # (i.e. allowPrivilegeEscalation defaults to true) and the SETUID /
+    # SETGID capabilities in the bounding set. Dropping ALL caps or
+    # setting allowPrivilegeEscalation=false breaks rootless startup with
+    # `newuidmap ... failed: operation not permitted`. Security comes
+    # from the user namespace isolation itself: buildkitd only ever runs
+    # as UID 1000 inside the container; setuid is only used transiently
+    # during namespace setup.
+    #
+    # HOST PREREQUISITE (Ubuntu 24.04+): the node must have
+    #   kernel.apparmor_restrict_unprivileged_userns = 0
+    # in /etc/sysctl.d/ — without it rootlesskit fails with
+    #   `[rootlesskit:parent] error: ... EPERM`
+    # See docs/ops/host-prep.md for the full host setup.
+    buildkit_sc = {
+        "runAsNonRoot": True,
+        "runAsUser": 1000,
+        "runAsGroup": 1000,
+        "seccompProfile": {"type": "Unconfined"},
+        "appArmorProfile": {"type": "Unconfined"},
     }
 
     pod_labels = {"app": "lolday-build", "lolday.io/build-id": str(build_id)}
@@ -87,8 +105,11 @@ def build_job_spec(
                     "restartPolicy": "Never",
                     "automountServiceAccountToken": False,
                     "securityContext": {
+                        "runAsNonRoot": True,
                         "runAsUser": 1000,
                         "fsGroup": 1000,
+                        # Pod-wide default; the buildkit container overrides
+                        # to Unconfined for user-namespace creation.
                         "seccompProfile": {"type": "RuntimeDefault"},
                     },
                     "volumes": [
@@ -100,9 +121,19 @@ def build_job_spec(
                         # cusparse, nccl, cuda-nvrtc…) totalling ~7Gi
                         # extracted. Plus the venv + uv staging buffer.
                         {"name": "tmp", "emptyDir": {"sizeLimit": "12Gi"}},
+                        # BuildKit's overlay snapshotter needs a writable
+                        # directory under HOME. Disk-backed (not tmpfs) so
+                        # multi-GB DL image layers don't blow RAM.
+                        {"name": "buildkit-state", "emptyDir": {"sizeLimit": "30Gi"}},
                         {
                             "name": "git-cred",
-                            "secret": {"secretName": secret_name, "defaultMode": 0o400},
+                            "secret": {
+                                "secretName": secret_name,
+                                # 0o440 = u=r, g=r. With fsGroup=1000 the
+                                # mounted file is owned root:1000, so the
+                                # UID 1000 runAsUser reads via the group bit.
+                                "defaultMode": 0o440,
+                            },
                         },
                         {
                             "name": "harbor-docker-cfg",
@@ -111,7 +142,9 @@ def build_job_spec(
                                 "items": [
                                     {"key": ".dockerconfigjson", "path": "config.json"}
                                 ],
-                                "defaultMode": 0o400,
+                                # Same group-readable pattern as git-cred.
+                                # Required for BuildKit's DOCKER_CONFIG.
+                                "defaultMode": 0o440,
                             },
                         },
                     ],
@@ -212,47 +245,77 @@ def build_job_spec(
                     ],
                     "containers": [
                         {
-                            "name": "kaniko",
-                            "image": settings.BUILD_IMAGE_KANIKO,
+                            "name": "buildkit",
+                            "image": settings.BUILD_IMAGE_BUILDKIT,
+                            "imagePullPolicy": "IfNotPresent",
+                            # buildctl-daemonless.sh is the upstream wrapper
+                            # that forks a local buildkitd and runs buildctl
+                            # against its unix socket — same one-pod-per-build
+                            # shape that Kaniko had, so the reconciler's Job
+                            # lifecycle logic needs no changes. We invoke it
+                            # via the exec form (no `sh -c`) so `destination`
+                            # and `cache_repo` travel as argv entries, not
+                            # shell-interpolated; a git_tag containing spaces
+                            # or `;` cannot corrupt the argv even without
+                            # the schema-level regex guard upstream.
+                            "command": ["buildctl-daemonless.sh"],
                             "args": [
-                                "--context=dir:///workspace/src",
-                                "--dockerfile=Dockerfile",
-                                f"--destination={destination}",
-                                f"--insecure-registry={settings.HARBOR_IMAGE_PREFIX}",
-                                "--cache=true",
-                                f"--cache-repo={cache_repo}",
-                                "--cache-ttl=336h",
-                                "--snapshot-mode=redo",
-                                "--log-format=json",
-                                "--verbosity=info",
+                                "build",
+                                "--frontend", "dockerfile.v0",
+                                "--local", "context=/workspace/src",
+                                "--local", "dockerfile=/workspace/src",
+                                "--output", f"type=image,name={destination},push=true,registry.insecure=true",
+                                "--export-cache", f"type=registry,ref={cache_repo},mode=max,registry.insecure=true",
+                                "--import-cache", f"type=registry,ref={cache_repo},registry.insecure=true",
+                                "--progress", "plain",
+                            ],
+                            "env": [
+                                # buildctl-daemonless.sh retries daemon
+                                # startup this many times before exiting 1.
+                                {"name": "BUILDCTL_CONNECT_RETRIES_ON_STARTUP", "value": "10"},
+                                # Required for rootless in Kubernetes. Docker
+                                # sets `systempaths=unconfined` via daemon.json;
+                                # we don't have that, so explicitly disable the
+                                # process sandbox.
+                                {"name": "BUILDKITD_FLAGS", "value": "--oci-worker-no-process-sandbox"},
+                                # buildctl reads $DOCKER_CONFIG/config.json to
+                                # authenticate to the registry; the secret is
+                                # mounted as single file named config.json.
+                                {"name": "DOCKER_CONFIG", "value": "/home/user/.docker"},
                             ],
                             "volumeMounts": [
                                 {"name": "workspace", "mountPath": "/workspace", "readOnly": True},
-                                {"name": "harbor-docker-cfg", "mountPath": "/kaniko/.docker", "readOnly": True},
+                                {"name": "harbor-docker-cfg", "mountPath": "/home/user/.docker", "readOnly": True},
+                                # BuildKit snapshotter + metadata DB live here;
+                                # emptyDir backed by node disk (not tmpfs).
+                                {"name": "buildkit-state", "mountPath": "/home/user/.local/share/buildkit"},
+                                # buildctl writes temporary frontend files here.
+                                {"name": "tmp", "mountPath": "/tmp"},
                             ],
-                            "securityContext": kaniko_sc,
+                            "securityContext": buildkit_sc,
                             "resources": {
                                 "requests": {
                                     "cpu": "1",
                                     "memory": "2Gi",
-                                    # Reserve enough ephemeral-storage that
-                                    # kaniko is never the first-to-evict when
-                                    # the node comes under disk pressure. DL
-                                    # image builds unpack ~7Gi of torch +
-                                    # nvidia-cu12 wheels into kaniko's own
-                                    # filesystem during build.
-                                    "ephemeral-storage": "4Gi",
+                                    # BuildKit stores layers to disk via
+                                    # overlay snapshotter; the 30Gi
+                                    # buildkit-state emptyDir covers DL-image
+                                    # snapshots. A small floor here keeps the
+                                    # scheduler aware of build-disk pressure.
+                                    "ephemeral-storage": "2Gi",
                                 },
-                                # Kaniko loads the full post-RUN filesystem
-                                # into memory to snapshot each layer. For DL
-                                # detectors a single RUN that installs torch
-                                # + nvidia cu12 wheels leaves ~5Gi unpacked
-                                # site-packages — snapshot peaks at ~14Gi
-                                # (filesystem copy + layer diff). 12Gi OOMs.
+                                # Community-observed RSS for multi-GB CUDA
+                                # bases with rootless BuildKit is 2-4 GiB —
+                                # materially below Kaniko's 20Gi requirement
+                                # because BuildKit does NOT load the whole
+                                # post-RUN filesystem into tmpfs per layer.
+                                # 8Gi gives ample headroom and lets the node
+                                # run two concurrent builds (vs one for
+                                # Kaniko on an 8-GPU 32Gi server).
                                 "limits": {
                                     "cpu": "2",
-                                    "memory": "20Gi",
-                                    "ephemeral-storage": "16Gi",
+                                    "memory": "8Gi",
+                                    "ephemeral-storage": "32Gi",
                                 },
                             },
                         }

@@ -1,0 +1,88 @@
+{{- if .Values.monitoring.enabled }}
+# Phase 9.1 — Dead Man's Switch.
+#
+# Every 5 minutes, this CronJob asks Alertmanager for the always-firing
+# `Watchdog` alert. If it is missing or its `updatedAt` is older than
+# 10 minutes, the job POSTs directly to Discord critical webhook —
+# bypassing Prometheus and Alertmanager entirely, so that a broken
+# monitoring stack (Prometheus TSDB corruption, Alertmanager pod crash,
+# operator misconfiguration) cannot silence the page.
+#
+# Motivating incident: docs/postmortems/2026-04-21-prometheus-wal.md
+# (Prometheus WAL subPath deleted underneath a running pod; rule health
+# went to `err` for 18h, every downstream alert silenced). Industry
+# pattern: SRE Book / SRE Workbook "dead man's switch".
+#
+# The Python script lives at charts/lolday/files/deadmans_switch/check.py
+# so it can be unit-tested (backend/tests/test_deadmans_switch_check.py)
+# without needing a running cluster. This template mounts it via
+# `.Files.Get` — same bytes on disk and in the ConfigMap.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deadmans-switch-script
+  namespace: monitoring
+  labels: {{- include "lolday.labels" . | nindent 4 }}
+data:
+  check.py: |
+{{ .Files.Get "files/deadmans_switch/check.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: deadmans-switch
+  namespace: monitoring
+  labels: {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 60
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: deadmans-switch
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            fsGroup: 65534
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: check
+              image: python:3.13-alpine
+              imagePullPolicy: IfNotPresent
+              command: [python, /scripts/check.py]
+              env:
+                - name: CLUSTER_NAME
+                  value: lolday
+                - name: DISCORD_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: alertmanager-discord
+                      key: webhook-url-critical
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {cpu: 100m, memory: 64Mi}
+              volumeMounts:
+                - {name: scripts, mountPath: /scripts, readOnly: true}
+          volumes:
+            - name: scripts
+              configMap:
+                name: deadmans-switch-script
+                defaultMode: 0o444
+{{- end }}

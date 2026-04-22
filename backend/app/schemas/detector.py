@@ -45,7 +45,13 @@ class VersionDetailRead(VersionRead):
 
 
 class BuildCreate(BaseModel):
-    git_tag: str = Field(min_length=1, max_length=100)
+    # The tag travels into the BuildKit container's `buildctl build --output
+    # name=...:<tag>` argument. Even though build.py now uses the exec form
+    # (no shell interpolation) this regex is a defence-in-depth — also the
+    # exact subset Harbor's registry tag grammar allows (leading alnum or _,
+    # then alnum + `._-`, ≤128 chars; we cap at 100 to stay under our own
+    # slugified job-name budget).
+    git_tag: str = Field(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.\-]{0,99}$")
 
 
 class BuildRead(BaseModel):

@@ -57,7 +57,7 @@ backend:
     # templates/backend.yaml — Phase 7.5 narrowed the pods Role to that ns, so
     # letting these two drift silently 403s GPU accounting.
     BUILD_IMAGE_HELPER: "harbor.lolday.svc:80/lolday/build-helper:v2"
-    BUILD_IMAGE_KANIKO: "gcr.io/kaniko-project/executor:latest"
+    BUILD_IMAGE_BUILDKIT: "moby/buildkit:v0.29.0-rootless"
     BUILD_IMAGE_GIT: "alpine/git:v2.52.0"
     BUILD_TIMEOUT_SECONDS: "1200"
     BUILD_CONCURRENCY_PER_USER: "2"
@@ -180,7 +180,7 @@ mlflow:
 # =============================================================================
 samples:
   enabled: true
-  hostPath: /data/samples
+  hostPath: /mnt/ssd500g/data/samples
   storage: 600Gi
   nodeHostname: server30
 
@@ -210,7 +210,7 @@ frontend:
     limits:   { cpu: 100m, memory: 128Mi }
 
 # =============================================================================
-# Monitoring (Phase 6) — kube-prometheus-stack + loki + promtail
+# Monitoring (Phase 6) — kube-prometheus-stack + loki + alloy (phase 9.2)
 # =============================================================================
 monitoring:
   enabled: true
@@ -399,25 +399,115 @@ loki:
   resultsCache: { enabled: false }
 
 # =============================================================================
-# Promtail — DaemonSet that ships container logs to Loki
+# Grafana Alloy — DaemonSet log shipper (replaces Promtail, phase 9.2)
 # =============================================================================
-promtail:
+# Promtail reached EOL 2026-03-02; Grafana's successor is Alloy (OpenTelemetry
+# Collector-based unified agent). River config below is the canonical
+# Kubernetes-pod-logs-to-Loki recipe: discovery.kubernetes → node-local filter
+# → /var/log/pods path build → loki.source.file → cri pipeline → loki.write.
+# The `component` relabel is kept so future Grafana dashboards can split log
+# streams by subchart component (harbor-core vs harbor-jobservice etc.) —
+# as of phase 9 no dashboard consumes it, but it's free to preserve.
+alloy:
   enabled: true
-  config:
-    clients:
-      - url: http://loki.lolday.svc:3100/loki/api/v1/push
-    snippets:
-      pipelineStages:
-        - cri: {}
-      extraRelabelConfigs:
-        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
-          target_label: component
-  resources:
-    requests: { cpu: 50m,  memory: 64Mi }
-    limits:   { cpu: 200m, memory: 256Mi }
+  controller:
+    type: daemonset
+  alloy:
+    configMap:
+      create: true
+      content: |
+        // Discover every Pod in the cluster via the K8s API.
+        discovery.kubernetes "pods" {
+          role = "pod"
+        }
+
+        // Keep only the pods running on this node (we run one alloy per node
+        // via the DaemonSet and read logs from the host's /var/log/pods).
+        discovery.relabel "pod_logs" {
+          targets = discovery.kubernetes.pods.targets
+
+          rule {
+            source_labels = ["__meta_kubernetes_pod_node_name"]
+            action        = "keep"
+            regex         = sys.env("HOSTNAME")
+          }
+
+          // Standard namespace/pod/container/app labels that Promtail used
+          // (implicit) and Grafana/Loki dashboards expect.
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            target_label  = "namespace"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_name"]
+            target_label  = "pod"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_container_name"]
+            target_label  = "container"
+          }
+          rule {
+            source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+            target_label  = "app"
+          }
+          // Optional: pod's app.kubernetes.io/component label → `component`
+          // so dashboards can split by subchart component (harbor-core vs
+          // harbor-jobservice etc.). Free to keep; no current dashboard
+          // depends on it.
+          rule {
+            source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
+            target_label  = "component"
+          }
+
+          // Resolve the log-file path kubelet uses for this container.
+          rule {
+            source_labels = [
+              "__meta_kubernetes_pod_uid",
+              "__meta_kubernetes_pod_container_name",
+            ]
+            separator    = "/"
+            action       = "replace"
+            replacement  = "/var/log/pods/*$1/*.log"
+            target_label = "__path__"
+          }
+        }
+
+        local.file_match "pod_logs" {
+          path_targets = discovery.relabel.pod_logs.output
+        }
+
+        loki.source.file "pod_logs" {
+          targets    = local.file_match.pod_logs.targets
+          forward_to = [loki.process.pod_logs.receiver]
+        }
+
+        loki.process "pod_logs" {
+          forward_to = [loki.write.loki.receiver]
+          stage.cri {}
+        }
+
+        loki.write "loki" {
+          endpoint {
+            url = "http://loki.lolday.svc:3100/loki/api/v1/push"
+          }
+          // On-disk WAL so a Loki restart / PVC-lost incident doesn't drop
+          // the in-flight log buffer silently. `loki_write_wal_*` +
+          // `loki_write_dropped_*` metrics are already scraped via the
+          // chart's ServiceMonitor below; alert rules in alertmanager-
+          // rules.yaml fire if dropped_samples > 0 over 10m.
+          wal {
+            enabled         = true
+            max_segment_age = "1h"
+          }
+        }
+    mounts:
+      varlog: true
+      dockercontainers: true
+    resources:
+      requests: { cpu: 50m,  memory: 64Mi }
+      limits:   { cpu: 200m, memory: 256Mi }
   serviceMonitor:
     enabled: true
-    # Leave namespace unset → ServiceMonitor lives in release ns alongside promtail pods.
 
 # =============================================================================
 # Trivy Operator — cluster-wide CVE / config / RBAC / secret scanning (Phase 7.2)
@@ -462,7 +552,7 @@ trivy-operator:
 # Upstream chart `volcano` (volcano-sh/helm-charts). Our backend emits
 # `batch.volcano.sh/v1alpha1 Job` via job_spec.build_volcano_job_manifest()
 # against the `lolday-training` Queue (templates/volcano-queue.yaml).
-# Build Jobs (kaniko image builds) stay on `batch/v1 Job` — no need for queue
+# Build Jobs (BuildKit rootless image builds, phase 9.3) stay on `batch/v1 Job` — no need for queue
 # or gang scheduling for non-GPU workloads.
 #
 # The subchart hardcodes `{{ .Release.Namespace }}` across all its templates

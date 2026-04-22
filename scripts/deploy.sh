@@ -38,7 +38,7 @@ fi
 unset _var _url
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
-BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase8}
+BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase9}
 FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase5}
 
 # Pre-flight
@@ -58,6 +58,32 @@ elif [ "$GPU_COUNT" = "0" ]; then
 fi
 echo "  GPUs available: ${GPU_COUNT}"
 echo ""
+
+# Phase 9: ensure k3s local-path-provisioner stores new PVCs on /mnt/ssd500g/
+# (the NVMe with headroom) instead of the root lv's 98Gi partition. k3s
+# re-writes /var/lib/rancher/k3s/server/manifests/local-storage.yaml on every
+# service start, which clobbers the ConfigMap back to the shipped default,
+# so we drop the "only patch if changed" guard and always re-apply the
+# patch + rollout on each deploy. kubectl errors are allowed to propagate
+# (set -e) — a silent swallow would hide RBAC / API-unreachable failures.
+# Existing PVCs keep their original hostPath (local-path is immutable once
+# bound).
+LOCAL_PATH_HOST_DIR=/mnt/ssd500g/k3s-storage
+mkdir -p "$LOCAL_PATH_HOST_DIR"
+DESIRED_CFG='{
+  "nodePathMap":[
+  {
+    "node":"DEFAULT_PATH_FOR_NON_LISTED_NODES",
+    "paths":["'"$LOCAL_PATH_HOST_DIR"'"]
+  }
+  ]
+}'
+echo "  Ensuring local-path-config ConfigMap -> $LOCAL_PATH_HOST_DIR"
+PATCH=$(python3 -c 'import json,sys; print(json.dumps({"data":{"config.json":sys.argv[1]}}))' "$DESIRED_CFG")
+kubectl -n kube-system patch cm local-path-config --type=merge -p "$PATCH" >/dev/null
+kubectl -n kube-system rollout restart deploy/local-path-provisioner >/dev/null
+kubectl -n kube-system rollout status deploy/local-path-provisioner --timeout=60s >/dev/null
+unset LOCAL_PATH_HOST_DIR DESIRED_CFG PATCH
 
 # Harbor repo + dependency build
 echo "[2/4] Preparing Helm dependencies..."
