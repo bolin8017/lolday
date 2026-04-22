@@ -58,6 +58,13 @@ spec:
             # returns.
             - name: DATABASE_URL
               value: "postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@postgresql:5432/{{ .Values.postgresql.auth.database }}"
+            {{- /* Phase 10: SSO admin rename migration reads SSO_ADMIN_EMAIL
+                    from env. If it's unset the migration is a no-op — which is
+                    safe (migration re-runs on next deploy once populated). */}}
+            {{- with .Values.backend.env.SSO_ADMIN_EMAIL }}
+            - name: SSO_ADMIN_EMAIL
+              value: {{ . | quote }}
+            {{- end }}
           resources:
             requests:
               cpu: 50m
