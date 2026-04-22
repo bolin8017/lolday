@@ -60,10 +60,14 @@ echo "  GPUs available: ${GPU_COUNT}"
 echo ""
 
 # Phase 9: ensure k3s local-path-provisioner stores new PVCs on /mnt/ssd500g/
-# (the NVMe with headroom) instead of the root lv's 98Gi partition. The addon
-# controller only applies the manifest on k3s start/upgrade, so this patch
-# stays until the next k3s restart — re-applied idempotently on every deploy.
-# Existing PVCs keep their original hostPath (local-path is immutable once bound).
+# (the NVMe with headroom) instead of the root lv's 98Gi partition. k3s
+# re-writes /var/lib/rancher/k3s/server/manifests/local-storage.yaml on every
+# service start, which clobbers the ConfigMap back to the shipped default,
+# so we drop the "only patch if changed" guard and always re-apply the
+# patch + rollout on each deploy. kubectl errors are allowed to propagate
+# (set -e) — a silent swallow would hide RBAC / API-unreachable failures.
+# Existing PVCs keep their original hostPath (local-path is immutable once
+# bound).
 LOCAL_PATH_HOST_DIR=/mnt/ssd500g/k3s-storage
 mkdir -p "$LOCAL_PATH_HOST_DIR"
 DESIRED_CFG='{
@@ -74,14 +78,12 @@ DESIRED_CFG='{
   }
   ]
 }'
-CURRENT_CFG=$(kubectl -n kube-system get cm local-path-config -o jsonpath='{.data.config\.json}' 2>/dev/null || echo "")
-if [ "$CURRENT_CFG" != "$DESIRED_CFG" ]; then
-  echo "  Patching local-path-config ConfigMap -> $LOCAL_PATH_HOST_DIR"
-  PATCH=$(python3 -c 'import json,sys; print(json.dumps({"data":{"config.json":sys.argv[1]}}))' "$DESIRED_CFG")
-  kubectl -n kube-system patch cm local-path-config --type=merge -p "$PATCH" >/dev/null
-  kubectl -n kube-system rollout restart deploy/local-path-provisioner >/dev/null
-fi
-unset LOCAL_PATH_HOST_DIR DESIRED_CFG CURRENT_CFG PATCH
+echo "  Ensuring local-path-config ConfigMap -> $LOCAL_PATH_HOST_DIR"
+PATCH=$(python3 -c 'import json,sys; print(json.dumps({"data":{"config.json":sys.argv[1]}}))' "$DESIRED_CFG")
+kubectl -n kube-system patch cm local-path-config --type=merge -p "$PATCH" >/dev/null
+kubectl -n kube-system rollout restart deploy/local-path-provisioner >/dev/null
+kubectl -n kube-system rollout status deploy/local-path-provisioner --timeout=60s >/dev/null
+unset LOCAL_PATH_HOST_DIR DESIRED_CFG PATCH
 
 # Harbor repo + dependency build
 echo "[2/4] Preparing Helm dependencies..."

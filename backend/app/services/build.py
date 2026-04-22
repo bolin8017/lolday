@@ -75,6 +75,12 @@ def build_job_spec(
     # from the user namespace isolation itself: buildkitd only ever runs
     # as UID 1000 inside the container; setuid is only used transiently
     # during namespace setup.
+    #
+    # HOST PREREQUISITE (Ubuntu 24.04+): the node must have
+    #   kernel.apparmor_restrict_unprivileged_userns = 0
+    # in /etc/sysctl.d/ — without it rootlesskit fails with
+    #   `[rootlesskit:parent] error: ... EPERM`
+    # See docs/ops/host-prep.md for the full host setup.
     buildkit_sc = {
         "runAsNonRoot": True,
         "runAsUser": 1000,
@@ -246,21 +252,27 @@ def build_job_spec(
                             # that forks a local buildkitd and runs buildctl
                             # against its unix socket — same one-pod-per-build
                             # shape that Kaniko had, so the reconciler's Job
-                            # lifecycle logic needs no changes.
-                            "command": ["/bin/sh", "-c"],
+                            # lifecycle logic needs no changes. We invoke it
+                            # via the exec form (no `sh -c`) so `destination`
+                            # and `cache_repo` travel as argv entries, not
+                            # shell-interpolated; a git_tag containing spaces
+                            # or `;` cannot corrupt the argv even without
+                            # the schema-level regex guard upstream.
+                            "command": ["buildctl-daemonless.sh"],
                             "args": [
-                                "set -eu; "
-                                "export BUILDCTL_CONNECT_RETRIES_ON_STARTUP=10; "
-                                "buildctl-daemonless.sh build "
-                                "  --frontend dockerfile.v0 "
-                                "  --local context=/workspace/src "
-                                "  --local dockerfile=/workspace/src "
-                                f"  --output type=image,name={destination},push=true,registry.insecure=true "
-                                f"  --export-cache type=registry,ref={cache_repo},mode=max,registry.insecure=true "
-                                f"  --import-cache type=registry,ref={cache_repo},registry.insecure=true "
-                                "  --progress plain"
+                                "build",
+                                "--frontend", "dockerfile.v0",
+                                "--local", "context=/workspace/src",
+                                "--local", "dockerfile=/workspace/src",
+                                "--output", f"type=image,name={destination},push=true,registry.insecure=true",
+                                "--export-cache", f"type=registry,ref={cache_repo},mode=max,registry.insecure=true",
+                                "--import-cache", f"type=registry,ref={cache_repo},registry.insecure=true",
+                                "--progress", "plain",
                             ],
                             "env": [
+                                # buildctl-daemonless.sh retries daemon
+                                # startup this many times before exiting 1.
+                                {"name": "BUILDCTL_CONNECT_RETRIES_ON_STARTUP", "value": "10"},
                                 # Required for rootless in Kubernetes. Docker
                                 # sets `systempaths=unconfined` via daemon.json;
                                 # we don't have that, so explicitly disable the

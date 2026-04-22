@@ -99,10 +99,43 @@ fi
 # back verbatim.
 if [ -n "$EXISTING_ID" ]; then
   CURRENT=$(curl -sf -u "$adm" "$api/robots/$EXISTING_ID")
-  HAS_CACHE=$(echo "$CURRENT" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("yes" if any(p.get("namespace")=="detectors-cache" for p in d.get("permissions",[])) else "no")')
-  if [ "$HAS_CACHE" = "no" ]; then
-    echo "  granting detectors-cache perms to existing robot (id=$EXISTING_ID)…"
-    NEW_BODY=$(echo "$CURRENT" | python3 -c '
+  # Idempotency + empty-perms guard. If Harbor is mid-restore and returns
+  # a 200 with permissions:[] (legal response for a disabled/purged robot),
+  # we must NOT PUT back a body that drops the existing lolday + detectors
+  # perms — that would silently break every subsequent build with
+  # "unauthorized to access repository: detectors/<name>". Refuse to
+  # proceed unless the response carries a non-empty permissions array
+  # that already includes lolday + detectors. A bare `[]` is treated as
+  # "Harbor is not ready yet" and the deploy should retry later.
+  ROBOT_STATE=$(echo "$CURRENT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+perms = d.get("permissions", [])
+namespaces = {p.get("namespace") for p in perms if isinstance(p, dict)}
+if not perms:
+    print("empty")
+elif not {"lolday", "detectors"}.issubset(namespaces):
+    print("missing-core")
+elif "detectors-cache" in namespaces:
+    print("already-has-cache")
+else:
+    print("needs-cache")
+')
+  case "$ROBOT_STATE" in
+    empty)
+      echo "  ERROR: robot $EXISTING_ID has empty permissions array — refusing to PUT (would wipe existing grants)" >&2
+      exit 1
+      ;;
+    missing-core)
+      echo "  ERROR: robot $EXISTING_ID is missing lolday or detectors grants — refusing to PUT (Harbor state is unexpected)" >&2
+      exit 1
+      ;;
+    already-has-cache)
+      : # idempotent no-op; perms already correct
+      ;;
+    needs-cache)
+      echo "  granting detectors-cache perms to existing robot (id=$EXISTING_ID)…"
+      NEW_BODY=$(echo "$CURRENT" | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 d["permissions"].append({
@@ -115,10 +148,28 @@ d["permissions"].append({
 })
 print(json.dumps({k: d[k] for k in ["name","level","duration","description","disable","editable","expires_at","permissions"] if k in d}))
 ')
-    curl -sf -u "$adm" -X PUT -H "Content-Type: application/json" \
-      "$api/robots/$EXISTING_ID" -d "$NEW_BODY" >/dev/null
-    echo "  perms updated."
-  fi
+      curl -sf -u "$adm" -X PUT -H "Content-Type: application/json" \
+        "$api/robots/$EXISTING_ID" -d "$NEW_BODY" >/dev/null
+      # Verify the PUT actually landed. Harbor has been known to return 200
+      # on bodies it partially accepts; re-GET and assert the three namespaces
+      # are all present.
+      POST_STATE=$(curl -sf -u "$adm" "$api/robots/$EXISTING_ID" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ns = {p.get("namespace") for p in d.get("permissions", []) if isinstance(p, dict)}
+print("ok" if {"lolday","detectors","detectors-cache"}.issubset(ns) else "partial")
+')
+      if [ "$POST_STATE" != "ok" ]; then
+        echo "  ERROR: PUT /robots/$EXISTING_ID returned 200 but permissions did NOT include all of lolday, detectors, detectors-cache — investigate Harbor logs" >&2
+        exit 1
+      fi
+      echo "  perms updated (verified: lolday + detectors + detectors-cache present)."
+      ;;
+    *)
+      echo "  ERROR: unexpected robot state: $ROBOT_STATE" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 # Redacted log — never print the secret. Only show shape of response.

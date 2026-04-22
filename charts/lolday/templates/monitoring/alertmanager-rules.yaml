@@ -61,6 +61,19 @@ spec:
             summary: "Backend errors in stage {{`{{ $labels.stage }}`}}"
             description: "lolday_backend_errors_total rate > 0 in stage '{{`{{ $labels.stage }}`}}' for 5m. This catches silent-failure paths (e.g. reconciler loop exceptions, Harbor init failures, best-effort K8s/MLflow cleanup failures). Check backend logs for the matching `logger.exception` entry."
 
+        # Phase 9.2 — Alloy's loki.write has a disk-backed WAL, but if Loki
+        # is unavailable long enough for the WAL's bounded segments to age
+        # out, samples get dropped silently. Scrape target is the alloy
+        # service; alert on the operator-facing gauge.
+        - alert: AlloyLokiWriteDroppedSamples
+          expr: increase(loki_write_dropped_samples_total[10m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy dropped log samples on the way to Loki"
+            description: "Alloy's loki.write component has dropped at least one sample in the last 10m. Check Loki availability (`kubectl -n lolday get pods -l app.kubernetes.io/name=loki`), loki.write WAL segment age, and Alloy's own `/metrics` endpoint for the full breakdown (`loki_write_errors_total`, `loki_write_bytes_total`). During Phase 9 Loki single-binary deploys, any full Loki restart is enough to trigger this."
+
         # Phase 7.5 — backend piggybacks on get_queue_depth (updated every 10s)
         # to sample the age of Pending Volcano Jobs. Catches scheduler hangs,
         # webhook races, or orphan CRs without masking them with an autocronjob.

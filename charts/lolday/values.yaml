@@ -405,8 +405,9 @@ loki:
 # Collector-based unified agent). River config below is the canonical
 # Kubernetes-pod-logs-to-Loki recipe: discovery.kubernetes → node-local filter
 # → /var/log/pods path build → loki.source.file → cri pipeline → loki.write.
-# The `component` relabel preserves the phase 6 label contract so Grafana
-# dashboards built against promtail labels still work.
+# The `component` relabel is kept so future Grafana dashboards can split log
+# streams by subchart component (harbor-core vs harbor-jobservice etc.) —
+# as of phase 9 no dashboard consumes it, but it's free to preserve.
 alloy:
   enabled: true
   controller:
@@ -449,7 +450,10 @@ alloy:
             source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
             target_label  = "app"
           }
-          // Preserves phase 6 `component` label used by Loki dashboards.
+          // Optional: pod's app.kubernetes.io/component label → `component`
+          // so dashboards can split by subchart component (harbor-core vs
+          // harbor-jobservice etc.). Free to keep; no current dashboard
+          // depends on it.
           rule {
             source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_component"]
             target_label  = "component"
@@ -485,6 +489,15 @@ alloy:
         loki.write "loki" {
           endpoint {
             url = "http://loki.lolday.svc:3100/loki/api/v1/push"
+          }
+          // On-disk WAL so a Loki restart / PVC-lost incident doesn't drop
+          // the in-flight log buffer silently. `loki_write_wal_*` +
+          // `loki_write_dropped_*` metrics are already scraped via the
+          // chart's ServiceMonitor below; alert rules in alertmanager-
+          // rules.yaml fire if dropped_samples > 0 over 10m.
+          wal {
+            enabled         = true
+            max_segment_age = "1h"
           }
         }
     mounts:
