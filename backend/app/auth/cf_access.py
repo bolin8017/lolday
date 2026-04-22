@@ -42,15 +42,20 @@ def verify_cf_token(
         issuer=expected_iss,
         options={"require": _REQUIRED_CLAIMS},
     )
-    # PyJWT defaults to accepting a list-shaped `aud` as long as our expected
-    # value is a member. That would let a multi-aud token minted for another
-    # app in the same Cloudflare account authenticate here. Cloudflare Access
-    # today emits string-aud, so we just require exact string equality.
-    if claims.get("aud") != expected_aud:
-        raise pyjwt.InvalidAudienceError(
-            f"aud must equal {expected_aud!r}, got {claims.get('aud')!r}"
-        )
-    return claims
+    # PyJWT accepts `aud` whether it's a string or a list where our aud is
+    # among several members. Cloudflare Access actually emits a single-element
+    # list (`aud: ["<our-aud>"]`) — that must pass. What we want to reject is
+    # a MULTI-element list, which would represent a token minted for several
+    # apps in the same Cloudflare account. Narrow the allowed shapes to those
+    # two unambiguous forms.
+    aud = claims.get("aud")
+    if aud == expected_aud:
+        return claims
+    if isinstance(aud, list) and len(aud) == 1 and aud[0] == expected_aud:
+        return claims
+    raise pyjwt.InvalidAudienceError(
+        f"aud must equal {expected_aud!r} or [{expected_aud!r}], got {aud!r}"
+    )
 
 
 def _sso_sentinel_password() -> str:

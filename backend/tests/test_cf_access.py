@@ -83,10 +83,27 @@ def test_verify_cf_token_rejects_wrong_aud(rsa_keypair):
         )
 
 
-def test_verify_cf_token_rejects_list_aud_even_when_our_aud_is_in_it(rsa_keypair):
-    """PyJWT defaults to accepting a list aud when expected is a member — we want
-    strict string equality so a multi-aud token minted for another tenant in the
-    same Cloudflare account cannot authenticate into lolday."""
+def test_verify_cf_token_accepts_single_element_list_aud(rsa_keypair):
+    """Cloudflare Access actually emits `aud` as a single-element list
+    (`['<our-aud>']`), NOT a bare string. We must accept that shape — the
+    previous iteration of this check rejected it and locked everyone out
+    of production."""
+    from app.auth.cf_access import verify_cf_token
+
+    token = _sign(rsa_keypair, _valid_claims() | {"aud": ["test-app-uid"]})
+    claims = verify_cf_token(
+        token=token,
+        signing_key=rsa_keypair.public_key(),
+        expected_aud="test-app-uid",
+        expected_iss="https://test.cloudflareaccess.com",
+    )
+    assert claims["email"] == "alice@example.com"
+
+
+def test_verify_cf_token_rejects_multi_element_list_aud(rsa_keypair):
+    """A multi-aud token (one signed for several apps) would let a token
+    minted for app A authenticate here if our aud is also in the list.
+    Reject that shape even though PyJWT's list-membership rule accepts it."""
     from app.auth.cf_access import verify_cf_token
 
     token = _sign(
