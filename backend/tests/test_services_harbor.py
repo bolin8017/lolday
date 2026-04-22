@@ -31,16 +31,19 @@ async def test_ensure_project_skips_when_exists():
 @pytest.mark.asyncio
 async def test_get_scan_parses_critical_high():
     with respx.mock(base_url="http://harbor") as mock:
-        scan_body = {
-            "application/vnd.security.vulnerability.report; version=1.1": {
-                "scan_status": "Success",
-                "severity": "Critical",
-                "summary": {"summary": {"Critical": 2, "High": 5, "Medium": 10}},
-            }
+        artifact_body = {
+            "digest": "sha256:abc",
+            "scan_overview": {
+                "application/vnd.security.vulnerability.report; version=1.1": {
+                    "scan_status": "Success",
+                    "severity": "Critical",
+                    "summary": {"summary": {"Critical": 2, "High": 5, "Medium": 10}},
+                }
+            },
         }
         mock.get(
-            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc/additions/vulnerabilities"
-        ).mock(return_value=httpx.Response(200, json=scan_body))
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc"
+        ).mock(return_value=httpx.Response(200, json=artifact_body))
         client = HarborClient("http://harbor", "admin", "pw")
         result = await client.get_scan("detectors", "foo", "sha256:abc")
         assert result.status == ScanStatus.SUCCESS
@@ -147,13 +150,51 @@ async def test_trigger_scan_500_raises_so_reconciler_can_log():
 async def test_get_scan_unknown_status_falls_back_to_error():
     with respx.mock(base_url="http://harbor") as mock:
         mock.get(
-            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x/additions/vulnerabilities"
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x"
         ).mock(return_value=httpx.Response(200, json={
-            "application/vnd.security.vulnerability.report; version=1.1": {
-                "scan_status": "SomethingNewInHarbor2027",
-                "summary": {},
-            }
+            "digest": "sha256:x",
+            "scan_overview": {
+                "application/vnd.security.vulnerability.report; version=1.1": {
+                    "scan_status": "SomethingNewInHarbor2027",
+                    "summary": {},
+                }
+            },
         }))
         client = HarborClient("http://harbor", "admin", "pw")
         result = await client.get_scan("detectors", "foo", "sha256:x")
         assert result.status == ScanStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_get_scan_status_error_preserved_not_silenced_as_zero():
+    """Phase 9.5: When Harbor's Trivy scan terminally fails (scan_status=Error,
+    typically a transient DB cache-lock timeout), get_scan must return the
+    Error status explicitly — never downgrade to NOT_SCANNED or SUCCESS with
+    zeroed counts. Reconciler relies on the status to decide between retry
+    (Error / NotScanned) vs promote (Success with 0 criticals). Downgrading
+    to NOT_SCANNED would trigger a redundant scan; downgrading to SUCCESS
+    would silently promote a never-scanned image — a dangerous false
+    negative that was seen in production.
+    """
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:errd"
+        ).mock(return_value=httpx.Response(200, json={
+            "digest": "sha256:errd",
+            "scan_overview": {
+                "application/vnd.security.vulnerability.report; version=1.1": {
+                    "scan_status": "Error",
+                    "summary": {},  # no counts produced on scan error
+                    "start_time": "2026-04-22T01:37:43.000Z",
+                    "end_time": "2026-04-22T01:37:48.000Z",
+                    "duration": 5,
+                }
+            },
+        }))
+        client = HarborClient("http://harbor", "admin", "pw")
+        result = await client.get_scan("detectors", "foo", "sha256:errd")
+        assert result.status == ScanStatus.ERROR
+        # Counts default to 0 when Harbor reports none — the status (ERROR)
+        # is what callers must branch on, not the integer 0.
+        assert result.critical == 0
+        assert result.high == 0

@@ -233,6 +233,75 @@ async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metr
 
 
 @pytest.mark.asyncio
+async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_session):
+    """Phase 9.5: Harbor Trivy scans can terminally fail with scan_status=Error
+    (observed cause: transient Trivy DB cache-lock timeout during concurrent
+    scans). Prior behavior treated Error the same as Success-with-0-CVEs and
+    silently promoted the image — a dangerous false-negative. Correct
+    behavior: never promote without a successful scan. Retrigger the scan
+    (same path as NotScanned) and rely on BUILD_TIMEOUT to catch persistent
+    failure. This regression test reproduces the false-negative: given an
+    ERROR status with critical=0, the build MUST NOT create a DetectorVersion
+    and MUST call trigger_scan.
+    """
+    from app.reconciler import reconcile_build
+    from app.models.detector import Detector, DetectorVersion
+    from app.services.harbor import ScanResult, ScanStatus
+    from app.metrics import BACKEND_ERRORS
+    from sqlalchemy import select
+
+    detector = Detector(
+        name="tds-err", display_name="tds-err", git_url="https://github.com/x/err.git",
+        owner_id=uuid4(),
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
+        k8s_job_name="build-tds-err", status=DetectorBuildStatus.BUILDING,
+        build_token="btok_err",
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    fake_job = MagicMock()
+    fake_job.status.succeeded = 1
+    fake_job.status.failed = 0
+
+    trigger_calls = []
+
+    async def _capture_trigger(project, repo, digest):
+        trigger_calls.append((project, repo, digest))
+
+    before_metric = BACKEND_ERRORS.labels(stage="harbor_scan_error_retry")._value.get()
+
+    with patch("app.reconciler.batch_v1") as bv, \
+         patch("app.reconciler.HarborClient") as hc:
+        bv.return_value.read_namespaced_job.return_value = fake_job
+        hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:errdigest")
+        hc.return_value.get_scan = AsyncMock(
+            return_value=ScanResult(ScanStatus.ERROR, 0, 0, 0, 0)
+        )
+        hc.return_value.trigger_scan = AsyncMock(side_effect=_capture_trigger)
+        await reconcile_build(db_session, build)
+
+    await db_session.refresh(build)
+    # 1. Build stays non-terminal (SCANNING for retry, never SUCCEEDED)
+    assert build.status == DetectorBuildStatus.SCANNING
+    assert build.finished_at is None
+    # 2. No DetectorVersion was created — image was NOT promoted
+    rows = (await db_session.execute(
+        select(DetectorVersion).where(DetectorVersion.detector_id == detector.id)
+    )).scalars().all()
+    assert rows == []
+    # 3. trigger_scan called with the right digest — retry path invoked
+    assert trigger_calls == [("detectors", "tds-err", "sha256:errdigest")]
+    # 4. Error-retry metric incremented so operators can correlate with Trivy logs
+    after_metric = BACKEND_ERRORS.labels(stage="harbor_scan_error_retry")._value.get()
+    assert after_metric == before_metric + 1
+
+
+@pytest.mark.asyncio
 async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
     """Replay: a stale stuck-scanning build finishes after a newer build
     already produced the DetectorVersion row. Must mark SUCCEEDED

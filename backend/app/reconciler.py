@@ -170,7 +170,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         return
 
     scan = await harbor.get_scan("detectors", detector.name, digest)
-    if scan.status == ScanStatus.NOT_SCANNED:
+    if scan.status in {ScanStatus.NOT_SCANNED, ScanStatus.ERROR}:
         # Harbor Scan-on-Push is a per-project toggle. We do not rely on it
         # — the reconciler kicks the scan itself so a toggle flip (or a
         # Harbor upgrade) cannot silently leave builds queued at
@@ -178,6 +178,20 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         # for the same digest, treated as success by trigger_scan. All
         # other non-2xx responses + network errors raise httpx.HTTPError
         # here.
+        #
+        # ERROR means a prior scan attempt terminally failed (most often:
+        # transient Trivy DB cache-lock timeout during concurrent scans).
+        # It must NEVER fall through to the promotion path — critical=0
+        # in that case is "we didn't learn anything," not "clean." Retry
+        # by triggering a fresh scan; BUILD_TIMEOUT catches persistent
+        # failure so the retry loop is bounded.
+        if scan.status == ScanStatus.ERROR:
+            BACKEND_ERRORS.labels(stage="harbor_scan_error_retry").inc()
+            logger.warning(
+                "Harbor returned scan_status=Error for build=%s detector=%s digest=%s "
+                "— retriggering scan (not promoting)",
+                b.id, detector.name, digest,
+            )
         try:
             await harbor.trigger_scan("detectors", detector.name, digest)
         except httpx.HTTPError as e:
