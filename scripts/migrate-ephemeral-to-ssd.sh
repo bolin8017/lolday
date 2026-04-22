@@ -238,15 +238,47 @@ case "$STAGE" in
   echo "  OLD  : $OLD_PATH"
   echo "  NEW  : $NEW_PATH"
 
+  # Idempotent states we can enter:
+  #   A. Fresh:     OLD_PATH is a real dir, NEW_PATH absent  → full run
+  #   B. Already-migrated: OLD_PATH is a bind-mount (over NEW_PATH) → abort-ok
+  #   C. Half-done: OLD_PATH absent, ${OLD_PATH}.old exists, NEW_PATH exists
+  #                → resume at step [4/8] (bind-mount setup)
+  #   D. Unknown:   anything else → abort for operator inspection
+  STATE=""
+  if mountpoint -q "$OLD_PATH" 2>/dev/null; then
+    STATE=B
+  elif [ -d "$OLD_PATH" ] && [ ! -e "$NEW_PATH" ]; then
+    STATE=A
+  elif [ ! -e "$OLD_PATH" ] && [ -d "${OLD_PATH}.old" ] && [ -d "$NEW_PATH" ]; then
+    STATE=C
+  fi
+
   case "$OLD_PATH" in
     /mnt/ssd500g/*)
-      echo "FATAL: $OLD_PATH already on SSD — nothing to migrate" >&2; exit 1 ;;
+      echo "FATAL: $OLD_PATH already on SSD — Phase 9.6 assumes bind-mount"
+      echo "       strategy (OLD_PATH stays under /var/lib/rancher/k3s/storage/,"
+      echo "       SSD is the mount source). Your PV lives on SSD directly —"
+      echo "       nothing to migrate." >&2
+      exit 1 ;;
   esac
-  if [ -e "$NEW_PATH" ]; then
-    echo "FATAL: target $NEW_PATH already exists — refusing to overwrite" >&2
-    echo "  (check for a prior failed run — if safe, rm -rf $NEW_PATH and re-run)" >&2
-    exit 1
-  fi
+
+  case "$STATE" in
+    B)
+      echo "$OLD_PATH is already a bind-mount — already migrated, nothing to do." ; exit 0 ;;
+    A)
+      :  # normal path
+      ;;
+    C)
+      echo "RESUME: detected half-done migration (data at $NEW_PATH, shelf at ${OLD_PATH}.old)"
+      echo "        — skipping scale-down/rsync/shelve, resuming at mount step." ;;
+    *)
+      echo "FATAL: unexpected on-disk state — refusing to touch anything." >&2
+      echo "  OLD_PATH ($OLD_PATH): $( [ -e "$OLD_PATH" ] && echo exists || echo absent )" >&2
+      echo "  NEW_PATH ($NEW_PATH): $( [ -e "$NEW_PATH" ] && echo exists || echo absent )" >&2
+      echo "  ${OLD_PATH}.old: $( [ -e "${OLD_PATH}.old" ] && echo exists || echo absent )" >&2
+      echo "  mount: $( mountpoint -q "$OLD_PATH" 2>/dev/null && echo yes || echo no )" >&2
+      exit 1 ;;
+  esac
 
   # Default readiness selector if caller didn't provide one. StatefulSet pods
   # carry `statefulset.kubernetes.io/pod-name=<n>-0`; Deployments carry whatever
@@ -267,23 +299,51 @@ case "$STAGE" in
 
   mkdir -p "$SSD/k3s-storage"
 
-  echo "[1/8] scaling $WORKLOAD → 0 replicas…"
-  kubectl -n "$NS" scale "$WORKLOAD" --replicas=0
-  # Wait for pods to disappear — `kubectl wait --for=delete` needs a live
-  # resource to reference; use a polling fallback if nothing matches.
-  if [ -n "$READY_SELECTOR" ]; then
-    kubectl -n "$NS" wait --for=delete pod $READY_SELECTOR --timeout=120s 2>/dev/null || true
+  if [ "$STATE" = "A" ]; then
+    echo "[1/8] scaling $WORKLOAD → 0 replicas…"
+    kubectl -n "$NS" scale "$WORKLOAD" --replicas=0
+    # Wait for pods to disappear — `kubectl wait --for=delete` needs a live
+    # resource to reference; use a polling fallback if nothing matches.
+    if [ -n "$READY_SELECTOR" ]; then
+      kubectl -n "$NS" wait --for=delete pod $READY_SELECTOR --timeout=120s 2>/dev/null || true
+    fi
+    sleep 5
+
+    echo "[2/8] rsync $OLD_PATH → $NEW_PATH…"
+    rsync_and_verify "$OLD_PATH" "$NEW_PATH"
+
+    echo "[3/8] shelving old dir → ${OLD_PATH}.old …"
+    mv "$OLD_PATH" "${OLD_PATH}.old"
+  else
+    echo "[1-3/8] skipped (resuming from half-done state)"
   fi
-  sleep 5
 
-  echo "[2/8] rsync $OLD_PATH → $NEW_PATH…"
-  rsync_and_verify "$OLD_PATH" "$NEW_PATH"
+  # PV's .spec.local.path is immutable (apiserver rejects patches to
+  # spec.persistentvolumesource). We cannot re-point the PV at the SSD path.
+  # Instead: create an empty mount-point at OLD_PATH and bind-mount NEW_PATH
+  # onto it — kubelet + pod see the canonical OLD_PATH (nothing in k8s changes)
+  # while the actual blocks are served off /mnt/ssd500g. Same pattern as Stage
+  # 1/1b for /var/lib/docker + /var/lib/containerd; /etc/fstab makes it
+  # survive reboots.
+  echo "[4/8] bind-mounting $NEW_PATH → $OLD_PATH (and fstab)…"
+  mkdir -p "$OLD_PATH"
+  # Re-apply directory metadata so k8s fsGroup/subPath assumptions keep
+  # holding: copy uid/gid/mode from what we moved.
+  if [ -d "${OLD_PATH}.old" ]; then
+    SRC_STAT="${OLD_PATH}.old"
+  else
+    SRC_STAT="$NEW_PATH"
+  fi
+  chown --reference="$SRC_STAT" "$OLD_PATH"
+  chmod --reference="$SRC_STAT" "$OLD_PATH"
 
-  echo "[3/8] shelving old dir → ${OLD_PATH}.old …"
-  mv "$OLD_PATH" "${OLD_PATH}.old"
-
-  echo "[4/8] patching PV $PV_NAME spec.local.path → $NEW_PATH …"
-  kubectl patch pv "$PV_NAME" --type merge -p "{\"spec\":{\"local\":{\"path\":\"$NEW_PATH\"}}}"
+  FSTAB_LINE="$NEW_PATH $OLD_PATH none bind 0 0"
+  if ! grep -qxF "$FSTAB_LINE" /etc/fstab; then
+    echo "$FSTAB_LINE" >> /etc/fstab
+  fi
+  systemctl daemon-reload 2>/dev/null || true
+  mount "$OLD_PATH"
+  mountpoint -q "$OLD_PATH" || { echo "FATAL: mount did not take effect" >&2; exit 1; }
 
   echo "[5/8] scaling $WORKLOAD → 1 replica…"
   kubectl -n "$NS" scale "$WORKLOAD" --replicas=1
@@ -291,10 +351,12 @@ case "$STAGE" in
   echo "[6/8] waiting for pod ready (timeout $READY_TIMEOUT)…"
   if [ -n "$READY_SELECTOR" ]; then
     if ! kubectl -n "$NS" wait --for=condition=ready pod $READY_SELECTOR --timeout="$READY_TIMEOUT"; then
-      echo "FATAL: pod never became Ready after PV migration." >&2
-      echo "  Rollback (data still at ${OLD_PATH}.old):" >&2
+      echo "FATAL: pod never became Ready after bind-mount migration." >&2
+      echo "  Rollback (shelved data still at ${OLD_PATH}.old):" >&2
       echo "    kubectl -n $NS scale $WORKLOAD --replicas=0" >&2
-      echo "    kubectl patch pv $PV_NAME --type merge -p '{\"spec\":{\"local\":{\"path\":\"$OLD_PATH\"}}}'" >&2
+      echo "    sudo umount $OLD_PATH" >&2
+      echo "    sudo rmdir $OLD_PATH" >&2
+      echo "    sudo sed -i '\\|^$NEW_PATH $OLD_PATH |d' /etc/fstab" >&2
       echo "    sudo mv ${OLD_PATH}.old $OLD_PATH" >&2
       echo "    kubectl -n $NS scale $WORKLOAD --replicas=1" >&2
       exit 1
@@ -319,7 +381,7 @@ case "$STAGE" in
   echo
   echo "=== Stage 5 complete for $NS/$PVC. Verify:"
   echo "  1. Workload behaves correctly end-to-end (exercise real traffic)."
-  echo "  2. / dropped by the amount you just moved off."
+  echo "  2. \`mountpoint $OLD_PATH\` prints 'is a mount point' + survives reboot via fstab."
   echo "  3. If OK after ~10 min: sudo rm -rf ${OLD_PATH}.old"
   ;;
 

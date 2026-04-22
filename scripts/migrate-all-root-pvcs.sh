@@ -94,9 +94,12 @@ echo "Pre-flight:"
 df -h / "$SSD" | awk 'NR==1 || /mapper|nvme0n1/'
 echo
 
-# Verify every PVC is still on root LV + target path doesn't exist. If any
-# fails here, no data moves — safe to abort.
-echo "[pre-flight] checking PVC paths + target collisions…"
+# Classify every PVC's current state — Stage 5 handles all three:
+#   A. Fresh:       OLD exists, NEW absent                       → full migration
+#   B. Migrated:    OLD is a bind-mount                          → skip
+#   C. Half-done:   OLD absent, ${OLD}.old present, NEW present  → resume at mount step
+# Any other shape aborts here so the operator can inspect before we touch data.
+echo "[pre-flight] classifying PVC states…"
 for i in $(seq 0 $((N-1))); do
   NS=${NSS[$i]}
   PVC=${PVCS[$i]}
@@ -107,23 +110,29 @@ for i in $(seq 0 $((N-1))); do
   fi
   OLD=$(kubectl get pv "$PV" -o jsonpath='{.spec.local.path}' 2>/dev/null || true)
   case "$OLD" in
-    /var/lib/rancher/k3s/storage/*)
-      NEW_BASE=$(basename "$OLD")
-      NEW="$SSD/k3s-storage/$NEW_BASE"
-      if [ -e "$NEW" ]; then
-        echo "  FATAL: $NEW already exists — a prior run left residue" >&2
-        echo "        (if safe, rm -rf $NEW and re-run)" >&2
-        exit 1
-      fi
-      printf "  %-18s %-55s OK\n" "${LABELS[$i]}" "$OLD"
-      ;;
-    /mnt/ssd500g/*)
-      printf "  %-18s already on SSD — will skip\n" "${LABELS[$i]}"
-      ;;
+    /var/lib/rancher/k3s/storage/*) ;;
     *)
       echo "  FATAL: unexpected PV path for $NS/$PVC: $OLD" >&2
       exit 1 ;;
   esac
+  NEW_BASE=$(basename "$OLD")
+  NEW="$SSD/k3s-storage/$NEW_BASE"
+  STATE="?"
+  if mountpoint -q "$OLD" 2>/dev/null; then
+    STATE="B-migrated"
+  elif [ -d "$OLD" ] && [ ! -e "$NEW" ]; then
+    STATE="A-fresh"
+  elif [ ! -e "$OLD" ] && [ -d "${OLD}.old" ] && [ -d "$NEW" ]; then
+    STATE="C-resume"
+  else
+    echo "  FATAL: unexpected on-disk state for $NS/$PVC" >&2
+    echo "    OLD ($OLD): $( [ -e "$OLD" ] && echo exists || echo absent )" >&2
+    echo "    NEW ($NEW): $( [ -e "$NEW" ] && echo exists || echo absent )" >&2
+    echo "    ${OLD}.old: $( [ -e "${OLD}.old" ] && echo exists || echo absent )" >&2
+    echo "    mount: $( mountpoint -q "$OLD" 2>/dev/null && echo yes || echo no )" >&2
+    exit 1
+  fi
+  printf "  %-18s %s\n" "${LABELS[$i]}" "$STATE"
 done
 echo "  all checks green."
 echo
@@ -135,8 +144,10 @@ for i in $(seq 0 $((N-1))); do
   PVC=${PVCS[$i]}
   PV=$(kubectl -n "$NS" get pvc "$PVC" -o jsonpath='{.spec.volumeName}')
   OLD=$(kubectl get pv "$PV" -o jsonpath='{.spec.local.path}')
-  if [[ "$OLD" == /mnt/ssd500g/* ]]; then
-    echo "=== [$STEP/$N] ${LABELS[$i]} — already on SSD, skipping ==="
+  # Skip if already a bind-mount (Stage 5 would also early-return with exit 0,
+  # but short-circuiting here avoids the banner + extra kubectl churn).
+  if mountpoint -q "$OLD" 2>/dev/null; then
+    echo "=== [$STEP/$N] ${LABELS[$i]} — $OLD already bind-mounted, skipping ==="
     continue
   fi
   echo
