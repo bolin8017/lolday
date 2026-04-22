@@ -5,7 +5,7 @@ via Cloudflare Access SSO (cf_access_user) instead of a password-bearer JWT.
 """
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_async_session
@@ -23,6 +23,13 @@ async def read_me(
     return user
 
 
+# Belt-and-suspenders defence: UserSelfUpdate's `extra='forbid'` is the
+# primary schema-level guard, but the handler also rejects any field outside
+# this set so a future schema regression that accidentally re-added
+# `hashed_password`/`role`/etc. cannot silently mutate the ORM row.
+_ALLOWED_SELF_FIELDS = frozenset({"display_name", "discord_user_id"})
+
+
 @router.patch("/me", response_model=UserRead)
 async def update_me(
     body: UserSelfUpdate,
@@ -31,6 +38,11 @@ async def update_me(
 ) -> User:
     data = body.model_dump(exclude_unset=True)
     for field, value in data.items():
+        if field not in _ALLOWED_SELF_FIELDS:
+            raise HTTPException(
+                status_code=500,
+                detail=f"schema drift: unexpected field {field!r} in UserSelfUpdate",
+            )
         setattr(user, field, value)
     session.add(user)
     await session.commit()

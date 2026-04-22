@@ -5,7 +5,7 @@
 Cloudflare Access JWT and get-or-creates the corresponding User row.
 
 The fastapi-users machinery (auth backends, transports, UserManager,
-register/login routers) was removed in Phase 10.2 — the User model still
+register/login routers) was stripped — the User model still
 inherits `SQLAlchemyBaseUserTableUUID` from fastapi-users-db-sqlalchemy,
 but nothing at runtime touches the password flow.
 """

@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -51,10 +52,33 @@ class Settings(BaseSettings):
 
     # Phase 10: Cloudflare Access SSO
     CF_ACCESS_TEAM_DOMAIN: str = ""        # e.g. "bolin8017.cloudflareaccess.com"
-    CF_ACCESS_APP_AUD: str = ""            # Access Application UUID (aud claim)
+    CF_ACCESS_APP_AUD: str = ""            # Access App aud claim (64-char hex; NOT the uid)
     CF_ACCESS_JWKS_CACHE_TTL_SECONDS: int = 600
     AUTH_DEV_MODE: bool = False            # bypass Cloudflare JWT for local dev
     AUTH_DEV_EMAIL: str = ""               # synthetic user email when AUTH_DEV_MODE=true
+
+    # Deployment mode — helm ships "production"; tests / local dev override.
+    # `validate_sso_config` only fails the boot when this is "production".
+    ENVIRONMENT: str = "production"
+
+    @model_validator(mode="after")
+    def validate_sso_config(self) -> "Settings":
+        """Fail-fast on production misconfiguration. Tests and local dev opt
+        out by setting ENVIRONMENT != 'production'."""
+        if self.ENVIRONMENT != "production":
+            return self
+        if self.AUTH_DEV_MODE:
+            raise ValueError(
+                "AUTH_DEV_MODE=true is forbidden when ENVIRONMENT=production — "
+                "it disables Cloudflare Access JWT verification entirely"
+            )
+        if not self.CF_ACCESS_TEAM_DOMAIN or not self.CF_ACCESS_APP_AUD:
+            raise ValueError(
+                "CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_APP_AUD must both be set "
+                "in production — an empty team domain makes the JWKS URL "
+                "resolve to https:/// and every request 401s"
+            )
+        return self
 
 
 settings = Settings()

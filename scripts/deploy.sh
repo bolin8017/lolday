@@ -11,9 +11,8 @@ echo ""
 : "${HARBOR_ADMIN_PASSWORD:?HARBOR_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 24}"
 : "${FERNET_KEY:?FERNET_KEY must be set — generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
 : "${PG_PASSWORD:?PG_PASSWORD must be set — generate with: openssl rand -base64 24}"
-# Phase 10.2: JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD removed — the
-# fastapi-users password/cookie routes they configured are gone, and the
-# seeded admin row is renamed in place via the phase10 Alembic migration.
+# Auth is Cloudflare Access SSO; the seeded admin row is renamed in place
+# via the phase10_sso_admin_email Alembic migration (SSO_ADMIN_EMAIL env).
 : "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"

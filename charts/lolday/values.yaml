@@ -38,9 +38,8 @@ backend:
   enabled: true
   image: harbor.lolday.svc:80/lolday/lolday-backend:phase10
   replicas: 1
-  # Phase 10.2: jwtSecret / firstAdmin.{email,password} / COOKIE_SECURE
-  # removed — the fastapi-users password routes they configured are gone.
-  # Auth is now Cloudflare Access SSO (see CF_ACCESS_* below).
+  # Auth is Cloudflare Access SSO (see CF_ACCESS_* under env below); no
+  # backend-side password secrets / firstAdmin seed / cookie config.
   # NEW for Phase 3:
   fernetKey: ""                              # --set at deploy time
   harborAdminPassword: ""                    # --set at deploy time (shared with Harbor release)
@@ -76,6 +75,7 @@ backend:
     # carry the `Cf-Access-Jwt-Assertion` header injected by cloudflared;
     # backend verifies the signature against this team's JWKS and validates
     # `aud` equals CF_ACCESS_APP_AUD.
+    ENVIRONMENT: "production"              # enables startup SSO-config assertions
     CF_ACCESS_TEAM_DOMAIN: "bolin8017.cloudflareaccess.com"
     # NOT the Access App UUID (d4271ba9-...). Cloudflare's Access App has two
     # identifiers — `uid` (UUID, used in API URLs) and `aud` (64-char hex used

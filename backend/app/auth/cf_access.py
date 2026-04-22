@@ -34,7 +34,7 @@ def verify_cf_token(
     expected_aud: str,
     expected_iss: str,
 ) -> dict[str, Any]:
-    return pyjwt.decode(
+    claims = pyjwt.decode(
         token,
         signing_key,
         algorithms=["RS256"],
@@ -42,6 +42,15 @@ def verify_cf_token(
         issuer=expected_iss,
         options={"require": _REQUIRED_CLAIMS},
     )
+    # PyJWT defaults to accepting a list-shaped `aud` as long as our expected
+    # value is a member. That would let a multi-aud token minted for another
+    # app in the same Cloudflare account authenticate here. Cloudflare Access
+    # today emits string-aud, so we just require exact string equality.
+    if claims.get("aud") != expected_aud:
+        raise pyjwt.InvalidAudienceError(
+            f"aud must equal {expected_aud!r}, got {claims.get('aud')!r}"
+        )
+    return claims
 
 
 def _sso_sentinel_password() -> str:
@@ -96,6 +105,14 @@ async def cf_access_user(
     request: Request,
     session: AsyncSession = Depends(get_async_session),
 ) -> User:
+    """FastAPI dependency: resolve the current user from the Cloudflare JWT.
+
+    Returned `User` is attached to the request-scoped AsyncSession. Callers
+    must not trigger lazy-load on relationships (e.g. `user.detector_set`)
+    outside this session — AsyncSession raises `MissingGreenlet` on implicit
+    lazy loads. If a router needs related rows, either query them explicitly
+    or use `selectinload()` at query time.
+    """
     if settings.AUTH_DEV_MODE:
         if not settings.AUTH_DEV_EMAIL:
             raise HTTPException(500, "AUTH_DEV_MODE enabled but AUTH_DEV_EMAIL empty")

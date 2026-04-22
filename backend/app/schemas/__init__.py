@@ -8,10 +8,10 @@ from app.schemas.model_registry import (                          # Task 10
     ModelTransitionRequest,
     ModelVersionRead,
 )
-from app.schemas.user import AdminUserUpdate, UserCreate, UserRead, UserUpdate
+from app.schemas.user import UserRead, UserSelfUpdate
 
 __all__ = [
-    "UserCreate", "UserRead", "UserUpdate", "AdminUserUpdate",
+    "UserRead", "UserSelfUpdate",
     "DatasetConfigCreate", "DatasetConfigRead", "DatasetConfigUpdate",
     "JobCreate", "JobRead", "JobSummary",
     "ModelTransitionRequest", "ModelVersionRead",

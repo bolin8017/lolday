@@ -9,8 +9,8 @@ export const authKeys = {
 };
 
 /**
- * Phase 10.2: only /users/me remains. Login / register / logout are owned
- * by Cloudflare Access now — there is no app-level auth mutation surface.
+ * Only /users/me remains — login / register / logout are owned by
+ * Cloudflare Access, so there is no app-level auth mutation surface.
  */
 export function useCurrentUser() {
   return useQuery({
@@ -20,7 +20,13 @@ export function useCurrentUser() {
       if (error) throw error;
       return data as User;
     },
-    retry: false,
+    // Retry transient network errors but never a 401 — a 401 from the edge
+    // is an infra event that the diagnostic screen handles; retrying just
+    // adds latency before the user sees it.
+    retry: (failureCount, err) => {
+      const status = (err as { status?: number } | undefined)?.status;
+      return status !== 401 && failureCount < 2;
+    },
     staleTime: 5 * 60_000,
   });
 }

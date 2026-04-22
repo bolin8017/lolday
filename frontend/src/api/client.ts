@@ -7,10 +7,10 @@ import { parseError } from "./errors";
 const API_BASE = "";
 
 /**
- * Phase 10.2: 401 no longer triggers redirect-to-login. Cloudflare Access
- * owns login; a 401 here means the JWT is missing/invalid at the edge
- * (infra event), not a user action. The `_authed` layout renders a
- * diagnostic page that routes the user back through Cloudflare Access.
+ * 401 is not a user action — Cloudflare Access owns login. A 401 here means
+ * the JWT header was missing/invalid at the edge (infra event). The
+ * `_authed` layout renders a diagnostic page that routes the user back
+ * through Cloudflare Access; this middleware just throws for non-2xx.
  */
 const errorMiddleware: Middleware = {
   async onResponse({ response }) {

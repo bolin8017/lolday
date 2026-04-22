@@ -58,6 +58,13 @@ spec:
             # returns.
             - name: DATABASE_URL
               value: "postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@postgresql:5432/{{ .Values.postgresql.auth.database }}"
+            {{- /* Phase 10: importing app.config triggers the Settings
+                    `validate_sso_config` validator, which requires either
+                    ENVIRONMENT!=production or CF_ACCESS_* to be set. The
+                    Alembic Job doesn't talk to Cloudflare, so opt out via a
+                    distinct environment tag. */}}
+            - name: ENVIRONMENT
+              value: "migration"
             {{- /* Phase 10: SSO admin rename migration reads SSO_ADMIN_EMAIL
                     from env. If it's unset the migration is a no-op — which is
                     safe (migration re-runs on next deploy once populated). */}}

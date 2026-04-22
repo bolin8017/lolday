@@ -78,11 +78,9 @@ async def lifespan(app: FastAPI):
     # Skip gracefully when alembic_version is absent (tests: SQLite create_all;
     # fresh install before stamp).
     await _assert_schema_at_head()
-    # Phase 10.2: FIRST_ADMIN seed block removed — password auth is gone and
-    # new admins are promoted via SSO + `PATCH /admin/users/{id}` (admin UI).
-    # Bootstrap of the very first admin happens by running the
-    # phase10_sso_admin_email Alembic migration with SSO_ADMIN_EMAIL set to
-    # the operator, which renames the legacy admin@lolday.dev row in place.
+    # Admin bootstrap happens in the phase10_sso_admin_email migration
+    # (renames the seed admin@lolday.dev row to the operator's SSO email);
+    # subsequent admins are promoted via `PATCH /admin/users/{id}`.
 
     # Harbor post-install init: idempotent, safe to retry on every startup
     try:
@@ -120,10 +118,8 @@ Instrumentator().instrument(app).expose(
     app, endpoint="/metrics", include_in_schema=False,
 )
 
-# Phase 10.2: fastapi-users password/cookie auth routes removed entirely.
-# Primary auth is now Cloudflare Access SSO (see app/auth/cf_access.py). The
-# login-endpoint rate-limit middleware is gone with the routes it protected;
-# per-user rate limits continue to live in app/services/rate_limit.py.
+# Primary auth is Cloudflare Access SSO (see app/auth/cf_access.py).
+# Per-user rate limits live in app/services/rate_limit.py.
 
 # User routes — /me served by our cf_access_user-backed router.
 from app.routers import users_me  # noqa: E402

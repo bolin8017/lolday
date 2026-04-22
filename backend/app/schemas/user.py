@@ -32,41 +32,18 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
     created_at: datetime | None = None
 
 
-class UserCreate(schemas.BaseUserCreate):
-    display_name: str | None = None
-
-
-class UserUpdate(schemas.BaseUserUpdate):
-    display_name: str | None = None
-    discord_user_id: str | None = None
-
-    _validate_discord = field_validator("discord_user_id", mode="before")(
-        _validate_discord_user_id
-    )
-
-
 class UserSelfUpdate(schemas.CreateUpdateDictModel):
-    """Phase 10: body accepted by `PATCH /users/me` — only self-mutable fields.
+    """Body accepted by `PATCH /users/me` — only self-mutable fields.
 
-    Separate from UserUpdate (which inherits fastapi-users BaseUserUpdate with
-    password/email fields). Sending extra fields (role, is_superuser, email)
-    results in 422 instead of silent drop, so users cannot smuggle privilege
-    escalation through the schema.
+    `extra='forbid'` means sending `role`, `is_superuser`, `email`, `password`,
+    etc. returns 422 rather than silently dropping them. This is the sole
+    line between a regular user and privilege escalation through `/users/me`;
+    see `tests/test_user_discord_id.py::test_patch_users_me_rejects_role_smuggling`.
     """
     model_config = {"extra": "forbid"}
     display_name: str | None = None
     discord_user_id: str | None = None
 
     _validate_discord_self = field_validator("discord_user_id", mode="before")(
-        _validate_discord_user_id
-    )
-
-
-class AdminUserUpdate(schemas.BaseUserUpdate):
-    role: Role | None = None
-    display_name: str | None = None
-    discord_user_id: str | None = None
-
-    _validate_discord = field_validator("discord_user_id", mode="before")(
         _validate_discord_user_id
     )

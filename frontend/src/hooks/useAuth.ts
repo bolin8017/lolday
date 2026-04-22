@@ -1,9 +1,9 @@
 import { useCurrentUser } from "@/api/queries/auth";
 
 /**
- * Phase 10.2: there is no app-level logout. Signing out means terminating
- * the Cloudflare Access session so the next visit re-authenticates via
- * GitHub. Cloudflare exposes `/cdn-cgi/access/logout` on every app domain.
+ * There is no app-level logout. Signing out means terminating the
+ * Cloudflare Access session so the next visit re-authenticates via GitHub.
+ * Cloudflare exposes `/cdn-cgi/access/logout` on every Access app domain.
  */
 function cloudflareLogout() {
   window.location.href = "/cdn-cgi/access/logout";

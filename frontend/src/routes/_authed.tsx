@@ -4,11 +4,11 @@ import { TopBar } from "@/components/layout/TopBar";
 import { useAuth } from "@/hooks/useAuth";
 
 /**
- * Phase 10.2: no /login redirect anymore — users arrive here only after
- * Cloudflare Access has validated their GitHub identity. A 401 from the
- * backend means cloudflared isn't injecting the JWT (infra issue) rather
- * than a user action, so we show a diagnostic page and a one-click path
- * back through Cloudflare Access rather than a login form.
+ * Users arrive here only after Cloudflare Access has validated their
+ * GitHub identity. A 401 from the backend means cloudflared isn't
+ * injecting the JWT (infra issue) rather than a user action, so we show
+ * a diagnostic page and a one-click path back through Cloudflare Access
+ * rather than a login form.
  */
 export default function AuthedLayout() {
   const { currentUser, isLoading, isUnauthenticated } = useAuth();

@@ -69,6 +69,92 @@ def test_verify_cf_token_rejects_token_without_exp(rsa_keypair):
         )
 
 
+def test_verify_cf_token_rejects_wrong_aud(rsa_keypair):
+    """Cross-app token reuse guard: aud claim must equal our app's aud."""
+    from app.auth.cf_access import verify_cf_token
+
+    token = _sign(rsa_keypair, _valid_claims() | {"aud": "some-other-app-uid"})
+    with pytest.raises(pyjwt.InvalidAudienceError):
+        verify_cf_token(
+            token=token,
+            signing_key=rsa_keypair.public_key(),
+            expected_aud="test-app-uid",
+            expected_iss="https://test.cloudflareaccess.com",
+        )
+
+
+def test_verify_cf_token_rejects_list_aud_even_when_our_aud_is_in_it(rsa_keypair):
+    """PyJWT defaults to accepting a list aud when expected is a member — we want
+    strict string equality so a multi-aud token minted for another tenant in the
+    same Cloudflare account cannot authenticate into lolday."""
+    from app.auth.cf_access import verify_cf_token
+
+    token = _sign(
+        rsa_keypair,
+        _valid_claims() | {"aud": ["test-app-uid", "some-other-app-uid"]},
+    )
+    with pytest.raises(pyjwt.InvalidAudienceError):
+        verify_cf_token(
+            token=token,
+            signing_key=rsa_keypair.public_key(),
+            expected_aud="test-app-uid",
+            expected_iss="https://test.cloudflareaccess.com",
+        )
+
+
+def test_verify_cf_token_rejects_wrong_iss(rsa_keypair):
+    """Cross-team token reuse guard: iss must be our team domain."""
+    from app.auth.cf_access import verify_cf_token
+
+    token = _sign(
+        rsa_keypair,
+        _valid_claims() | {"iss": "https://attacker.cloudflareaccess.com"},
+    )
+    with pytest.raises(pyjwt.InvalidIssuerError):
+        verify_cf_token(
+            token=token,
+            signing_key=rsa_keypair.public_key(),
+            expected_aud="test-app-uid",
+            expected_iss="https://test.cloudflareaccess.com",
+        )
+
+
+def test_verify_cf_token_rejects_expired_token(rsa_keypair):
+    from app.auth.cf_access import verify_cf_token
+
+    now = int(time.time())
+    token = _sign(
+        rsa_keypair,
+        _valid_claims() | {"iat": now - 600, "exp": now - 10},
+    )
+    with pytest.raises(pyjwt.ExpiredSignatureError):
+        verify_cf_token(
+            token=token,
+            signing_key=rsa_keypair.public_key(),
+            expected_aud="test-app-uid",
+            expected_iss="https://test.cloudflareaccess.com",
+        )
+
+
+def test_verify_cf_token_rejects_token_signed_by_different_key(rsa_keypair):
+    """Pins that verify_cf_token really passes the key through — a future
+    refactor that accidentally disables signature verification would regress."""
+    from cryptography.hazmat.primitives.asymmetric import rsa as rsa_mod
+
+    from app.auth.cf_access import verify_cf_token
+
+    attacker_priv = rsa_mod.generate_private_key(public_exponent=65537, key_size=2048)
+    token = _sign(attacker_priv, _valid_claims())
+
+    with pytest.raises(pyjwt.InvalidSignatureError):
+        verify_cf_token(
+            token=token,
+            signing_key=rsa_keypair.public_key(),  # victim's key, not attacker's
+            expected_aud="test-app-uid",
+            expected_iss="https://test.cloudflareaccess.com",
+        )
+
+
 async def test_get_or_create_user_creates_new_row_with_defaults(db_session):
     """First visit by a new email auto-provisions a User with role=USER,
     is_active=true, and display_name derived from email local-part."""

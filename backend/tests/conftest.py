@@ -4,8 +4,10 @@ os.environ.setdefault(
     "FERNET_KEY", "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
 )
 os.environ.setdefault("RECONCILER_ENABLED", "false")
-os.environ.setdefault("COOKIE_SECURE", "false")
 os.environ.setdefault("SAMPLES_LOCAL_ROOT", "/nonexistent-samples-root-for-tests")
+# Phase 10.2: opt out of production SSO validation — tests use dependency_override
+# to inject fake users, so CF_ACCESS_* can stay blank.
+os.environ.setdefault("ENVIRONMENT", "test")
 
 import pytest
 import pytest_asyncio
