@@ -348,21 +348,22 @@ case "$STAGE" in
   echo "[5/8] scaling $WORKLOAD → 1 replica…"
   kubectl -n "$NS" scale "$WORKLOAD" --replicas=1
 
-  echo "[6/8] waiting for pod ready (timeout $READY_TIMEOUT)…"
-  if [ -n "$READY_SELECTOR" ]; then
-    if ! kubectl -n "$NS" wait --for=condition=ready pod $READY_SELECTOR --timeout="$READY_TIMEOUT"; then
-      echo "FATAL: pod never became Ready after bind-mount migration." >&2
-      echo "  Rollback (shelved data still at ${OLD_PATH}.old):" >&2
-      echo "    kubectl -n $NS scale $WORKLOAD --replicas=0" >&2
-      echo "    sudo umount $OLD_PATH" >&2
-      echo "    sudo rmdir $OLD_PATH" >&2
-      echo "    sudo sed -i '\\|^$NEW_PATH $OLD_PATH |d' /etc/fstab" >&2
-      echo "    sudo mv ${OLD_PATH}.old $OLD_PATH" >&2
-      echo "    kubectl -n $NS scale $WORKLOAD --replicas=1" >&2
-      exit 1
-    fi
-  else
-    sleep 10
+  echo "[6/8] waiting for rollout (timeout $READY_TIMEOUT)…"
+  # `kubectl rollout status` tracks the *current* generation's availability
+  # against observedGeneration; `kubectl wait --for=ready pod <selector>`
+  # matches every pod the label selector catches — including Succeeded/
+  # Terminated leftovers from prior ReplicaSets, which are Ready=False
+  # forever and block the wait. rollout status is the right primitive.
+  if ! kubectl -n "$NS" rollout status "$WORKLOAD" --timeout="$READY_TIMEOUT"; then
+    echo "FATAL: rollout did not become available after bind-mount migration." >&2
+    echo "  Rollback (shelved data still at ${OLD_PATH}.old):" >&2
+    echo "    kubectl -n $NS scale $WORKLOAD --replicas=0" >&2
+    echo "    sudo umount $OLD_PATH" >&2
+    echo "    sudo rmdir $OLD_PATH" >&2
+    echo "    sudo sed -i '\\|^$NEW_PATH $OLD_PATH |d' /etc/fstab" >&2
+    echo "    sudo mv ${OLD_PATH}.old $OLD_PATH" >&2
+    echo "    kubectl -n $NS scale $WORKLOAD --replicas=1" >&2
+    exit 1
   fi
 
   echo "[7/8] smoke test…"
