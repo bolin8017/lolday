@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from app.config import settings
 from app.services.build import (
     JOB_TTL_SECONDS,
     _slugify,
@@ -63,18 +64,36 @@ def test_buildkit_container_is_rootless_not_privileged():
         git_tag="v0.1.0",
         owner_repo="o/x",
     )
-    buildkit = job["spec"]["template"]["spec"]["containers"][0]
+    spec = job["spec"]["template"]["spec"]
+    buildkit = spec["containers"][0]
     assert buildkit["name"] == "buildkit"
     sc = buildkit["securityContext"]
     assert sc["runAsUser"] == 1000
     assert sc["runAsGroup"] == 1000
     assert sc["runAsNonRoot"] is True
-    # The important negative assertion: never flip to privileged.
-    assert sc.get("privileged") is not True
+    # Strict: `is not True` would be satisfied by a stray `privileged: 1`
+    # or `privileged: "true"` slipping in from a YAML refactor. Demand
+    # `False` (or absent) explicitly.
+    assert sc.get("privileged", False) is False
     # BuildKit-specific Unconfined profiles (pod-level default is
     # RuntimeDefault; container override is intentional).
     assert sc["seccompProfile"]["type"] == "Unconfined"
     assert sc["appArmorProfile"]["type"] == "Unconfined"
+    # No `procMount: Unmasked` cargo-culted from a forum post. The
+    # default (None / masked) is what rootless BuildKit expects.
+    assert sc.get("procMount") in (None, "Default")
+    # No escape-hatch container-level hostPath volumes / raw block devices.
+    assert not buildkit.get("volumeDevices")
+    # Pod-level escape hatches must stay off too — a helpful contributor
+    # enabling hostNetwork/hostPID/hostIPC "for debugging" breaks the
+    # user-namespace isolation that is the whole point.
+    assert spec.get("hostNetwork") is not True
+    assert spec.get("hostPID") is not True
+    assert spec.get("hostIPC") is not True
+    # No pod volume should use hostPath (the build pipeline is designed
+    # to read everything through emptyDir + Secret mounts).
+    for vol in spec["volumes"]:
+        assert "hostPath" not in vol, f"volume {vol.get('name')} uses hostPath — escape hatch"
 
 
 def test_buildkit_destination_and_insecure_registry_flags():
@@ -88,21 +107,44 @@ def test_buildkit_destination_and_insecure_registry_flags():
         owner_repo="bolin8017/upxelfdet",
     )
     buildkit = job["spec"]["template"]["spec"]["containers"][0]
-    # Entire buildctl invocation is in the shell-wrapped args[0].
-    args_text = " ".join(buildkit["args"])
-    assert "buildctl-daemonless.sh build" in args_text
-    assert "--frontend dockerfile.v0" in args_text
-    assert "--local context=/workspace/src" in args_text
-    assert "--local dockerfile=/workspace/src" in args_text
-    # Image target + push + insecure flag must travel together.
-    assert "name=harbor" in args_text
-    assert "/detectors/upxelfdet:v0.1.0" in args_text
-    assert "push=true" in args_text
-    assert "registry.insecure=true" in args_text
-    # Registry-backed cache for layer reuse across builds.
-    assert "--export-cache type=registry" in args_text
-    assert "--import-cache type=registry" in args_text
-    assert "/detectors-cache/upxelfdet" in args_text
+    # Exec form — command is the wrapper, args is argv.
+    assert buildkit["command"] == ["buildctl-daemonless.sh"]
+    args = buildkit["args"]
+    assert args[0] == "build"
+    # The image-target triple MUST travel as one comma-separated
+    # --output token, not three separate outputs; BuildKit would happily
+    # interpret `--output push=true` as a second output target and drop
+    # the image push silently.
+    output_idx = args.index("--output")
+    output_val = args[output_idx + 1]
+    assert output_val.startswith("type=image,")
+    # Accept any Harbor prefix (default vs helm-overridden), just pin
+    # the project/name/tag tail that identifies the target image.
+    assert "/detectors/upxelfdet:v0.1.0" in output_val
+    assert "push=true" in output_val
+    assert "registry.insecure=true" in output_val
+    # Registry-backed cache, exported and imported with the same ref.
+    export_idx = args.index("--export-cache")
+    import_idx = args.index("--import-cache")
+    assert args[export_idx + 1].startswith("type=registry,")
+    assert args[import_idx + 1].startswith("type=registry,")
+    assert "/detectors-cache/upxelfdet" in args[export_idx + 1]
+    assert "/detectors-cache/upxelfdet" in args[import_idx + 1]
+
+
+def test_buildkit_image_from_settings_not_hardcoded():
+    """BUILD_IMAGE_BUILDKIT must flow from the Settings field, so
+    values.yaml can pin a different tag without a backend rebuild.
+    Regression guard against someone hard-coding the tag in build.py.
+    """
+    job = build_job_spec(
+        build_id=uuid4(),
+        detector_name="x",
+        git_tag="v0.1.0",
+        owner_repo="o/x",
+    )
+    buildkit = job["spec"]["template"]["spec"]["containers"][0]
+    assert buildkit["image"] == settings.BUILD_IMAGE_BUILDKIT
 
 
 def test_buildkit_container_has_required_env():
@@ -123,6 +165,9 @@ def test_buildkit_container_has_required_env():
     env = {e["name"]: e["value"] for e in buildkit["env"]}
     assert env.get("BUILDKITD_FLAGS") == "--oci-worker-no-process-sandbox"
     assert env.get("DOCKER_CONFIG") == "/home/user/.docker"
+    # Explicit retry envelope so the daemonless wrapper surfaces a real
+    # error instead of hanging when buildkitd doesn't start cleanly.
+    assert env.get("BUILDCTL_CONNECT_RETRIES_ON_STARTUP") == "10"
 
 
 def test_buildkit_state_volume_writable():
