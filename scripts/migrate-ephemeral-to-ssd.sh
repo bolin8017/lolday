@@ -12,6 +12,7 @@
 #   Stage 2 — Harbor registry PV    (Harbor downtime only; k3s stays up)
 #   Stage 3 — local-path default    (future PVCs; no existing data touched)
 #   Stage 4 — K3s + kubelet         (deepest; only if 1–3 not enough)
+#   Stage 5 — Any single PVC (generic)  (per-PVC downtime, post-Phase 9)
 #
 # Each stage is self-contained: run it, verify output, only move on
 # once the verification passes. Rollback stanzas included for each.
@@ -19,6 +20,8 @@
 # Run stages individually like:
 #   sudo STAGE=1 bash scripts/migrate-ephemeral-to-ssd.sh
 #   sudo STAGE=2 bash scripts/migrate-ephemeral-to-ssd.sh
+#   sudo STAGE=5 NS=lolday PVC=lolday-grafana WORKLOAD=deploy/lolday-grafana \
+#        bash scripts/migrate-ephemeral-to-ssd.sh
 #   etc.
 
 set -euo pipefail
@@ -46,10 +49,12 @@ rsync_and_verify() {
     --numeric-ids "$SRC/" "$DST/"
 
   local src_files dst_files src_bytes dst_bytes diff tol
-  src_files=$(find "$SRC" -xdev -type f 2>/dev/null | wc -l)
-  dst_files=$(find "$DST" -xdev -type f 2>/dev/null | wc -l)
-  src_bytes=$(du -sxb "$SRC" 2>/dev/null | awk '{print $1}')
-  dst_bytes=$(du -sxb "$DST" 2>/dev/null | awk '{print $1}')
+  # Let find/du errors (I/O, permission, vanished path) surface via pipefail
+  # rather than silently under-counting and slipping past the integrity gate.
+  src_files=$(find "$SRC" -xdev -type f | wc -l)
+  dst_files=$(find "$DST" -xdev -type f | wc -l)
+  src_bytes=$(du -sxb "$SRC" | awk '{print $1}')
+  dst_bytes=$(du -sxb "$DST" | awk '{print $1}')
 
   echo "  src: $src_files files / $src_bytes bytes"
   echo "  dst: $dst_files files / $dst_bytes bytes"
@@ -175,59 +180,254 @@ case "$STAGE" in
 
 # ─────────────────────────────────────────────────────────────────────────────
 2)
-  echo "=== STAGE 2 — Harbor registry PV → $SSD/pvs/harbor-registry ==="
+  # Convenience wrapper for the biggest PV — Harbor registry. Stage 2 was
+  # designed pre-Phase 9 with `statefulset` hardcoded, but Harbor 1.18.3 uses
+  # a Deployment for the registry component. Delegates to Stage 5 so the
+  # generic flow (rsync_and_verify + PV path patch + scale + smoke) stays
+  # in one place.
+  echo "=== STAGE 2 — Harbor registry PV (delegates to Stage 5) ==="
+  NS=lolday \
+  PVC=lolday-harbor-registry \
+  WORKLOAD=deployment/lolday-harbor-registry \
+  READY_SELECTOR="-l app=harbor,component=registry" \
+  STAGE=5 exec bash "${BASH_SOURCE[0]}"
+  ;;
 
-  # Only move the biggest PV — Harbor registry. Other PVs stay put for now.
-  PVC_NAME=lolday-harbor-registry
-  PV_NAME=$(kubectl -n lolday get pvc "$PVC_NAME" -o jsonpath='{.spec.volumeName}')
+# ─────────────────────────────────────────────────────────────────────────────
+5)
+  # Generic per-PVC migration from root-LV `/var/lib/rancher/k3s/storage/` to
+  # `/mnt/ssd500g/k3s-storage/`. Works for any PVC fronted by a `local` PV on
+  # this single-node cluster. Keeps the same PV object + same directory basename,
+  # so claimRef/UID bindings survive and the only state that moves is bytes on
+  # disk + one mutable field on the PV spec.
+  #
+  # Required env:
+  #   NS=<namespace>                — where the PVC lives
+  #   PVC=<pvc-name>                — the PVC to migrate
+  #   WORKLOAD=<kind>/<name>        — what to scale down (deploy/X or statefulset/X)
+  # Optional env:
+  #   READY_SELECTOR="-l key=val"   — label-selector for `kubectl wait --for=ready`
+  #                                   (defaults: infer from WORKLOAD)
+  #   READY_TIMEOUT=180s            — per-pod readiness timeout
+  #   SMOKE=<cmd>                   — shell command run after ready (non-zero => roll back manually)
+  #
+  # Fail-loud semantics:
+  #   * `set -euo pipefail` at top of script → any unchecked failure aborts.
+  #   * rsync_and_verify aborts BEFORE the bind-mount flip if the integrity
+  #     gate fails.
+  #   * The old data directory is preserved at ${OLD_PATH}.old until the
+  #     operator confirms the workload is healthy. Do NOT clean it up within
+  #     this script — bind-mount flips are reversible only while that data
+  #     exists.
+  : "${NS:?STAGE=5 requires NS=<namespace>}"
+  : "${PVC:?STAGE=5 requires PVC=<pvc-name>}"
+  : "${WORKLOAD:?STAGE=5 requires WORKLOAD=<kind>/<name>, e.g. deploy/mlflow}"
+  READY_TIMEOUT="${READY_TIMEOUT:-180s}"
+
+  echo "=== STAGE 5 — migrate PVC $NS/$PVC onto $SSD/k3s-storage ==="
+  echo "  workload: $WORKLOAD"
+
+  PV_NAME=$(kubectl -n "$NS" get pvc "$PVC" -o jsonpath='{.spec.volumeName}')
+  [ -n "$PV_NAME" ] || { echo "FATAL: PVC $NS/$PVC has no bound PV" >&2; exit 1; }
   OLD_PATH=$(kubectl get pv "$PV_NAME" -o jsonpath='{.spec.local.path}')
+  [ -n "$OLD_PATH" ] || { echo "FATAL: PV $PV_NAME has no spec.local.path (not a local-path PV?)" >&2; exit 1; }
 
-  echo "  PVC: $PVC_NAME"
-  echo "  PV : $PV_NAME"
-  echo "  OLD: $OLD_PATH"
+  # Pin the new path to the same basename so we can reason about "this dir
+  # equals this PV" post-migration too. Every local-path PV name is already
+  # globally unique (pvc-<uuid>_<ns>_<claim>), so collisions are impossible.
+  NEW_BASE=$(basename "$OLD_PATH")
+  NEW_PATH="$SSD/k3s-storage/$NEW_BASE"
 
-  mkdir -p "$SSD/pvs"
+  echo "  PV   : $PV_NAME"
+  echo "  OLD  : $OLD_PATH"
+  echo "  NEW  : $NEW_PATH"
 
-  echo "[1/7] cordoning + draining registry pod…"
-  kubectl -n lolday scale statefulset lolday-harbor-registry --replicas=0 || true
-  sleep 5
+  # Idempotent states we can enter:
+  #   A. Fresh:     OLD_PATH is a real dir, NEW_PATH absent  → full run
+  #   B. Already-migrated: OLD_PATH is a bind-mount (over NEW_PATH) → abort-ok
+  #   C. Half-done: OLD_PATH absent, ${OLD_PATH}.old exists, NEW_PATH exists
+  #                → resume at step [4/8] (bind-mount setup)
+  #   D. Unknown:   anything else → abort for operator inspection
+  STATE=""
+  if mountpoint -q "$OLD_PATH" 2>/dev/null; then
+    STATE=B
+  elif [ -d "$OLD_PATH" ] && [ ! -e "$NEW_PATH" ]; then
+    STATE=A
+  elif [ ! -e "$OLD_PATH" ] && [ -d "${OLD_PATH}.old" ] && [ -d "$NEW_PATH" ]; then
+    STATE=C
+  fi
 
-  echo "[2/7] rsync $OLD_PATH → $SSD/pvs/harbor-registry…"
-  rsync_and_verify "$OLD_PATH" "$SSD/pvs/harbor-registry"
+  case "$OLD_PATH" in
+    /mnt/ssd500g/*)
+      echo "FATAL: $OLD_PATH already on SSD — Phase 9.6 assumes bind-mount"
+      echo "       strategy (OLD_PATH stays under /var/lib/rancher/k3s/storage/,"
+      echo "       SSD is the mount source). Your PV lives on SSD directly —"
+      echo "       nothing to migrate." >&2
+      exit 1 ;;
+  esac
 
-  echo "[3/7] shelving old dir…"
-  mv "$OLD_PATH" "${OLD_PATH}.old"
+  case "$STATE" in
+    B)
+      echo "$OLD_PATH is already a bind-mount — already migrated, nothing to do." ; exit 0 ;;
+    A)
+      :  # normal path
+      ;;
+    C)
+      echo "RESUME: detected half-done migration (data at $NEW_PATH, shelf at ${OLD_PATH}.old)"
+      echo "        — skipping scale-down/rsync/shelve, resuming at mount step." ;;
+    *)
+      echo "FATAL: unexpected on-disk state — refusing to touch anything." >&2
+      echo "  OLD_PATH ($OLD_PATH): $( [ -e "$OLD_PATH" ] && echo exists || echo absent )" >&2
+      echo "  NEW_PATH ($NEW_PATH): $( [ -e "$NEW_PATH" ] && echo exists || echo absent )" >&2
+      echo "  ${OLD_PATH}.old: $( [ -e "${OLD_PATH}.old" ] && echo exists || echo absent )" >&2
+      echo "  mount: $( mountpoint -q "$OLD_PATH" 2>/dev/null && echo yes || echo no )" >&2
+      exit 1 ;;
+  esac
 
-  echo "[4/7] editing PV hostPath… (patch in place)"
-  kubectl patch pv "$PV_NAME" --type merge -p "{\"spec\":{\"local\":{\"path\":\"$SSD/pvs/harbor-registry\"}}}"
+  # Default readiness selector if caller didn't provide one. StatefulSet pods
+  # carry `statefulset.kubernetes.io/pod-name=<n>-0`; Deployments carry whatever
+  # matchLabels they use, which we can't infer safely — require READY_SELECTOR
+  # for Deployments or the caller must trust the scale-up timeout.
+  if [ -z "${READY_SELECTOR:-}" ]; then
+    case "$WORKLOAD" in
+      statefulset/*|sts/*)
+        STS_NAME=${WORKLOAD#*/}
+        READY_SELECTOR="-l statefulset.kubernetes.io/pod-name=${STS_NAME}-0"
+        ;;
+      *)
+        echo "  (no READY_SELECTOR; skipping wait — relying on scale timeout)"
+        READY_SELECTOR=""
+        ;;
+    esac
+  fi
 
-  echo "[5/7] restoring registry pod…"
-  kubectl -n lolday scale statefulset lolday-harbor-registry --replicas=1
+  mkdir -p "$SSD/k3s-storage"
 
-  echo "[6/7] waiting for Harbor registry pod ready…"
-  kubectl -n lolday wait --for=condition=ready pod -l app=harbor,component=registry --timeout=180s
+  if [ "$STATE" = "A" ]; then
+    # Before scale-down: if this StatefulSet has
+    # `persistentVolumeClaimRetentionPolicy.whenScaled=Delete` (Loki helm
+    # chart's default since 6.x), scaling to 0 will cascade-delete the PVC.
+    # local-path's reclaim policy is `Delete`, so the release triggers a
+    # helper pod that `rm -rf`s the PV path — which during bind-mount
+    # migration means traversing *through* the bind into /mnt/ssd500g and
+    # deleting the freshly-rsync'd data on SSD too. Patch to Retain up
+    # front so the PVC survives the scale-down. Retain is a safer default
+    # anyway; not restoring the original.
+    case "$WORKLOAD" in
+      statefulset/*|sts/*)
+        WHEN_SCALED=$(kubectl -n "$NS" get "$WORKLOAD" \
+          -o jsonpath='{.spec.persistentVolumeClaimRetentionPolicy.whenScaled}' 2>/dev/null)
+        if [ "$WHEN_SCALED" = "Delete" ]; then
+          echo "  (patching $WORKLOAD whenScaled: Delete → Retain so PVC survives scale-0)"
+          kubectl -n "$NS" patch "$WORKLOAD" --type=merge \
+            -p '{"spec":{"persistentVolumeClaimRetentionPolicy":{"whenScaled":"Retain"}}}'
+        fi
+        ;;
+    esac
 
-  echo "[7/7] smoke test: pull a known tag…"
-  # No `|| true` — a failing smoke test after a PV migration means the
-  # migration was incomplete; abort loudly so the operator rolls back
-  # (${OLD_PATH}.old is still the authoritative data) rather than silently
-  # "complete" with a broken Harbor.
-  if ! kubectl -n lolday exec deploy/backend -- sh -c '
-      uv run python -c "import httpx; import sys; r = httpx.get(\"http://harbor.lolday.svc/v2/lolday/lolday-backend/manifests/phase9.5\", timeout=10); sys.exit(0 if r.status_code < 500 else 1)"
-    '; then
-    echo "FATAL: Harbor smoke test failed — ${OLD_PATH}.old still holds good data." >&2
-    echo "  Rollback: kubectl patch pv $PV_NAME --type merge \\" >&2
-    echo "            -p '{\"spec\":{\"local\":{\"path\":\"${OLD_PATH}\"}}}' && \\" >&2
-    echo "            mv ${OLD_PATH}.old ${OLD_PATH}" >&2
+    echo "[1/8] scaling $WORKLOAD → 0 replicas…"
+    kubectl -n "$NS" scale "$WORKLOAD" --replicas=0
+    # Wait for pods to disappear — `kubectl wait --for=delete` needs a live
+    # resource to reference; use a polling fallback if nothing matches.
+    if [ -n "$READY_SELECTOR" ]; then
+      # shellcheck disable=SC2086  # READY_SELECTOR must word-split into -l + expr
+      kubectl -n "$NS" wait --for=delete pod $READY_SELECTOR --timeout=60s 2>/dev/null || true
+    fi
+    # StatefulSet pods that exit 0 on graceful shutdown can linger in
+    # Succeeded phase indefinitely (deletionTimestamp set, no finalizers, but
+    # kubelet never finalizes the API object when containerStatus is already
+    # Completed). Scale-up then stalls because the SS controller sees
+    # `<sts>-0` still exists and won't create a new one. Observed with Loki
+    # AND Postgres on 2026-04-22. Force-delete anything that lingers.
+    case "$WORKLOAD" in
+      statefulset/*|sts/*)
+        POD="${WORKLOAD#*/}-0"
+        if kubectl -n "$NS" get pod "$POD" -o name >/dev/null 2>&1; then
+          echo "  $POD lingering post-scale-down — force-deleting so SS can reconcile"
+          kubectl -n "$NS" delete pod "$POD" --grace-period=0 --force --wait=false 2>&1 | head
+        fi
+        ;;
+    esac
+    sleep 5
+
+    echo "[2/8] rsync $OLD_PATH → $NEW_PATH…"
+    rsync_and_verify "$OLD_PATH" "$NEW_PATH"
+
+    echo "[3/8] shelving old dir → ${OLD_PATH}.old …"
+    mv "$OLD_PATH" "${OLD_PATH}.old"
+  else
+    echo "[1-3/8] skipped (resuming from half-done state)"
+  fi
+
+  # PV's .spec.local.path is immutable (apiserver rejects patches to
+  # spec.persistentvolumesource). We cannot re-point the PV at the SSD path.
+  # Instead: create an empty mount-point at OLD_PATH and bind-mount NEW_PATH
+  # onto it — kubelet + pod see the canonical OLD_PATH (nothing in k8s changes)
+  # while the actual blocks are served off /mnt/ssd500g. Same pattern as Stage
+  # 1/1b for /var/lib/docker + /var/lib/containerd; /etc/fstab makes it
+  # survive reboots.
+  echo "[4/8] bind-mounting $NEW_PATH → $OLD_PATH (and fstab)…"
+  mkdir -p "$OLD_PATH"
+  # Re-apply directory metadata so k8s fsGroup/subPath assumptions keep
+  # holding: copy uid/gid/mode from what we moved.
+  if [ -d "${OLD_PATH}.old" ]; then
+    SRC_STAT="${OLD_PATH}.old"
+  else
+    SRC_STAT="$NEW_PATH"
+  fi
+  chown --reference="$SRC_STAT" "$OLD_PATH"
+  chmod --reference="$SRC_STAT" "$OLD_PATH"
+
+  FSTAB_LINE="$NEW_PATH $OLD_PATH none bind 0 0"
+  if ! grep -qxF "$FSTAB_LINE" /etc/fstab; then
+    echo "$FSTAB_LINE" >> /etc/fstab
+  fi
+  # No `|| true`: a daemon-reload failure means systemd's fstab generator
+  # choked (malformed entry, path with spaces) — we want the script to halt
+  # so the operator can inspect before `mount $OLD_PATH` silently no-ops.
+  systemctl daemon-reload
+  mount "$OLD_PATH"
+  mountpoint -q "$OLD_PATH" || { echo "FATAL: mount did not take effect" >&2; exit 1; }
+
+  echo "[5/8] scaling $WORKLOAD → 1 replica…"
+  kubectl -n "$NS" scale "$WORKLOAD" --replicas=1
+
+  echo "[6/8] waiting for rollout (timeout $READY_TIMEOUT)…"
+  # `kubectl rollout status` tracks the *current* generation's availability
+  # against observedGeneration; `kubectl wait --for=ready pod <selector>`
+  # matches every pod the label selector catches — including Succeeded/
+  # Terminated leftovers from prior ReplicaSets, which are Ready=False
+  # forever and block the wait. rollout status is the right primitive.
+  if ! kubectl -n "$NS" rollout status "$WORKLOAD" --timeout="$READY_TIMEOUT"; then
+    echo "FATAL: rollout did not become available after bind-mount migration." >&2
+    echo "  Rollback (shelved data still at ${OLD_PATH}.old):" >&2
+    echo "    kubectl -n $NS scale $WORKLOAD --replicas=0" >&2
+    echo "    sudo umount $OLD_PATH" >&2
+    echo "    sudo rmdir $OLD_PATH" >&2
+    echo "    sudo sed -i '\\|^$NEW_PATH $OLD_PATH |d' /etc/fstab" >&2
+    echo "    sudo mv ${OLD_PATH}.old $OLD_PATH" >&2
+    echo "    kubectl -n $NS scale $WORKLOAD --replicas=1" >&2
     exit 1
   fi
-  df -h /
+
+  echo "[7/8] smoke test…"
+  if [ -n "${SMOKE:-}" ]; then
+    if ! eval "$SMOKE"; then
+      echo "FATAL: smoke test failed — see rollback hint above." >&2
+      exit 1
+    fi
+  else
+    echo "  (no SMOKE command provided; pod Ready is the only signal)"
+  fi
+
+  echo "[8/8] disk state:"
+  df -h / "$SSD" | awk 'NR==1 || /mapper|nvme0n1/'
 
   echo
-  echo "=== Stage 2 complete. Verify:"
-  echo "  1. Harbor UI still serves images."
-  echo "  2. / disk usage dropped by whatever was in the registry."
-  echo "  3. If OK for 10 min: sudo rm -rf ${OLD_PATH}.old"
+  echo "=== Stage 5 complete for $NS/$PVC. Verify:"
+  echo "  1. Workload behaves correctly end-to-end (exercise real traffic)."
+  echo "  2. \`mountpoint $OLD_PATH\` prints 'is a mount point' + survives reboot via fstab."
+  echo "  3. If OK after ~10 min: sudo rm -rf ${OLD_PATH}.old"
   ;;
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -413,9 +613,12 @@ Usage: sudo STAGE=<n> bash $0
   STAGE=1  — Docker data-root to SSD (safe, no k8s impact)
   STAGE=1b — External containerd root to SSD (holds the real image layers
              on hosts where dockerd uses --containerd=; run AFTER 1)
-  STAGE=2  — Harbor registry PV to SSD (Harbor downtime only)
+  STAGE=2  — Harbor registry PV to SSD (delegates to Stage 5)
   STAGE=3  — local-path-provisioner default path (future PVCs only)
   STAGE=4  — K3s /var/lib/rancher to SSD (deepest; only if needed)
+  STAGE=5  — Generic per-PVC migration to SSD. Required env:
+               NS=<ns> PVC=<pvc-name> WORKLOAD=<kind>/<name>
+             Optional env: READY_SELECTOR, READY_TIMEOUT, SMOKE
 
 Recommended order: 1, verify ~5 min, 2, verify ~10 min,
 then 3 (optional), then 4 (optional, only if / still pressured).
