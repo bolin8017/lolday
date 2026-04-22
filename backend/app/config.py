@@ -4,10 +4,6 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://lolday:password@postgresql:5432/lolday"
     REDIS_URL: str = "redis://redis:6379/0"
-    JWT_SECRET: str = "CHANGE-ME-IN-PRODUCTION"
-    JWT_LIFETIME_SECONDS: int = 3600
-    FIRST_ADMIN_EMAIL: str = ""
-    FIRST_ADMIN_PASSWORD: str = ""
     DOCS_ENABLED: bool = True
 
     # Phase 3: Detector Lifecycle
@@ -47,12 +43,6 @@ class Settings(BaseSettings):
     DATASET_SPOT_CHECK_MISSING_THRESHOLD: int = 1             # fail if >= this many missing
     SAMPLES_ROOT: str = "/mnt/samples"                        # parent of malware/, benign/
     SAMPLES_LOCAL_ROOT: str = "/data"                         # for backend-side validation (matches hostPath)
-
-    # Cookie auth (Phase 5)
-    COOKIE_LIFETIME_SECONDS: int = 12 * 60 * 60   # 12 hours sliding
-    COOKIE_SECURE: bool = True                     # set False in dev env
-    COOKIE_NAME: str = "lolday_session"
-    COOKIE_SAMESITE: str = "lax"
 
     # Phase 7.4: Discord user-event notifications + UI base URL for embed links
     DISCORD_WEBHOOK_URL_EVENTS: str = ""

@@ -7,6 +7,7 @@ the contained claims as the user identity.
 """
 from __future__ import annotations
 
+import logging
 import secrets
 from functools import lru_cache
 from typing import Any
@@ -20,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_async_session
 from app.models import Role, User
+
+logger = logging.getLogger(__name__)
 
 
 _REQUIRED_CLAIMS = ["exp", "iat", "aud", "iss", "email"]
@@ -95,11 +98,17 @@ async def cf_access_user(
 
     token = request.headers.get("cf-access-jwt-assertion")
     if not token:
+        cf_hdrs = sorted(k for k in request.headers.keys() if k.lower().startswith("cf-"))
+        logger.warning(
+            "cf_access_user 401 path=%s: missing Cf-Access-Jwt-Assertion. cf-* headers present: %s",
+            request.url.path, cf_hdrs,
+        )
         raise HTTPException(401, "missing Cf-Access-Jwt-Assertion header")
 
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
     except pyjwt.PyJWKClientError as e:
+        logger.warning("cf_access_user 401 path=%s: JWKS lookup failed: %s", request.url.path, e)
         raise HTTPException(401, f"jwks lookup failed: {e}") from e
 
     try:
@@ -110,6 +119,17 @@ async def cf_access_user(
             expected_iss=f"https://{settings.CF_ACCESS_TEAM_DOMAIN}",
         )
     except pyjwt.InvalidTokenError as e:
+        # Log claim peek (aud/iss/email only) without logging full token
+        try:
+            unverified = pyjwt.decode(token, options={"verify_signature": False})
+            peek = {k: unverified.get(k) for k in ("aud", "iss", "email", "exp")}
+        except Exception:
+            peek = "unparseable"
+        logger.warning(
+            "cf_access_user 401 path=%s: JWT invalid: %s. expected_aud=%s expected_iss=%s claims_peek=%s",
+            request.url.path, e, settings.CF_ACCESS_APP_AUD,
+            f"https://{settings.CF_ACCESS_TEAM_DOMAIN}", peek,
+        )
         raise HTTPException(401, f"invalid Cloudflare Access token: {e}") from e
 
     return await get_or_create_user_by_email(session, claims["email"])

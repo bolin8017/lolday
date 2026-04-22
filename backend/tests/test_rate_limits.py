@@ -1,49 +1,17 @@
-"""Rate limit enforcement on login / job create / build create.
+"""Rate limit enforcement on job create / build create.
 
-Limits (per design):
-- POST /api/v1/auth/login      : 10/min  (per IP)
-- POST /api/v1/jobs            : 30/min  (per authenticated user)
-- POST /api/v1/detectors/{id}/builds : 10/hour (per authenticated user)
+Phase 10.2 removed the login rate-limit tests along with the login
+endpoints they exercised — Cloudflare Access rate-limits auth attempts
+at the edge, so an app-level bucket is redundant.
+
+Remaining limits (per design):
+- POST /api/v1/jobs                       : 30/min  (per authenticated user)
+- POST /api/v1/detectors/{id}/builds      : 10/hour (per authenticated user)
 """
 
 from unittest.mock import AsyncMock
 
 import pytest
-
-
-@pytest.mark.asyncio
-async def test_login_over_limit_returns_429(client):
-    # 10 attempts allowed per minute per IP. Assertion: 11th gets 429.
-    for i in range(10):
-        r = await client.post(
-            "/api/v1/auth/login",
-            data={"username": "nobody@example.dev", "password": "wrong"},
-        )
-        # Every wrong login returns 400/401 from fastapi-users — not 429.
-        assert r.status_code != 429, f"iteration {i}: unexpected 429"
-    r11 = await client.post(
-        "/api/v1/auth/login",
-        data={"username": "nobody@example.dev", "password": "wrong"},
-    )
-    assert r11.status_code == 429
-
-
-@pytest.mark.asyncio
-async def test_cookie_login_also_rate_limited(client):
-    """Both /auth/login (bearer) and /auth/cookie/login share the same
-    IP-keyed bucket — regression guard against accidentally limiting only
-    one transport."""
-    for i in range(10):
-        r = await client.post(
-            "/api/v1/auth/cookie/login",
-            data={"username": "nobody@example.dev", "password": "wrong"},
-        )
-        assert r.status_code != 429
-    r = await client.post(
-        "/api/v1/auth/cookie/login",
-        data={"username": "nobody@example.dev", "password": "wrong"},
-    )
-    assert r.status_code == 429
 
 
 @pytest.mark.asyncio

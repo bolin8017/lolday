@@ -38,16 +38,14 @@ backend:
   enabled: true
   image: harbor.lolday.svc:80/lolday/lolday-backend:phase10
   replicas: 1
-  jwtSecret: ""         # --set at deploy time, NEVER commit
-  firstAdmin:
-    email: ""           # --set at deploy time
-    password: ""        # --set at deploy time
+  # Phase 10.2: jwtSecret / firstAdmin.{email,password} / COOKIE_SECURE
+  # removed — the fastapi-users password routes they configured are gone.
+  # Auth is now Cloudflare Access SSO (see CF_ACCESS_* below).
   # NEW for Phase 3:
   fernetKey: ""                              # --set at deploy time
   harborAdminPassword: ""                    # --set at deploy time (shared with Harbor release)
   env:
     DOCS_ENABLED: "true"
-    COOKIE_SECURE: "false"
     # NEW for Phase 3:
     HARBOR_URL: "http://harbor.lolday.svc.cluster.local:80"
     HARBOR_ADMIN_USERNAME: "admin"
@@ -221,7 +219,7 @@ jobs:
 # Frontend (React SPA served by nginx-unprivileged)
 # =============================================================================
 frontend:
-  image: harbor.lolday.svc:80/lolday/lolday-frontend:phase5
+  image: harbor.lolday.svc:80/lolday/lolday-frontend:phase10
   host: lolday.connlabai.com
   replicas: 1
   resources:

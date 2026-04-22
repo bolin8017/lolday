@@ -164,34 +164,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Users:Current User */
-        get: operations["users_current_user_api_v1_users_me_get"];
+        /** Read Me */
+        get: operations["read_me_api_v1_users_me_get"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Users:Patch Current User */
-        patch: operations["users_patch_current_user_api_v1_users_me_patch"];
-        trace?: never;
-    };
-    "/api/v1/users/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Users:User */
-        get: operations["users_user_api_v1_users__id__get"];
-        put?: never;
-        post?: never;
-        /** Users:Delete User */
-        delete: operations["users_delete_user_api_v1_users__id__delete"];
-        options?: never;
-        head?: never;
-        /** Users:Patch User */
-        patch: operations["users_patch_user_api_v1_users__id__patch"];
+        /** Update Me */
+        patch: operations["update_me_api_v1_users_me_patch"];
         trace?: never;
     };
     "/api/v1/admin/users": {
@@ -209,6 +190,29 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update User Role
+         * @description Promote/demote another user's role.
+         *
+         *     Admins cannot demote their own account — prevents accidental lockouts
+         *     where the only remaining admin drops themselves to USER.
+         */
+        patch: operations["update_user_role_api_v1_admin_users__user_id__patch"];
         trace?: never;
     };
     "/api/v1/users/me/git-credential": {
@@ -435,6 +439,23 @@ export interface paths {
         put?: never;
         /** Cancel Build */
         post: operations["cancel_build_api_v1_detectors__detector_id__builds__build_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/builds/{build_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Build Flat */
+        get: operations["get_build_flat_api_v1_builds__build_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -790,6 +811,10 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminUserRolePatch */
+        AdminUserRolePatch: {
+            role: components["schemas"]["Role"];
+        };
         /** AvailableTag */
         AvailableTag: {
             /** Name */
@@ -1315,7 +1340,7 @@ export interface components {
          * ResourceProfile
          * @enum {string}
          */
-        ResourceProfile: "standard";
+        ResourceProfile: "standard" | "gpu2";
         /**
          * Role
          * @enum {string}
@@ -1383,18 +1408,16 @@ export interface components {
             /** Created At */
             created_at?: string | null;
         };
-        /** UserUpdate */
-        UserUpdate: {
-            /** Password */
-            password?: string | null;
-            /** Email */
-            email?: string | null;
-            /** Is Active */
-            is_active?: boolean | null;
-            /** Is Superuser */
-            is_superuser?: boolean | null;
-            /** Is Verified */
-            is_verified?: boolean | null;
+        /**
+         * UserSelfUpdate
+         * @description Phase 10: body accepted by `PATCH /users/me` — only self-mutable fields.
+         *
+         *     Separate from UserUpdate (which inherits fastapi-users BaseUserUpdate with
+         *     password/email fields). Sending extra fields (role, is_superuser, email)
+         *     results in 422 instead of silent drop, so users cannot smuggle privilege
+         *     escalation through the schema.
+         */
+        UserSelfUpdate: {
             /** Display Name */
             display_name?: string | null;
             /** Discord User Id */
@@ -1798,7 +1821,7 @@ export interface operations {
             };
         };
     };
-    users_current_user_api_v1_users_me_get: {
+    read_me_api_v1_users_me_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1816,16 +1839,9 @@ export interface operations {
                     "application/json": components["schemas"]["UserRead"];
                 };
             };
-            /** @description Missing token or inactive user. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
         };
     };
-    users_patch_current_user_api_v1_users_me_patch: {
+    update_me_api_v1_users_me_patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -1834,7 +1850,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserUpdate"];
+                "application/json": components["schemas"]["UserSelfUpdate"];
             };
         };
         responses: {
@@ -1846,189 +1862,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserRead"];
                 };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Missing token or inactive user. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    users_user_api_v1_users__id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserRead"];
-                };
-            };
-            /** @description Missing token or inactive user. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not a superuser. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The user does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    users_delete_user_api_v1_users__id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Missing token or inactive user. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not a superuser. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The user does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    users_patch_user_api_v1_users__id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserRead"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorModel"];
-                };
-            };
-            /** @description Missing token or inactive user. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not a superuser. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The user does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2060,6 +1893,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_role_api_v1_admin_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminUserRolePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserRead"];
                 };
             };
             /** @description Validation Error */
@@ -2764,6 +2632,37 @@ export interface operations {
             };
         };
     };
+    get_build_flat_api_v1_builds__build_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_jobs_api_v1_jobs_get: {
         parameters: {
             query?: {
@@ -3000,8 +2899,8 @@ export interface operations {
     internal_get_job_config_api_v1_internal_jobs__job_id__config_get: {
         parameters: {
             query?: never;
-            header: {
-                authorization: string;
+            header?: {
+                authorization?: string | null;
             };
             path: {
                 job_id: string;

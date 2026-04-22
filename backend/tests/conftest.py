@@ -30,29 +30,6 @@ async def setup_db():
         await conn.run_sync(Base.metadata.drop_all)
 
 
-async def register_user(client: AsyncClient, email: str, password: str) -> dict:
-    """Legacy helper used by password-auth tests (test_auth.py, test_auth_cookie.py).
-    Password auth routes remain mounted in PR 10.1 for these tests; removed in PR 10.2."""
-    resp = await client.post(
-        "/api/v1/auth/register",
-        json={"email": email, "password": password},
-    )
-    return resp.json()
-
-
-async def login_user(client: AsyncClient, email: str, password: str) -> str:
-    resp = await client.post(
-        "/api/v1/auth/login",
-        data={"username": email, "password": password},
-    )
-    return resp.json()["access_token"]
-
-
-async def auth_header(client: AsyncClient, email: str, password: str) -> dict:
-    token = await login_user(client, email, password)
-    return {"Authorization": f"Bearer {token}"}
-
-
 async def _make_user(
     email: str,
     role: Role = Role.USER,

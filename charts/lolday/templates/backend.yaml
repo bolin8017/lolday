@@ -9,11 +9,10 @@ metadata:
     {{- include "lolday.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  JWT_SECRET: {{ .Values.backend.jwtSecret | quote }}
+  # Phase 10.2: JWT_SECRET / FIRST_ADMIN_* removed alongside the
+  # fastapi-users password routes they supported. SSO is the only auth path.
   DATABASE_URL: "postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@postgresql:5432/{{ .Values.postgresql.auth.database }}"
   REDIS_URL: "redis://redis:6379/0"
-  FIRST_ADMIN_EMAIL: {{ .Values.backend.firstAdmin.email | quote }}
-  FIRST_ADMIN_PASSWORD: {{ .Values.backend.firstAdmin.password | quote }}
 ---
 apiVersion: apps/v1
 kind: Deployment

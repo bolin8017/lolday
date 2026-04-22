@@ -3,19 +3,15 @@ import type { paths } from "./schema.gen";
 import { parseError } from "./errors";
 
 // openapi-fetch prepends baseUrl to each operation path. The generated schema
-// paths already include the `/api/v1` prefix (that's what the backend emits in
-// openapi.json), so the baseUrl must be empty — otherwise we'd hit
-// `/api/v1/api/v1/...` and 404. Route to a different origin via the dev proxy
-// (vite.config.ts), not via this baseUrl.
+// paths already include the `/api/v1` prefix, so baseUrl must be empty.
 const API_BASE = "";
 
-let on401Handler: (() => void) | null = null;
-
-/** Called by App.tsx to wire redirect-to-login on 401. */
-export function setOn401(handler: () => void) {
-  on401Handler = handler;
-}
-
+/**
+ * Phase 10.2: 401 no longer triggers redirect-to-login. Cloudflare Access
+ * owns login; a 401 here means the JWT is missing/invalid at the edge
+ * (infra event), not a user action. The `_authed` layout renders a
+ * diagnostic page that routes the user back through Cloudflare Access.
+ */
 const errorMiddleware: Middleware = {
   async onResponse({ response }) {
     if (response.ok) return undefined;
@@ -23,18 +19,12 @@ const errorMiddleware: Middleware = {
     const body = contentType.includes("application/json")
       ? await response.clone().json().catch(() => null)
       : null;
-
-    if (response.status === 401 && on401Handler) {
-      on401Handler();
-    }
-
     throw parseError(response.status, body);
   },
 };
 
 export const client = createClient<paths>({
   baseUrl: API_BASE,
-  credentials: "include",   // send cookies on every request
 });
 
 client.use(errorMiddleware);

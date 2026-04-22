@@ -11,9 +11,9 @@ echo ""
 : "${HARBOR_ADMIN_PASSWORD:?HARBOR_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 24}"
 : "${FERNET_KEY:?FERNET_KEY must be set — generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
 : "${PG_PASSWORD:?PG_PASSWORD must be set — generate with: openssl rand -base64 24}"
-: "${JWT_SECRET:?JWT_SECRET must be set — generate with: openssl rand -base64 48}"
-: "${ADMIN_EMAIL:?ADMIN_EMAIL must be set (e.g. admin@lolday.dev)}"
-: "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}"
+# Phase 10.2: JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD removed — the
+# fastapi-users password/cookie routes they configured are gone, and the
+# seeded admin row is renamed in place via the phase10 Alembic migration.
 : "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
@@ -39,7 +39,7 @@ unset _var _url
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
 BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase10}
-FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase5}
+FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase10}
 
 # Pre-flight
 echo "[1/4] Pre-flight checks..."
@@ -180,9 +180,6 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set cloudflare.enabled="${CF_ENABLED:-false}" \
   --set cloudflare.tunnelToken="${CF_TUNNEL_TOKEN:-}" \
   --set postgresql.auth.password="$PG_PASSWORD" \
-  --set backend.jwtSecret="$JWT_SECRET" \
-  --set backend.firstAdmin.email="$ADMIN_EMAIL" \
-  --set backend.firstAdmin.password="$ADMIN_PASSWORD" \
   --set backend.fernetKey="$FERNET_KEY" \
   --set backend.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set backend.image="$BACKEND_IMAGE" \

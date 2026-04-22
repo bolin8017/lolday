@@ -53,7 +53,7 @@ export function useDeleteGitCredential() {
 export function useUpdateMe() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: components["schemas"]["UserUpdate"]) => {
+    mutationFn: async (args: components["schemas"]["UserSelfUpdate"]) => {
       const { data, error } = await client.PATCH("/api/v1/users/me", { body: args });
       if (error) throw error;
       return data;
@@ -61,6 +61,3 @@ export function useUpdateMe() {
     onSuccess: () => qc.invalidateQueries({ queryKey: authKeys.me }),
   });
 }
-
-// Alias retained for the password-change form's narrow usage.
-export const useUpdatePassword = useUpdateMe;
