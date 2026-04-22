@@ -300,6 +300,27 @@ case "$STAGE" in
   mkdir -p "$SSD/k3s-storage"
 
   if [ "$STATE" = "A" ]; then
+    # Before scale-down: if this StatefulSet has
+    # `persistentVolumeClaimRetentionPolicy.whenScaled=Delete` (Loki helm
+    # chart's default since 6.x), scaling to 0 will cascade-delete the PVC.
+    # local-path's reclaim policy is `Delete`, so the release triggers a
+    # helper pod that `rm -rf`s the PV path — which during bind-mount
+    # migration means traversing *through* the bind into /mnt/ssd500g and
+    # deleting the freshly-rsync'd data on SSD too. Patch to Retain up
+    # front so the PVC survives the scale-down. Retain is a safer default
+    # anyway; not restoring the original.
+    case "$WORKLOAD" in
+      statefulset/*|sts/*)
+        WHEN_SCALED=$(kubectl -n "$NS" get "$WORKLOAD" \
+          -o jsonpath='{.spec.persistentVolumeClaimRetentionPolicy.whenScaled}' 2>/dev/null)
+        if [ "$WHEN_SCALED" = "Delete" ]; then
+          echo "  (patching $WORKLOAD whenScaled: Delete → Retain so PVC survives scale-0)"
+          kubectl -n "$NS" patch "$WORKLOAD" --type=merge \
+            -p '{"spec":{"persistentVolumeClaimRetentionPolicy":{"whenScaled":"Retain"}}}'
+        fi
+        ;;
+    esac
+
     echo "[1/8] scaling $WORKLOAD → 0 replicas…"
     kubectl -n "$NS" scale "$WORKLOAD" --replicas=0
     # Wait for pods to disappear — `kubectl wait --for=delete` needs a live
