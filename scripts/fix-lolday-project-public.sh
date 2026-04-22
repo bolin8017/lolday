@@ -59,7 +59,7 @@ curl -s -u "admin:$HARBOR_ADMIN_PASSWORD" http://localhost:8181/api/v2.0/project
 
 echo
 echo "=== anonymous pull test (what containerd will do) ==="
-curl -sI "http://localhost:8181/v2/lolday/lolday-backend/manifests/phase8" | head -5
+curl -sI "http://localhost:8181/v2/lolday/lolday-backend/manifests/phase9.5" | head -5
 
 echo
 echo "=== done. Now delete the failed backend pod to trigger re-pull: ==="

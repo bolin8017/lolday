@@ -144,13 +144,20 @@ async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
             ))
         return
 
+    # Wall-clock timeout gates every post-build state. A build whose Job
+    # succeeded but whose scan is stuck (Harbor Trivy persistently Error)
+    # would otherwise route to _handle_succeeded forever; this check has
+    # to sit above the dispatch, not inside an elif, for the Error-retry
+    # loop to be genuinely bounded.
+    if (datetime.now(timezone.utc) - b.started_at.replace(tzinfo=timezone.utc)).total_seconds() \
+            > settings.BUILD_TIMEOUT_SECONDS + 60:
+        await _handle_timeout(session, b)
+        return
+
     if job.status.succeeded:
         await _handle_succeeded(session, b)
     elif job.status.failed:
         await _handle_failed(session, b, job)
-    elif (datetime.now(timezone.utc) - b.started_at.replace(tzinfo=timezone.utc)).total_seconds() \
-            > settings.BUILD_TIMEOUT_SECONDS + 60:
-        await _handle_timeout(session, b)
     else:
         await _update_progress(session, b, job)
 
@@ -171,20 +178,10 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
 
     scan = await harbor.get_scan("detectors", detector.name, digest)
     if scan.status in {ScanStatus.NOT_SCANNED, ScanStatus.ERROR}:
-        # Harbor Scan-on-Push is a per-project toggle. We do not rely on it
-        # — the reconciler kicks the scan itself so a toggle flip (or a
-        # Harbor upgrade) cannot silently leave builds queued at
-        # NotScanned. Idempotent: Harbor returns 409 on a concurrent scan
-        # for the same digest, treated as success by trigger_scan. All
-        # other non-2xx responses + network errors raise httpx.HTTPError
-        # here.
-        #
-        # ERROR means a prior scan attempt terminally failed (most often:
-        # transient Trivy DB cache-lock timeout during concurrent scans).
-        # It must NEVER fall through to the promotion path — critical=0
-        # in that case is "we didn't learn anything," not "clean." Retry
-        # by triggering a fresh scan; BUILD_TIMEOUT catches persistent
-        # failure so the retry loop is bounded.
+        # ERROR means a prior scan terminally failed (most often: transient
+        # Trivy DB cache-lock timeout). Must NEVER promote — critical=0 in
+        # that case is "we didn't learn anything," not "clean." The caller's
+        # wall-clock check at reconcile_build bounds the retry loop.
         if scan.status == ScanStatus.ERROR:
             BACKEND_ERRORS.labels(stage="harbor_scan_error_retry").inc()
             logger.warning(
@@ -208,6 +205,18 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         await session.commit()
         return
     if scan.status in {ScanStatus.PENDING, ScanStatus.RUNNING}:
+        b.status = DetectorBuildStatus.SCANNING
+        await session.commit()
+        return
+    if scan.status != ScanStatus.SUCCESS:
+        # Defensive: an unknown ScanStatus (future Harbor value) must never
+        # fall through to promotion. Keep the build SCANNING until timeout
+        # or an operator intervenes.
+        BACKEND_ERRORS.labels(stage="harbor_scan_unhandled_status").inc()
+        logger.error(
+            "unhandled Harbor scan status %s for build=%s detector=%s digest=%s",
+            scan.status, b.id, detector.name, digest,
+        )
         b.status = DetectorBuildStatus.SCANNING
         await session.commit()
         return

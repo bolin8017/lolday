@@ -234,15 +234,13 @@ async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metr
 
 @pytest.mark.asyncio
 async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_session):
-    """Phase 9.5: Harbor Trivy scans can terminally fail with scan_status=Error
-    (observed cause: transient Trivy DB cache-lock timeout during concurrent
-    scans). Prior behavior treated Error the same as Success-with-0-CVEs and
-    silently promoted the image — a dangerous false-negative. Correct
-    behavior: never promote without a successful scan. Retrigger the scan
-    (same path as NotScanned) and rely on BUILD_TIMEOUT to catch persistent
-    failure. This regression test reproduces the false-negative: given an
-    ERROR status with critical=0, the build MUST NOT create a DetectorVersion
-    and MUST call trigger_scan.
+    """Regression: scan_status=Error must retrigger (not promote).
+
+    Prior code treated Error as Success-with-0-CVEs — a false-negative caused
+    by transient Trivy DB cache-lock timeouts (observed in production
+    2026-04-22 01:37:48). The paired test
+    `test_reconcile_persistent_scan_error_eventually_times_out` locks the
+    wall-clock bound on retries.
     """
     from app.reconciler import reconcile_build
     from app.models.detector import Detector, DetectorVersion
@@ -299,6 +297,69 @@ async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_ses
     # 4. Error-retry metric incremented so operators can correlate with Trivy logs
     after_metric = BACKEND_ERRORS.labels(stage="harbor_scan_error_retry")._value.get()
     assert after_metric == before_metric + 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
+    """Bound on the Phase 9.5 Error-retry loop.
+
+    reconcile_build dispatches on `job.status.succeeded` FIRST, so a build
+    whose k8s Job long-since succeeded but whose Harbor scan persistently
+    returns Error would otherwise loop through _handle_succeeded forever —
+    the elif at the original BUILD_TIMEOUT check was unreachable. This
+    test pins the fix: wall-clock > BUILD_TIMEOUT_SECONDS + 60 must route
+    to _handle_timeout regardless of job phase.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.reconciler import reconcile_build
+    from app.models.detector import Detector, DetectorVersion
+    from app.services.harbor import ScanResult, ScanStatus
+    from app.config import settings
+    from sqlalchemy import select
+
+    detector = Detector(
+        name="tds-err-to", display_name="tds-err-to",
+        git_url="https://github.com/x/errto.git", owner_id=uuid4(),
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
+        k8s_job_name="build-tds-err-to", status=DetectorBuildStatus.SCANNING,
+        build_token="btok_err_to",
+    )
+    # Stuck in scan retry past the wall-clock ceiling
+    build.started_at = datetime.now(timezone.utc) - timedelta(
+        seconds=settings.BUILD_TIMEOUT_SECONDS + 120
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    fake_job = MagicMock()
+    fake_job.status.succeeded = 1  # Build finished; only scan is stuck
+    fake_job.status.failed = 0
+
+    with patch("app.reconciler.batch_v1") as bv, \
+         patch("app.reconciler.HarborClient") as hc, \
+         patch("app.reconciler.core_v1"):
+        bv.return_value.read_namespaced_job.return_value = fake_job
+        bv.return_value.delete_namespaced_job.return_value = None
+        # Harbor persistently reports Error — would cause infinite retry pre-fix
+        hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:stuck")
+        hc.return_value.get_scan = AsyncMock(
+            return_value=ScanResult(ScanStatus.ERROR, 0, 0, 0, 0)
+        )
+        hc.return_value.trigger_scan = AsyncMock()
+        await reconcile_build(db_session, build)
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.TIMEOUT
+    assert build.finished_at is not None
+    # No DetectorVersion slipped through promotion
+    rows = (await db_session.execute(
+        select(DetectorVersion).where(DetectorVersion.detector_id == detector.id)
+    )).scalars().all()
+    assert rows == []
 
 
 @pytest.mark.asyncio

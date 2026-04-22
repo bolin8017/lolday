@@ -167,14 +167,8 @@ async def test_get_scan_unknown_status_falls_back_to_error():
 
 @pytest.mark.asyncio
 async def test_get_scan_status_error_preserved_not_silenced_as_zero():
-    """Phase 9.5: When Harbor's Trivy scan terminally fails (scan_status=Error,
-    typically a transient DB cache-lock timeout), get_scan must return the
-    Error status explicitly — never downgrade to NOT_SCANNED or SUCCESS with
-    zeroed counts. Reconciler relies on the status to decide between retry
-    (Error / NotScanned) vs promote (Success with 0 criticals). Downgrading
-    to NOT_SCANNED would trigger a redundant scan; downgrading to SUCCESS
-    would silently promote a never-scanned image — a dangerous false
-    negative that was seen in production.
+    """Error must surface as ScanStatus.ERROR, not be coerced to NOT_SCANNED
+    or SUCCESS. Callers branch on status, not counts.
     """
     with respx.mock(base_url="http://harbor") as mock:
         mock.get(
@@ -184,7 +178,7 @@ async def test_get_scan_status_error_preserved_not_silenced_as_zero():
             "scan_overview": {
                 "application/vnd.security.vulnerability.report; version=1.1": {
                     "scan_status": "Error",
-                    "summary": {},  # no counts produced on scan error
+                    "summary": {},
                     "start_time": "2026-04-22T01:37:43.000Z",
                     "end_time": "2026-04-22T01:37:48.000Z",
                     "duration": 5,
@@ -194,7 +188,5 @@ async def test_get_scan_status_error_preserved_not_silenced_as_zero():
         client = HarborClient("http://harbor", "admin", "pw")
         result = await client.get_scan("detectors", "foo", "sha256:errd")
         assert result.status == ScanStatus.ERROR
-        # Counts default to 0 when Harbor reports none — the status (ERROR)
-        # is what callers must branch on, not the integer 0.
         assert result.critical == 0
         assert result.high == 0

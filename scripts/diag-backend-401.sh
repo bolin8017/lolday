@@ -1,5 +1,5 @@
 #!/bin/bash
-# Diagnose why K3s containerd gets 401 pulling backend:phase8 from Harbor.
+# Diagnose why K3s containerd gets 401 pulling backend:phase9.5 from Harbor.
 # Read-only. Must run with sudo (needs /etc/rancher/k3s/registries.yaml).
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -35,7 +35,7 @@ fi
 echo "crictl path: $CRICTL"
 if [ -n "$CRICTL" ]; then
   "$CRICTL" --runtime-endpoint unix:///run/k3s/containerd/containerd.sock \
-    pull harbor.lolday.svc:80/lolday/lolday-backend:phase8 2>&1 | tail -10
+    pull harbor.lolday.svc:80/lolday/lolday-backend:phase9.5 2>&1 | tail -10
 fi
 
 echo
