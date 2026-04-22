@@ -1,7 +1,7 @@
 dependencies:
 - name: harbor
   repository: https://helm.goharbor.io
-  version: 1.16.1
+  version: 1.18.3
 - name: kube-prometheus-stack
   repository: https://prometheus-community.github.io/helm-charts
   version: 79.12.0
@@ -17,5 +17,5 @@ dependencies:
 - name: volcano
   repository: https://volcano-sh.github.io/helm-charts
   version: 1.14.1
-digest: sha256:e8e5158e6d1a14e7e1a90ef83cab2b6ced2e9628155680ff834d250bda095ff5
-generated: "2026-04-22T09:07:36.202412642+08:00"
+digest: sha256:a8ffd25af504dbfb3581c729985de3d2b70993237ba8fd43d9767ae8498848a2
+generated: "2026-04-22T09:41:13.129241469+08:00"
