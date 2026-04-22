@@ -4,7 +4,7 @@ set -euo pipefail
 # Pre-flight checks for Phase 4 deploy.
 # Confirms: sample dirs exist + readable, MLflow password set, Harbor is up.
 
-SAMPLES_DIR=${SAMPLES_DIR:-/data/samples}
+SAMPLES_DIR=${SAMPLES_DIR:-/mnt/ssd500g/data/samples}
 
 echo "[1/4] Checking sample directory..."
 if [[ ! -d "$SAMPLES_DIR" ]]; then
