@@ -1,6 +1,18 @@
-"""Tests for User.discord_user_id column + UserUpdate schema exposure."""
+"""Tests for User.discord_user_id column + UserSelfUpdate schema exposure."""
 
 import pytest
+
+
+@pytest.mark.asyncio
+async def test_patch_users_me_rejects_role_smuggling(user_client):
+    """Privilege escalation guard: UserSelfUpdate(extra='forbid') means PATCH
+    /users/me with a `role` field must 422 — not silently drop like pydantic's
+    default `ignore` would. Was covered by the deleted test_user_cannot_self_promote_role
+    (fastapi-users era); reintroduced here after the Phase 10 SSO swap."""
+    r = await user_client.patch("/api/v1/users/me", json={"role": "admin"})
+    assert r.status_code == 422
+    me = await user_client.get("/api/v1/users/me")
+    assert me.json()["role"] == "user"
 
 
 @pytest.mark.asyncio

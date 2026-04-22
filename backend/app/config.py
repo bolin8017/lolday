@@ -1,13 +1,10 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://lolday:password@postgresql:5432/lolday"
     REDIS_URL: str = "redis://redis:6379/0"
-    JWT_SECRET: str = "CHANGE-ME-IN-PRODUCTION"
-    JWT_LIFETIME_SECONDS: int = 3600
-    FIRST_ADMIN_EMAIL: str = ""
-    FIRST_ADMIN_PASSWORD: str = ""
     DOCS_ENABLED: bool = True
 
     # Phase 3: Detector Lifecycle
@@ -48,16 +45,40 @@ class Settings(BaseSettings):
     SAMPLES_ROOT: str = "/mnt/samples"                        # parent of malware/, benign/
     SAMPLES_LOCAL_ROOT: str = "/data"                         # for backend-side validation (matches hostPath)
 
-    # Cookie auth (Phase 5)
-    COOKIE_LIFETIME_SECONDS: int = 12 * 60 * 60   # 12 hours sliding
-    COOKIE_SECURE: bool = True                     # set False in dev env
-    COOKIE_NAME: str = "lolday_session"
-    COOKIE_SAMESITE: str = "lax"
-
     # Phase 7.4: Discord user-event notifications + UI base URL for embed links
     DISCORD_WEBHOOK_URL_EVENTS: str = ""
     DISCORD_HTTP_TIMEOUT_SECONDS: float = 5.0
     LOLDAY_UI_BASE_URL: str = "https://lolday.connlabai.com"
+
+    # Phase 10: Cloudflare Access SSO
+    CF_ACCESS_TEAM_DOMAIN: str = ""        # e.g. "bolin8017.cloudflareaccess.com"
+    CF_ACCESS_APP_AUD: str = ""            # Access App aud claim (64-char hex; NOT the uid)
+    CF_ACCESS_JWKS_CACHE_TTL_SECONDS: int = 600
+    AUTH_DEV_MODE: bool = False            # bypass Cloudflare JWT for local dev
+    AUTH_DEV_EMAIL: str = ""               # synthetic user email when AUTH_DEV_MODE=true
+
+    # Deployment mode — helm ships "production"; tests / local dev override.
+    # `validate_sso_config` only fails the boot when this is "production".
+    ENVIRONMENT: str = "production"
+
+    @model_validator(mode="after")
+    def validate_sso_config(self) -> "Settings":
+        """Fail-fast on production misconfiguration. Tests and local dev opt
+        out by setting ENVIRONMENT != 'production'."""
+        if self.ENVIRONMENT != "production":
+            return self
+        if self.AUTH_DEV_MODE:
+            raise ValueError(
+                "AUTH_DEV_MODE=true is forbidden when ENVIRONMENT=production — "
+                "it disables Cloudflare Access JWT verification entirely"
+            )
+        if not self.CF_ACCESS_TEAM_DOMAIN or not self.CF_ACCESS_APP_AUD:
+            raise ValueError(
+                "CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_APP_AUD must both be set "
+                "in production — an empty team domain makes the JWKS URL "
+                "resolve to https:/// and every request 401s"
+            )
+        return self
 
 
 settings = Settings()

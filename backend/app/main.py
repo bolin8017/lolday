@@ -11,8 +11,6 @@ from app.db import async_session_maker, engine
 from app.models import Role, User
 from app.reconciler import reconciler_loop
 from app.routers import admin, builds, cluster, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
-from app.schemas import AdminUserUpdate, UserCreate, UserRead, UserUpdate
-from app.users import auth_backend, cookie_auth_backend, fastapi_users, UserManager
 
 logger = logging.getLogger(__name__)
 
@@ -80,28 +78,9 @@ async def lifespan(app: FastAPI):
     # Skip gracefully when alembic_version is absent (tests: SQLite create_all;
     # fresh install before stamp).
     await _assert_schema_at_head()
-    if settings.FIRST_ADMIN_EMAIL and settings.FIRST_ADMIN_PASSWORD:
-        async with async_session_maker() as session:
-            result = await session.execute(
-                select(func.count()).select_from(User)
-            )
-            if result.scalar() == 0:
-                from fastapi_users.db import SQLAlchemyUserDatabase
-
-                user_db = SQLAlchemyUserDatabase(session, User)
-                user_manager = UserManager(user_db)
-                user = await user_manager.create(
-                    UserCreate(
-                        email=settings.FIRST_ADMIN_EMAIL,
-                        password=settings.FIRST_ADMIN_PASSWORD,
-                        is_superuser=True,
-                        is_verified=True,
-                    )
-                )
-                user.role = Role.ADMIN
-                session.add(user)
-                await session.commit()
-                logger.info("Seed admin created: %s", user.email)
+    # Admin bootstrap happens in the phase10_sso_admin_email migration
+    # (renames the seed admin@lolday.dev row to the operator's SSO email);
+    # subsequent admins are promoted via `PATCH /admin/users/{id}`.
 
     # Harbor post-install init: idempotent, safe to retry on every startup
     try:
@@ -139,61 +118,13 @@ Instrumentator().instrument(app).expose(
     app, endpoint="/metrics", include_in_schema=False,
 )
 
-# Phase 7.4 rate limiting: per-user / per-IP dependencies live in
-# `app.services.rate_limit` (Redis fixed-window). The older `slowapi` wiring
-# was removed as unused — our login path is owned by fastapi-users and can't
-# take a decorator, and user-keyed limits need auth-resolved user ids which
-# slowapi key funcs can't access without bespoke middleware.
+# Primary auth is Cloudflare Access SSO (see app/auth/cf_access.py).
+# Per-user rate limits live in app/services/rate_limit.py.
 
-# IP-based rate limit on login endpoints (fastapi-users owns the route).
-_LOGIN_PATHS = {"/api/v1/auth/login", "/api/v1/auth/cookie/login"}
-
-
-@app.middleware("http")
-async def _login_rate_limit(request, call_next):
-    if request.method == "POST" and request.url.path in _LOGIN_PATHS:
-        from fastapi.responses import JSONResponse
-        from app.services.rate_limit import check_rate
-        if request.client is None:
-            return JSONResponse(
-                {"detail": "client address required"}, status_code=400,
-            )
-        if not await check_rate(f"rl:login:{request.client.host}", 10, 60):
-            return JSONResponse(
-                {"detail": "too many login attempts"}, status_code=429,
-            )
-    return await call_next(request)
-
-# Auth routes
+# User routes — /me served by our cf_access_user-backed router.
+from app.routers import users_me  # noqa: E402
 app.include_router(
-    fastapi_users.get_auth_router(auth_backend),
-    prefix="/api/v1/auth",
-    tags=["auth"],
-)
-app.include_router(
-    fastapi_users.get_auth_router(cookie_auth_backend),
-    prefix="/api/v1/auth/cookie",
-    tags=["auth"],
-)
-app.include_router(
-    fastapi_users.get_register_router(UserRead, UserCreate),
-    prefix="/api/v1/auth",
-    tags=["auth"],
-)
-app.include_router(
-    fastapi_users.get_reset_password_router(),
-    prefix="/api/v1/auth",
-    tags=["auth"],
-)
-app.include_router(
-    fastapi_users.get_verify_router(UserRead),
-    prefix="/api/v1/auth",
-    tags=["auth"],
-)
-
-# User routes
-app.include_router(
-    fastapi_users.get_users_router(UserRead, UserUpdate),
+    users_me.router,
     prefix="/api/v1/users",
     tags=["users"],
 )

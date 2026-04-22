@@ -1,8 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { client } from "@/api/client";
 import type { components } from "@/api/schema.gen";
-
-const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
 export type User = components["schemas"]["UserRead"];
 
@@ -10,6 +8,10 @@ export const authKeys = {
   me: ["auth", "me"] as const,
 };
 
+/**
+ * Only /users/me remains — login / register / logout are owned by
+ * Cloudflare Access, so there is no app-level auth mutation surface.
+ */
 export function useCurrentUser() {
   return useQuery({
     queryKey: authKeys.me,
@@ -18,44 +20,13 @@ export function useCurrentUser() {
       if (error) throw error;
       return data as User;
     },
-    retry: false,
+    // Retry transient network errors but never a 401 — a 401 from the edge
+    // is an infra event that the diagnostic screen handles; retrying just
+    // adds latency before the user sees it.
+    retry: (failureCount, err) => {
+      const status = (err as { status?: number } | undefined)?.status;
+      return status !== 401 && failureCount < 2;
+    },
     staleTime: 5 * 60_000,
-  });
-}
-
-export function useLogin() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (args: { email: string; password: string }) => {
-      // FastAPI Users login expects application/x-www-form-urlencoded with username/password
-      const body = new URLSearchParams();
-      body.set("username", args.email);
-      body.set("password", args.password);
-      const resp = await fetch(
-        `${API_BASE}/auth/cookie/login`,
-        { method: "POST", body, credentials: "include" },
-      );
-      if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
-        throw Object.assign(new Error(detail.detail ?? "Login failed"), { status: resp.status });
-      }
-    },
-    onSuccess: () => qc.invalidateQueries(),
-  });
-}
-
-export function useLogout() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async () => {
-      await fetch(
-        `${API_BASE}/auth/cookie/logout`,
-        { method: "POST", credentials: "include" },
-      );
-    },
-    onSettled: () => {
-      qc.clear();
-      window.location.href = "/login";
-    },
   });
 }

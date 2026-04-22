@@ -6,22 +6,25 @@ export interface SeedCreds {
 }
 
 /**
- * Credentials pulled from env — set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD
- * (usually same as ~/.lolday-secrets.env ADMIN_EMAIL/ADMIN_PASSWORD).
+ * Phase 10.2: the old password-based `login()` flow is gone. Primary auth
+ * is now Cloudflare Access + GitHub OAuth at the edge. For local/CI E2E
+ * runs, set the backend's `AUTH_DEV_MODE=true` + `AUTH_DEV_EMAIL=<admin>`
+ * so `cf_access_user` returns a synthetic admin user without needing a
+ * real Cloudflare JWT. The remaining specs then navigate straight to `/`
+ * and the backend treats every request as the dev user.
+ *
+ * The stub `login()` below is kept so the existing specs compile while
+ * we migrate the suite over.
  */
 export function seedCreds(): SeedCreds {
-  const email = process.env.E2E_ADMIN_EMAIL;
-  const password = process.env.E2E_ADMIN_PASSWORD;
-  if (!email || !password) {
-    throw new Error("Set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD before running E2E.");
-  }
+  const email = process.env.E2E_ADMIN_EMAIL ?? "admin@lolday.dev";
+  const password = process.env.E2E_ADMIN_PASSWORD ?? "";
   return { email, password };
 }
 
-export async function login(page: Page, creds: SeedCreds = seedCreds()) {
-  await page.goto("/login");
-  await page.getByLabel(/email/i).fill(creds.email);
-  await page.getByLabel(/password/i).fill(creds.password);
-  await page.getByRole("button", { name: /sign in/i }).click();
+export async function login(page: Page, _creds: SeedCreds = seedCreds()) {
+  // With AUTH_DEV_MODE enabled server-side the app authenticates on the
+  // first request — no login form to fill. Just land on the root.
+  await page.goto("/");
   await page.waitForURL(/\/(detectors|)$/);
 }
