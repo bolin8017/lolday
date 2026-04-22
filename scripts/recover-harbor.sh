@@ -83,9 +83,42 @@ else
           {"resource":"repository","action":"pull"}]},
         {"kind":"project","namespace":"detectors","access":[
           {"resource":"repository","action":"push"},
+          {"resource":"repository","action":"pull"}]},
+        {"kind":"project","namespace":"detectors-cache","access":[
+          {"resource":"repository","action":"push"},
           {"resource":"repository","action":"pull"}]}
       ]
     }')
+fi
+
+# Phase 9.3: ensure existing robots also have detectors-cache perms
+# (BuildKit rootless registry-backed layer cache target). Harbor's PATCH
+# endpoint only rotates the secret, so we PUT the full robot to update
+# permissions. name + level are immutable fields; Harbor rejects edits
+# to them but requires them in the body, so we echo the current values
+# back verbatim.
+if [ -n "$EXISTING_ID" ]; then
+  CURRENT=$(curl -sf -u "$adm" "$api/robots/$EXISTING_ID")
+  HAS_CACHE=$(echo "$CURRENT" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("yes" if any(p.get("namespace")=="detectors-cache" for p in d.get("permissions",[])) else "no")')
+  if [ "$HAS_CACHE" = "no" ]; then
+    echo "  granting detectors-cache perms to existing robot (id=$EXISTING_ID)…"
+    NEW_BODY=$(echo "$CURRENT" | python3 -c '
+import sys, json
+d = json.load(sys.stdin)
+d["permissions"].append({
+    "kind": "project",
+    "namespace": "detectors-cache",
+    "access": [
+        {"resource": "repository", "action": "push"},
+        {"resource": "repository", "action": "pull"},
+    ],
+})
+print(json.dumps({k: d[k] for k in ["name","level","duration","description","disable","editable","expires_at","permissions"] if k in d}))
+')
+    curl -sf -u "$adm" -X PUT -H "Content-Type: application/json" \
+      "$api/robots/$EXISTING_ID" -d "$NEW_BODY" >/dev/null
+    echo "  perms updated."
+  fi
 fi
 
 # Redacted log — never print the secret. Only show shape of response.

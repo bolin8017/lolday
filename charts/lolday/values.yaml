@@ -57,7 +57,7 @@ backend:
     # templates/backend.yaml — Phase 7.5 narrowed the pods Role to that ns, so
     # letting these two drift silently 403s GPU accounting.
     BUILD_IMAGE_HELPER: "harbor.lolday.svc:80/lolday/build-helper:v2"
-    BUILD_IMAGE_KANIKO: "gcr.io/kaniko-project/executor:latest"
+    BUILD_IMAGE_BUILDKIT: "moby/buildkit:v0.29.0-rootless"
     BUILD_IMAGE_GIT: "alpine/git:v2.52.0"
     BUILD_TIMEOUT_SECONDS: "1200"
     BUILD_CONCURRENCY_PER_USER: "2"
@@ -539,7 +539,7 @@ trivy-operator:
 # Upstream chart `volcano` (volcano-sh/helm-charts). Our backend emits
 # `batch.volcano.sh/v1alpha1 Job` via job_spec.build_volcano_job_manifest()
 # against the `lolday-training` Queue (templates/volcano-queue.yaml).
-# Build Jobs (kaniko image builds) stay on `batch/v1 Job` — no need for queue
+# Build Jobs (BuildKit rootless image builds, phase 9.3) stay on `batch/v1 Job` — no need for queue
 # or gang scheduling for non-GPU workloads.
 #
 # The subchart hardcodes `{{ .Release.Namespace }}` across all its templates
