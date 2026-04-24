@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 import respx
 from httpx import Response
@@ -65,3 +66,29 @@ async def test_get_image_labels_empty_if_labels_null() -> None:
     client = HarborClient("http://harbor.example", "u", "p")
     labels = await client.get_image_labels("detectors", "r1", "sha256:ghi")
     assert labels == {}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_image_labels_raises_on_404() -> None:
+    """A deleted / never-pushed artifact must raise, not quietly return {} —
+    the reconciler uses the absence-of-manifest to fail the build closed."""
+    respx.get(
+        "http://harbor.example/api/v2.0/projects/detectors/repositories/r1/artifacts/sha256:gone"
+    ).mock(return_value=Response(404))
+    client = HarborClient("http://harbor.example", "u", "p")
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_image_labels("detectors", "r1", "sha256:gone")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_image_labels_raises_on_500() -> None:
+    """Harbor outage must not be mistaken for 'no labels' — the reconciler's
+    harbor_labels_fetch stage counter depends on this raising."""
+    respx.get(
+        "http://harbor.example/api/v2.0/projects/detectors/repositories/r1/artifacts/sha256:boom"
+    ).mock(return_value=Response(500))
+    client = HarborClient("http://harbor.example", "u", "p")
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_image_labels("detectors", "r1", "sha256:boom")

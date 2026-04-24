@@ -114,3 +114,17 @@ async def test_queue_full_drops_oldest() -> None:
     for i in range(1001):
         await broker.publish(jid, {"kind": "evt", "i": i})
     assert q.qsize() <= 1000
+
+
+@pytest.mark.asyncio
+async def test_publish_reaches_all_concurrent_subscribers() -> None:
+    """Two WebSocket clients watching the same job — both should see every event."""
+    broker = EventBroker()
+    jid = uuid.uuid4()
+    q1 = broker.subscribe(jid)
+    q2 = broker.subscribe(jid)
+    await broker.publish(jid, {"kind": "metric", "name": "loss", "value": 0.1})
+    e1 = await asyncio.wait_for(q1.get(), timeout=1.0)
+    e2 = await asyncio.wait_for(q2.get(), timeout=1.0)
+    assert e1["name"] == "loss"
+    assert e2["name"] == "loss"
