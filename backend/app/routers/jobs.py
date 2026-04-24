@@ -3,13 +3,15 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
+import asyncio
 import jsonschema
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
 from app.config import settings
-from app.db import get_async_session
+from app.db import async_session_maker, get_async_session
 from app.metrics import BACKEND_ERRORS
 from app.users import current_active_user
 from app.models import DatasetConfig, DetectorVersion, Job, JobEvent, ModelVersion, User
@@ -18,6 +20,7 @@ from app.models.job import JobStatus, JobType, NON_TERMINAL_STATUSES
 from app.schemas.job import JobCreate, JobList, JobRead, JobSummary
 from app.schemas.job_event import JobEventOut, JobEventsPage
 from app.services.dataset import DatasetIntegrityError, spot_check_samples, parse_csv
+from app.services.events_tail import event_broker
 from app.services.job_config import (
     JobConfigRenderer,
     compute_idempotency_key,
@@ -457,3 +460,135 @@ async def list_job_events(
         events=[JobEventOut.model_validate(r) for r in rows],
         next_since=next_since,
     )
+
+
+async def _ws_session():
+    """Yield an AsyncSession, honouring `get_async_session` overrides.
+
+    WebSocket handlers don't participate in FastAPI's Depends() chain, so we
+    look up `get_async_session` in `app.dependency_overrides` manually. Tests
+    override it to point at SQLite; production leaves it alone and we fall
+    back to the real `async_session_maker`.
+    """
+    from app.main import app as _app
+
+    override = _app.dependency_overrides.get(get_async_session)
+    if override is not None:
+        # The override is an async generator function, matching the real
+        # `get_async_session`; drive it the same way FastAPI's Depends does.
+        gen = override()
+        session = await gen.__anext__()
+        return session, gen
+
+    session = async_session_maker()
+    await session.__aenter__()
+    return session, session  # __aexit__ closes the session
+
+
+async def _close_ws_session(holder) -> None:
+    """Release a session obtained via `_ws_session`."""
+    try:
+        if hasattr(holder, "__anext__"):
+            # Async-generator override: exhaust it so its `finally` runs.
+            try:
+                await holder.__anext__()
+            except StopAsyncIteration:
+                pass
+        elif hasattr(holder, "__aexit__"):
+            await holder.__aexit__(None, None, None)
+    except Exception:  # noqa: BLE001 — defensive close; mirrors Depends()
+        logger.debug("WS session close raised; ignoring", exc_info=True)
+
+
+async def _resolve_user_from_ws(websocket: WebSocket) -> User | None:
+    """Authenticate a WebSocket request.
+
+    Mirrors the HTTP `cf_access_user` dep but works off `websocket.headers`:
+
+    * Test-mode: honour `X-Test-User-Email` when the test harness has
+      installed a `cf_access_user` override in `app.dependency_overrides`.
+      WS handlers don't participate in the FastAPI dep chain, so we consult
+      the override map directly rather than reading a magic env flag.
+    * Production: verify `Cf-Access-Jwt-Assertion` via the shared
+      `resolve_user_from_jwt` helper.
+
+    Returns `None` on failure — the caller closes the WS with the
+    appropriate RFC-6455 application code (4401).
+    """
+    from app.auth.cf_access import cf_access_user as _cf_access_user_dep
+    from app.main import app as _app
+
+    session, holder = await _ws_session()
+    try:
+        if _cf_access_user_dep in _app.dependency_overrides:
+            email = websocket.headers.get("x-test-user-email")
+            if not email:
+                return None
+            row = (
+                await session.execute(select(User).where(User.email == email))
+            ).scalar_one_or_none()
+            return row
+
+        token = websocket.headers.get("cf-access-jwt-assertion")
+        try:
+            return await resolve_user_from_jwt(
+                session, token, log_context="ws=/jobs/*/events"
+            )
+        except CfAccessAuthError:
+            return None
+    finally:
+        await _close_ws_session(holder)
+
+
+@router.websocket("/{job_id}/events")
+async def websocket_job_events(
+    websocket: WebSocket,
+    job_id: uuid.UUID,
+) -> None:
+    """Push `JobEvent` records to the browser as the sidecar publishes them.
+
+    RFC-6455 close codes (4401/4403/4404) mirror the HTTP status codes the
+    paged GET returns; the frontend maps them back to user-facing messages.
+    """
+    user = await _resolve_user_from_ws(websocket)
+    if user is None:
+        await websocket.close(code=4401)
+        return
+
+    session, holder = await _ws_session()
+    try:
+        job = await session.get(Job, job_id)
+        if job is None:
+            await websocket.close(code=4404)
+            return
+        if job.owner_id != user.id and user.role.value != "admin":
+            await websocket.close(code=4403)
+            return
+    finally:
+        await _close_ws_session(holder)
+
+    await websocket.accept()
+    queue = event_broker.subscribe(job_id)
+    try:
+        while True:
+            # Race the broker queue against client disconnect — without a
+            # concurrent receive(), a disconnect is only detected on the
+            # next send_json(), which may deadlock if no events flow.
+            recv_task = asyncio.create_task(websocket.receive_text())
+            get_task = asyncio.create_task(queue.get())
+            done, pending = await asyncio.wait(
+                {recv_task, get_task}, return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+            if recv_task in done:
+                # Client sent a frame or disconnected — in either case, stop.
+                # (Any frame from the client counts as "I'm done" since this
+                # is a one-way server->client stream.)
+                break
+            event = get_task.result()
+            await websocket.send_json(event)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        event_broker.unsubscribe(job_id, queue)
