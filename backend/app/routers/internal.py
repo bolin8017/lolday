@@ -1,7 +1,7 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_async_session
@@ -9,6 +9,7 @@ from app.deps import require_build_token, require_job_token
 from app.models import DatasetConfig, Job
 from app.models.detector import DetectorBuild
 from app.schemas.job import JobInternalConfig
+from app.services.events_tail import event_broker, persist_event
 
 router = APIRouter()
 
@@ -54,3 +55,18 @@ async def internal_get_job_config(
         test_csv=test_csv,
         predict_csv=predict_csv,
     )
+
+
+@router.post("/jobs/{job_id}/events", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_event(
+    job_id: uuid.UUID,
+    event: dict[str, Any],
+    job: Job = Depends(require_job_token),
+    session: AsyncSession = Depends(get_async_session),
+) -> dict:
+    """Receive a single event from the sidecar; persist + broadcast."""
+    if job.id != job_id:
+        raise HTTPException(status_code=404, detail="job_id mismatch")
+    await persist_event(session, job_id=job.id, event=event)
+    await event_broker.publish(job.id, event)
+    return {"accepted": True}
