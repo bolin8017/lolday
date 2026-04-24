@@ -80,13 +80,18 @@ def _extract_defaults(schema: dict) -> dict:
     return defaults
 
 
-def _detector_cli(det_name: str) -> str:
-    """Detector CLI = detector slug (Phase 3 convention from pyproject.scripts)."""
-    return det_name
+def _strategy_from_manifest(manifest) -> str:
+    """Lightning distributed strategy env for the detector container.
 
-
-def _registered_model_name(det_name: str) -> str:
-    return det_name
+    Phase 11b: ``manifest.lifecycle.supports_distributed`` is ``bool |
+    Literal["ddp","fsdp","deepspeed"]``. Pass the string literal through
+    verbatim. For the boolean form (legacy or opt-out), fall back to
+    ``"ddp"`` — which Lightning ignores when ``gpu_count <= 1``.
+    """
+    val = manifest.lifecycle.supports_distributed
+    if isinstance(val, str):
+        return val
+    return "ddp"
 
 
 @router.post(
@@ -226,10 +231,6 @@ async def create_job(
 
     # 10. Insert job row
     raw_token = generate_token()
-    # Get detector name for image reference
-    from app.models import Detector
-    det = await session.get(Detector, dv.detector_id)
-    det_name = det.name if det else str(dv.detector_id)
 
     job = Job(
         type=body.type,
@@ -257,14 +258,14 @@ async def create_job(
         job_id=job.id,
         job_type=body.type,
         detector_image=dv.harbor_image,
-        detector_cli_command=_detector_cli(det_name),
         mlflow_experiment_id=dv.mlflow_experiment_id,
         mlflow_run_id=run_id,
         mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
         source_run_id=source_run_id,
         source_artifact_path=(resolve_source_model_path(f"runs:/{source_run_id}/model") if source_run_id else None),
-        model_name=_registered_model_name(det_name),
+        internal_events_url=f"{settings.INTERNAL_EVENTS_BASE_URL}/internal/jobs/{job.id}/events",
         resource_profile=body.resource_profile,
+        gpu_strategy=_strategy_from_manifest(manifest_model),
     )
     try:
         volcano_v1alpha1().create_namespaced_custom_object(
