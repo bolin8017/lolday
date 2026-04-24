@@ -83,3 +83,84 @@ def _check_base_detector_import(repo_root: Path) -> None:
         "base_detector_import_missing",
         "no import of BaseDetector from maldet found",
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 11b: manifest + job-submission pre-flight validators
+# ---------------------------------------------------------------------------
+
+from maldet.manifest import DetectorManifest  # noqa: E402
+
+from app.models.job import ResourceProfile  # noqa: E402
+
+_PROFILE_TO_MANIFEST_TOKEN = {
+    ResourceProfile.STANDARD: "cpu",
+    ResourceProfile.GPU2: "gpu2",
+}
+
+SUPPORTED_DATASET_CONTRACTS = frozenset({"sample_csv"})
+
+
+class JobSubmissionError(ValueError):
+    """Raised when a job cannot be accepted given the detector's manifest."""
+
+
+def validate_job_submission(
+    *,
+    manifest: DetectorManifest,
+    resource_profile: ResourceProfile,
+    dataset_contract: str,
+    stage: str,
+) -> None:
+    """Reject a job submission if it's incompatible with the detector's manifest.
+
+    Raises :class:`JobSubmissionError` (HTTP 400) for:
+
+    * ``resource_profile`` not listed in ``manifest.resources.supports``
+    * ``dataset_contract`` mismatching ``manifest.input.dataset_contract``
+    * ``dataset_contract`` unknown to the platform (see
+      :data:`SUPPORTED_DATASET_CONTRACTS`)
+    * ``stage`` not declared in ``manifest.lifecycle.stages``
+    * ``resource_profile=GPU2`` with
+      ``manifest.lifecycle.supports_distributed`` falsy — the detector
+      author has to explicitly opt in to multi-GPU execution
+
+    Catching these before Volcano Job submission prevents pod-scheduling or
+    detector-startup failures that are expensive to diagnose after the
+    fact.
+    """
+
+    token = _PROFILE_TO_MANIFEST_TOKEN.get(resource_profile)
+    if token is None or token not in manifest.resources.supports:
+        raise JobSubmissionError(
+            f"resource_profile {resource_profile.value!r} (manifest token {token!r}) "
+            f"not in detector.resources.supports={manifest.resources.supports}"
+        )
+
+    if dataset_contract != manifest.input.dataset_contract:
+        raise JobSubmissionError(
+            f"dataset_contract mismatch: platform sent {dataset_contract!r}, "
+            f"detector expects {manifest.input.dataset_contract!r}"
+        )
+
+    if dataset_contract not in SUPPORTED_DATASET_CONTRACTS:
+        raise JobSubmissionError(
+            f"dataset_contract {dataset_contract!r} not supported by the platform; "
+            f"supported: {sorted(SUPPORTED_DATASET_CONTRACTS)}"
+        )
+
+    if stage not in manifest.lifecycle.stages:
+        raise JobSubmissionError(
+            f"stage {stage!r} not declared in detector.lifecycle.stages={manifest.lifecycle.stages}"
+        )
+
+    # Multi-GPU profile requires explicit detector opt-in — silently running
+    # single-GPU semantics on a 2-GPU allocation wastes the unused device
+    # unless the detector author has declared a distributed strategy.
+    if resource_profile == ResourceProfile.GPU2 and not manifest.lifecycle.supports_distributed:
+        raise JobSubmissionError(
+            f"resource_profile {resource_profile.value!r} allocates multiple GPUs but "
+            f"detector's lifecycle.supports_distributed is "
+            f"{manifest.lifecycle.supports_distributed!r}; set supports_distributed to "
+            f"ddp/fsdp/deepspeed to accept multi-GPU jobs"
+        )

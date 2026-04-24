@@ -106,6 +106,72 @@ def _get_jwks_client() -> pyjwt.PyJWKClient:
     )
 
 
+class CfAccessAuthError(Exception):
+    """Raised by resolve_user_from_jwt when the JWT is missing or invalid.
+
+    Callers should map this to an appropriate protocol-level response
+    (HTTP 401 for the HTTP dep, WebSocket close code 4401 for the WS helper).
+    """
+
+
+async def resolve_user_from_jwt(
+    session: AsyncSession,
+    token: str | None,
+    *,
+    log_context: str = "",
+) -> User:
+    """Verify a Cloudflare Access JWT and return the (get-or-created) User.
+
+    Shared between the HTTP dep (`cf_access_user`) and the WebSocket auth
+    helper (`resolve_user_from_ws`). The two protocols can't share a
+    FastAPI `Depends()` chain, so the shared logic lives here and each
+    caller wraps the exception into its protocol's error shape.
+
+    `log_context` is a human-readable hint ("path=/foo" or "ws=/jobs/…") for
+    the warning line emitted on auth failure.
+    """
+    if settings.AUTH_DEV_MODE:
+        if not settings.AUTH_DEV_EMAIL:
+            raise CfAccessAuthError(
+                "AUTH_DEV_MODE enabled but AUTH_DEV_EMAIL empty"
+            )
+        return await get_or_create_user_by_email(session, settings.AUTH_DEV_EMAIL)
+
+    if not token:
+        logger.warning(
+            "cf_access 401 %s: missing Cf-Access-Jwt-Assertion", log_context,
+        )
+        raise CfAccessAuthError("missing Cf-Access-Jwt-Assertion header")
+
+    try:
+        signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
+    except pyjwt.PyJWKClientError as e:
+        logger.warning("cf_access 401 %s: JWKS lookup failed: %s", log_context, e)
+        raise CfAccessAuthError(f"jwks lookup failed: {e}") from e
+
+    try:
+        claims = verify_cf_token(
+            token=token,
+            signing_key=signing_key,
+            expected_aud=settings.CF_ACCESS_APP_AUD,
+            expected_iss=f"https://{settings.CF_ACCESS_TEAM_DOMAIN}",
+        )
+    except pyjwt.InvalidTokenError as e:
+        try:
+            unverified = pyjwt.decode(token, options={"verify_signature": False})
+            peek = {k: unverified.get(k) for k in ("aud", "iss", "email", "exp")}
+        except Exception:
+            peek = "unparseable"
+        logger.warning(
+            "cf_access 401 %s: JWT invalid: %s. expected_aud=%s expected_iss=%s claims_peek=%s",
+            log_context, e, settings.CF_ACCESS_APP_AUD,
+            f"https://{settings.CF_ACCESS_TEAM_DOMAIN}", peek,
+        )
+        raise CfAccessAuthError(f"invalid Cloudflare Access token: {e}") from e
+
+    return await get_or_create_user_by_email(session, claims["email"])
+
+
 async def cf_access_user(
     request: Request,
     session: AsyncSession = Depends(get_async_session),
@@ -118,45 +184,18 @@ async def cf_access_user(
     lazy loads. If a router needs related rows, either query them explicitly
     or use `selectinload()` at query time.
     """
-    if settings.AUTH_DEV_MODE:
-        if not settings.AUTH_DEV_EMAIL:
-            raise HTTPException(500, "AUTH_DEV_MODE enabled but AUTH_DEV_EMAIL empty")
-        return await get_or_create_user_by_email(session, settings.AUTH_DEV_EMAIL)
-
     token = request.headers.get("cf-access-jwt-assertion")
-    if not token:
+    if token is None and not settings.AUTH_DEV_MODE:
+        # Preserve the pre-refactor warning line that enumerates cf-* headers
+        # so operators can see whether the CF IAP actually attached the JWT.
         cf_hdrs = sorted(k for k in request.headers.keys() if k.lower().startswith("cf-"))
         logger.warning(
             "cf_access_user 401 path=%s: missing Cf-Access-Jwt-Assertion. cf-* headers present: %s",
             request.url.path, cf_hdrs,
         )
-        raise HTTPException(401, "missing Cf-Access-Jwt-Assertion header")
-
     try:
-        signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
-    except pyjwt.PyJWKClientError as e:
-        logger.warning("cf_access_user 401 path=%s: JWKS lookup failed: %s", request.url.path, e)
-        raise HTTPException(401, f"jwks lookup failed: {e}") from e
-
-    try:
-        claims = verify_cf_token(
-            token=token,
-            signing_key=signing_key,
-            expected_aud=settings.CF_ACCESS_APP_AUD,
-            expected_iss=f"https://{settings.CF_ACCESS_TEAM_DOMAIN}",
+        return await resolve_user_from_jwt(
+            session, token, log_context=f"path={request.url.path}"
         )
-    except pyjwt.InvalidTokenError as e:
-        # Log claim peek (aud/iss/email only) without logging full token
-        try:
-            unverified = pyjwt.decode(token, options={"verify_signature": False})
-            peek = {k: unverified.get(k) for k in ("aud", "iss", "email", "exp")}
-        except Exception:
-            peek = "unparseable"
-        logger.warning(
-            "cf_access_user 401 path=%s: JWT invalid: %s. expected_aud=%s expected_iss=%s claims_peek=%s",
-            request.url.path, e, settings.CF_ACCESS_APP_AUD,
-            f"https://{settings.CF_ACCESS_TEAM_DOMAIN}", peek,
-        )
-        raise HTTPException(401, f"invalid Cloudflare Access token: {e}") from e
-
-    return await get_or_create_user_by_email(session, claims["email"])
+    except CfAccessAuthError as e:
+        raise HTTPException(401, str(e)) from e

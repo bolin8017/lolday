@@ -7,11 +7,13 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { MetricCards } from "@/components/charts/MetricCards";
 import { ConfusionMatrix } from "@/components/charts/ConfusionMatrix";
+import { JobMetricChart } from "@/components/charts/JobMetricChart";
 import { ArtifactTree } from "@/components/common/ArtifactTree";
 import { LogTail } from "@/components/common/LogTail";
 import { JsonViewer } from "@/components/common/JsonViewer";
 import { formatDuration, formatRelative } from "@/lib/date";
-import { isTerminal } from "@/lib/status";
+import { isTerminal, NON_TERMINAL_JOB_STATUSES } from "@/lib/status";
+import { useJobEvents } from "@/hooks/useJobEvents";
 
 export const handle = { breadcrumb: "Job" };
 
@@ -23,6 +25,8 @@ export default function JobDetailPage() {
   const nav = useNavigate();
   const isPending = job?.status === "pending" || job?.status === "preparing";
   const { data: queuePos } = useJobQueuePosition(id, isPending);
+  const shouldStream = job != null && (NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status);
+  const events = useJobEvents(shouldStream ? id : null);
   if (!job) return <p className="text-muted-foreground">Loading…</p>;
 
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;
@@ -80,6 +84,14 @@ export default function JobDetailPage() {
             <Card>
               <CardHeader><CardTitle>Confusion matrix</CardTitle></CardHeader>
               <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
+            </Card>
+          )}
+          {events.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Live metrics</CardTitle></CardHeader>
+              <CardContent>
+                <JobMetricChart events={events} />
+              </CardContent>
             </Card>
           )}
           <Card>

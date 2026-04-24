@@ -2,8 +2,8 @@ apiVersion: v2
 name: lolday
 description: ISLab Malware Detector Management Platform
 type: application
-version: 0.12.1
-appVersion: "0.12.1"
+version: 0.13.0
+appVersion: "phase11b"
 
 dependencies:
   - name: harbor

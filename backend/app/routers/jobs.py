@@ -3,25 +3,30 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
+import asyncio
 import jsonschema
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
 from app.config import settings
-from app.db import get_async_session
+from app.db import async_session_maker, get_async_session
 from app.metrics import BACKEND_ERRORS
 from app.users import current_active_user
-from app.models import DatasetConfig, DetectorVersion, Job, ModelVersion, User
+from app.models import DatasetConfig, DetectorVersion, Job, JobEvent, ModelVersion, User
 from app.models.dataset import DatasetVisibility
 from app.models.job import JobStatus, JobType, NON_TERMINAL_STATUSES
 from app.schemas.job import JobCreate, JobList, JobRead, JobSummary
+from app.schemas.job_event import JobEventOut, JobEventsPage
 from app.services.dataset import DatasetIntegrityError, spot_check_samples, parse_csv
+from app.services.events_tail import event_broker
 from app.services.job_config import (
     JobConfigRenderer,
     compute_idempotency_key,
     resolve_source_model_path,
 )
+from app.services.validator import JobSubmissionError, validate_job_submission
 from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
 from app.services.job_tokens import generate_token, hash_token
 from app.services.cluster_status import get_job_queue_position
@@ -79,13 +84,32 @@ def _extract_defaults(schema: dict) -> dict:
     return defaults
 
 
-def _detector_cli(det_name: str) -> str:
-    """Detector CLI = detector slug (Phase 3 convention from pyproject.scripts)."""
-    return det_name
+_KNOWN_DISTRIBUTED_STRATEGIES = frozenset({"ddp", "fsdp", "deepspeed"})
 
 
-def _registered_model_name(det_name: str) -> str:
-    return det_name
+def _strategy_from_manifest(manifest) -> str:
+    """Lightning distributed strategy env for the detector container.
+
+    Phase 11b: ``manifest.lifecycle.supports_distributed`` is ``bool |
+    Literal["ddp","fsdp","deepspeed"]``. Pass the string literal through
+    verbatim. For the boolean form (legacy or opt-out), fall back to
+    ``"ddp"`` — which Lightning ignores when ``gpu_count <= 1``.
+
+    Raises ``ValueError`` if the manifest names an unknown strategy (e.g.
+    ``"horovod"``). The caller wraps this into an HTTP 400 so the detector
+    author sees the misconfiguration at submit time rather than as an
+    opaque detector startup failure.
+    """
+    val = manifest.lifecycle.supports_distributed
+    if isinstance(val, str):
+        if val not in _KNOWN_DISTRIBUTED_STRATEGIES:
+            raise ValueError(
+                f"manifest.lifecycle.supports_distributed={val!r} is not a "
+                f"known strategy; expected one of "
+                f"{sorted(_KNOWN_DISTRIBUTED_STRATEGIES)}"
+            )
+        return val
+    return "ddp"
 
 
 @router.post(
@@ -123,6 +147,27 @@ async def create_job(
         jsonschema.validate(instance=body.params, schema=dv.config_schema)
     except jsonschema.ValidationError as e:
         raise HTTPException(status_code=422, detail=f"params invalid: {e.message}")
+
+    # 4b. Manifest pre-flight (resource_profile / dataset_contract / stage)
+    if dv.manifest is None:
+        raise HTTPException(
+            status_code=400,
+            detail="detector_version has no maldet manifest (older detector?); rebuild the detector with maldet v1.0+",
+        )
+    try:
+        from maldet.manifest import DetectorManifest
+        manifest_model = DetectorManifest.model_validate(dv.manifest)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"stored manifest invalid: {exc}") from exc
+    try:
+        validate_job_submission(
+            manifest=manifest_model,
+            resource_profile=body.resource_profile,
+            dataset_contract="sample_csv",
+            stage=body.type.value,
+        )
+    except JobSubmissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # 5. Idempotency
     idem_key = compute_idempotency_key(
@@ -186,26 +231,24 @@ async def create_job(
     await client.set_run_tag(run_id, "lolday.user", str(user.id))
     await client.set_run_tag(run_id, "lolday.detector_version", str(dv.id))
 
-    # 9. Render resolved config
-    detector_defaults = _extract_defaults(dv.config_schema or {})
+    # 9. Render resolved config (Hydra YAML)
     renderer = JobConfigRenderer(
         samples_root=settings.SAMPLES_ROOT,
         config_mount="/mnt/config",
         output_mount="/mnt/output",
         source_model_mount="/mnt/source-model",
     )
-    resolved = renderer.render(
-        job_type=body.type.value,
-        detector_defaults=detector_defaults,
+    resolved_yaml = renderer.render_config_yaml(
+        stage=body.type.value,
         user_params=body.params,
+        mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
+        mlflow_run_id=run_id,
+        mlflow_experiment_id=dv.mlflow_experiment_id,
     )
+    resolved = {"yaml": resolved_yaml}
 
     # 10. Insert job row
     raw_token = generate_token()
-    # Get detector name for image reference
-    from app.models import Detector
-    det = await session.get(Detector, dv.detector_id)
-    det_name = det.name if det else str(dv.detector_id)
 
     job = Job(
         type=body.type,
@@ -229,18 +272,22 @@ async def create_job(
     # 11. Launch K8s Job
     secret = build_job_token_secret(job.id, raw_token)
     core_v1().create_namespaced_secret(namespace=settings.JOB_NAMESPACE, body=secret)
+    try:
+        gpu_strategy = _strategy_from_manifest(manifest_model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     manifest = build_volcano_job_manifest(
         job_id=job.id,
         job_type=body.type,
         detector_image=dv.harbor_image,
-        detector_cli_command=_detector_cli(det_name),
         mlflow_experiment_id=dv.mlflow_experiment_id,
         mlflow_run_id=run_id,
         mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
         source_run_id=source_run_id,
         source_artifact_path=(resolve_source_model_path(f"runs:/{source_run_id}/model") if source_run_id else None),
-        model_name=_registered_model_name(det_name),
+        internal_events_url=f"{settings.INTERNAL_EVENTS_BASE_URL}/internal/jobs/{job.id}/events",
         resource_profile=body.resource_profile,
+        gpu_strategy=gpu_strategy,
     )
     try:
         volcano_v1alpha1().create_namespaced_custom_object(
@@ -408,3 +455,194 @@ async def cancel_job(
     await session.commit()
     await session.refresh(job)
     return JobRead.model_validate(job)
+
+
+@router.get("/{job_id}/events", response_model=JobEventsPage)
+async def list_job_events(
+    job_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    since: datetime | None = None,
+    since_id: uuid.UUID | None = None,
+    limit: int = 500,
+) -> JobEventsPage:
+    """Paginate job events by a composite ``(ts, id)`` cursor.
+
+    A naive ``ts > since`` filter skips events whose timestamp collides
+    (ms-level ties land often under Volcano + fsync bursts). Ordering by
+    ``(ts, id)`` and filtering by ``ts > since OR (ts = since AND id > since_id)``
+    gives strict monotonicity without losing colliding events.
+    """
+    job = await session.get(Job, job_id)
+    if job is None or (job.owner_id != user.id and user.role.value != "admin"):
+        raise HTTPException(status_code=404, detail="job not found")
+    stmt = select(JobEvent).where(JobEvent.job_id == job.id)
+    if since is not None:
+        if since_id is not None:
+            stmt = stmt.where(
+                or_(
+                    JobEvent.ts > since,
+                    and_(JobEvent.ts == since, JobEvent.id > since_id),
+                )
+            )
+        else:
+            stmt = stmt.where(JobEvent.ts > since)
+    stmt = stmt.order_by(JobEvent.ts.asc(), JobEvent.id.asc()).limit(limit)
+    rows = list(await session.scalars(stmt))
+    if rows and len(rows) == limit:
+        next_since = rows[-1].ts
+        next_id = rows[-1].id
+    else:
+        next_since = None
+        next_id = None
+    return JobEventsPage(
+        events=[JobEventOut.model_validate(r) for r in rows],
+        next_since=next_since,
+        next_id=next_id,
+    )
+
+
+async def _ws_session():
+    """Yield an AsyncSession, honouring `get_async_session` overrides.
+
+    WebSocket handlers don't participate in FastAPI's Depends() chain, so we
+    look up `get_async_session` in `app.dependency_overrides` manually. Tests
+    override it to point at SQLite; production leaves it alone and we fall
+    back to the real `async_session_maker`.
+    """
+    from app.main import app as _app
+
+    override = _app.dependency_overrides.get(get_async_session)
+    if override is not None:
+        # The override is an async generator function, matching the real
+        # `get_async_session`; drive it the same way FastAPI's Depends does.
+        gen = override()
+        session = await gen.__anext__()
+        return session, gen
+
+    session = async_session_maker()
+    await session.__aenter__()
+    return session, session  # __aexit__ closes the session
+
+
+async def _close_ws_session(holder) -> None:
+    """Release a session obtained via `_ws_session`."""
+    try:
+        if hasattr(holder, "__anext__"):
+            # Async-generator override: exhaust it so its `finally` runs.
+            try:
+                await holder.__anext__()
+            except StopAsyncIteration:
+                pass
+        elif hasattr(holder, "__aexit__"):
+            await holder.__aexit__(None, None, None)
+    except Exception:  # noqa: BLE001 — defensive close; mirrors Depends()
+        logger.debug("WS session close raised; ignoring", exc_info=True)
+
+
+async def _resolve_user_from_ws(websocket: WebSocket) -> User | None:
+    """Authenticate a WebSocket request.
+
+    Mirrors the HTTP `cf_access_user` dep but works off `websocket.headers`:
+
+    * Test-mode: honour `X-Test-User-Email` when the test harness has
+      installed a `cf_access_user` override in `app.dependency_overrides`.
+      WS handlers don't participate in the FastAPI dep chain, so we consult
+      the override map directly rather than reading a magic env flag.
+    * Production: verify `Cf-Access-Jwt-Assertion` via the shared
+      `resolve_user_from_jwt` helper.
+
+    Returns ``None`` only when the caller is *unauthenticated* — the caller
+    closes the WS with RFC-6455 application code 4401. Database / connection
+    errors are **not** swallowed; they propagate so the caller can distinguish
+    "user is not logged in" from "our backend is broken" and close with a
+    different code (4500).
+    """
+    from app.auth.cf_access import cf_access_user as _cf_access_user_dep
+    from app.main import app as _app
+
+    session, holder = await _ws_session()
+    try:
+        if _cf_access_user_dep in _app.dependency_overrides:
+            email = websocket.headers.get("x-test-user-email")
+            if not email:
+                return None
+            row = (
+                await session.execute(select(User).where(User.email == email))
+            ).scalar_one_or_none()
+            return row
+
+        token = websocket.headers.get("cf-access-jwt-assertion")
+        try:
+            return await resolve_user_from_jwt(
+                session, token, log_context="ws=/jobs/*/events"
+            )
+        except CfAccessAuthError:
+            return None
+    finally:
+        await _close_ws_session(holder)
+
+
+@router.websocket("/{job_id}/events")
+async def websocket_job_events(
+    websocket: WebSocket,
+    job_id: uuid.UUID,
+) -> None:
+    """Push `JobEvent` records to the browser as the sidecar publishes them.
+
+    RFC-6455 close codes (4401/4403/4404) mirror the HTTP status codes the
+    paged GET returns; the frontend maps them back to user-facing messages.
+    A 4500 is reserved for a backend error (DB/connection) during the
+    auth/authz step — the frontend should treat this as "retry later," not
+    "your token is wrong."
+    """
+    try:
+        user = await _resolve_user_from_ws(websocket)
+    except Exception:  # noqa: BLE001 — DB/network during auth: distinguish from 4401
+        BACKEND_ERRORS.labels(stage="ws_auth").inc()
+        logger.exception(
+            "ws auth failed with unexpected error", extra={"job_id": str(job_id)}
+        )
+        await websocket.close(code=4500)
+        return
+    if user is None:
+        await websocket.close(code=4401)
+        return
+
+    session, holder = await _ws_session()
+    try:
+        job = await session.get(Job, job_id)
+        if job is None:
+            await websocket.close(code=4404)
+            return
+        if job.owner_id != user.id and user.role.value != "admin":
+            await websocket.close(code=4403)
+            return
+    finally:
+        await _close_ws_session(holder)
+
+    await websocket.accept()
+    queue = event_broker.subscribe(job_id)
+    try:
+        while True:
+            # Race the broker queue against client disconnect — without a
+            # concurrent receive(), a disconnect is only detected on the
+            # next send_json(), which may deadlock if no events flow.
+            recv_task = asyncio.create_task(websocket.receive_text())
+            get_task = asyncio.create_task(queue.get())
+            done, pending = await asyncio.wait(
+                {recv_task, get_task}, return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+            if recv_task in done:
+                # Client sent a frame or disconnected — in either case, stop.
+                # (Any frame from the client counts as "I'm done" since this
+                # is a one-way server->client stream.)
+                break
+            event = get_task.result()
+            await websocket.send_json(event)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        event_broker.unsubscribe(job_id, queue)

@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     JOB_PER_USER_CONCURRENCY: int = 2
     JOB_IDEMPOTENCY_WINDOW_SECONDS: int = 300
     JOB_BACKEND_URL: str = "http://backend.lolday.svc:8000"
+    # Phase 11b: in-cluster base URL used by the event-tailer sidecar to POST
+    # /internal/jobs/{id}/events. Chart-side wiring lands in Task 16.
+    INTERNAL_EVENTS_BASE_URL: str = "http://backend:8000"
     MLFLOW_TRACKING_URI: str = "http://mlflow.lolday.svc:5000"
     MLFLOW_HTTP_TIMEOUT_SECONDS: float = 10.0
     MLFLOW_HTTP_RETRIES: int = 3

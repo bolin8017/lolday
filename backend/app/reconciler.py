@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -19,6 +20,7 @@ from app.models.detector import (
 )
 from app.services.build import build_secret_name
 from app.services.harbor import HarborClient, ScanResult, ScanStatus
+from app.services.manifest_store import ManifestDecodeError, decode_manifest_label
 from app.services.notify import (
     notify_build_completed,
     notify_build_failed,
@@ -259,6 +261,90 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
             )
         )).scalar_one_or_none()
         if existing_version is None:
+            # Fetch OCI image labels for the just-scanned artifact and extract
+            # the maldet manifest. A detector without `io.maldet.manifest`
+            # cannot be driven by Phase 11b's stage pipeline, so we fail the
+            # build closed rather than creating a DetectorVersion with
+            # manifest=NULL that would quietly explode downstream.
+            try:
+                labels = await harbor.get_image_labels(
+                    project="detectors",
+                    repository=detector.name,
+                    digest=digest,
+                )
+            except Exception:
+                BACKEND_ERRORS.labels(stage="harbor_labels_fetch").inc()
+                logger.exception(
+                    "failed to fetch image labels", extra={"build_id": str(b.id)}
+                )
+                b.status = DetectorBuildStatus.FAILED
+                b.failure_reason = "harbor_labels_fetch_failed"
+                b.finished_at = datetime.now(timezone.utc)
+                await session.commit()
+                user_name, discord_id = await _user_context(session, b.triggered_by_id)
+                label = await _detector_label(session, b.detector_id)
+                asyncio.create_task(notify_build_failed(
+                    user_name=user_name,
+                    user_discord_id=discord_id,
+                    detector_label=label,
+                    git_tag=b.git_tag,
+                    failure_reason="harbor_labels_fetch_failed",
+                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ))
+                await _cleanup_build_secret(b.id)
+                return
+
+            manifest_label = labels.get("io.maldet.manifest")
+            if not manifest_label:
+                BACKEND_ERRORS.labels(stage="manifest_missing").inc()
+                logger.error(
+                    "build image has no io.maldet.manifest label",
+                    extra={"build_id": str(b.id)},
+                )
+                b.status = DetectorBuildStatus.FAILED
+                b.failure_reason = "manifest_label_missing"
+                b.finished_at = datetime.now(timezone.utc)
+                await session.commit()
+                user_name, discord_id = await _user_context(session, b.triggered_by_id)
+                label = await _detector_label(session, b.detector_id)
+                asyncio.create_task(notify_build_failed(
+                    user_name=user_name,
+                    user_discord_id=discord_id,
+                    detector_label=label,
+                    git_tag=b.git_tag,
+                    failure_reason="manifest_label_missing",
+                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ))
+                await _cleanup_build_secret(b.id)
+                return
+
+            try:
+                manifest_model = decode_manifest_label(manifest_label)
+            except ManifestDecodeError as exc:
+                BACKEND_ERRORS.labels(stage="manifest_invalid").inc()
+                logger.error(
+                    "manifest decode failed",
+                    extra={"build_id": str(b.id), "err": str(exc)},
+                )
+                b.status = DetectorBuildStatus.FAILED
+                b.failure_reason = "manifest_invalid"
+                b.finished_at = datetime.now(timezone.utc)
+                await session.commit()
+                user_name, discord_id = await _user_context(session, b.triggered_by_id)
+                label = await _detector_label(session, b.detector_id)
+                asyncio.create_task(notify_build_failed(
+                    user_name=user_name,
+                    user_discord_id=discord_id,
+                    detector_label=label,
+                    git_tag=b.git_tag,
+                    failure_reason="manifest_invalid",
+                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ))
+                await _cleanup_build_secret(b.id)
+                return
+
+            manifest_dict = manifest_model.model_dump(mode="json")
+
             version = DetectorVersion(
                 detector_id=b.detector_id,
                 git_tag=b.git_tag,
@@ -266,6 +352,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 harbor_image=f"{settings.HARBOR_IMAGE_PREFIX}/detectors/{detector.name}:{b.git_tag}",
                 image_digest=digest,
                 config_schema=b.pending_schema or {},
+                manifest=manifest_dict,
                 status=DetectorVersionStatus.ACTIVE,
             )
             session.add(version)
@@ -352,8 +439,16 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
             namespace=settings.BUILD_NAMESPACE,
             propagation_policy="Background",
         )
-    except ApiException:
-        pass
+    except ApiException as exc:
+        # 404 is expected (the Job already disappeared). Anything else is a
+        # real cluster error we want to see in metrics + logs rather than
+        # silently drop on the floor.
+        if exc.status != 404:
+            BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
+            logger.warning(
+                "k8s build-job cleanup returned %s for build %s",
+                exc.status, b.id, exc_info=True,
+            )
     b.status = DetectorBuildStatus.TIMEOUT
     b.failure_reason = "build exceeded timeout"
     b.finished_at = datetime.now(timezone.utc)
@@ -445,8 +540,13 @@ async def _cleanup_build_secret(build_id) -> None:
             name=build_secret_name(build_id),
             namespace=settings.BUILD_NAMESPACE,
         )
-    except ApiException:
-        pass
+    except ApiException as exc:
+        if exc.status != 404:
+            BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
+            logger.warning(
+                "build secret cleanup returned %s for build %s",
+                exc.status, build_id, exc_info=True,
+            )
 
 
 async def reconciler_loop(stop_event: asyncio.Event) -> None:
@@ -541,14 +641,28 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
                 name=j.k8s_job_name,
                 propagation_policy="Background",
             )
-        except ApiException:
-            pass
+        except ApiException as exc:
+            if exc.status != 404:
+                BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
+                logger.warning(
+                    "volcano job delete returned %s for job %s",
+                    exc.status, j.id, exc_info=True,
+                )
         j.status = JobStatus.TIMEOUT
         j.failure_reason = "detector_timeout"
         j.finished_at = datetime.now(timezone.utc)
         await session.commit()
         await _fire_job_failed_notify(session, j, "detector_timeout")
         await _cleanup_job_secret(j)
+        return
+
+    # Phase 11b: trust stage_end event before consulting Volcano phase.
+    event_status = await _check_event_terminal(session, j.id)
+    if event_status == "success":
+        await _handle_job_succeeded(session, j)
+        return
+    if event_status == "failure":
+        await _handle_job_failed(session, j)
         return
 
     phase = (vjob.get("status") or {}).get("state", {}).get("phase", "")
@@ -574,6 +688,25 @@ def _job_timed_out(j: Job, vjob: dict) -> bool:
     deadline = deadline_map.get(j.type, 3600)
     elapsed = (datetime.now(timezone.utc) - j.started_at.replace(tzinfo=timezone.utc)).total_seconds()
     return elapsed > deadline + 60
+
+
+async def _check_event_terminal(
+    session: AsyncSession, job_id: uuid.UUID
+) -> str | None:
+    """Return 'success' / 'failure' based on the most recent stage_end event, else None."""
+    from app.models import JobEvent
+
+    stmt = (
+        select(JobEvent)
+        .where(JobEvent.job_id == job_id, JobEvent.kind == "stage_end")
+        .order_by(JobEvent.ts.desc())
+        .limit(1)
+    )
+    row = (await session.scalars(stmt)).first()
+    if row is None:
+        return None
+    status = (row.payload or {}).get("status")
+    return status if status in ("success", "failure") else None
 
 
 async def _update_job_progress(session: AsyncSession, j: Job) -> None:
@@ -750,8 +883,13 @@ async def _cleanup_job_secret(j: Job) -> None:
             name=_job_token_secret_name(j.id),
             namespace=settings.JOB_NAMESPACE,
         )
-    except ApiException:
-        pass
+    except ApiException as exc:
+        if exc.status != 404:
+            BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
+            logger.warning(
+                "job token secret cleanup returned %s for job %s",
+                exc.status, j.id, exc_info=True,
+            )
 
 
 async def sync_model_versions(session: AsyncSession) -> None:

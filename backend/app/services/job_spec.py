@@ -1,10 +1,11 @@
 """K8s Job manifest generator for detector train/eval/predict jobs.
 
-Contract:
-- Detector image's Dockerfile sets ENTRYPOINT to the per-detector CLI
-  (e.g., `upxelfdet`). We override `command` with just the CLI binary so we
-  can pass the action as `args` (this neutralizes the image's original
-  ENTRYPOINT+CMD interplay and gives us explicit control).
+Phase 11b contract:
+- Detector image's Dockerfile sets ENTRYPOINT to the `maldet` CLI (scaffold
+  WORKDIR /app holds the per-detector ``maldet.toml`` manifest). The Volcano
+  Job runs ``maldet run <stage> --config /mnt/config/config.yaml``.
+- An event-tailer sidecar tails ``/mnt/output/events.jsonl`` and POSTs each
+  line to the backend's internal events endpoint.
 - Standard mount paths match JobConfigRenderer in job_config.py.
 """
 
@@ -130,25 +131,26 @@ def _model_fetcher_init(
 
 def _detector_container(
     detector_image: str,
-    detector_cli_command: str,
     action: str,
     mlflow_tracking_uri: str,
     mlflow_run_id: str,
     mlflow_experiment_id: str,
-    model_name: str,
     gpu_count: int,
+    gpu_strategy: str,
 ) -> dict[str, Any]:
     return {
         "name": "detector",
         "image": detector_image,
         "imagePullPolicy": "IfNotPresent",
-        "command": [detector_cli_command],
-        "args": [action, "--config", "/mnt/config/config.json"],
+        "command": ["maldet"],
+        "args": ["run", action, "--config", "/mnt/config/config.yaml"],
         "env": [
             {"name": "MLFLOW_TRACKING_URI", "value": mlflow_tracking_uri},
             {"name": "MLFLOW_RUN_ID", "value": mlflow_run_id},
             {"name": "MLFLOW_EXPERIMENT_ID", "value": mlflow_experiment_id},
-            {"name": "MLFLOW_MODEL_NAME", "value": model_name},
+            {"name": "MALDET_MANIFEST", "value": "/app/maldet.toml"},
+            {"name": "MALDET_GPU_COUNT", "value": str(gpu_count)},
+            {"name": "MALDET_DISTRIBUTED_STRATEGY", "value": gpu_strategy},
             {"name": "TMPDIR", "value": "/tmp"},
             {"name": "HOME", "value": "/tmp"},
         ],
@@ -177,19 +179,55 @@ def _detector_container(
     }
 
 
+def _event_tailer_sidecar(job_id: uuid.UUID, internal_events_url: str) -> dict[str, Any]:
+    return {
+        "name": "event-tailer",
+        "image": settings.JOB_HELPER_IMAGE,
+        "imagePullPolicy": "IfNotPresent",
+        "command": ["python", "-m", "job_helper.tail_events"],
+        "args": ["/mnt/output/events.jsonl"],
+        "env": [
+            {"name": "INTERNAL_EVENTS_URL", "value": internal_events_url},
+            {
+                "name": "JOB_TOKEN",
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "name": _job_token_secret_name(job_id),
+                        "key": "token",
+                    }
+                },
+            },
+        ],
+        "volumeMounts": [
+            {"name": "output", "mountPath": "/mnt/output"},
+        ],
+        "resources": {
+            "requests": {"cpu": "50m", "memory": "64Mi"},
+            "limits": {"cpu": "200m", "memory": "128Mi"},
+        },
+        "securityContext": {
+            "runAsNonRoot": True,
+            "runAsUser": 1000,
+            "allowPrivilegeEscalation": False,
+            "readOnlyRootFilesystem": True,
+            "capabilities": {"drop": ["ALL"]},
+        },
+    }
+
+
 def build_volcano_job_manifest(
     *,
     job_id: uuid.UUID,
     job_type: JobType,
     detector_image: str,
-    detector_cli_command: str,
     mlflow_experiment_id: str,
     mlflow_run_id: str,
     mlflow_tracking_uri: str,
     source_run_id: str | None,
     source_artifact_path: str | None,
-    model_name: str = "",
+    internal_events_url: str,
     resource_profile: ResourceProfile = ResourceProfile.STANDARD,
+    gpu_strategy: str = "ddp",
 ) -> dict[str, Any]:
     """Render a ``batch.volcano.sh/v1alpha1`` Job manifest as a Python dict.
 
@@ -234,6 +272,8 @@ def build_volcano_job_manifest(
         {"name": "tmp", "emptyDir": {"sizeLimit": "1Gi", "medium": "Memory"}},
     ]
 
+    gpu_count = RESOURCE_PROFILE_GPU_COUNT[resource_profile]
+
     pod_spec = {
         "activeDeadlineSeconds": _active_deadline(job_type),
         "restartPolicy": "Never",
@@ -252,14 +292,14 @@ def build_volcano_job_manifest(
         "containers": [
             _detector_container(
                 detector_image=detector_image,
-                detector_cli_command=detector_cli_command,
                 action=job_type.value,
                 mlflow_tracking_uri=mlflow_tracking_uri,
                 mlflow_run_id=mlflow_run_id,
                 mlflow_experiment_id=mlflow_experiment_id,
-                model_name=model_name,
-                gpu_count=RESOURCE_PROFILE_GPU_COUNT[resource_profile],
-            )
+                gpu_count=gpu_count,
+                gpu_strategy=gpu_strategy,
+            ),
+            _event_tailer_sidecar(job_id, internal_events_url),
         ],
     }
 

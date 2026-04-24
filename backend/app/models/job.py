@@ -59,7 +59,7 @@ class ResourceProfile(str, enum.Enum):
 from types import MappingProxyType  # noqa: E402 — kept adjacent to the map
 
 _RESOURCE_PROFILE_GPU_COUNT: "MappingProxyType[ResourceProfile, int]" = MappingProxyType({
-    ResourceProfile.STANDARD: 1,
+    ResourceProfile.STANDARD: 0,
     ResourceProfile.GPU2: 2,
 })
 assert set(_RESOURCE_PROFILE_GPU_COUNT.keys()) == set(ResourceProfile), (
