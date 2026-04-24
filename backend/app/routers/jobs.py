@@ -22,6 +22,7 @@ from app.services.job_config import (
     compute_idempotency_key,
     resolve_source_model_path,
 )
+from app.services.validator import JobSubmissionError, validate_job_submission
 from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
 from app.services.job_tokens import generate_token, hash_token
 from app.services.cluster_status import get_job_queue_position
@@ -123,6 +124,27 @@ async def create_job(
         jsonschema.validate(instance=body.params, schema=dv.config_schema)
     except jsonschema.ValidationError as e:
         raise HTTPException(status_code=422, detail=f"params invalid: {e.message}")
+
+    # 4b. Manifest pre-flight (resource_profile / dataset_contract / stage)
+    if dv.manifest is None:
+        raise HTTPException(
+            status_code=400,
+            detail="detector_version has no maldet manifest (older detector?); rebuild the detector with maldet v1.0+",
+        )
+    try:
+        from maldet.manifest import DetectorManifest
+        manifest_model = DetectorManifest.model_validate(dv.manifest)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"stored manifest invalid: {exc}") from exc
+    try:
+        validate_job_submission(
+            manifest=manifest_model,
+            resource_profile=body.resource_profile,
+            dataset_contract="sample_csv",
+            stage=body.type.value,
+        )
+    except JobSubmissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # 5. Idempotency
     idem_key = compute_idempotency_key(

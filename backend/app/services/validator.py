@@ -83,3 +83,58 @@ def _check_base_detector_import(repo_root: Path) -> None:
         "base_detector_import_missing",
         "no import of BaseDetector from maldet found",
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 11b: manifest + job-submission pre-flight validators
+# ---------------------------------------------------------------------------
+
+from maldet.manifest import DetectorManifest  # noqa: E402
+
+from app.models.job import ResourceProfile  # noqa: E402
+
+_PROFILE_TO_MANIFEST_TOKEN = {
+    ResourceProfile.STANDARD: "cpu",
+    ResourceProfile.GPU2: "gpu2",
+}
+
+SUPPORTED_DATASET_CONTRACTS = frozenset({"sample_csv"})
+
+
+class JobSubmissionError(ValueError):
+    """Raised when a job cannot be accepted given the detector's manifest."""
+
+
+def validate_job_submission(
+    *,
+    manifest: DetectorManifest,
+    resource_profile: ResourceProfile,
+    dataset_contract: str,
+    stage: str,
+) -> None:
+    """Pre-flight checks that can only be done once both the detector manifest
+    and the incoming job submission are known."""
+
+    token = _PROFILE_TO_MANIFEST_TOKEN.get(resource_profile)
+    if token is None or token not in manifest.resources.supports:
+        raise JobSubmissionError(
+            f"resource_profile {resource_profile.value!r} (manifest token {token!r}) "
+            f"not in detector.resources.supports={manifest.resources.supports}"
+        )
+
+    if dataset_contract != manifest.input.dataset_contract:
+        raise JobSubmissionError(
+            f"dataset_contract mismatch: platform sent {dataset_contract!r}, "
+            f"detector expects {manifest.input.dataset_contract!r}"
+        )
+
+    if dataset_contract not in SUPPORTED_DATASET_CONTRACTS:
+        raise JobSubmissionError(
+            f"dataset_contract {dataset_contract!r} not supported by the platform; "
+            f"supported: {sorted(SUPPORTED_DATASET_CONTRACTS)}"
+        )
+
+    if stage not in manifest.lifecycle.stages:
+        raise JobSubmissionError(
+            f"stage {stage!r} not declared in detector.lifecycle.stages={manifest.lifecycle.stages}"
+        )

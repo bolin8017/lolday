@@ -303,6 +303,37 @@ async def seed_user(user_client):
         return result.scalar_one()
 
 
+_MINIMAL_MANIFEST = {
+    "detector": {"name": "upxelfdet", "version": "0.4.0", "framework": "sklearn"},
+    "input": {"binary_format": "elf", "required_sections": [], "dataset_contract": "sample_csv"},
+    "output": {
+        "task": "binary_classification",
+        "classes": ["Malware", "Benign"],
+        "score_range": [0.0, 1.0],
+    },
+    "resources": {
+        "supports": ["cpu", "gpu2"],
+        "recommended": "cpu",
+        "min_memory_gib": 2,
+        "gpu_required": False,
+    },
+    "lifecycle": {
+        "stages": ["train", "evaluate", "predict"],
+        "supports_serving": False,
+        "supports_hpsweep": True,
+        "supports_distributed": False,
+        "supports_multinode": False,
+    },
+    "artifacts": {
+        "model": {"path": "model/", "type": "dir"},
+        "metrics": {"path": "metrics.json", "type": "file"},
+        "predictions": {"path": "predictions.csv", "type": "file"},
+    },
+    "compat": {"min_python": "3.12", "min_maldet": "1.0", "schema_version": 1},
+    "stages": {},
+}
+
+
 @pytest_asyncio.fixture
 async def seed_detector_version(db_session, seed_user):
     """Return a callable that inserts a minimal DetectorVersion row."""
@@ -324,6 +355,7 @@ async def seed_detector_version(db_session, seed_user):
             image_digest="sha256:" + "a" * 64,
             config_schema={"type": "object", "properties": {"seed": {"type": "integer"}}},
             status=DetectorVersionStatus.ACTIVE,
+            manifest=_MINIMAL_MANIFEST,
         )
         db_session.add(dv)
         await db_session.commit()
