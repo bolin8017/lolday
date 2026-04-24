@@ -1,0 +1,162 @@
+"""Phase 11b reconciler: trust stage_end event before Volcano phase."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import (
+    Detector,
+    DetectorVersion,
+    Job,
+    JobEvent,
+    JobStatus,
+    User,
+)
+
+
+async def _seed_job_running(session: AsyncSession) -> Job:
+    user = User(
+        id=uuid.uuid4(),
+        email=f"rec-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="x",
+        is_active=True,
+        is_verified=True,
+    )
+    det = Detector(
+        name=f"rec-det-{uuid.uuid4().hex[:8]}",
+        display_name="rec",
+        owner_id=user.id,
+        git_url="https://example.com/r.git",
+    )
+    session.add_all([user, det])
+    await session.flush()
+    dv = DetectorVersion(
+        detector_id=det.id,
+        git_tag="v1",
+        git_sha="deadbeef",
+        harbor_image="h/x:v1",
+        image_digest="sha256:abc",
+        config_schema={},
+    )
+    session.add(dv)
+    await session.flush()
+    job = Job(
+        type="train",
+        status=JobStatus.RUNNING,
+        owner_id=user.id,
+        detector_version_id=dv.id,
+        resolved_config={},
+        idempotency_key=uuid.uuid4().hex,
+        k8s_job_name="job-train-abc12345",
+        started_at=datetime.now(timezone.utc),
+        mlflow_run_id="r1",
+    )
+    session.add(job)
+    await session.commit()
+    return job
+
+
+@pytest.mark.asyncio
+async def test_reconcile_trusts_stage_end_success(db_session, monkeypatch) -> None:
+    """When the most-recent stage_end event has status=success, mark job SUCCEEDED
+    even if the Volcano phase is still Running."""
+    from app.reconciler import reconcile_job
+
+    job = await _seed_job_running(db_session)
+
+    # Seed a stage_end event with success
+    db_session.add(JobEvent(
+        job_id=job.id,
+        ts=datetime.now(timezone.utc),
+        kind="stage_end",
+        payload={"stage": "train", "status": "success"},
+    ))
+    await db_session.commit()
+
+    calls: list[str] = []
+
+    async def fake_succeeded(session, j):
+        calls.append("succeeded")
+        j.status = JobStatus.SUCCEEDED
+
+    async def fake_failed(session, j):
+        calls.append("failed")
+        j.status = JobStatus.FAILED
+
+    monkeypatch.setattr("app.reconciler._handle_job_succeeded", fake_succeeded)
+    monkeypatch.setattr("app.reconciler._handle_job_failed", fake_failed)
+
+    monkeypatch.setattr("app.reconciler.volcano_v1alpha1", lambda: type("_FV", (), {
+        "get_namespaced_custom_object": lambda self, **_kw: {"status": {"state": {"phase": "Running"}}}
+    })())
+    monkeypatch.setattr("app.reconciler._job_timed_out", lambda j, v: False)
+
+    await reconcile_job(db_session, job)
+
+    assert calls == ["succeeded"], f"expected succeeded path, got {calls}"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_trusts_stage_end_failure(db_session, monkeypatch) -> None:
+    from app.reconciler import reconcile_job
+
+    job = await _seed_job_running(db_session)
+    db_session.add(JobEvent(
+        job_id=job.id,
+        ts=datetime.now(timezone.utc),
+        kind="stage_end",
+        payload={"stage": "train", "status": "failure"},
+    ))
+    await db_session.commit()
+
+    calls: list[str] = []
+
+    async def fake_succeeded(session, j):
+        calls.append("succeeded")
+
+    async def fake_failed(session, j):
+        calls.append("failed")
+
+    monkeypatch.setattr("app.reconciler._handle_job_succeeded", fake_succeeded)
+    monkeypatch.setattr("app.reconciler._handle_job_failed", fake_failed)
+    monkeypatch.setattr("app.reconciler.volcano_v1alpha1", lambda: type("_FV", (), {
+        "get_namespaced_custom_object": lambda self, **_kw: {"status": {"state": {"phase": "Running"}}}
+    })())
+    monkeypatch.setattr("app.reconciler._job_timed_out", lambda j, v: False)
+
+    await reconcile_job(db_session, job)
+    assert calls == ["failed"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_falls_back_to_volcano_phase_when_no_events(db_session, monkeypatch) -> None:
+    from app.reconciler import reconcile_job
+
+    job = await _seed_job_running(db_session)
+    # No events seeded
+
+    calls: list[str] = []
+
+    async def fake_succeeded(session, j):
+        calls.append("succeeded")
+
+    async def fake_failed(session, j):
+        calls.append("failed")
+
+    async def fake_update(session, j):
+        calls.append("progress")
+
+    monkeypatch.setattr("app.reconciler._handle_job_succeeded", fake_succeeded)
+    monkeypatch.setattr("app.reconciler._handle_job_failed", fake_failed)
+    monkeypatch.setattr("app.reconciler._update_job_progress", fake_update)
+    monkeypatch.setattr("app.reconciler.volcano_v1alpha1", lambda: type("_FV", (), {
+        "get_namespaced_custom_object": lambda self, **_kw: {"status": {"state": {"phase": "Completed"}}}
+    })())
+    monkeypatch.setattr("app.reconciler._job_timed_out", lambda j, v: False)
+
+    await reconcile_job(db_session, job)
+    assert calls == ["succeeded"]

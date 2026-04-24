@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -637,6 +638,15 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
         await _cleanup_job_secret(j)
         return
 
+    # Phase 11b: trust stage_end event before consulting Volcano phase.
+    event_status = await _check_event_terminal(session, j.id)
+    if event_status == "success":
+        await _handle_job_succeeded(session, j)
+        return
+    if event_status == "failure":
+        await _handle_job_failed(session, j)
+        return
+
     phase = (vjob.get("status") or {}).get("state", {}).get("phase", "")
     if phase == "Completed":
         await _handle_job_succeeded(session, j)
@@ -660,6 +670,25 @@ def _job_timed_out(j: Job, vjob: dict) -> bool:
     deadline = deadline_map.get(j.type, 3600)
     elapsed = (datetime.now(timezone.utc) - j.started_at.replace(tzinfo=timezone.utc)).total_seconds()
     return elapsed > deadline + 60
+
+
+async def _check_event_terminal(
+    session: AsyncSession, job_id: uuid.UUID
+) -> str | None:
+    """Return 'success' / 'failure' based on the most recent stage_end event, else None."""
+    from app.models import JobEvent
+
+    stmt = (
+        select(JobEvent)
+        .where(JobEvent.job_id == job_id, JobEvent.kind == "stage_end")
+        .order_by(JobEvent.ts.desc())
+        .limit(1)
+    )
+    row = (await session.scalars(stmt)).first()
+    if row is None:
+        return None
+    status = (row.payload or {}).get("status")
+    return status if status in ("success", "failure") else None
 
 
 async def _update_job_progress(session: AsyncSession, j: Job) -> None:
