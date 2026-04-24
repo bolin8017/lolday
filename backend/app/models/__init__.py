@@ -19,6 +19,7 @@ from app.models.model_registry import (
     ModelVersion,
     ModelVersionStage,
 )
+from app.models.job_event import JobEvent
 from app.models.user import Base, Role, User
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     "DetectorBuild", "DetectorBuildStatus",
     "DatasetConfig", "DatasetVisibility",
     "Job", "JobStatus", "JobType", "NON_TERMINAL_STATUSES", "ResourceProfile",
+    "JobEvent",
     "ModelVersion", "ModelVersionStage", "ModelTransitionLog",
 ]
