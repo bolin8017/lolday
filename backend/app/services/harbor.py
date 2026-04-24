@@ -164,6 +164,23 @@ class HarborClient:
                 low=summary.get("Low", 0),
             )
 
+    async def get_image_labels(
+        self, project: str, repository: str, digest: str
+    ) -> dict[str, str]:
+        """Return OCI image config Labels dict (may be empty).
+
+        Harbor exposes these via ``/api/v2.0/projects/.../artifacts/<digest>`` at
+        ``extra_attrs.config.Labels``.
+        """
+        url = f"/api/v2.0/projects/{project}/repositories/{repository}/artifacts/{digest}"
+        async with self._client() as c:
+            resp = await c.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+        config = (data.get("extra_attrs") or {}).get("config") or {}
+        labels = config.get("Labels") or {}
+        return dict(labels)
+
     async def delete_artifact(self, project: str, repo: str, digest: str) -> None:
         async with self._client() as c:
             resp = await c.delete(
