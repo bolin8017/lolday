@@ -9,10 +9,13 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Detector, DetectorVersion, Job, User
+from app.models.job import JobStatus
 from app.services.job_tokens import generate_token, hash_token
 
 
-async def _seed_job_with_token(session: AsyncSession) -> tuple[Job, str]:
+async def _seed_job_with_token(
+    session: AsyncSession, *, status: JobStatus = JobStatus.RUNNING
+) -> tuple[Job, str]:
     """Create a Job + issue a token for its sidecar."""
     user = User(
         id=uuid.uuid4(),
@@ -42,7 +45,7 @@ async def _seed_job_with_token(session: AsyncSession) -> tuple[Job, str]:
     raw_token = generate_token()
     job = Job(
         type="train",
-        status="running",
+        status=status,
         owner_id=user.id,
         detector_version_id=dv.id,
         resolved_config={},
@@ -113,3 +116,21 @@ async def test_post_event_publishes_to_broker(db_session, client: AsyncClient) -
         assert event["name"] == "loss"
     finally:
         event_broker.unsubscribe(job.id, q)
+
+
+@pytest.mark.asyncio
+async def test_post_event_rejects_terminal_job(
+    db_session, client: AsyncClient
+) -> None:
+    """A sidecar race with the reconciler can POST an event AFTER the job is
+    already flipped to SUCCEEDED/FAILED. We return 409 to bound the amount of
+    state written to the terminal row."""
+    job, raw_token = await _seed_job_with_token(
+        db_session, status=JobStatus.SUCCEEDED
+    )
+    resp = await client.post(
+        f"/api/v1/internal/jobs/{job.id}/events",
+        json={"ts": "2026-04-24T00:00:00Z", "kind": "metric", "name": "loss", "value": 0.9},
+        headers={"Authorization": f"Bearer {raw_token}"},
+    )
+    assert resp.status_code == 409

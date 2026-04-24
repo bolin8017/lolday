@@ -80,3 +80,47 @@ def test_rejects_stage_not_declared() -> None:
             dataset_contract="sample_csv",
             stage="predict",
         )
+
+
+def test_rejects_gpu2_profile_when_manifest_not_distributed() -> None:
+    """A manifest that advertises `gpu2` support but keeps
+    ``supports_distributed=False`` is self-contradictory — accepting the
+    job would give the detector a 2-GPU node it has no way to use. Fail
+    at submit, not after the pod scheduled."""
+    m = _manifest(
+        resources={
+            "supports": ["cpu", "gpu1", "gpu2"],
+            "recommended": "gpu2",
+            "min_memory_gib": 4,
+            "gpu_required": False,
+        },
+    )
+    with pytest.raises(JobSubmissionError, match="supports_distributed"):
+        validate_job_submission(
+            manifest=m,
+            resource_profile=ResourceProfile.GPU2,
+            dataset_contract="sample_csv",
+            stage="train",
+        )
+
+
+def test_accepts_gpu2_profile_when_manifest_supports_ddp() -> None:
+    m = _manifest(
+        resources={
+            "supports": ["cpu", "gpu1", "gpu2"],
+            "recommended": "gpu2",
+            "min_memory_gib": 4,
+            "gpu_required": False,
+        },
+        lifecycle={
+            "stages": ["train", "evaluate", "predict"],
+            "supports_serving": False, "supports_hpsweep": True,
+            "supports_distributed": "ddp", "supports_multinode": False,
+        },
+    )
+    validate_job_submission(
+        manifest=m,
+        resource_profile=ResourceProfile.GPU2,
+        dataset_contract="sample_csv",
+        stage="train",
+    )

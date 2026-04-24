@@ -61,17 +61,40 @@ def tail_and_post(
 
 def _post_with_retry(client: httpx.Client, url: str, token: str, event: dict[str, Any]) -> None:
     delay = 0.5
-    for _attempt in range(6):
+    for attempt in range(6):
         try:
             resp = client.post(
                 url,
                 json=event,
                 headers={"Authorization": f"Bearer {token}"},
             )
-            if resp.status_code < 500:
+        except httpx.HTTPError as exc:
+            if attempt == 5:
+                sys.stderr.write(
+                    f"tail_events: giving up after 6 attempts, event lost: {exc}\n"
+                )
                 return
-        except httpx.HTTPError:
-            pass
+            time.sleep(delay)
+            delay = min(delay * 2, 10.0)
+            continue
+
+        if 200 <= resp.status_code < 300:
+            return
+        if 400 <= resp.status_code < 500:
+            # 401/403/404/409/422/429 are permanent — retrying just wastes cycles
+            # and keeps the sidecar alive after Volcano has moved on.
+            sys.stderr.write(
+                f"tail_events: permanent {resp.status_code} from backend, event lost; "
+                f"body={resp.text[:200]!r}\n"
+            )
+            return
+        # 5xx → retry with backoff
+        if attempt == 5:
+            sys.stderr.write(
+                f"tail_events: giving up after 6 attempts at 5xx, event lost; "
+                f"last={resp.status_code}\n"
+            )
+            return
         time.sleep(delay)
         delay = min(delay * 2, 10.0)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import JobEvent
+
+_log = logging.getLogger(__name__)
 
 
 def _parse_ts(raw: str | None) -> datetime | None:
@@ -62,6 +65,10 @@ class EventBroker:
                 except asyncio.QueueEmpty:
                     pass
                 q.put_nowait(event)
+                _log.warning(
+                    "event_broker_dropped_oldest",
+                    extra={"job_id": str(job_id), "kind": event.get("kind")},
+                )
 
 
 event_broker = EventBroker()

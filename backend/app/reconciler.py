@@ -439,8 +439,16 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
             namespace=settings.BUILD_NAMESPACE,
             propagation_policy="Background",
         )
-    except ApiException:
-        pass
+    except ApiException as exc:
+        # 404 is expected (the Job already disappeared). Anything else is a
+        # real cluster error we want to see in metrics + logs rather than
+        # silently drop on the floor.
+        if exc.status != 404:
+            BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
+            logger.warning(
+                "k8s build-job cleanup returned %s for build %s",
+                exc.status, b.id, exc_info=True,
+            )
     b.status = DetectorBuildStatus.TIMEOUT
     b.failure_reason = "build exceeded timeout"
     b.finished_at = datetime.now(timezone.utc)
@@ -532,8 +540,13 @@ async def _cleanup_build_secret(build_id) -> None:
             name=build_secret_name(build_id),
             namespace=settings.BUILD_NAMESPACE,
         )
-    except ApiException:
-        pass
+    except ApiException as exc:
+        if exc.status != 404:
+            BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
+            logger.warning(
+                "build secret cleanup returned %s for build %s",
+                exc.status, build_id, exc_info=True,
+            )
 
 
 async def reconciler_loop(stop_event: asyncio.Event) -> None:
@@ -628,8 +641,13 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
                 name=j.k8s_job_name,
                 propagation_policy="Background",
             )
-        except ApiException:
-            pass
+        except ApiException as exc:
+            if exc.status != 404:
+                BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
+                logger.warning(
+                    "volcano job delete returned %s for job %s",
+                    exc.status, j.id, exc_info=True,
+                )
         j.status = JobStatus.TIMEOUT
         j.failure_reason = "detector_timeout"
         j.finished_at = datetime.now(timezone.utc)
@@ -865,8 +883,13 @@ async def _cleanup_job_secret(j: Job) -> None:
             name=_job_token_secret_name(j.id),
             namespace=settings.JOB_NAMESPACE,
         )
-    except ApiException:
-        pass
+    except ApiException as exc:
+        if exc.status != 404:
+            BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
+            logger.warning(
+                "job token secret cleanup returned %s for job %s",
+                exc.status, j.id, exc_info=True,
+            )
 
 
 async def sync_model_versions(session: AsyncSession) -> None:

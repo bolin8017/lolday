@@ -84,6 +84,9 @@ def _extract_defaults(schema: dict) -> dict:
     return defaults
 
 
+_KNOWN_DISTRIBUTED_STRATEGIES = frozenset({"ddp", "fsdp", "deepspeed"})
+
+
 def _strategy_from_manifest(manifest) -> str:
     """Lightning distributed strategy env for the detector container.
 
@@ -91,9 +94,20 @@ def _strategy_from_manifest(manifest) -> str:
     Literal["ddp","fsdp","deepspeed"]``. Pass the string literal through
     verbatim. For the boolean form (legacy or opt-out), fall back to
     ``"ddp"`` — which Lightning ignores when ``gpu_count <= 1``.
+
+    Raises ``ValueError`` if the manifest names an unknown strategy (e.g.
+    ``"horovod"``). The caller wraps this into an HTTP 400 so the detector
+    author sees the misconfiguration at submit time rather than as an
+    opaque detector startup failure.
     """
     val = manifest.lifecycle.supports_distributed
     if isinstance(val, str):
+        if val not in _KNOWN_DISTRIBUTED_STRATEGIES:
+            raise ValueError(
+                f"manifest.lifecycle.supports_distributed={val!r} is not a "
+                f"known strategy; expected one of "
+                f"{sorted(_KNOWN_DISTRIBUTED_STRATEGIES)}"
+            )
         return val
     return "ddp"
 
@@ -258,6 +272,10 @@ async def create_job(
     # 11. Launch K8s Job
     secret = build_job_token_secret(job.id, raw_token)
     core_v1().create_namespaced_secret(namespace=settings.JOB_NAMESPACE, body=secret)
+    try:
+        gpu_strategy = _strategy_from_manifest(manifest_model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     manifest = build_volcano_job_manifest(
         job_id=job.id,
         job_type=body.type,
@@ -269,7 +287,7 @@ async def create_job(
         source_artifact_path=(resolve_source_model_path(f"runs:/{source_run_id}/model") if source_run_id else None),
         internal_events_url=f"{settings.INTERNAL_EVENTS_BASE_URL}/internal/jobs/{job.id}/events",
         resource_profile=body.resource_profile,
-        gpu_strategy=_strategy_from_manifest(manifest_model),
+        gpu_strategy=gpu_strategy,
     )
     try:
         volcano_v1alpha1().create_namespaced_custom_object(
@@ -512,8 +530,11 @@ async def _resolve_user_from_ws(websocket: WebSocket) -> User | None:
     * Production: verify `Cf-Access-Jwt-Assertion` via the shared
       `resolve_user_from_jwt` helper.
 
-    Returns `None` on failure — the caller closes the WS with the
-    appropriate RFC-6455 application code (4401).
+    Returns ``None`` only when the caller is *unauthenticated* — the caller
+    closes the WS with RFC-6455 application code 4401. Database / connection
+    errors are **not** swallowed; they propagate so the caller can distinguish
+    "user is not logged in" from "our backend is broken" and close with a
+    different code (4500).
     """
     from app.auth.cf_access import cf_access_user as _cf_access_user_dep
     from app.main import app as _app
@@ -549,8 +570,19 @@ async def websocket_job_events(
 
     RFC-6455 close codes (4401/4403/4404) mirror the HTTP status codes the
     paged GET returns; the frontend maps them back to user-facing messages.
+    A 4500 is reserved for a backend error (DB/connection) during the
+    auth/authz step — the frontend should treat this as "retry later," not
+    "your token is wrong."
     """
-    user = await _resolve_user_from_ws(websocket)
+    try:
+        user = await _resolve_user_from_ws(websocket)
+    except Exception:  # noqa: BLE001 — DB/network during auth: distinguish from 4401
+        BACKEND_ERRORS.labels(stage="ws_auth").inc()
+        logger.exception(
+            "ws auth failed with unexpected error", extra={"job_id": str(job_id)}
+        )
+        await websocket.close(code=4500)
+        return
     if user is None:
         await websocket.close(code=4401)
         return

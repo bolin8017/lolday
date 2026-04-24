@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import yaml
 
 from app.services.job_config import JobConfigRenderer
@@ -95,3 +96,18 @@ def test_nested_dict_user_params_deep_merged() -> None:
     doc = yaml.safe_load(cfg)
     assert doc["model"]["n_estimators"] == 100
     assert doc["model"]["max_depth"] == 5
+
+
+def test_unflatten_rejects_flat_dict_conflicting_with_dotted_key() -> None:
+    """Mixing ``model: {...}`` and ``model.x=...`` in the same dict is ambiguous
+    — one will silently overwrite the other depending on iteration order.
+    Reject the submission rather than guess the user's intent."""
+    renderer = _make_renderer()
+    with pytest.raises(ValueError, match="mixes flat-dict"):
+        renderer.render_config_yaml(
+            stage="train",
+            user_params={"model": {"n_estimators": 100}, "model.max_depth": 5},
+            mlflow_tracking_uri="",
+            mlflow_run_id=None,
+            mlflow_experiment_id=None,
+        )

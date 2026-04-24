@@ -50,6 +50,26 @@ def _deep_merge(dst: dict, src: dict) -> dict:
 
 
 def _unflatten(params: dict[str, Any]) -> dict[str, Any]:
+    """Turn ``{"model.n_estimators": 500}`` into ``{"model": {"n_estimators": 500}}``.
+
+    Raises :class:`ValueError` if the input mixes a flat dict-valued key
+    (``"model": {...}``) with a dotted key sharing the same prefix
+    (``"model.n_estimators"``). Intent is ambiguous in that case and
+    silently letting one path win has produced subtle hyperparameter bugs.
+    """
+    prefixes: dict[str, set[str]] = {}
+    for raw_key in params:
+        if "." in raw_key:
+            prefix = raw_key.split(".", 1)[0]
+            prefixes.setdefault(prefix, set()).add(raw_key)
+
+    for prefix, dotted_keys in prefixes.items():
+        if prefix in params and isinstance(params[prefix], dict):
+            raise ValueError(
+                f"user_params mixes flat-dict {prefix!r}={params[prefix]!r} "
+                f"with dotted keys {sorted(dotted_keys)!r}; pick one style"
+            )
+
     out: dict[str, Any] = {}
     for raw_key, val in params.items():
         if "." not in raw_key:

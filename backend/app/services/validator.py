@@ -112,8 +112,23 @@ def validate_job_submission(
     dataset_contract: str,
     stage: str,
 ) -> None:
-    """Pre-flight checks that can only be done once both the detector manifest
-    and the incoming job submission are known."""
+    """Reject a job submission if it's incompatible with the detector's manifest.
+
+    Raises :class:`JobSubmissionError` (HTTP 400) for:
+
+    * ``resource_profile`` not listed in ``manifest.resources.supports``
+    * ``dataset_contract`` mismatching ``manifest.input.dataset_contract``
+    * ``dataset_contract`` unknown to the platform (see
+      :data:`SUPPORTED_DATASET_CONTRACTS`)
+    * ``stage`` not declared in ``manifest.lifecycle.stages``
+    * ``resource_profile=GPU2`` with
+      ``manifest.lifecycle.supports_distributed`` falsy — the detector
+      author has to explicitly opt in to multi-GPU execution
+
+    Catching these before Volcano Job submission prevents pod-scheduling or
+    detector-startup failures that are expensive to diagnose after the
+    fact.
+    """
 
     token = _PROFILE_TO_MANIFEST_TOKEN.get(resource_profile)
     if token is None or token not in manifest.resources.supports:
@@ -137,4 +152,15 @@ def validate_job_submission(
     if stage not in manifest.lifecycle.stages:
         raise JobSubmissionError(
             f"stage {stage!r} not declared in detector.lifecycle.stages={manifest.lifecycle.stages}"
+        )
+
+    # Multi-GPU profile requires explicit detector opt-in — silently running
+    # single-GPU semantics on a 2-GPU allocation wastes the unused device
+    # unless the detector author has declared a distributed strategy.
+    if resource_profile == ResourceProfile.GPU2 and not manifest.lifecycle.supports_distributed:
+        raise JobSubmissionError(
+            f"resource_profile {resource_profile.value!r} allocates multiple GPUs but "
+            f"detector's lifecycle.supports_distributed is "
+            f"{manifest.lifecycle.supports_distributed!r}; set supports_distributed to "
+            f"ddp/fsdp/deepspeed to accept multi-GPU jobs"
         )

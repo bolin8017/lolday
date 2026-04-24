@@ -7,6 +7,7 @@ import binascii
 import json
 from typing import Any
 
+import pydantic
 from maldet.manifest import DetectorManifest
 
 
@@ -29,5 +30,5 @@ def decode_manifest_label(label_value: str) -> DetectorManifest:
         raise ManifestDecodeError(f"invalid json: {exc}") from exc
     try:
         return DetectorManifest.model_validate(data)
-    except Exception as exc:
+    except pydantic.ValidationError as exc:
         raise ManifestDecodeError(f"manifest schema validation failed: {exc}") from exc
