@@ -1,7 +1,12 @@
 """Phase 11b: render Hydra YAML config + separate CSV files for the detector container.
 
-Replaces the Phase 4 JSON renderer. The detector reads /mnt/config/config.yaml;
-the train/test/predict CSVs are written to the config mount as side-files.
+Replaces the Phase 4 JSON renderer. Hydra YAML is composable (user
+overrides via ``+key.sub=value``), and decoupling dataset CSVs from the
+config makes the contract portable to non-Kubernetes runners — a local
+``maldet run`` call only needs the CSV files placed next to the YAML.
+
+The detector reads ``/mnt/config/config.yaml`` and
+``/mnt/config/{train,test,predict}.csv``.
 """
 
 from __future__ import annotations

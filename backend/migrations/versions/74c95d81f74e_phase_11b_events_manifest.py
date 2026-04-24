@@ -24,7 +24,10 @@ def upgrade() -> None:
     # Add manifest column to detector_version
     op.add_column('detector_version', sa.Column('manifest', postgresql.JSONB(astext_type=Text()).with_variant(sa.JSON(), 'sqlite'), nullable=True))
 
-    # Create job_events table for structured per-job event log
+    # Create job_events table for structured per-job event log.
+    # ``received_at`` uses ``sa.func.now()`` to match the ORM's ``func.now()``
+    # server_default — alembic autogenerate would otherwise see a drift every
+    # run and ask to "fix" the column.
     op.create_table(
         "job_events",
         sa.Column("id", sa.UUID(), nullable=False),
@@ -32,7 +35,7 @@ def upgrade() -> None:
         sa.Column("ts", sa.DateTime(timezone=True), nullable=False),
         sa.Column("kind", sa.String(length=64), nullable=False),
         sa.Column("payload", postgresql.JSONB(astext_type=Text()).with_variant(sa.JSON(), 'sqlite'), nullable=False),
-        sa.Column("received_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("(CURRENT_TIMESTAMP)")),
+        sa.Column("received_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(

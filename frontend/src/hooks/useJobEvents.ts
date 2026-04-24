@@ -21,7 +21,10 @@ export function useJobEvents(jobId: string | null): MaldetEvent[] {
         const event = JSON.parse(ev.data) as MaldetEvent;
         setEvents((prev) => [...prev, event]);
       } catch {
-        // ignore malformed events
+        // Detector-side may emit occasional non-JSON lines (prints to
+        // stdout before the JSONL writer flushes its first record).
+        // Dropping these silently is intentional — the backend persists
+        // valid events regardless, and the WS stream is best-effort.
       }
     };
 

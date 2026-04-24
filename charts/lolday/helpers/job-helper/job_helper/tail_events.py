@@ -1,11 +1,15 @@
 """Tail an NDJSON event file and POST each line to the backend's internal events endpoint.
 
-Designed as a Volcano Job sidecar container. When the detector's `events.jsonl`
-file is written line-by-line (fsync per line), this tailer reads each appended
-line and forwards it to the backend for persistence + WebSocket broadcast.
+Volcano Job sidecar container. The detector writes
+``/mnt/output/events.jsonl`` line-by-line with ``fsync`` after each event.
+This tailer follows the file and forwards each event to the backend for
+persistence + WebSocket broadcast.
 
-When the detector exits, the sidecar sees EOF. It continues to read for a grace
-period to drain trailing events, then exits.
+After the detector exits (EOF on the file), the tailer waits
+``GRACE_SECONDS`` to drain any late fsyncs / OS buffers, then exits —
+otherwise Volcano could reap the sidecar container before the last few
+events (including ``stage_end``) flush, causing the reconciler to fall
+back to Volcano-phase polling.
 """
 
 from __future__ import annotations
