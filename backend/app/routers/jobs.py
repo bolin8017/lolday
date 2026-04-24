@@ -12,10 +12,11 @@ from app.config import settings
 from app.db import get_async_session
 from app.metrics import BACKEND_ERRORS
 from app.users import current_active_user
-from app.models import DatasetConfig, DetectorVersion, Job, ModelVersion, User
+from app.models import DatasetConfig, DetectorVersion, Job, JobEvent, ModelVersion, User
 from app.models.dataset import DatasetVisibility
 from app.models.job import JobStatus, JobType, NON_TERMINAL_STATUSES
 from app.schemas.job import JobCreate, JobList, JobRead, JobSummary
+from app.schemas.job_event import JobEventOut, JobEventsPage
 from app.services.dataset import DatasetIntegrityError, spot_check_samples, parse_csv
 from app.services.job_config import (
     JobConfigRenderer,
@@ -433,3 +434,26 @@ async def cancel_job(
     await session.commit()
     await session.refresh(job)
     return JobRead.model_validate(job)
+
+
+@router.get("/{job_id}/events", response_model=JobEventsPage)
+async def list_job_events(
+    job_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    since: datetime | None = None,
+    limit: int = 500,
+) -> JobEventsPage:
+    job = await session.get(Job, job_id)
+    if job is None or (job.owner_id != user.id and user.role.value != "admin"):
+        raise HTTPException(status_code=404, detail="job not found")
+    stmt = select(JobEvent).where(JobEvent.job_id == job.id)
+    if since is not None:
+        stmt = stmt.where(JobEvent.ts > since)
+    stmt = stmt.order_by(JobEvent.ts.asc()).limit(limit)
+    rows = list(await session.scalars(stmt))
+    next_since = rows[-1].ts if rows and len(rows) == limit else None
+    return JobEventsPage(
+        events=[JobEventOut.model_validate(r) for r in rows],
+        next_since=next_since,
+    )
