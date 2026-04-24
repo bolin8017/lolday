@@ -463,20 +463,42 @@ async def list_job_events(
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
     since: datetime | None = None,
+    since_id: uuid.UUID | None = None,
     limit: int = 500,
 ) -> JobEventsPage:
+    """Paginate job events by a composite ``(ts, id)`` cursor.
+
+    A naive ``ts > since`` filter skips events whose timestamp collides
+    (ms-level ties land often under Volcano + fsync bursts). Ordering by
+    ``(ts, id)`` and filtering by ``ts > since OR (ts = since AND id > since_id)``
+    gives strict monotonicity without losing colliding events.
+    """
     job = await session.get(Job, job_id)
     if job is None or (job.owner_id != user.id and user.role.value != "admin"):
         raise HTTPException(status_code=404, detail="job not found")
     stmt = select(JobEvent).where(JobEvent.job_id == job.id)
     if since is not None:
-        stmt = stmt.where(JobEvent.ts > since)
-    stmt = stmt.order_by(JobEvent.ts.asc()).limit(limit)
+        if since_id is not None:
+            stmt = stmt.where(
+                or_(
+                    JobEvent.ts > since,
+                    and_(JobEvent.ts == since, JobEvent.id > since_id),
+                )
+            )
+        else:
+            stmt = stmt.where(JobEvent.ts > since)
+    stmt = stmt.order_by(JobEvent.ts.asc(), JobEvent.id.asc()).limit(limit)
     rows = list(await session.scalars(stmt))
-    next_since = rows[-1].ts if rows and len(rows) == limit else None
+    if rows and len(rows) == limit:
+        next_since = rows[-1].ts
+        next_id = rows[-1].id
+    else:
+        next_since = None
+        next_id = None
     return JobEventsPage(
         events=[JobEventOut.model_validate(r) for r in rows],
         next_since=next_since,
+        next_id=next_id,
     )
 
 
