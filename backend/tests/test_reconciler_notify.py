@@ -136,10 +136,23 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
 
     from app.services.harbor import ScanResult, ScanStatus
 
+    # Phase 11b Task 5b: reconcile_build now fetches OCI labels for the scanned
+    # artifact so it can persist the maldet manifest onto DetectorVersion. The
+    # stub needs to return a valid base64-JSON label or the build fails closed
+    # before the completed-notify fires.
+    import base64
+    from pathlib import Path
+    _fixture_manifest = (
+        Path(__file__).parent / "fixtures" / "valid_maldet_manifest.json"
+    ).read_text()
+    _label_b64 = base64.b64encode(_fixture_manifest.encode("utf-8")).decode("ascii")
+
     class _StubHarbor:
         async def get_artifact_digest(self, *a, **kw): return "sha256:abc"
         async def get_scan(self, *a, **kw):
             return ScanResult(status=ScanStatus.SUCCESS, critical=0, high=0, medium=0, low=0)
+        async def get_image_labels(self, *a, **kw):
+            return {"io.maldet.manifest": _label_b64}
         async def delete_artifact(self, *a, **kw): pass
 
     with patch("app.reconciler.HarborClient", return_value=_StubHarbor()), \
