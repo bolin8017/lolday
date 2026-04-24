@@ -47,8 +47,9 @@ async def internal_get_job_config(
     if job.predict_dataset_id:
         ds = await session.get(DatasetConfig, job.predict_dataset_id)
         predict_csv = ds.csv_content if ds else None
+    yaml_text = job.resolved_config.get("yaml", "") if isinstance(job.resolved_config, dict) else ""
     return JobInternalConfig(
-        config=job.resolved_config,
+        yaml=yaml_text,
         train_csv=train_csv,
         test_csv=test_csv,
         predict_csv=predict_csv,

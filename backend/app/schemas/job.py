@@ -79,7 +79,7 @@ class JobList(BaseModel):
 
 
 class JobInternalConfig(BaseModel):
-    config: dict
+    yaml: str
     train_csv: str | None
     test_csv: str | None
     predict_csv: str | None

@@ -1,0 +1,97 @@
+"""JobConfigRenderer (phase 11b): Hydra YAML + CSV renderer."""
+
+from __future__ import annotations
+
+import yaml
+
+from app.services.job_config import JobConfigRenderer
+
+
+def _make_renderer() -> JobConfigRenderer:
+    return JobConfigRenderer(
+        samples_root="/mnt/samples",
+        config_mount="/mnt/config",
+        output_mount="/mnt/output",
+        source_model_mount="/mnt/source-model",
+    )
+
+
+def test_render_train_yaml_shape() -> None:
+    renderer = _make_renderer()
+    cfg = renderer.render_config_yaml(
+        stage="train",
+        user_params={"model": {"n_estimators": 500}},
+        mlflow_tracking_uri="http://mlflow:5000",
+        mlflow_run_id="r123",
+        mlflow_experiment_id="e9",
+    )
+    doc = yaml.safe_load(cfg)
+    assert doc["stage"] == "train"
+    assert doc["paths"]["config_dir"] == "/mnt/config"
+    assert doc["paths"]["samples_root"] == "/mnt/samples"
+    assert doc["paths"]["output_dir"] == "/mnt/output"
+    assert doc["model"]["n_estimators"] == 500
+    assert doc["mlflow"]["tracking_uri"] == "http://mlflow:5000"
+    assert doc["mlflow"]["run_id"] == "r123"
+
+
+def test_render_evaluate_uses_source_model_path() -> None:
+    renderer = _make_renderer()
+    cfg = renderer.render_config_yaml(
+        stage="evaluate",
+        user_params={},
+        mlflow_tracking_uri="",
+        mlflow_run_id=None,
+        mlflow_experiment_id=None,
+    )
+    doc = yaml.safe_load(cfg)
+    assert doc["stage"] == "evaluate"
+    assert doc["paths"]["source_model"] == "/mnt/source-model"
+
+
+def test_render_csv_files_returns_dict_of_named_files() -> None:
+    renderer = _make_renderer()
+    files = renderer.render_csv_files(
+        train_csv="file_name,label\nabc,Malware\n",
+        test_csv=None,
+        predict_csv=None,
+    )
+    assert files == {"train.csv": "file_name,label\nabc,Malware\n"}
+
+
+def test_render_csv_files_includes_all_non_null() -> None:
+    renderer = _make_renderer()
+    files = renderer.render_csv_files(
+        train_csv="t",
+        test_csv="te",
+        predict_csv="p",
+    )
+    assert set(files.keys()) == {"train.csv", "test.csv", "predict.csv"}
+
+
+def test_overrides_flatten_nested_params() -> None:
+    renderer = _make_renderer()
+    cfg = renderer.render_config_yaml(
+        stage="train",
+        user_params={"model.n_estimators": 500, "trainer.n_jobs": 4},
+        mlflow_tracking_uri="",
+        mlflow_run_id=None,
+        mlflow_experiment_id=None,
+    )
+    doc = yaml.safe_load(cfg)
+    assert doc["model"]["n_estimators"] == 500
+    assert doc["trainer"]["n_jobs"] == 4
+
+
+def test_nested_dict_user_params_deep_merged() -> None:
+    renderer = _make_renderer()
+    cfg = renderer.render_config_yaml(
+        stage="train",
+        user_params={"model": {"n_estimators": 100, "max_depth": 5}},
+        mlflow_tracking_uri="",
+        mlflow_run_id=None,
+        mlflow_experiment_id=None,
+    )
+    doc = yaml.safe_load(cfg)
+    assert doc["model"]["n_estimators"] == 100
+    assert doc["model"]["max_depth"] == 5

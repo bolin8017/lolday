@@ -208,19 +208,21 @@ async def create_job(
     await client.set_run_tag(run_id, "lolday.user", str(user.id))
     await client.set_run_tag(run_id, "lolday.detector_version", str(dv.id))
 
-    # 9. Render resolved config
-    detector_defaults = _extract_defaults(dv.config_schema or {})
+    # 9. Render resolved config (Hydra YAML)
     renderer = JobConfigRenderer(
         samples_root=settings.SAMPLES_ROOT,
         config_mount="/mnt/config",
         output_mount="/mnt/output",
         source_model_mount="/mnt/source-model",
     )
-    resolved = renderer.render(
-        job_type=body.type.value,
-        detector_defaults=detector_defaults,
+    resolved_yaml = renderer.render_config_yaml(
+        stage=body.type.value,
         user_params=body.params,
+        mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
+        mlflow_run_id=run_id,
+        mlflow_experiment_id=dv.mlflow_experiment_id,
     )
+    resolved = {"yaml": resolved_yaml}
 
     # 10. Insert job row
     raw_token = generate_token()

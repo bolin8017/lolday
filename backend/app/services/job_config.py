@@ -1,8 +1,7 @@
-"""Job config rendering + idempotency utilities.
+"""Phase 11b: render Hydra YAML config + separate CSV files for the detector container.
 
-`resolved_config` is the exact JSON that will be written to /mnt/config/config.json
-inside the detector container. This module is the single source of truth for that
-shape.
+Replaces the Phase 4 JSON renderer. The detector reads /mnt/config/config.yaml;
+the train/test/predict CSVs are written to the config mount as side-files.
 """
 
 from __future__ import annotations
@@ -12,6 +11,8 @@ import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any
+
+import yaml
 
 
 def compute_idempotency_key(
@@ -25,11 +26,6 @@ def compute_idempotency_key(
     source_model: str | None,
     params: dict[str, Any],
 ) -> str:
-    """Deterministic SHA256 over all submission identity inputs.
-
-    Dict ordering is normalized via json.dumps(sort_keys=True) so param key
-    order doesn't produce different keys.
-    """
     payload = {
         "user": user_id,
         "dv": detector_version_id,
@@ -45,7 +41,6 @@ def compute_idempotency_key(
 
 
 def _deep_merge(dst: dict, src: dict) -> dict:
-    """Recursive merge: dicts merge, non-dict values from src override dst."""
     for k, v in src.items():
         if k in dst and isinstance(dst[k], dict) and isinstance(v, dict):
             dst[k] = _deep_merge(dst[k], v)
@@ -54,49 +49,80 @@ def _deep_merge(dst: dict, src: dict) -> dict:
     return dst
 
 
+def _unflatten(params: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for raw_key, val in params.items():
+        if "." not in raw_key:
+            if raw_key in out and isinstance(out[raw_key], dict) and isinstance(val, dict):
+                out[raw_key] = _deep_merge(out[raw_key], val)
+            else:
+                out[raw_key] = val
+            continue
+        parts = raw_key.split(".")
+        cursor = out
+        for p in parts[:-1]:
+            if p not in cursor or not isinstance(cursor[p], dict):
+                cursor[p] = {}
+            cursor = cursor[p]
+        cursor[parts[-1]] = val
+    return out
+
+
 @dataclass(frozen=True)
 class JobConfigRenderer:
-    """Encapsulates the mount-path contract between backend and job pod.
-
-    Paths are documented in spec §Job Pod Specification.
-    """
-
     samples_root: str
     config_mount: str
     output_mount: str
     source_model_mount: str
 
-    def render(
+    def render_config_yaml(
         self,
         *,
-        job_type: str,
-        detector_defaults: dict[str, Any],
+        stage: str,
         user_params: dict[str, Any],
-    ) -> dict[str, Any]:
-        cfg = copy.deepcopy(detector_defaults)
-        cfg = _deep_merge(cfg, copy.deepcopy(user_params))
+        mlflow_tracking_uri: str,
+        mlflow_run_id: str | None,
+        mlflow_experiment_id: str | None,
+    ) -> str:
+        base: dict[str, Any] = {
+            "defaults": ["_self_"],
+            "stage": stage,
+            "paths": {
+                "config_dir": self.config_mount,
+                "output_dir": self.output_mount,
+                "samples_root": self.samples_root,
+                "source_model": self.source_model_mount,
+            },
+            "data": {
+                "train_csv": f"{self.config_mount}/train.csv",
+                "test_csv": f"{self.config_mount}/test.csv",
+                "predict_csv": f"{self.config_mount}/predict.csv",
+            },
+            "mlflow": {
+                "tracking_uri": mlflow_tracking_uri or None,
+                "run_id": mlflow_run_id,
+                "experiment_id": mlflow_experiment_id,
+            },
+        }
+        nested = _unflatten(copy.deepcopy(user_params))
+        merged = _deep_merge(base, nested)
+        return yaml.safe_dump(merged, sort_keys=False, default_flow_style=False)
 
-        cfg.setdefault("data", {})
-        cfg.setdefault("output", {})
-
-        cfg["data"]["dataset"] = self.samples_root
-        cfg["data"]["train"] = f"{self.config_mount}/train.csv"
-        cfg["data"]["test"] = f"{self.config_mount}/test.csv"
-        cfg["data"]["predict"] = f"{self.config_mount}/predict.csv"
-
-        cfg["output"]["feature"] = f"{self.output_mount}/features"
-        cfg["output"]["vectorize"] = f"{self.output_mount}/vectorize"
-        cfg["output"]["prediction"] = f"{self.output_mount}/predictions.csv"
-        cfg["output"]["log"] = f"{self.output_mount}/logs"
-
-        if job_type == "train":
-            cfg["output"]["model"] = f"{self.output_mount}/model"
-        elif job_type in ("evaluate", "predict"):
-            cfg["output"]["model"] = self.source_model_mount
-        else:
-            raise ValueError(f"unknown job_type: {job_type}")
-
-        return cfg
+    def render_csv_files(
+        self,
+        *,
+        train_csv: str | None,
+        test_csv: str | None,
+        predict_csv: str | None,
+    ) -> dict[str, str]:
+        out: dict[str, str] = {}
+        if train_csv is not None:
+            out["train.csv"] = train_csv
+        if test_csv is not None:
+            out["test.csv"] = test_csv
+        if predict_csv is not None:
+            out["predict.csv"] = predict_csv
+        return out
 
 
 def resolve_source_model_path(source_uri: str) -> str:
