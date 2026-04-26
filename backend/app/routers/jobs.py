@@ -4,7 +4,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
 import asyncio
-import jsonschema
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -142,13 +141,7 @@ async def create_job(
             raise HTTPException(status_code=422, detail="source_model_version not found")
         source_run_id = source_model.mlflow_run_id
 
-    # 4. params schema validation
-    try:
-        jsonschema.validate(instance=body.params, schema=dv.config_schema)
-    except jsonschema.ValidationError as e:
-        raise HTTPException(status_code=422, detail=f"params invalid: {e.message}")
-
-    # 4b. Manifest pre-flight (resource_profile / dataset_contract / stage)
+    # 4. Manifest pre-flight (resource_profile / dataset_contract / stage)
     if dv.manifest is None:
         raise HTTPException(
             status_code=400,

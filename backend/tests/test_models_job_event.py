@@ -36,7 +36,6 @@ async def test_insert_and_query(db_session: AsyncSession) -> None:
         git_sha="a" * 40,
         harbor_image="harbor.harbor.svc:80/detectors/d1:v1",
         image_digest="sha256:" + "a" * 64,
-        config_schema={},
     )
     db_session.add(dv)
     await db_session.flush()

@@ -386,7 +386,7 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
         git_sha="deadbeef" * 5,
         harbor_image="harbor/tds3:v0.1.0",
         image_digest="sha256:winner",
-        config_schema={}, status=DetectorVersionStatus.ACTIVE,
+        status=DetectorVersionStatus.ACTIVE,
     )
     db_session.add(existing)
     build = DetectorBuild(
@@ -447,7 +447,7 @@ async def test_reconcile_dedup_rejects_digest_divergence(db_session):
         git_sha="oldsha" * 7,
         harbor_image="harbor/tds4:v0.1.0",
         image_digest="sha256:existing-version",
-        config_schema={}, status=DetectorVersionStatus.ACTIVE,
+        status=DetectorVersionStatus.ACTIVE,
     )
     db_session.add(existing)
     build = DetectorBuild(

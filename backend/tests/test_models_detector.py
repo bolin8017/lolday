@@ -14,7 +14,7 @@ def test_detector_version_has_required_fields():
     cols = {c.name for c in DetectorVersion.__table__.columns}
     assert cols >= {
         "id", "detector_id", "git_tag", "git_sha", "harbor_image",
-        "image_digest", "config_schema", "built_at", "status",
+        "image_digest", "built_at", "status",
     }
 
 

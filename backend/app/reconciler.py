@@ -351,7 +351,6 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 git_sha=await _read_git_sha_from_log(b),
                 harbor_image=f"{settings.HARBOR_IMAGE_PREFIX}/detectors/{detector.name}:{b.git_tag}",
                 image_digest=digest,
-                config_schema=b.pending_schema or {},
                 manifest=manifest_dict,
                 status=DetectorVersionStatus.ACTIVE,
             )
@@ -529,8 +528,15 @@ async def _extract_failure_reason(b: DetectorBuild) -> str:
 
 
 async def _read_git_sha_from_log(b: DetectorBuild) -> str:
-    """git_sha is populated on build row by the validate container's schema callback
-    (see Task 10 /internal/builds/{id}/schema — payload includes git_sha)."""
+    """Return the git_sha already persisted on the build row.
+
+    The clone init container resolves the tag to a commit SHA and writes it
+    to ``/workspace/git-sha``; the build-helper ``start`` callback
+    (Phase 11b) lifts that value onto ``DetectorBuild.git_sha`` before the
+    build job is launched. Phase 11c removed the v0 schema-POST callback
+    that previously also carried git_sha, so by the time the reconciler
+    calls this helper, ``b.git_sha`` is already populated upstream.
+    """
     return b.git_sha or ""
 
 

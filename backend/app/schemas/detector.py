@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -41,7 +40,7 @@ class VersionRead(BaseModel):
 
 
 class VersionDetailRead(VersionRead):
-    config_schema: dict[str, Any]
+    pass
 
 
 class BuildCreate(BaseModel):
