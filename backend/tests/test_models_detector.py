@@ -27,6 +27,11 @@ def test_detector_build_has_required_fields():
     }
 
 
+def test_detector_build_no_pending_schema_column() -> None:
+    """Phase 11c: pending_schema column dropped (was v0 schema POST landing)."""
+    assert "pending_schema" not in DetectorBuild.__table__.columns
+
+
 def test_user_git_credential_has_required_fields():
     cols = {c.name for c in UserGitCredential.__table__.columns}
     assert cols >= {

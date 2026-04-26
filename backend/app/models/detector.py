@@ -131,4 +131,3 @@ class DetectorBuild(Base):
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     build_token: Mapped[str | None] = mapped_column(String(80))
-    pending_schema: Mapped[dict | None] = mapped_column(_JSONB)

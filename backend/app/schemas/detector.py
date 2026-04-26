@@ -55,8 +55,8 @@ class BuildCreate(BaseModel):
 
 
 class BuildRead(BaseModel):
-    """Note: intentionally excludes build_token and pending_schema — these are
-    internal credentials / working state, not for client consumption."""
+    """Note: intentionally excludes build_token — internal credential, not for
+    client consumption."""
 
     model_config = ConfigDict(from_attributes=True)
     id: UUID
