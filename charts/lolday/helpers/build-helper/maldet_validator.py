@@ -30,7 +30,13 @@ from pathlib import Path
 from maldet.manifest import DetectorManifest, ManifestNotFoundError, load_manifest
 
 # Files written under build-args/.
-ARG_NAMES = ("MALDET_NAME", "MALDET_VERSION", "MALDET_FRAMEWORK", "MALDET_MANIFEST_B64", "GIT_COMMIT")
+ARG_NAMES = (
+    "MALDET_NAME",
+    "MALDET_VERSION",
+    "MALDET_FRAMEWORK",
+    "MALDET_MANIFEST_B64",
+    "GIT_COMMIT",
+)
 
 
 class ValidationError(Exception):
@@ -54,7 +60,9 @@ def validate_manifest(repo: Path) -> DetectorManifest:
         raise ValidationError("manifest_missing", str(exc)) from exc
     except Exception as exc:
         # Pydantic ValidationError, TOMLDecodeError, etc.
-        raise ValidationError("manifest_invalid", f"{type(exc).__name__}: {exc}") from exc
+        raise ValidationError(
+            "manifest_invalid", f"{type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def write_build_args(*, repo: Path, out: Path, git_sha_path: Path) -> None:
@@ -62,7 +70,9 @@ def write_build_args(*, repo: Path, out: Path, git_sha_path: Path) -> None:
     manifest = validate_manifest(repo)
     git_sha = git_sha_path.read_text().strip() if git_sha_path.is_file() else ""
     manifest_b64 = base64.b64encode(
-        json.dumps(manifest.model_dump(mode="json"), separators=(",", ":"), default=str).encode("utf-8")
+        json.dumps(
+            manifest.model_dump(mode="json"), separators=(",", ":"), default=str
+        ).encode("utf-8")
     ).decode("ascii")
     values = {
         "MALDET_NAME": manifest.detector.name,

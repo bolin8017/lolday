@@ -21,7 +21,8 @@ def _write_repo(root: Path, *, framework: str = "sklearn", name: str = "demo") -
     (root / "pyproject.toml").write_text(
         f'[project]\nname = "{name}"\nversion = "1.0.0"\nrequires-python = ">=3.12"\n'
     )
-    (root / "maldet.toml").write_text(textwrap.dedent(f"""
+    (root / "maldet.toml").write_text(
+        textwrap.dedent(f"""
         [detector]
         name = "{name}"
         version = "2.0.0"
@@ -44,7 +45,9 @@ def _write_repo(root: Path, *, framework: str = "sklearn", name: str = "demo") -
 
         [artifacts]
         model = {{ path = "model/", type = "dir" }}
-    """).strip() + "\n")
+    """).strip()
+        + "\n"
+    )
     src = root / "src" / name
     src.mkdir(parents=True)
     (src / "__init__.py").write_text("")
@@ -64,7 +67,9 @@ def test_validate_manifest_raises_when_missing(tmp_path: Path) -> None:
 
 
 def test_validate_manifest_raises_on_invalid_schema(tmp_path: Path) -> None:
-    (tmp_path / "maldet.toml").write_text('[detector]\nname = "x"\n')  # missing many required fields
+    (tmp_path / "maldet.toml").write_text(
+        '[detector]\nname = "x"\n'
+    )  # missing many required fields
     with pytest.raises(mv.ValidationError, match="manifest_invalid"):
         mv.validate_manifest(tmp_path)
 
@@ -97,7 +102,9 @@ def test_write_build_args_missing_git_sha_uses_empty_string(tmp_path: Path) -> N
     _write_repo(tmp_path / "src", name="demo")
     out = tmp_path / "build-args"
     out.mkdir()
-    mv.write_build_args(repo=tmp_path / "src", out=out, git_sha_path=tmp_path / "absent")
+    mv.write_build_args(
+        repo=tmp_path / "src", out=out, git_sha_path=tmp_path / "absent"
+    )
     assert (out / "GIT_COMMIT").read_text() == ""
 
 
