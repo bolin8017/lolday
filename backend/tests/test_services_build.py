@@ -99,6 +99,13 @@ def test_buildkit_container_is_rootless_not_privileged():
 def test_buildkit_destination_and_insecure_registry_flags():
     """buildctl-daemonless args must carry the Harbor destination and
     mark the registry insecure (Harbor in-cluster is plain HTTP on :80).
+
+    Phase 11c wraps the buildctl invocation in `sh -c` so the validate
+    initContainer's MALDET_* per-key files can be read at runtime and
+    forwarded as `--opt build-arg:KEY=VAL` flags. The destination /
+    cache_repo / insecure-registry directives are still f-string-baked
+    into the shell payload at Python-render time, so this test asserts
+    against the rendered shell string.
     """
     job = build_job_spec(
         build_id=uuid4(),
@@ -107,29 +114,28 @@ def test_buildkit_destination_and_insecure_registry_flags():
         owner_repo="bolin8017/upxelfdet",
     )
     buildkit = job["spec"]["template"]["spec"]["containers"][0]
-    # Exec form — command is the wrapper, args is argv.
-    assert buildkit["command"] == ["buildctl-daemonless.sh"]
-    args = buildkit["args"]
-    assert args[0] == "build"
+    # `sh -c` wrapper — command is /bin/sh -c, args is a single shell
+    # script that reads /workspace/build-args/* and execs buildctl.
+    assert buildkit["command"] == ["/bin/sh", "-c"]
+    assert len(buildkit["args"]) == 1
+    script = buildkit["args"][0]
+    # buildctl-daemonless.sh is invoked via `exec` so signals propagate
+    # cleanly to the daemonless wrapper.
+    assert "exec buildctl-daemonless.sh build" in script
     # The image-target triple MUST travel as one comma-separated
     # --output token, not three separate outputs; BuildKit would happily
     # interpret `--output push=true` as a second output target and drop
     # the image push silently.
-    output_idx = args.index("--output")
-    output_val = args[output_idx + 1]
-    assert output_val.startswith("type=image,")
+    assert "--output type=image," in script
     # Accept any Harbor prefix (default vs helm-overridden), just pin
     # the project/name/tag tail that identifies the target image.
-    assert "/detectors/upxelfdet:v0.1.0" in output_val
-    assert "push=true" in output_val
-    assert "registry.insecure=true" in output_val
+    assert "/detectors/upxelfdet:v0.1.0" in script
+    assert "push=true" in script
+    assert "registry.insecure=true" in script
     # Registry-backed cache, exported and imported with the same ref.
-    export_idx = args.index("--export-cache")
-    import_idx = args.index("--import-cache")
-    assert args[export_idx + 1].startswith("type=registry,")
-    assert args[import_idx + 1].startswith("type=registry,")
-    assert "/detectors-cache/upxelfdet" in args[export_idx + 1]
-    assert "/detectors-cache/upxelfdet" in args[import_idx + 1]
+    assert "--export-cache type=registry," in script
+    assert "--import-cache type=registry," in script
+    assert "/detectors-cache/upxelfdet" in script
 
 
 def test_buildkit_image_from_settings_not_hardcoded():

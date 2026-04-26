@@ -147,6 +147,15 @@ def build_job_spec(
                                 "defaultMode": 0o440,
                             },
                         },
+                        # Phase 11c: shared volume between the validate
+                        # initContainer (writes per-key MALDET_* files) and
+                        # the buildkit container (reads them and emits
+                        # --opt build-arg:KEY=VAL flags). Tiny payload
+                        # (5 strings, manifest_b64 the largest at ~1KB).
+                        {
+                            "name": "build-args",
+                            "emptyDir": {"sizeLimit": "1Mi"},
+                        },
                     ],
                     "initContainers": [
                         {
@@ -199,7 +208,12 @@ def build_job_spec(
                             "image": settings.BUILD_IMAGE_HELPER,
                             "imagePullPolicy": "Always",
                             "command": ["python", "-m", "maldet_validator"],
-                            "args": ["/workspace/src"],
+                            # Phase 11c: validator now takes (repo_path,
+                            # build_args_out). It validates the repo and
+                            # writes the 5 MALDET_* per-key files to the
+                            # build-args dir for the buildkit container to
+                            # consume.
+                            "args": ["/workspace/src", "/workspace/build-args"],
                             "env": [
                                 {"name": "BUILD_ID", "value": str(build_id)},
                                 {
@@ -213,6 +227,9 @@ def build_job_spec(
                             "volumeMounts": [
                                 {"name": "workspace", "mountPath": "/workspace"},
                                 {"name": "tmp", "mountPath": "/tmp"},
+                                # Writable: validator emits the per-key
+                                # MALDET_* files here.
+                                {"name": "build-args", "mountPath": "/workspace/build-args"},
                             ],
                             "securityContext": base_sc,
                             "resources": {
@@ -248,26 +265,39 @@ def build_job_spec(
                             "name": "buildkit",
                             "image": settings.BUILD_IMAGE_BUILDKIT,
                             "imagePullPolicy": "IfNotPresent",
-                            # buildctl-daemonless.sh is the upstream wrapper
-                            # that forks a local buildkitd and runs buildctl
-                            # against its unix socket — same one-pod-per-build
-                            # shape that Kaniko had, so the reconciler's Job
-                            # lifecycle logic needs no changes. We invoke it
-                            # via the exec form (no `sh -c`) so `destination`
-                            # and `cache_repo` travel as argv entries, not
-                            # shell-interpolated; a git_tag containing spaces
-                            # or `;` cannot corrupt the argv even without
-                            # the schema-level regex guard upstream.
-                            "command": ["buildctl-daemonless.sh"],
+                            # Phase 11c: wrap buildctl-daemonless.sh in a
+                            # `sh -c` shell so we can read the 5 per-key
+                            # MALDET_* files written by the validate
+                            # initContainer and forward them as
+                            # `--opt build-arg:KEY=VAL` flags. The
+                            # f-string-interpolated values (destination,
+                            # cache_repo) are baked at Python-render time
+                            # and cannot be subverted by the build-args
+                            # contents (which are read at runtime as $MN,
+                            # $MV, …). git_tag is still validated by the
+                            # schema-level regex upstream of build_job_spec.
+                            "command": ["/bin/sh", "-c"],
                             "args": [
-                                "build",
-                                "--frontend", "dockerfile.v0",
-                                "--local", "context=/workspace/src",
-                                "--local", "dockerfile=/workspace/src",
-                                "--output", f"type=image,name={destination},push=true,registry.insecure=true",
-                                "--export-cache", f"type=registry,ref={cache_repo},mode=max,registry.insecure=true",
-                                "--import-cache", f"type=registry,ref={cache_repo},registry.insecure=true",
-                                "--progress", "plain",
+                                "set -eu; "
+                                "BA=/workspace/build-args; "
+                                "MN=$(cat $BA/MALDET_NAME); "
+                                "MV=$(cat $BA/MALDET_VERSION); "
+                                "MF=$(cat $BA/MALDET_FRAMEWORK); "
+                                "MB=$(cat $BA/MALDET_MANIFEST_B64); "
+                                "GC=$(cat $BA/GIT_COMMIT); "
+                                "exec buildctl-daemonless.sh build "
+                                "--frontend dockerfile.v0 "
+                                "--local context=/workspace/src "
+                                "--local dockerfile=/workspace/src "
+                                f"--output type=image,name={destination},push=true,registry.insecure=true "
+                                f"--export-cache type=registry,ref={cache_repo},mode=max,registry.insecure=true "
+                                f"--import-cache type=registry,ref={cache_repo},registry.insecure=true "
+                                "--progress plain "
+                                "--opt build-arg:MALDET_NAME=\"$MN\" "
+                                "--opt build-arg:MALDET_VERSION=\"$MV\" "
+                                "--opt build-arg:MALDET_FRAMEWORK=\"$MF\" "
+                                "--opt build-arg:MALDET_MANIFEST_B64=\"$MB\" "
+                                "--opt build-arg:GIT_COMMIT=\"$GC\""
                             ],
                             "env": [
                                 # buildctl-daemonless.sh retries daemon
@@ -291,6 +321,12 @@ def build_job_spec(
                                 {"name": "buildkit-state", "mountPath": "/home/user/.local/share/buildkit"},
                                 # buildctl writes temporary frontend files here.
                                 {"name": "tmp", "mountPath": "/tmp"},
+                                # Phase 11c: per-key MALDET_* files written
+                                # by the validate initContainer; read by
+                                # the sh -c wrapper above. Read-only — we
+                                # never want buildkitd writing into this
+                                # directory.
+                                {"name": "build-args", "mountPath": "/workspace/build-args", "readOnly": True},
                             ],
                             "securityContext": buildkit_sc,
                             "resources": {
