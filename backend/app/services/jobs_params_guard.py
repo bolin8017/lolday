@@ -18,11 +18,14 @@ Allowlist rather than blocklist would be safer, but maldet's per-detector
 config trees are open-ended (every detector author can name new sections
 freely), and a strict allowlist would force every detector to declare its
 configurable surface area. Phase 11c trades that for a tight blocklist.
+
+Lists are walked element-wise: ``{"callbacks": [{"_target_": ...}]}`` is rejected because
+Hydra's ``instantiate()`` resolves ``_target_`` inside list elements as well.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 HYDRA_META_KEYS = frozenset(
@@ -52,8 +55,7 @@ def validate_user_params(params: Any) -> None:
                 f"user param keys must be strings, got {type(key).__name__}: {key!r}"
             )
         _check_key_is_safe(key, is_top_level=True)
-        if isinstance(val, Mapping):
-            _walk(val, parents=(key,))
+        _walk_value(val, parents=(key,))
 
 
 def _check_key_is_safe(key: str, *, is_top_level: bool) -> None:
@@ -88,5 +90,18 @@ def _walk(node: Mapping[str, Any], *, parents: tuple[str, ...]) -> None:
                 f"nested key under {'.'.join(parents)!r} must be a string"
             )
         _check_key_is_safe(key, is_top_level=False)
-        if isinstance(val, Mapping):
-            _walk(val, parents=(*parents, key))
+        _walk_value(val, parents=(*parents, key))
+
+
+def _walk_value(val: Any, *, parents: tuple[str, ...]) -> None:
+    """Recurse into Mapping (check keys) or non-string Sequence (check elements).
+
+    Hydra's instantiate() resolves ``_target_`` in any dict node, including dicts
+    nested inside lists (e.g. a callback list). Failing to walk lists would let
+    ``{"callbacks": [{"_target_": "evil"}]}`` bypass the guard.
+    """
+    if isinstance(val, Mapping):
+        _walk(val, parents=parents)
+    elif isinstance(val, Sequence) and not isinstance(val, (str, bytes)):
+        for i, item in enumerate(val):
+            _walk_value(item, parents=(*parents, f"[{i}]"))

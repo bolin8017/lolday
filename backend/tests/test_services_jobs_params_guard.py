@@ -86,3 +86,37 @@ def test_empty_params_pass() -> None:
 def test_non_dict_rejected() -> None:
     with pytest.raises(UserParamsRejected, match="must be a dict"):
         validate_user_params(["not", "a", "dict"])  # type: ignore[arg-type]
+
+
+def test_list_of_dicts_with_hydra_meta_rejected() -> None:
+    """Hydra resolves _target_ inside list elements (e.g. callback lists)."""
+    with pytest.raises(UserParamsRejected, match="_target_"):
+        validate_user_params({"callbacks": [{"_target_": "evil.module"}]})
+
+
+def test_deeply_nested_list_with_hydra_meta_rejected() -> None:
+    """Hydra meta in a dict inside a list inside a dict — all forbidden."""
+    with pytest.raises(UserParamsRejected, match="_target_"):
+        validate_user_params({"a": {"b": [{"c": {"_target_": "evil"}}]}})
+
+
+def test_list_with_dotted_hydra_meta_in_key_rejected() -> None:
+    """Dotted hydra meta in a key inside a list element."""
+    with pytest.raises(UserParamsRejected, match="_partial_"):
+        validate_user_params({"items": [{"model._partial_": "evil"}]})
+
+
+def test_list_of_primitives_passes() -> None:
+    """Lists of plain values (numbers, strings, bools) are fine."""
+    validate_user_params({"layers": [128, 64, 32]})
+    validate_user_params({"flags": [True, False]})
+
+
+def test_nested_list_with_safe_dicts_passes() -> None:
+    """Lists of dicts with only safe keys pass."""
+    validate_user_params({
+        "callbacks": [
+            {"name": "early_stop", "patience": 5},
+            {"name": "checkpoint", "save_top_k": 3},
+        ],
+    })
