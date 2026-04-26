@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lolday-build-helper"
+version = "3.0.0"
+description = "lolday build-pipeline init-container script (Phase 11c manifest-driven)"
+requires-python = ">=3.12"
+dependencies = [
+    "maldet[lightning]>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+# Single-file module; bundle it directly.
+include = ["maldet_validator.py"]
