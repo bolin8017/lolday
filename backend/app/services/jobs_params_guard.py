@@ -7,9 +7,9 @@ sections of the rendered Hydra YAML (paths/data/mlflow are platform-injected),
 this module rejects two classes of keys:
 
 1. **Hydra meta-fields** anywhere in the params tree: ``_target_``,
-   ``_partial_``, ``_args_``, ``_recursive_``. These are how Hydra knows to
-   ``importlib.import_module`` a target — letting users override one means
-   arbitrary remote code execution inside the detector container.
+   ``_partial_``, ``_args_``, ``_recursive_``, ``_convert_``. These are how
+   Hydra knows to ``importlib.import_module`` a target — letting users override
+   one means arbitrary remote code execution inside the detector container.
 2. **Platform-controlled top-level keys**: ``paths``, ``data``, ``mlflow``.
    These are written by ``services/job_config.JobConfigRenderer`` and must
    not be overridable.
@@ -25,7 +25,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-HYDRA_META_KEYS = frozenset({"_target_", "_partial_", "_args_", "_recursive_"})
+HYDRA_META_KEYS = frozenset(
+    {"_target_", "_partial_", "_args_", "_recursive_", "_convert_"}
+)
 PLATFORM_RESERVED_PREFIXES = frozenset({"paths", "data", "mlflow"})
 
 
@@ -49,14 +51,24 @@ def validate_user_params(params: Any) -> None:
             raise UserParamsRejected(
                 f"user param keys must be strings, got {type(key).__name__}: {key!r}"
             )
-        _check_key_is_safe(key)
+        _check_key_is_safe(key, is_top_level=True)
         if isinstance(val, Mapping):
             _walk(val, parents=(key,))
 
 
-def _check_key_is_safe(key: str) -> None:
+def _check_key_is_safe(key: str, *, is_top_level: bool) -> None:
+    """Validate one key. Splits on ``.`` and checks every segment.
+
+    Hydra resolves dotted keys like ``model._target_`` as a full override path,
+    so a Hydra meta-field in ANY segment of ANY key (top-level or nested) is
+    a bypass and must be rejected.
+
+    The platform-prefix check (``paths``/``data``/``mlflow``) is only meaningful
+    at the top level: ``foo.paths`` is just a user-defined leaf, but
+    ``paths.output_dir`` would clobber a platform-injected section.
+    """
     parts = key.split(".")
-    if parts[0] in PLATFORM_RESERVED_PREFIXES:
+    if is_top_level and parts[0] in PLATFORM_RESERVED_PREFIXES:
         raise UserParamsRejected(
             f"key {key!r} starts with platform-reserved prefix {parts[0]!r}; "
             f"reserved={sorted(PLATFORM_RESERVED_PREFIXES)}"
@@ -75,9 +87,6 @@ def _walk(node: Mapping[str, Any], *, parents: tuple[str, ...]) -> None:
             raise UserParamsRejected(
                 f"nested key under {'.'.join(parents)!r} must be a string"
             )
-        if key in HYDRA_META_KEYS:
-            raise UserParamsRejected(
-                f"key {'.'.join((*parents, key))!r} is forbidden Hydra meta-field {key!r}"
-            )
+        _check_key_is_safe(key, is_top_level=False)
         if isinstance(val, Mapping):
             _walk(val, parents=(*parents, key))

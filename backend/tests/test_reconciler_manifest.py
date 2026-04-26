@@ -64,7 +64,13 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
     fake_job.status.succeeded = 1
     fake_job.status.failed = 0
 
-    labels = {"io.maldet.manifest": _b64_manifest()}
+    labels = {
+        "io.maldet.manifest": _b64_manifest(),
+        # The build-helper stamps the commit SHA into this standard OCI label;
+        # the reconciler reads it back and writes it to DetectorVersion.git_sha
+        # (canonical post-Phase-11c flow — no schema-POST callback any more).
+        "org.opencontainers.image.revision": "abc123def456",
+    }
 
     with patch("app.reconciler.batch_v1") as bv, \
          patch("app.reconciler.HarborClient") as hc, \
@@ -86,6 +92,10 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
     assert len(rows) == 1
     dv = rows[0]
     assert dv.image_digest == "sha256:deadbeef"
+    # git_sha flows from the OCI revision label into both DetectorVersion
+    # and DetectorBuild (the build row is also kept in sync for audit trails).
+    assert dv.git_sha == "abc123def456"
+    assert build.git_sha == "abc123def456"
     # The full manifest survives the model_dump(mode=json) round-trip: at least
     # the keys we care about downstream (detector name, supported resources,
     # train stage module paths) must come through intact.

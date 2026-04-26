@@ -16,7 +16,6 @@ dependencies = [
     "maldet~=1.0",
     "cryptography>=44.0.0",
     "httpx>=0.28.0",
-    "jsonschema>=4.23.0",
     "mlflow-skinny>=2.20.0",
     "prometheus-fastapi-instrumentator~=7.0",
     "cachetools>=7.0.5",

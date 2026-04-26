@@ -345,17 +345,23 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
 
             manifest_dict = manifest_model.model_dump(mode="json")
 
+            # The build-helper stamps the commit SHA into the OCI label
+            # ``org.opencontainers.image.revision`` (Dockerfile LABEL +
+            # BuildKit ``--label`` from the build-helper start hook). That is
+            # the canonical post-build source of truth — no callback writes
+            # ``b.git_sha`` after Phase 11c removed the v0 schema-POST route.
+            commit_sha = labels.get("org.opencontainers.image.revision", "") or ""
+
             version = DetectorVersion(
                 detector_id=b.detector_id,
                 git_tag=b.git_tag,
-                git_sha=await _read_git_sha_from_log(b),
+                git_sha=commit_sha,
                 harbor_image=f"{settings.HARBOR_IMAGE_PREFIX}/detectors/{detector.name}:{b.git_tag}",
                 image_digest=digest,
                 manifest=manifest_dict,
                 status=DetectorVersionStatus.ACTIVE,
             )
             session.add(version)
-            commit_sha = version.git_sha or ""
             b.git_sha = commit_sha
         else:
             if existing_version.image_digest != digest:
@@ -525,19 +531,6 @@ async def _extract_failure_reason(b: DetectorBuild) -> str:
         return "unknown_failure"
     except ApiException:
         return "k8s_api_error"
-
-
-async def _read_git_sha_from_log(b: DetectorBuild) -> str:
-    """Return the git_sha already persisted on the build row.
-
-    The clone init container resolves the tag to a commit SHA and writes it
-    to ``/workspace/git-sha``; the build-helper ``start`` callback
-    (Phase 11b) lifts that value onto ``DetectorBuild.git_sha`` before the
-    build job is launched. Phase 11c removed the v0 schema-POST callback
-    that previously also carried git_sha, so by the time the reconciler
-    calls this helper, ``b.git_sha`` is already populated upstream.
-    """
-    return b.git_sha or ""
 
 
 async def _cleanup_build_secret(build_id) -> None:
