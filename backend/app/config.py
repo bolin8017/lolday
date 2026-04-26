@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     HARBOR_IMAGE_PREFIX: str = "harbor.harbor.svc:80"
     GITHUB_API_URL: str = "https://api.github.com"
     BUILD_NAMESPACE: str = "lolday"
-    BUILD_IMAGE_HELPER: str = "harbor.harbor.svc:80/lolday/build-helper:v2"
+    BUILD_IMAGE_HELPER: str = "harbor.harbor.svc:80/lolday/build-helper:v3"
     BUILD_IMAGE_BUILDKIT: str = "moby/buildkit:v0.29.0-rootless"
     BUILD_IMAGE_GIT: str = "alpine/git:2.45"
     BUILD_TIMEOUT_SECONDS: int = 1200
