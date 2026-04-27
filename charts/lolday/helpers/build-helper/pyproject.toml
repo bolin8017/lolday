@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lolday-build-helper"
-version = "3.0.0"
-description = "lolday build-pipeline init-container script (Phase 11c manifest-driven)"
+version = "3.1.0"
+description = "lolday build-pipeline init-container script (Phase 11e typed-contract aware)"
 requires-python = ">=3.12"
 dependencies = [
-    "maldet[lightning]>=1.0,<2.0",
+    "maldet[lightning]>=1.1,<2.0",
 ]
 
 [project.optional-dependencies]
