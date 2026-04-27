@@ -1,8 +1,11 @@
-import ast
 import tomllib
 from pathlib import Path
 
+import pydantic
+from maldet.manifest import DetectorManifest
+
 from app.config import settings
+from app.models.job import ResourceProfile
 
 REPO_MAX_SIZE_BYTES = settings.REPO_MAX_SIZE_MB * 1024 * 1024
 
@@ -19,7 +22,7 @@ def validate_repo_static(repo_root: Path) -> None:
     _check_size(repo_root)
     _check_pyproject(repo_root)
     _check_dockerfile(repo_root)
-    _check_base_detector_import(repo_root)
+    _check_maldet_toml(repo_root)
 
 
 def _check_size(repo_root: Path) -> None:
@@ -59,39 +62,50 @@ def _check_dockerfile(repo_root: Path) -> None:
         )
 
 
-def _check_base_detector_import(repo_root: Path) -> None:
-    for py in repo_root.rglob("*.py"):
-        # skip hidden dirs and common noise — check relative parts only
-        rel_parts = py.relative_to(repo_root).parts
-        if any(part.startswith(".") or part in {"tests", "test"} for part in rel_parts):
-            continue
-        try:
-            tree = ast.parse(py.read_text(errors="ignore"), filename=str(py))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                if node.module and "maldet" in node.module:
-                    for alias in node.names:
-                        if alias.name == "BaseDetector":
-                            return
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name.startswith("maldet"):
-                        return  # allow `import maldet; maldet.BaseDetector`
-    raise StaticValidationError(
-        "base_detector_import_missing",
-        "no import of BaseDetector from maldet found",
-    )
+def _check_maldet_toml(repo_root: Path) -> None:
+    """Phase 11c: the only "is this a detector repo?" signal is a parseable
+    ``maldet.toml`` that satisfies the ``DetectorManifest`` schema."""
+    manifest_path = repo_root / "maldet.toml"
+    if not manifest_path.is_file():
+        raise StaticValidationError(
+            "manifest_missing",
+            "maldet.toml required at repo root (Phase 11c contract)",
+        )
+    try:
+        text = manifest_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise StaticValidationError(
+            "manifest_unparseable",
+            f"maldet.toml is not valid UTF-8: {e}",
+        ) from e
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise StaticValidationError(
+            "manifest_unparseable",
+            f"maldet.toml is not valid TOML: {e}",
+        ) from e
+    try:
+        manifest = DetectorManifest.model_validate(data)
+    except pydantic.ValidationError as e:
+        raise StaticValidationError(
+            "manifest_invalid",
+            f"maldet.toml fails DetectorManifest schema: {e}",
+        ) from e
+    # The pydantic schema only constrains types — empty strings would still
+    # parse, then explode downstream as Harbor `repository:` or registry
+    # tag. Reject them at submit time so the detector author sees a clear
+    # error instead of a confusing build/registry failure.
+    if not manifest.detector.name.strip() or not manifest.detector.version.strip():
+        raise StaticValidationError(
+            "manifest_invalid",
+            "detector.name and detector.version must be non-empty",
+        )
 
 
 # ---------------------------------------------------------------------------
-# Phase 11b: manifest + job-submission pre-flight validators
+# Job-submission pre-flight validators
 # ---------------------------------------------------------------------------
-
-from maldet.manifest import DetectorManifest  # noqa: E402
-
-from app.models.job import ResourceProfile  # noqa: E402
 
 _PROFILE_TO_MANIFEST_TOKEN = {
     ResourceProfile.STANDARD: "cpu",
@@ -157,7 +171,10 @@ def validate_job_submission(
     # Multi-GPU profile requires explicit detector opt-in — silently running
     # single-GPU semantics on a 2-GPU allocation wastes the unused device
     # unless the detector author has declared a distributed strategy.
-    if resource_profile == ResourceProfile.GPU2 and not manifest.lifecycle.supports_distributed:
+    if (
+        resource_profile == ResourceProfile.GPU2
+        and not manifest.lifecycle.supports_distributed
+    ):
         raise JobSubmissionError(
             f"resource_profile {resource_profile.value!r} allocates multiple GPUs but "
             f"detector's lifecycle.supports_distributed is "

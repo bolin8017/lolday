@@ -38,7 +38,6 @@ async def _seed_job(session: AsyncSession) -> Job:
         git_sha="deadbeef",
         harbor_image="h/x:v1",
         image_digest="sha256:abc",
-        config_schema={},
     )
     session.add(dv)
     await session.flush()

@@ -12,7 +12,9 @@ async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
     from app.models.detector import Detector
 
     detector = Detector(
-        name="testdet", display_name="Test", git_url="https://github.com/x/y.git",
+        name="testdet",
+        display_name="Test",
+        git_url="https://github.com/x/y.git",
         owner_id=uuid4(),
     )
     db_session.add(detector)
@@ -24,7 +26,6 @@ async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
         triggered_by_id=uuid4(),
         k8s_job_name="build-foo-abc",
         status=DetectorBuildStatus.BUILDING,
-        build_token="btok_x",
     )
     db_session.add(build)
     await db_session.commit()
@@ -39,6 +40,7 @@ async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
         with patch("app.reconciler.HarborClient") as hc:
             hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:abc")
             from app.services.harbor import ScanResult, ScanStatus
+
             hc.return_value.get_scan = AsyncMock(
                 return_value=ScanResult(ScanStatus.PENDING, 0, 0, 0, 0)
             )
@@ -54,7 +56,9 @@ async def test_reconcile_cve_blocked(db_session):
     from app.models.detector import Detector
 
     detector = Detector(
-        name="testdet2", display_name="Test2", git_url="https://github.com/x/z.git",
+        name="testdet2",
+        display_name="Test2",
+        git_url="https://github.com/x/z.git",
         owner_id=uuid4(),
     )
     db_session.add(detector)
@@ -66,7 +70,6 @@ async def test_reconcile_cve_blocked(db_session):
         triggered_by_id=uuid4(),
         k8s_job_name="build-foo-xyz",
         status=DetectorBuildStatus.BUILDING,
-        build_token="btok_y",
     )
     db_session.add(build)
     await db_session.commit()
@@ -75,14 +78,19 @@ async def test_reconcile_cve_blocked(db_session):
     fake_job.status.succeeded = 1
     fake_job.status.failed = 0
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc, \
-         patch("app.reconciler.core_v1") as cv:
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.core_v1") as cv,
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         from app.services.harbor import ScanResult, ScanStatus
+
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:deadbeef")
         hc.return_value.get_scan = AsyncMock(
-            return_value=ScanResult(ScanStatus.SUCCESS, critical=1, high=0, medium=0, low=0)
+            return_value=ScanResult(
+                ScanStatus.SUCCESS, critical=1, high=0, medium=0, low=0
+            )
         )
         hc.return_value.delete_artifact = AsyncMock()
         await reconcile_build(db_session, build)
@@ -104,7 +112,6 @@ async def test_reconcile_timeout(db_session):
         triggered_by_id=uuid4(),
         k8s_job_name="build-foo-timeout",
         status=DetectorBuildStatus.BUILDING,
-        build_token="btok_z",
     )
     # started_at far in the past
     build.started_at = datetime.now(timezone.utc) - timedelta(hours=1)
@@ -138,15 +145,19 @@ async def test_reconcile_not_scanned_triggers_trivy_scan(db_session):
     from app.services.harbor import ScanResult, ScanStatus
 
     detector = Detector(
-        name="tds1", display_name="tds1", git_url="https://github.com/x/s1.git",
+        name="tds1",
+        display_name="tds1",
+        git_url="https://github.com/x/s1.git",
         owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-tds1", status=DetectorBuildStatus.BUILDING,
-        build_token="btok_s1",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-tds1",
+        status=DetectorBuildStatus.BUILDING,
     )
     db_session.add(build)
     await db_session.commit()
@@ -160,8 +171,10 @@ async def test_reconcile_not_scanned_triggers_trivy_scan(db_session):
     async def _capture_trigger(project, repo, digest):
         trigger_calls.append((project, repo, digest))
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc:
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:new")
         hc.return_value.get_scan = AsyncMock(
@@ -177,7 +190,9 @@ async def test_reconcile_not_scanned_triggers_trivy_scan(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metric(db_session):
+async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metric(
+    db_session,
+):
     """If Harbor is unreachable or 500s, trigger_scan raises httpx.HTTPError.
     Reconciler must log + increment metric + RETURN WITHOUT flipping
     status to SCANNING, so the next reconcile tick retries cleanly
@@ -190,15 +205,19 @@ async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metr
     from app.metrics import BACKEND_ERRORS
 
     detector = Detector(
-        name="tds2", display_name="tds2", git_url="https://github.com/x/s2.git",
+        name="tds2",
+        display_name="tds2",
+        git_url="https://github.com/x/s2.git",
         owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-tds2", status=DetectorBuildStatus.BUILDING,
-        build_token="btok_s2",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-tds2",
+        status=DetectorBuildStatus.BUILDING,
     )
     db_session.add(build)
     await db_session.commit()
@@ -212,11 +231,15 @@ async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metr
 
     async def _raise(*a, **kw):
         raise httpx.HTTPStatusError(
-            "500", request=MagicMock(), response=MagicMock(status_code=500),
+            "500",
+            request=MagicMock(),
+            response=MagicMock(status_code=500),
         )
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc:
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:x")
         hc.return_value.get_scan = AsyncMock(
@@ -249,15 +272,19 @@ async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_ses
     from sqlalchemy import select
 
     detector = Detector(
-        name="tds-err", display_name="tds-err", git_url="https://github.com/x/err.git",
+        name="tds-err",
+        display_name="tds-err",
+        git_url="https://github.com/x/err.git",
         owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-tds-err", status=DetectorBuildStatus.BUILDING,
-        build_token="btok_err",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-tds-err",
+        status=DetectorBuildStatus.BUILDING,
     )
     db_session.add(build)
     await db_session.commit()
@@ -273,8 +300,10 @@ async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_ses
 
     before_metric = BACKEND_ERRORS.labels(stage="harbor_scan_error_retry")._value.get()
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc:
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:errdigest")
         hc.return_value.get_scan = AsyncMock(
@@ -288,9 +317,17 @@ async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_ses
     assert build.status == DetectorBuildStatus.SCANNING
     assert build.finished_at is None
     # 2. No DetectorVersion was created — image was NOT promoted
-    rows = (await db_session.execute(
-        select(DetectorVersion).where(DetectorVersion.detector_id == detector.id)
-    )).scalars().all()
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert rows == []
     # 3. trigger_scan called with the right digest — retry path invoked
     assert trigger_calls == [("detectors", "tds-err", "sha256:errdigest")]
@@ -318,15 +355,19 @@ async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
     from sqlalchemy import select
 
     detector = Detector(
-        name="tds-err-to", display_name="tds-err-to",
-        git_url="https://github.com/x/errto.git", owner_id=uuid4(),
+        name="tds-err-to",
+        display_name="tds-err-to",
+        git_url="https://github.com/x/errto.git",
+        owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-tds-err-to", status=DetectorBuildStatus.SCANNING,
-        build_token="btok_err_to",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-tds-err-to",
+        status=DetectorBuildStatus.SCANNING,
     )
     # Stuck in scan retry past the wall-clock ceiling
     build.started_at = datetime.now(timezone.utc) - timedelta(
@@ -339,9 +380,11 @@ async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
     fake_job.status.succeeded = 1  # Build finished; only scan is stuck
     fake_job.status.failed = 0
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc, \
-         patch("app.reconciler.core_v1"):
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.core_v1"),
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         bv.return_value.delete_namespaced_job.return_value = None
         # Harbor persistently reports Error — would cause infinite retry pre-fix
@@ -356,9 +399,17 @@ async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
     assert build.status == DetectorBuildStatus.TIMEOUT
     assert build.finished_at is not None
     # No DetectorVersion slipped through promotion
-    rows = (await db_session.execute(
-        select(DetectorVersion).where(DetectorVersion.detector_id == detector.id)
-    )).scalars().all()
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert rows == []
 
 
@@ -375,24 +426,29 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
     from sqlalchemy import select
 
     detector = Detector(
-        name="tds3", display_name="tds3", git_url="https://github.com/x/s3.git",
+        name="tds3",
+        display_name="tds3",
+        git_url="https://github.com/x/s3.git",
         owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
 
     existing = DetectorVersion(
-        detector_id=detector.id, git_tag="v0.1.0",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
         git_sha="deadbeef" * 5,
         harbor_image="harbor/tds3:v0.1.0",
         image_digest="sha256:winner",
-        config_schema={}, status=DetectorVersionStatus.ACTIVE,
+        status=DetectorVersionStatus.ACTIVE,
     )
     db_session.add(existing)
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-tds3", status=DetectorBuildStatus.SCANNING,
-        build_token="btok_s3",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-tds3",
+        status=DetectorBuildStatus.SCANNING,
     )
     db_session.add(build)
     await db_session.commit()
@@ -401,9 +457,11 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
     fake_job.status.succeeded = 1
     fake_job.status.failed = 0
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc, \
-         patch("app.reconciler.core_v1"):
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.core_v1"),
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         # Same digest as existing — idempotent replay, not divergence
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:winner")
@@ -417,9 +475,17 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
     assert build.status == DetectorBuildStatus.SUCCEEDED
     assert build.git_sha == existing.git_sha  # copied from existing
     # Still only one DetectorVersion for (det, v0.1.0)
-    rows = (await db_session.execute(
-        select(DetectorVersion).where(DetectorVersion.detector_id == detector.id)
-    )).scalars().all()
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1
     assert rows[0].image_digest == "sha256:winner"
 
@@ -436,24 +502,29 @@ async def test_reconcile_dedup_rejects_digest_divergence(db_session):
     from app.metrics import BACKEND_ERRORS
 
     detector = Detector(
-        name="tds4", display_name="tds4", git_url="https://github.com/x/s4.git",
+        name="tds4",
+        display_name="tds4",
+        git_url="https://github.com/x/s4.git",
         owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
 
     existing = DetectorVersion(
-        detector_id=detector.id, git_tag="v0.1.0",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
         git_sha="oldsha" * 7,
         harbor_image="harbor/tds4:v0.1.0",
         image_digest="sha256:existing-version",
-        config_schema={}, status=DetectorVersionStatus.ACTIVE,
+        status=DetectorVersionStatus.ACTIVE,
     )
     db_session.add(existing)
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-tds4", status=DetectorBuildStatus.SCANNING,
-        build_token="btok_s4",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-tds4",
+        status=DetectorBuildStatus.SCANNING,
     )
     db_session.add(build)
     await db_session.commit()
@@ -462,13 +533,19 @@ async def test_reconcile_dedup_rejects_digest_divergence(db_session):
     fake_job.status.succeeded = 1
     fake_job.status.failed = 0
 
-    before = BACKEND_ERRORS.labels(stage="detector_version_digest_mismatch")._value.get()
+    before = BACKEND_ERRORS.labels(
+        stage="detector_version_digest_mismatch"
+    )._value.get()
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc, \
-         patch("app.reconciler.core_v1"):
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.core_v1"),
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
-        hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:new-digest")
+        hc.return_value.get_artifact_digest = AsyncMock(
+            return_value="sha256:new-digest"
+        )
         hc.return_value.get_scan = AsyncMock(
             return_value=ScanResult(ScanStatus.SUCCESS, 0, 0, 0, 0)
         )

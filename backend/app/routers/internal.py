@@ -6,10 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_async_session
-from app.deps import require_build_token, require_job_token
+from app.deps import require_job_token
 from app.metrics import BACKEND_ERRORS
 from app.models import DatasetConfig, Job
-from app.models.detector import DetectorBuild
 from app.models.job import NON_TERMINAL_STATUSES
 from app.schemas.job import JobInternalConfig
 from app.services.events_tail import event_broker, persist_event
@@ -17,22 +16,6 @@ from app.services.events_tail import event_broker, persist_event
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-@router.post("/builds/{build_id}/schema")
-async def submit_schema(
-    payload: dict,
-    build: DetectorBuild = Depends(require_build_token),
-    session: AsyncSession = Depends(get_async_session),
-) -> dict:
-    """Called by validate init container with Pydantic JSON schema + git_sha."""
-    if "schema" not in payload:
-        raise HTTPException(status_code=422, detail="missing 'schema' in payload")
-    build.pending_schema = payload["schema"]
-    if payload.get("git_sha"):
-        build.git_sha = payload["git_sha"]
-    await session.commit()
-    return {"accepted": True}
 
 
 @router.get("/jobs/{job_id}/config", response_model=JobInternalConfig)

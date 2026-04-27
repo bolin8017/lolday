@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
-from app.deps import generate_build_token, require_detector_access, require_role
+from app.deps import require_detector_access, require_role
 from app.services.rate_limit import rate_limit_user
 from app.metrics import BACKEND_ERRORS
 from app.models import Role, User
@@ -84,11 +84,17 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
         if pat is None:
             raise HTTPException(
                 status_code=400,
-                detail={"code": "credential_missing", "message": "repo not public; PAT required"},
+                detail={
+                    "code": "credential_missing",
+                    "message": "repo not public; PAT required",
+                },
             )
         raise HTTPException(
             status_code=400,
-            detail={"code": "git_clone_failed", "message": "repo not accessible with PAT"},
+            detail={
+                "code": "git_clone_failed",
+                "message": "repo not accessible with PAT",
+            },
         )
 
     tmpdir = tempfile.mkdtemp(prefix="lolday-register-")
@@ -99,7 +105,11 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
             else f"https://github.com/{owner}/{repo}.git"
         )
         proc = await asyncio.create_subprocess_exec(
-            "git", "clone", "--depth=1", url_with_cred, tmpdir,
+            "git",
+            "clone",
+            "--depth=1",
+            url_with_cred,
+            tmpdir,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             env={
@@ -120,7 +130,10 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
         if proc.returncode != 0:
             raise HTTPException(
                 status_code=400,
-                detail={"code": "git_clone_failed", "message": err.decode(errors="ignore")[:200]},
+                detail={
+                    "code": "git_clone_failed",
+                    "message": err.decode(errors="ignore")[:200],
+                },
             )
         try:
             validate_repo_static(Path(tmpdir))
@@ -128,7 +141,9 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
             raise HTTPException(
                 status_code=400, detail={"code": e.code, "message": e.message}
             )
-        data = tomllib.loads((Path(tmpdir) / "pyproject.toml").read_text(encoding="utf-8"))
+        data = tomllib.loads(
+            (Path(tmpdir) / "pyproject.toml").read_text(encoding="utf-8")
+        )
         project = data.get("project", {})
         return {
             "name": project.get("name", repo).lower(),
@@ -139,7 +154,9 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-async def _delete_harbor_images(detector_name: str, session: AsyncSession, detector_id: UUID) -> None:
+async def _delete_harbor_images(
+    detector_name: str, session: AsyncSession, detector_id: UUID
+) -> None:
     """Best-effort cleanup of Harbor artifacts for a deleted detector."""
     if not settings.HARBOR_ADMIN_PASSWORD:
         return  # Harbor not configured (test env); skip silently
@@ -159,7 +176,10 @@ async def _delete_harbor_images(detector_name: str, session: AsyncSession, detec
             BACKEND_ERRORS.labels(stage="detector_retention_prune").inc()
             logger.exception(
                 "retention prune failed",
-                extra={"detector_version_id": str(v.id), "detector_name": detector_name},
+                extra={
+                    "detector_version_id": str(v.id),
+                    "detector_name": detector_name,
+                },
             )
     await session.commit()
 
@@ -173,7 +193,9 @@ async def register(
     try:
         normalized = normalize_git_url(body.git_url)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail={"code": "invalid_git_url", "message": str(e)})
+        raise HTTPException(
+            status_code=422, detail={"code": "invalid_git_url", "message": str(e)}
+        )
 
     dup = await session.execute(
         select(Detector).where(
@@ -185,7 +207,10 @@ async def register(
     if dup.scalar_one_or_none():
         raise HTTPException(
             status_code=409,
-            detail={"code": "duplicate_registration", "message": "already registered by you"},
+            detail={
+                "code": "duplicate_registration",
+                "message": "already registered by you",
+            },
         )
 
     pat = await _get_user_pat(session, user.id)
@@ -208,7 +233,10 @@ async def register(
         await session.rollback()
         raise HTTPException(
             status_code=409,
-            detail={"code": "name_conflict", "message": f"detector name '{name}' already exists"},
+            detail={
+                "code": "name_conflict",
+                "message": f"detector name '{name}' already exists",
+            },
         )
     await session.refresh(d)
     return DetectorRead.model_validate(d)
@@ -233,7 +261,9 @@ async def list_detectors(
     res = await session.execute(stmt)
     items = res.scalars().all()
     return {
-        "items": [DetectorRead.model_validate(d).model_dump(mode="json") for d in items],
+        "items": [
+            DetectorRead.model_validate(d).model_dump(mode="json") for d in items
+        ],
         "limit": limit,
         "offset": offset,
     }
@@ -295,7 +325,9 @@ async def list_versions(
     )
     versions = res.scalars().all()
     return {
-        "items": [VersionRead.model_validate(v).model_dump(mode="json") for v in versions]
+        "items": [
+            VersionRead.model_validate(v).model_dump(mode="json") for v in versions
+        ]
     }
 
 
@@ -335,7 +367,6 @@ async def _create_k8s_resources(
     git_tag: str,
     owner_repo: str,
     pat: str,
-    build_token: str,
 ) -> str:
     """Create Kubernetes Secret + Job for the build. Returns the job name."""
     job_name = build_job_name(detector_name, git_tag, build_id)
@@ -343,7 +374,6 @@ async def _create_k8s_resources(
         build_id=build_id,
         username="x-token-auth",
         pat_token=pat,
-        build_token=build_token,
     )
     job_body = build_job_spec(
         build_id=build_id,
@@ -353,6 +383,7 @@ async def _create_k8s_resources(
     )
 
     import asyncio as _asyncio
+
     loop = _asyncio.get_running_loop()
 
     def _create_secret():
@@ -418,6 +449,7 @@ async def create_build(
     in_flight = user_in_flight.scalar()
     if in_flight >= settings.BUILD_CONCURRENCY_PER_USER:
         from app.schemas.errors import ConcurrencyLimitDetail
+
         raise HTTPException(
             status_code=429,
             detail=ConcurrencyLimitDetail(
@@ -437,7 +469,10 @@ async def create_build(
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=409,
-            detail={"code": "build_in_flight", "message": "a build for this tag is already in flight"},
+            detail={
+                "code": "build_in_flight",
+                "message": "a build for this tag is already in flight",
+            },
         )
 
     # Require PAT for private repos
@@ -445,16 +480,17 @@ async def create_build(
     if pat is None:
         raise HTTPException(
             status_code=400,
-            detail={"code": "credential_missing", "message": "PAT required to trigger a build"},
+            detail={
+                "code": "credential_missing",
+                "message": "PAT required to trigger a build",
+            },
         )
 
-    build_token = generate_build_token()
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag=body.git_tag,
         triggered_by_id=user.id,
         status=DetectorBuildStatus.PENDING,
-        build_token=build_token,
     )
     session.add(build)
     await session.flush()  # get build.id before k8s call
@@ -469,17 +505,19 @@ async def create_build(
             git_tag=body.git_tag,
             owner_repo=owner_repo,
             pat=pat,
-            build_token=build_token,
         )
     except Exception as exc:
         build.status = DetectorBuildStatus.FAILED
         build.failure_reason = f"k8s_error: {type(exc).__name__}: {exc}"[:500]
         await session.commit()
-        raise HTTPException(status_code=500, detail={
-            "code": "build_launch_failed",
-            "message": f"failed to launch build job: {type(exc).__name__}",
-            "build_id": str(build.id),
-        })
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "build_launch_failed",
+                "message": f"failed to launch build job: {type(exc).__name__}",
+                "build_id": str(build.id),
+            },
+        )
 
     build.k8s_job_name = job_name
     build.status = DetectorBuildStatus.CLONING
@@ -542,7 +580,10 @@ async def cancel_build(
     if build.status not in cancellable_statuses:
         raise HTTPException(
             status_code=409,
-            detail={"code": "not_cancellable", "message": "build is not in a cancellable state"},
+            detail={
+                "code": "not_cancellable",
+                "message": "build is not in a cancellable state",
+            },
         )
 
     build.status = DetectorBuildStatus.CANCELLED
@@ -551,6 +592,7 @@ async def cancel_build(
     # Best-effort K8s job deletion
     if build.k8s_job_name:
         import asyncio as _asyncio
+
         loop = _asyncio.get_running_loop()
 
         def _delete_job():
@@ -564,7 +606,10 @@ async def cancel_build(
                 BACKEND_ERRORS.labels(stage="cancel_build_k8s_cleanup").inc()
                 logger.exception(
                     "K8s build job cleanup failed on cancel",
-                    extra={"build_id": str(build.id), "k8s_job_name": build.k8s_job_name},
+                    extra={
+                        "build_id": str(build.id),
+                        "k8s_job_name": build.k8s_job_name,
+                    },
                 )
 
         await loop.run_in_executor(None, _delete_job)

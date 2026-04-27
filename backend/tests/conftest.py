@@ -353,7 +353,6 @@ async def seed_detector_version(db_session, seed_user):
             git_sha="a" * 40,
             harbor_image=f"harbor.harbor.svc:80/detectors/{name}:{git_tag}",
             image_digest="sha256:" + "a" * 64,
-            config_schema={"type": "object", "properties": {"seed": {"type": "integer"}}},
             status=DetectorVersionStatus.ACTIVE,
             manifest=_MINIMAL_MANIFEST,
         )

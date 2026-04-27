@@ -1,4 +1,3 @@
-import secrets
 import uuid
 from typing import Annotated
 from uuid import UUID
@@ -8,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_async_session
 from app.models import Job, Role, User
-from app.models.detector import Detector, DetectorBuild, DetectorBuildStatus
+from app.models.detector import Detector
 from app.services.job_tokens import verify_token
 from app.users import current_active_user
 
@@ -43,6 +42,7 @@ def require_detector_access(write: bool = False):
     write=False: any authenticated user can read
     write=True: owner or admin only
     """
+
     async def _inner(
         detector: Detector = Depends(load_detector),
         user: User = Depends(current_active_user),
@@ -54,34 +54,6 @@ def require_detector_access(write: bool = False):
         raise HTTPException(status_code=403, detail="not owner / admin")
 
     return _inner
-
-
-def generate_build_token() -> str:
-    return f"btok_{secrets.token_urlsafe(32)}"
-
-
-async def require_build_token(
-    build_id: UUID,
-    authorization: str | None = Header(default=None),
-    session: AsyncSession = Depends(get_async_session),
-) -> DetectorBuild:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="missing bearer token")
-    token = authorization[7:]
-    build = await session.get(DetectorBuild, build_id)
-    if build is None:
-        raise HTTPException(status_code=404, detail="build not found")
-    if build.build_token != token:
-        raise HTTPException(status_code=401, detail="invalid build token")
-    # Allow submission during VALIDATING/BUILDING/CLONING/PENDING (any in-flight pre-scan state)
-    if build.status not in {
-        DetectorBuildStatus.PENDING,
-        DetectorBuildStatus.CLONING,
-        DetectorBuildStatus.VALIDATING,
-        DetectorBuildStatus.BUILDING,
-    }:
-        raise HTTPException(status_code=400, detail="build not in schema-accepting state")
-    return build
 
 
 async def require_job_token(

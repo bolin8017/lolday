@@ -79,23 +79,25 @@ class DetectorVersion(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     detector_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("detector.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("detector.id", ondelete="CASCADE"),
+        nullable=False,
     )
     git_tag: Mapped[str] = mapped_column(String(100), nullable=False)
     git_sha: Mapped[str] = mapped_column(String(40), nullable=False)
     harbor_image: Mapped[str] = mapped_column(String(500), nullable=False)
     image_digest: Mapped[str] = mapped_column(String(100), nullable=False)
-    config_schema: Mapped[dict] = mapped_column(_JSONB, nullable=False)
     manifest: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
-    mlflow_experiment_id: Mapped[str | None] = mapped_column(
-        String(50), nullable=True
-    )
+    mlflow_experiment_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     built_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     status: Mapped[DetectorVersionStatus] = mapped_column(
-        SAEnum(DetectorVersionStatus, name="detector_version_status",
-               values_callable=lambda x: [e.value for e in x]),
+        SAEnum(
+            DetectorVersionStatus,
+            name="detector_version_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=DetectorVersionStatus.ACTIVE,
         nullable=False,
     )
@@ -108,7 +110,9 @@ class DetectorBuild(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     detector_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("detector.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("detector.id", ondelete="CASCADE"),
+        nullable=False,
     )
     git_tag: Mapped[str] = mapped_column(String(100), nullable=False)
     git_sha: Mapped[str | None] = mapped_column(String(40))
@@ -117,8 +121,11 @@ class DetectorBuild(Base):
     )
     k8s_job_name: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[DetectorBuildStatus] = mapped_column(
-        SAEnum(DetectorBuildStatus, name="detector_build_status",
-               values_callable=lambda x: [e.value for e in x]),
+        SAEnum(
+            DetectorBuildStatus,
+            name="detector_build_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=DetectorBuildStatus.PENDING,
         nullable=False,
     )
@@ -130,5 +137,3 @@ class DetectorBuild(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    build_token: Mapped[str | None] = mapped_column(String(80))
-    pending_schema: Mapped[dict | None] = mapped_column(_JSONB)

@@ -24,14 +24,19 @@ from app.reconciler import (
 
 @contextmanager
 def _patch_notify():
-    with patch("app.reconciler.notify_job_completed", new=AsyncMock()) as jc, \
-         patch("app.reconciler.notify_job_failed", new=AsyncMock()) as jf, \
-         patch("app.reconciler.notify_build_completed", new=AsyncMock()) as bc, \
-         patch("app.reconciler.notify_build_failed", new=AsyncMock()) as bf, \
-         patch("app.reconciler.notify_trivy_blocked", new=AsyncMock()) as tb:
+    with (
+        patch("app.reconciler.notify_job_completed", new=AsyncMock()) as jc,
+        patch("app.reconciler.notify_job_failed", new=AsyncMock()) as jf,
+        patch("app.reconciler.notify_build_completed", new=AsyncMock()) as bc,
+        patch("app.reconciler.notify_build_failed", new=AsyncMock()) as bf,
+        patch("app.reconciler.notify_trivy_blocked", new=AsyncMock()) as tb,
+    ):
         yield SimpleNamespace(
-            job_completed=jc, job_failed=jf,
-            build_completed=bc, build_failed=bf, trivy_blocked=tb,
+            job_completed=jc,
+            job_failed=jf,
+            build_completed=bc,
+            build_failed=bf,
+            trivy_blocked=tb,
         )
 
 
@@ -45,7 +50,11 @@ async def test_handle_job_succeeded_calls_notify_completed(
         "data": {"metrics": {"f1": 0.91}, "params": {}, "tags": {}},
     }
     stub.create_registered_model.return_value = {"name": "upx"}
-    stub.create_model_version.return_value = {"name": "upx", "version": "1", "run_id": "r"}
+    stub.create_model_version.return_value = {
+        "name": "upx",
+        "version": "1",
+        "run_id": "r",
+    }
     monkeypatch.setattr("app.reconciler.MlflowClient", lambda *a, **kw: stub)
 
     dv_id = uuid.UUID(await seed_detector_version())
@@ -116,8 +125,11 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
     db_session, seed_user
 ):
     from app.models import Detector
+
     det = Detector(
-        name="upxelfdet", display_name="upx", git_url="https://g/u",
+        name="upxelfdet",
+        display_name="upx",
+        git_url="https://g/u",
         owner_id=seed_user.id,
     )
     db_session.add(det)
@@ -142,21 +154,38 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
     # before the completed-notify fires.
     import base64
     from pathlib import Path
+
     _fixture_manifest = (
         Path(__file__).parent / "fixtures" / "valid_maldet_manifest.json"
     ).read_text()
     _label_b64 = base64.b64encode(_fixture_manifest.encode("utf-8")).decode("ascii")
 
     class _StubHarbor:
-        async def get_artifact_digest(self, *a, **kw): return "sha256:abc"
-        async def get_scan(self, *a, **kw):
-            return ScanResult(status=ScanStatus.SUCCESS, critical=0, high=0, medium=0, low=0)
-        async def get_image_labels(self, *a, **kw):
-            return {"io.maldet.manifest": _label_b64}
-        async def delete_artifact(self, *a, **kw): pass
+        async def get_artifact_digest(self, *a, **kw):
+            return "sha256:abc"
 
-    with patch("app.reconciler.HarborClient", return_value=_StubHarbor()), \
-         _patch_notify() as notify:
+        async def get_scan(self, *a, **kw):
+            return ScanResult(
+                status=ScanStatus.SUCCESS, critical=0, high=0, medium=0, low=0
+            )
+
+        async def get_image_labels(self, *a, **kw):
+            # Phase 11c: build images must carry the OCI revision label too
+            # (set by the buildkit container) — without it the reconciler
+            # fails closed before the completed notify fires (test fixture
+            # parity with what runs in production).
+            return {
+                "io.maldet.manifest": _label_b64,
+                "org.opencontainers.image.revision": "deadbeef",
+            }
+
+        async def delete_artifact(self, *a, **kw):
+            pass
+
+    with (
+        patch("app.reconciler.HarborClient", return_value=_StubHarbor()),
+        _patch_notify() as notify,
+    ):
         await _handle_succeeded(db_session, build)
         await asyncio.sleep(0)
     assert notify.build_completed.await_count == 1
@@ -168,8 +197,11 @@ async def test_handle_build_succeeded_fires_trivy_blocked_on_critical_cve(
     db_session, seed_user
 ):
     from app.models import Detector
+
     det = Detector(
-        name="upxelfdet2", display_name="upx2", git_url="https://g/u2",
+        name="upxelfdet2",
+        display_name="upx2",
+        git_url="https://g/u2",
         owner_id=seed_user.id,
     )
     db_session.add(det)
@@ -189,13 +221,21 @@ async def test_handle_build_succeeded_fires_trivy_blocked_on_critical_cve(
     from app.services.harbor import ScanResult, ScanStatus
 
     class _StubHarbor:
-        async def get_artifact_digest(self, *a, **kw): return "sha256:abc"
-        async def get_scan(self, *a, **kw):
-            return ScanResult(status=ScanStatus.SUCCESS, critical=5, high=12, medium=0, low=0)
-        async def delete_artifact(self, *a, **kw): pass
+        async def get_artifact_digest(self, *a, **kw):
+            return "sha256:abc"
 
-    with patch("app.reconciler.HarborClient", return_value=_StubHarbor()), \
-         _patch_notify() as notify:
+        async def get_scan(self, *a, **kw):
+            return ScanResult(
+                status=ScanStatus.SUCCESS, critical=5, high=12, medium=0, low=0
+            )
+
+        async def delete_artifact(self, *a, **kw):
+            pass
+
+    with (
+        patch("app.reconciler.HarborClient", return_value=_StubHarbor()),
+        _patch_notify() as notify,
+    ):
         await _handle_succeeded(db_session, build)
         await asyncio.sleep(0)
     assert notify.trivy_blocked.await_count == 1
@@ -203,12 +243,13 @@ async def test_handle_build_succeeded_fires_trivy_blocked_on_critical_cve(
 
 
 @pytest.mark.asyncio
-async def test_handle_build_failed_fires_notify_build_failed(
-    db_session, seed_user
-):
+async def test_handle_build_failed_fires_notify_build_failed(db_session, seed_user):
     from app.models import Detector
+
     det = Detector(
-        name="upxelfdet3", display_name="upx3", git_url="https://g/u3",
+        name="upxelfdet3",
+        display_name="upx3",
+        git_url="https://g/u3",
         owner_id=seed_user.id,
     )
     db_session.add(det)
@@ -234,13 +275,17 @@ async def test_handle_build_failed_fires_notify_build_failed(
 
 # -- C3: timeout + k8s_job_missing paths ---------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_handle_build_timeout_fires_notify_failed(
     db_session, seed_user, monkeypatch
 ):
     from app.models import Detector
+
     det = Detector(
-        name="timeout-det", display_name="t", git_url="https://g/t",
+        name="timeout-det",
+        display_name="t",
+        git_url="https://g/t",
         owner_id=seed_user.id,
     )
     db_session.add(det)
@@ -259,6 +304,7 @@ async def test_handle_build_timeout_fires_notify_failed(
 
     # _handle_timeout tries to delete the k8s job — stub to ignore
     from app.reconciler import _handle_timeout as _ht  # noqa: F401 (re-import after patch)
+
     with _patch_notify() as notify:
         await _handle_timeout(db_session, build)
         await asyncio.sleep(0)
@@ -268,13 +314,14 @@ async def test_handle_build_timeout_fires_notify_failed(
 
 
 @pytest.mark.asyncio
-async def test_reconcile_build_k8s_missing_fires_notify_failed(
-    db_session, seed_user
-):
+async def test_reconcile_build_k8s_missing_fires_notify_failed(db_session, seed_user):
     from app.models import Detector
     from kubernetes.client.exceptions import ApiException
+
     det = Detector(
-        name="missing-det", display_name="m", git_url="https://g/m",
+        name="missing-det",
+        display_name="m",
+        git_url="https://g/m",
         owner_id=seed_user.id,
     )
     db_session.add(det)
@@ -294,11 +341,15 @@ async def test_reconcile_build_k8s_missing_fires_notify_failed(
     class _Stub:
         def read_namespaced_job(self, **kw):
             raise ApiException(status=404)
+
         def delete_namespaced_secret(self, **kw):
             pass
-    with patch("app.reconciler.batch_v1", return_value=_Stub()), \
-         patch("app.reconciler.core_v1", return_value=_Stub()), \
-         _patch_notify() as notify:
+
+    with (
+        patch("app.reconciler.batch_v1", return_value=_Stub()),
+        patch("app.reconciler.core_v1", return_value=_Stub()),
+        _patch_notify() as notify,
+    ):
         await reconcile_build(db_session, build)
         await asyncio.sleep(0)
     assert notify.build_failed.await_count == 1
@@ -309,6 +360,7 @@ async def test_reconcile_job_k8s_missing_fires_notify_failed(
     db_session, seed_user, seed_detector_version, seed_dataset
 ):
     from kubernetes.client.exceptions import ApiException
+
     dv_id = uuid.UUID(await seed_detector_version())
     tr = uuid.UUID(await seed_dataset(name="tr"))
     te = uuid.UUID(await seed_dataset(name="te"))
@@ -333,20 +385,28 @@ async def test_reconcile_job_k8s_missing_fires_notify_failed(
     class _Volcano:
         def get_namespaced_custom_object(self, **kw):
             raise ApiException(status=404)
+
         def delete_namespaced_custom_object(self, **kw):
             pass
+
     class _Core:
         def list_namespaced_pod(self, **kw):
-            class _R: items = []
+            class _R:
+                items = []
+
             return _R()
+
         def read_namespaced_pod_log(self, **kw):
             return ""
+
         def delete_namespaced_secret(self, **kw):
             pass
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_Volcano()), \
-         patch("app.reconciler.core_v1", return_value=_Core()), \
-         _patch_notify() as notify:
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_Volcano()),
+        patch("app.reconciler.core_v1", return_value=_Core()),
+        _patch_notify() as notify,
+    ):
         await reconcile_job(db_session, job)
         await asyncio.sleep(0)
     assert notify.job_failed.await_count == 1
