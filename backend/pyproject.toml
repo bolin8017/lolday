@@ -13,13 +13,14 @@ dependencies = [
     "pydantic-settings>=2.8.0",
     "redis[hiredis]>=5.2.0",
     "kubernetes>=31.0.0",
-    "maldet~=1.0",
+    "maldet>=1.1,<2",
     "cryptography>=44.0.0",
     "httpx>=0.28.0",
     "mlflow-skinny>=2.20.0",
     "prometheus-fastapi-instrumentator~=7.0",
     "cachetools>=7.0.5",
     "psycopg2-binary>=2.9.12",
+    "jsonschema>=4.20,<5",
 ]
 
 [dependency-groups]
@@ -36,3 +37,6 @@ asyncio_mode = "auto"
 markers = [
     "no_mock_mlflow: do not apply the MLflow autouse mock",
 ]
+
+[tool.uv.sources]
+maldet = { path = "../../../../maldet" }

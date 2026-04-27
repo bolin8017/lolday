@@ -330,7 +330,25 @@ _MINIMAL_MANIFEST = {
         "predictions": {"path": "predictions.csv", "type": "file"},
     },
     "compat": {"min_python": "3.12", "min_maldet": "1.0", "schema_version": 1},
-    "stages": {},
+    "stages": {
+        # Phase 11e: each stage carries config_class + params_schema. The default
+        # schema here is intentionally permissive (no ``additionalProperties:
+        # false``) so integration tests that submit arbitrary user params still
+        # pass; jsonschema-rejection cases live in
+        # ``tests/test_jsonschema_validate_params.py``.
+        "train": {
+            "config_class": "test.configs:TrainConfig",
+            "params_schema": {"type": "object"},
+        },
+        "evaluate": {
+            "config_class": "test.configs:EvaluateConfig",
+            "params_schema": {"type": "object"},
+        },
+        "predict": {
+            "config_class": "test.configs:PredictConfig",
+            "params_schema": {"type": "object"},
+        },
+    },
 }
 
 

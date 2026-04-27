@@ -34,7 +34,7 @@ from app.services.job_config import (
     compute_idempotency_key,
     resolve_source_model_path,
 )
-from app.services.jobs_params_guard import UserParamsRejected, validate_user_params
+from app.services.jobs_params_validate import UserParamsRejected, validate_user_params
 from app.services.validator import JobSubmissionError, validate_job_submission
 from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
 from app.services.job_tokens import generate_token, hash_token
@@ -145,17 +145,11 @@ async def create_job(
             )
         source_run_id = source_model.mlflow_run_id
 
-    # 4. User-params guard (Phase 11c — replaces v0 jsonschema validation)
-    try:
-        validate_user_params(body.params)
-    except UserParamsRejected as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-    # 4b. Manifest pre-flight (resource_profile / dataset_contract / stage)
+    # 4. Manifest pre-flight (resource_profile / dataset_contract / stage)
     if dv.manifest is None:
         raise HTTPException(
             status_code=400,
-            detail="detector_version has no maldet manifest (older detector?); rebuild the detector with maldet v1.0+",
+            detail="detector_version has no maldet manifest (older detector?); rebuild the detector with maldet >= 1.1",
         )
     try:
         from maldet.manifest import DetectorManifest
@@ -174,6 +168,13 @@ async def create_job(
         )
     except JobSubmissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # 4b. User-params validation against manifest's params_schema (phase 11e)
+    stage_spec = manifest_model.stages[body.type.value]
+    try:
+        validate_user_params(params=body.params, schema=stage_spec.params_schema)
+    except UserParamsRejected as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     # 5. Idempotency
     idem_key = compute_idempotency_key(

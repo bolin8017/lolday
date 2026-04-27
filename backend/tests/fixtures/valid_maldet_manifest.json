@@ -16,17 +16,23 @@
       "extractor": "elfrfdet.features:Text256Extractor",
       "model": "elfrfdet.models:make_rf",
       "trainer": "maldet.trainers.sklearn_trainer:SklearnTrainer",
-      "evaluator": "maldet.evaluators.binary:BinaryClassification"
+      "evaluator": "maldet.evaluators.binary:BinaryClassification",
+      "config_class": "elfrfdet.configs:TrainConfig",
+      "params_schema": {"type": "object", "additionalProperties": false, "properties": {}}
     },
     "evaluate": {
       "reader": "maldet.builtins.readers:SampleCsvReader",
       "extractor": "elfrfdet.features:Text256Extractor",
-      "evaluator": "maldet.evaluators.binary:BinaryClassification"
+      "evaluator": "maldet.evaluators.binary:BinaryClassification",
+      "config_class": "elfrfdet.configs:EvaluateConfig",
+      "params_schema": {"type": "object", "additionalProperties": false, "properties": {}}
     },
     "predict": {
       "reader": "maldet.builtins.readers:SampleCsvReader",
       "extractor": "elfrfdet.features:Text256Extractor",
-      "predictor": "maldet.builtins.predictors:BatchPredictor"
+      "predictor": "maldet.builtins.predictors:BatchPredictor",
+      "config_class": "elfrfdet.configs:PredictConfig",
+      "params_schema": {"type": "object", "additionalProperties": false, "properties": {}}
     }
   }
 }
