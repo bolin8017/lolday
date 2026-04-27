@@ -38,5 +38,8 @@ markers = [
     "no_mock_mlflow: do not apply the MLflow autouse mock",
 ]
 
+# TODO(phase 11e): remove `[tool.uv.sources]` once maldet 1.1.0 is published to
+# PyPI (Batch 6). Until then, point at the local editable maldet checkout so
+# `uv sync` can resolve the >=1.1 pin without touching the public index.
 [tool.uv.sources]
 maldet = { path = "../../../../maldet" }
