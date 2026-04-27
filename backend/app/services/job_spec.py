@@ -153,6 +153,13 @@ def _detector_container(
             {"name": "MALDET_DISTRIBUTED_STRATEGY", "value": gpu_strategy},
             {"name": "TMPDIR", "value": "/tmp"},
             {"name": "HOME", "value": "/tmp"},
+            # ``USER`` short-circuits ``getpass.getuser()`` so it doesn't fall
+            # through to ``pwd.getpwuid(os.getuid())`` — UID 1000 has no
+            # ``/etc/passwd`` entry under our ``runAsUser`` security context,
+            # and torch>=2.x calls ``getuser()`` at import time via
+            # ``torch._dynamo.cache_dir`` → process exits with ``KeyError``
+            # before the detector ever runs.
+            {"name": "USER", "value": "maldet"},
         ],
         "volumeMounts": [
             {"name": "config", "mountPath": "/mnt/config", "readOnly": True},

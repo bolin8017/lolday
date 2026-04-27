@@ -88,6 +88,16 @@ def test_detector_container_has_maldet_manifest_env() -> None:
     assert env["MALDET_MANIFEST"] == "/app/maldet.toml"
 
 
+def test_detector_container_has_user_env_for_torch_getuser() -> None:
+    """``USER`` short-circuits ``getpass.getuser()`` so torch>=2.x doesn't fall
+    back to ``pwd.getpwuid(uid)`` and crash — UID 1000 has no /etc/passwd entry
+    under our security context. Phase 11d regression."""
+    m = _build(resource_profile=ResourceProfile.GPU2, gpu_strategy="ddp")
+    container = m["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    assert env.get("USER")  # any non-empty value is fine
+
+
 def test_model_fetcher_init_on_evaluate() -> None:
     """Evaluate job must include model-fetcher init container."""
     m = build_volcano_job_manifest(
