@@ -32,7 +32,12 @@ export function JobSubmitForm() {
   const { data: detectors } = useDetectors();
   const { data: versions } = useDetectorVersions(detectorId);
   const { data: versionDetail } = useDetectorVersion(detectorId, versionTag);
-  const stageSchema = (versionDetail as { manifest?: { stages?: Record<string, { params_schema?: object }> } } | undefined)?.manifest?.stages?.[type]?.params_schema;
+  // manifest is JSONB on the backend, exposed as `{ [key: string]: unknown }`.
+  // The shape inside is the maldet 1.1 manifest with `stages.{stage}.params_schema`.
+  const stages = versionDetail?.manifest?.stages as
+    | Record<string, { params_schema?: object }>
+    | undefined;
+  const stageSchema = stages?.[type]?.params_schema;
   const { data: datasets } = useDatasets("all");
   const { data: models } = useRegisteredModels();
   const { data: modelVersions } = useModelVersions(sourceModelName);

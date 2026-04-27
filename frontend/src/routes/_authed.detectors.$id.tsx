@@ -173,7 +173,7 @@ function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) 
   const { data, isLoading, error } = useDetectorVersion(detectorId, tag);
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (error) return <p className="text-sm text-destructive">Failed to load manifest.</p>;
-  const manifest = (data as { manifest?: unknown } | undefined)?.manifest;
+  const manifest = data?.manifest;
   if (manifest == null) {
     return (
       <p className="text-sm text-destructive">

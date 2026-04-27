@@ -23,9 +23,7 @@ const columns: ColumnDef<JobSummary>[] = [
     id: "final_metrics",
     header: "Final metrics",
     cell: ({ row }) => (
-      <FinalMetricsTile
-        summaryMetrics={(row.original as JobSummary & { summary_metrics?: { metrics?: Record<string, number>; confusion_matrix?: unknown } | null }).summary_metrics}
-      />
+      <FinalMetricsTile summaryMetrics={row.original.summary_metrics} />
     ),
   },
 ];
