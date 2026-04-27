@@ -21,6 +21,9 @@ def _write_repo(root: Path, *, framework: str = "sklearn", name: str = "demo") -
     (root / "pyproject.toml").write_text(
         f'[project]\nname = "{name}"\nversion = "1.0.0"\nrequires-python = ">=3.12"\n'
     )
+    # phase 11e: stages now require config_class + params_schema; provide
+    # non-empty params_schema so introspect_params_schemas short-circuits
+    # (no pip install or import happens in unit tests).
     (root / "maldet.toml").write_text(
         textwrap.dedent(f"""
         [detector]
@@ -45,6 +48,18 @@ def _write_repo(root: Path, *, framework: str = "sklearn", name: str = "demo") -
 
         [artifacts]
         model = {{ path = "model/", type = "dir" }}
+
+        [stages.train]
+        config_class = "{name}.configs:TrainConfig"
+        params_schema = {{ type = "object", additionalProperties = false }}
+
+        [stages.evaluate]
+        config_class = "{name}.configs:EvaluateConfig"
+        params_schema = {{ type = "object", additionalProperties = false }}
+
+        [stages.predict]
+        config_class = "{name}.configs:PredictConfig"
+        params_schema = {{ type = "object", additionalProperties = false }}
     """).strip()
         + "\n"
     )

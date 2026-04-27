@@ -1,31 +1,34 @@
-"""Phase 11c manifest-driven validator for the lolday build pipeline.
+"""Manifest validator + params-schema introspector for the lolday build pipeline.
 
 Runs inside the ``validate`` init container of a detector build Job. It:
 
 1. Parses ``maldet.toml`` via ``maldet.manifest.load_manifest`` (Pydantic
    ``DetectorManifest``). Fail-fast on missing or schema-invalid manifests.
-2. Computes the five build-args and writes them to ``/workspace/build-args/``
-   so the ``buildkit`` container can convert them to ``--opt build-arg``
-   flags. The args are split per-file (one ENV-style file per arg) to avoid
-   shell-quoting bugs around the long base64 manifest string.
-
-There is no per-file shell parsing or AST scanning. The validator does not
-install the detector repo; ``maldet[lightning] >= 1.0`` is preinstalled in
-the build-helper image so the manifest module imports cleanly.
-
-The validator does NOT run ``maldet check`` here, because that requires
-``pip install`` of the detector repo (and pulls torch / sklearn). The
-``buildkit`` container will fail loudly if any entrypoint dotted-path is
-unreachable at container-startup time, surfacing the same class of error
-without the install cost.
+2. Phase 11e: ``pip install`` the detector source so each stage's
+   ``config_class`` import path resolves. For each stage whose
+   ``params_schema`` is the empty placeholder ``{}``, calls
+   ``cls.model_json_schema(mode="serialization")`` and patches the in-memory
+   manifest with the derived JSON Schema. This is the single source of truth
+   for ``params_schema`` — detector authors never hand-write or check in the
+   schema, only the Pydantic config class.
+3. Computes the five build-args (with the patched manifest) and writes them
+   to ``/workspace/build-args/`` so the ``buildkit`` container can convert
+   them to ``--opt build-arg`` flags. The args are split per-file (one
+   ENV-style file per arg) to avoid shell-quoting bugs around the long
+   base64 manifest string.
 """
 
 from __future__ import annotations
 
 import base64
+import importlib
 import json
+import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel
 
 from maldet.manifest import DetectorManifest, ManifestNotFoundError, load_manifest
 
@@ -76,9 +79,77 @@ def validate_manifest(repo: Path) -> DetectorManifest:
     return manifest
 
 
+def install_detector(repo: Path) -> None:
+    """``pip install`` the detector source so its modules are importable.
+
+    Phase 11e: ``introspect_params_schemas`` needs to import each stage's
+    ``config_class``; that requires the detector package to be on sys.path.
+    The build-helper image already has ``maldet[lightning]>=1.1`` preinstalled
+    so torch/lightning don't need re-downloading; only the detector's own
+    light deps (sklearn, pyelftools) hit the wire.
+    """
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", str(repo)],
+        check=True,
+    )
+
+
+def introspect_params_schemas(manifest: DetectorManifest) -> dict[str, Any]:
+    """Return a manifest dict with ``params_schema`` populated per stage.
+
+    For each stage whose ``params_schema`` is the placeholder empty dict,
+    import the stage's ``config_class`` and replace ``params_schema`` with
+    ``cls.model_json_schema(mode="serialization")``. Stages whose
+    ``params_schema`` is already populated (e.g. detector author hand-wrote
+    one) are left alone — placeholder is the only signal to introspect.
+    """
+    payload = manifest.model_dump(mode="json")
+    for stage_name, stage in payload.get("stages", {}).items():
+        if stage.get("params_schema"):
+            continue  # already populated; trust author
+        dotted = stage["config_class"]
+        if ":" not in dotted:
+            raise ValidationError(
+                "config_class_invalid",
+                f"[stages.{stage_name}.config_class] expected 'module:Class', got {dotted!r}",
+            )
+        mod_name, attr = dotted.split(":", 1)
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError as exc:
+            raise ValidationError(
+                "config_class_unimportable",
+                f"[stages.{stage_name}.config_class] cannot import {mod_name!r}: {exc}",
+            ) from exc
+        cls = getattr(mod, attr, None)
+        if cls is None:
+            raise ValidationError(
+                "config_class_missing_attr",
+                f"[stages.{stage_name}.config_class] {mod_name!r} has no attribute {attr!r}",
+            )
+        if not (isinstance(cls, type) and issubclass(cls, BaseModel)):
+            raise ValidationError(
+                "config_class_not_basemodel",
+                f"[stages.{stage_name}.config_class] {dotted} is not a pydantic.BaseModel subclass",
+            )
+        if cls.model_config.get("extra") != "forbid":
+            raise ValidationError(
+                "config_class_not_strict",
+                f"[stages.{stage_name}.config_class] {dotted}: model_config['extra'] must be 'forbid'",
+            )
+        stage["params_schema"] = cls.model_json_schema(mode="serialization")
+    return payload
+
+
 def write_build_args(*, repo: Path, out: Path, git_sha_path: Path) -> None:
     """Compute the 5 build-args and write each to ``out/<NAME>``."""
     manifest = validate_manifest(repo)
+    # Only pip install the detector if at least one stage actually needs
+    # introspection (avoids the ~30s install hit in the trivial-already-populated
+    # path used by build-helper unit tests).
+    if any(not s.params_schema for s in manifest.stages.values()):
+        install_detector(repo)
+    payload = introspect_params_schemas(manifest)
     git_sha = git_sha_path.read_text().strip() if git_sha_path.is_file() else ""
     # ``model_dump(mode="json")`` already coerces every leaf to a JSON-native
     # type, so json.dumps should never see a non-serialisable value. Drop
@@ -86,9 +157,7 @@ def write_build_args(*, repo: Path, out: Path, git_sha_path: Path) -> None:
     # raises TypeError loudly instead of silently base64-encoding ``"PosixPath('...')"``
     # into the OCI label.
     manifest_b64 = base64.b64encode(
-        json.dumps(manifest.model_dump(mode="json"), separators=(",", ":")).encode(
-            "utf-8"
-        )
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
     ).decode("ascii")
     values = {
         "MALDET_NAME": manifest.detector.name,
