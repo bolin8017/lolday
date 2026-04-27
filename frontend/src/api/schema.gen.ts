@@ -1014,6 +1014,10 @@ export interface components {
             started_at: string | null;
             /** Finished At */
             finished_at: string | null;
+            /** Summary Metrics */
+            summary_metrics?: {
+                [key: string]: unknown;
+            } | null;
             /** Train Dataset Id */
             train_dataset_id: string | null;
             /** Test Dataset Id */
@@ -1028,10 +1032,6 @@ export interface components {
             };
             /** Log Tail */
             log_tail: string | null;
-            /** Summary Metrics */
-            summary_metrics: {
-                [key: string]: unknown;
-            } | null;
             resource_profile: components["schemas"]["ResourceProfile"];
             /** Mlflow Experiment Id */
             mlflow_experiment_id: string | null;
@@ -1075,6 +1075,10 @@ export interface components {
             started_at: string | null;
             /** Finished At */
             finished_at: string | null;
+            /** Summary Metrics */
+            summary_metrics?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * JobType
@@ -1172,10 +1176,7 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /**
-             * Email
-             * Format: email
-             */
+            /** Email */
             email: string;
             /**
              * Is Active
@@ -1249,6 +1250,10 @@ export interface components {
              */
             built_at: string;
             status: components["schemas"]["DetectorVersionStatus"];
+            /** Manifest */
+            manifest: {
+                [key: string]: unknown;
+            };
         };
     };
     responses: never;

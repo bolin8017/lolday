@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router";
 import { useState } from "react";
-import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild } from "@/api/queries/detectors";
+import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild, useDetectorVersion } from "@/api/queries/detectors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { LogTail } from "@/components/common/LogTail";
+import { JsonViewer } from "@/components/common/JsonViewer";
 import { formatRelative, formatDuration } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
 
@@ -28,6 +29,7 @@ export default function DetectorDetailPage() {
   const cancelBuild = useCancelBuild(id);
   const [pickedTag, setPickedTag] = useState<string | null>(null);
   const [buildDialogOpen, setBuildDialogOpen] = useState(false);
+  const [openManifestTag, setOpenManifestTag] = useState<string | null>(null);
 
   if (!det) return <p className="text-muted-foreground">Loading…</p>;
 
@@ -49,6 +51,15 @@ export default function DetectorDetailPage() {
       cell: ({ row }) => <span className="font-mono">{row.original.git_sha.slice(0, 10)}</span> },
     { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     { accessorKey: "built_at", header: "Built", cell: ({ row }) => formatRelative(row.original.built_at) },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => (
+        <Button variant="ghost" size="sm" onClick={() => setOpenManifestTag(row.original.tag)}>
+          View manifest
+        </Button>
+      ),
+    },
   ];
 
   const buildsCols: ColumnDef<BuildRow>[] = [
@@ -107,6 +118,14 @@ export default function DetectorDetailPage() {
 
         <TabsContent value="versions">
           <DataTable data={versionsArr} columns={versionsCols} emptyMessage="No versions built yet." />
+          <Sheet open={!!openManifestTag} onOpenChange={(o) => { if (!o) setOpenManifestTag(null); }}>
+            <SheetContent className="w-[760px] sm:max-w-[800px] overflow-y-auto">
+              <SheetHeader><SheetTitle>Manifest: {openManifestTag}</SheetTitle></SheetHeader>
+              <div className="mt-4">
+                {openManifestTag && <ManifestView detectorId={id} tag={openManifestTag} />}
+              </div>
+            </SheetContent>
+          </Sheet>
         </TabsContent>
 
         <TabsContent value="builds">
@@ -148,5 +167,20 @@ export default function DetectorDetailPage() {
       </Tabs>
     </div>
   );
+}
+
+function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) {
+  const { data, isLoading, error } = useDetectorVersion(detectorId, tag);
+  if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (error) return <p className="text-sm text-destructive">Failed to load manifest.</p>;
+  const manifest = data?.manifest;
+  if (manifest == null) {
+    return (
+      <p className="text-sm text-destructive">
+        Version has no manifest (legacy build); rebuild with maldet ≥ 1.1.
+      </p>
+    );
+  }
+  return <JsonViewer value={manifest} />;
 }
 

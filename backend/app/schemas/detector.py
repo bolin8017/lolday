@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,7 +43,7 @@ class VersionRead(BaseModel):
 
 
 class VersionDetailRead(VersionRead):
-    pass
+    manifest: dict[str, Any]   # phase 11e — full maldet 1.1 manifest (JSONB column)
 
 
 class BuildCreate(BaseModel):

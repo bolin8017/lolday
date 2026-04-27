@@ -57,6 +57,7 @@ class JobSummary(BaseModel):
     submitted_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    summary_metrics: dict[str, Any] | None = None  # phase 11e — reconciler-projected read model
 
 
 class JobRead(JobSummary):
@@ -66,7 +67,6 @@ class JobRead(JobSummary):
     source_model_version_id: uuid.UUID | None
     resolved_config: dict
     log_tail: str | None
-    summary_metrics: dict | None
     resource_profile: ResourceProfile
     mlflow_experiment_id: str | None
 

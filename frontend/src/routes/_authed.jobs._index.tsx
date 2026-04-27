@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useJobs, type JobSummary, type JobType } from "@/api/queries/jobs";
 import { DataTable } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { FinalMetricsTile } from "@/components/jobs/FinalMetricsTile";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,6 +19,13 @@ const columns: ColumnDef<JobSummary>[] = [
   { accessorKey: "submitted_at", header: "Submitted", cell: ({ row }) => formatRelative(row.original.submitted_at) },
   { id: "duration", header: "Duration",
     cell: ({ row }) => formatDuration(row.original.started_at, row.original.finished_at) },
+  {
+    id: "final_metrics",
+    header: "Final metrics",
+    cell: ({ row }) => (
+      <FinalMetricsTile summaryMetrics={row.original.summary_metrics} />
+    ),
+  },
 ];
 
 export default function JobsListPage() {
