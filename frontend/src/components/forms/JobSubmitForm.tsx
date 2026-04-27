@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useDetectors, useDetectorVersions } from "@/api/queries/detectors";
+import { useDetectors, useDetectorVersion, useDetectorVersions } from "@/api/queries/detectors";
 import { useDatasets } from "@/api/queries/datasets";
 import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
 import { useSubmitJob, useJob, type JobType } from "@/api/queries/jobs";
@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { parseParams, requiredFieldsForType } from "./JobSubmitForm.logic";
+import { requiredFieldsForType } from "./JobSubmitForm.logic";
+import { RjsfConfigForm } from "./RjsfConfigForm";
 
 const TYPES: JobType[] = ["train", "evaluate", "predict"];
 
@@ -25,13 +26,13 @@ export function JobSubmitForm() {
   const [predictDatasetId, setPredictDatasetId] = useState("");
   const [sourceModelName, setSourceModelName] = useState("");
   const [sourceModelVersionId, setSourceModelVersionId] = useState("");
-  const [paramsText, setParamsText] = useState("");
+  const [config, setConfig] = useState<Record<string, unknown>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const parsedParams = useMemo(() => parseParams(paramsText), [paramsText]);
 
   const { data: detectors } = useDetectors();
   const { data: versions } = useDetectorVersions(detectorId);
+  const { data: versionDetail } = useDetectorVersion(detectorId, versionTag);
+  const stageSchema = (versionDetail as { manifest?: { stages?: Record<string, { params_schema?: object }> } } | undefined)?.manifest?.stages?.[type]?.params_schema;
   const { data: datasets } = useDatasets("all");
   const { data: models } = useRegisteredModels();
   const { data: modelVersions } = useModelVersions(sourceModelName);
@@ -55,7 +56,6 @@ export function JobSubmitForm() {
 
   const canSubmit = (() => {
     if (!detectorId || !versionTag) return false;
-    if (!parsedParams.ok) return false;
     const need = requiredFieldsForType(type);
     if (need.includes("train_dataset_id") && !trainDatasetId) return false;
     if (need.includes("test_dataset_id") && !testDatasetId) return false;
@@ -68,10 +68,6 @@ export function JobSubmitForm() {
     setSubmitError(null);
     const versionId = versionsArr.find((v) => v.git_tag === versionTag)?.id;
     if (!versionId) return;
-    if (!parsedParams.ok) {
-      setSubmitError(parsedParams.error);
-      return;
-    }
     try {
       const job = await mut.mutateAsync({
         type,
@@ -80,7 +76,7 @@ export function JobSubmitForm() {
         test_dataset_id: ["train", "evaluate"].includes(type) ? testDatasetId : null,
         predict_dataset_id: type === "predict" ? predictDatasetId : null,
         source_model_version_id: ["evaluate", "predict"].includes(type) ? sourceModelVersionId : null,
-        params: parsedParams.value,
+        params: config,
       } as unknown as import("@/api/schema.gen").components["schemas"]["JobCreate"]);
       nav(`/jobs/${job.id}`);
     } catch (e) {
@@ -176,21 +172,18 @@ export function JobSubmitForm() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Hyperparameters (optional JSON)</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Override detector defaults with a JSON object, e.g. <code>{"{\"epochs\": 5}"}</code>. Leave blank to use the detector's manifest defaults.
-          </p>
-          <textarea
-            value={paramsText}
-            onChange={(e) => setParamsText(e.target.value)}
-            placeholder="{}"
-            rows={6}
-            className="w-full rounded border border-input bg-background px-3 py-2 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            spellCheck={false}
-          />
-          {!parsedParams.ok && (
-            <p className="text-sm text-destructive">{parsedParams.error}</p>
+        <CardHeader><CardTitle>Hyperparameters</CardTitle></CardHeader>
+        <CardContent>
+          {stageSchema ? (
+            <RjsfConfigForm schema={stageSchema} value={config} onChange={setConfig} />
+          ) : versionTag ? (
+            <p className="text-sm text-destructive">
+              Selected detector version has no params schema; rebuild with maldet ≥ 1.1.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Pick a detector + version to load its hyperparameter form.
+            </p>
           )}
         </CardContent>
       </Card>
