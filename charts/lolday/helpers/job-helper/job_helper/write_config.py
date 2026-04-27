@@ -38,7 +38,13 @@ async def main() -> None:
         print(f"fatal: backend unreachable after 5 attempts: {last_err!r}", file=sys.stderr)
         sys.exit(3)
 
-    (config_dir / "config.json").write_text(json.dumps(data["config"], indent=2))
+    # Phase 11b switched to Hydra YAML config (was a JSON dict under data["config"]).
+    # Backend's JobInternalConfig now returns {yaml, train_csv, test_csv, predict_csv}.
+    yaml_text = data.get("yaml") or ""
+    if not yaml_text:
+        print(f"fatal: backend returned empty yaml in JobInternalConfig: {sorted(data.keys())}", file=sys.stderr)
+        sys.exit(4)
+    (config_dir / "config.yaml").write_text(yaml_text)
 
     csv_map = {
         "train_csv": "train.csv",
