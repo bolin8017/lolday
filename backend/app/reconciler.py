@@ -2,7 +2,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Any, Callable
 
 import httpx
 from kubernetes.client import ApiException
@@ -789,6 +789,49 @@ async def _check_event_terminal(session: AsyncSession, job_id: uuid.UUID) -> str
     return status if status in ("success", "failure") else None
 
 
+async def _project_summary_metrics(
+    session: AsyncSession, job_id: uuid.UUID
+) -> None:
+    """Aggregate last-per-name metric events + latest confusion_matrix event for
+    ``job_id`` into ``Job.summary_metrics``. Idempotent — running twice produces
+    the same result.
+
+    Phase 11e: ``job_events`` is the canonical source of truth for run-time
+    metrics; ``Job.summary_metrics`` is a single-writer materialized read model
+    populated here on stage_end. MLflow remains the long-term store but is no
+    longer the authoritative source for the lolday UI summary card.
+    """
+    from app.models import JobEvent
+
+    rows = (await session.execute(
+        select(JobEvent.kind, JobEvent.payload, JobEvent.ts)
+        .where(JobEvent.job_id == job_id)
+        .where(JobEvent.kind.in_(["metric", "confusion_matrix"]))
+        .order_by(JobEvent.ts.asc())
+    )).all()
+
+    metrics: dict[str, float] = {}
+    confusion_matrix: dict[str, Any] | None = None
+    for kind, payload, _ts in rows:
+        if kind == "metric":
+            try:
+                metrics[payload["name"]] = float(payload["value"])
+            except (KeyError, TypeError, ValueError):
+                continue
+        elif kind == "confusion_matrix":
+            try:
+                confusion_matrix = {
+                    "labels": payload["labels"],
+                    "matrix": payload["matrix"],
+                }
+            except KeyError:
+                continue
+
+    job = await session.get(Job, job_id)
+    job.summary_metrics = {"metrics": metrics, "confusion_matrix": confusion_matrix}
+    await session.commit()
+
+
 async def _update_job_progress(session: AsyncSession, j: Job) -> None:
     """Transition PREPARING → RUNNING once the detector container starts."""
     try:
@@ -809,17 +852,14 @@ async def _update_job_progress(session: AsyncSession, j: Job) -> None:
 
 
 async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
+    # Phase 11e: summary_metrics is no longer sourced from MLflow — the
+    # `_project_summary_metrics` projection below reads from the canonical
+    # job_events stream. We still need an MlflowClient for the downstream
+    # model-registration call.
     client = MlflowClient(settings.MLFLOW_TRACKING_URI)
-    run = await client.get_run(j.mlflow_run_id)
-    metrics_raw = run["data"].get("metrics", {})
-    if isinstance(metrics_raw, list):
-        metrics = {m["key"]: m["value"] for m in metrics_raw}
-    else:
-        metrics = dict(metrics_raw)
 
     log_tail = await _capture_job_log_tail(j)
 
-    j.summary_metrics = metrics
     j.log_tail = log_tail
     j.status = JobStatus.SUCCEEDED
     j.finished_at = datetime.now(timezone.utc)
@@ -831,7 +871,22 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
             BACKEND_ERRORS.labels(stage="model_registration").inc()
             logger.exception("model registration failed for job %s", j.id)
 
+    # Commit the terminal status before projecting events. Projection failure
+    # must not block job termination — it's an opportunistic read-model
+    # refresh, not part of the state machine transition.
     await session.commit()
+
+    try:
+        await _project_summary_metrics(session, j.id)
+    except Exception:  # noqa: BLE001 — never block job termination on projection
+        BACKEND_ERRORS.labels(stage="summary_projection").inc()
+        logger.exception(
+            "summary_metrics projection failed", extra={"job_id": str(j.id)}
+        )
+
+    # Re-read the projection result so the notify carries the same primary
+    # metric the user will see on /jobs/<id>.
+    metrics_for_notify = (j.summary_metrics or {}).get("metrics", {}) or {}
 
     # Notify user of completion.
     user_name, discord_id = await _user_context(session, j.owner_id)
@@ -873,7 +928,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
             detector_label=detector_label,
             dataset_name=dataset_name,
             duration_seconds=duration,
-            primary_metric=_primary_metric(metrics),
+            primary_metric=_primary_metric(metrics_for_notify),
             job_url=_ui_url(f"/jobs/{j.id}"),
             mlflow_url=mlflow_url,
         )
@@ -917,6 +972,18 @@ async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
     j.log_tail = log_tail
     j.finished_at = datetime.now(timezone.utc)
     await session.commit()
+
+    # Phase 11e: failed jobs may still have meaningful early-stage metrics
+    # (e.g. an evaluator that produced a result before the process exited).
+    # Project them too so the UI summary card surfaces what's available.
+    try:
+        await _project_summary_metrics(session, j.id)
+    except Exception:  # noqa: BLE001 — never block job termination on projection
+        BACKEND_ERRORS.labels(stage="summary_projection").inc()
+        logger.exception(
+            "summary_metrics projection failed", extra={"job_id": str(j.id)}
+        )
+
     await _fire_job_failed_notify(session, j, reason)
     await _cleanup_job_secret(j)
 

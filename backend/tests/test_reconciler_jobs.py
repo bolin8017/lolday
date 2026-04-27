@@ -130,12 +130,36 @@ async def test_reconcile_job_marks_running(db_session, seed_job):
 async def test_reconcile_job_marks_succeeded_and_registers_model(
     db_session, seed_job, mlflow_stub
 ):
+    """Phase 11e: summary_metrics is sourced from job_events (events-based
+    projection), not MLflow. Seed metric/confusion_matrix events and verify
+    the reconciler projects them on stage_end rather than copying from the
+    MLflow run.
+    """
+    from app.models import JobEvent
+
     j = await seed_job(status=JobStatus.RUNNING, job_type=JobType.TRAIN)
+
+    base = datetime.now(timezone.utc)
+    db_session.add_all([
+        JobEvent(
+            id=uuid.uuid4(), job_id=j.id, ts=base,
+            kind="metric", payload={"name": "accuracy", "value": 0.9, "step": 0},
+        ),
+        JobEvent(
+            id=uuid.uuid4(), job_id=j.id, ts=base,
+            kind="metric", payload={"name": "f1", "value": 0.85, "step": 0},
+        ),
+    ])
+    await db_session.commit()
+
     with _patched_k8s(pod_phase=None, job_succeeded=1, job_failed=None):
         await reconcile_job(db_session, j)
     await db_session.refresh(j)
     assert j.status == JobStatus.SUCCEEDED
-    assert j.summary_metrics == {"accuracy": 0.9, "f1": 0.85}
+    assert j.summary_metrics == {
+        "metrics": {"accuracy": 0.9, "f1": 0.85},
+        "confusion_matrix": None,
+    }
     assert j.finished_at is not None
 
 
