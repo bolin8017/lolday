@@ -69,14 +69,15 @@ describe("useJobEvents", () => {
 
     const { result } = renderHook(() => useJobEvents("job-1", false));
 
-    await waitFor(() => expect(result.current.length).toBe(2));
-    expect(result.current[0]).toMatchObject({
+    await waitFor(() => expect(result.current.events.length).toBe(2));
+    expect(result.current.error).toBeNull();
+    expect(result.current.events[0]).toMatchObject({
       kind: "metric",
       name: "train_loss",
       value: 0.5,
       step: 1,
     });
-    expect(result.current[1]).toMatchObject({
+    expect(result.current.events[1]).toMatchObject({
       kind: "metric",
       name: "train_loss",
       value: 0.4,
@@ -120,7 +121,7 @@ describe("useJobEvents", () => {
 
     const { result } = renderHook(() => useJobEvents("job-1", false));
 
-    await waitFor(() => expect(result.current.length).toBe(2));
+    await waitFor(() => expect(result.current.events.length).toBe(2));
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const secondCallUrl = String(fetchMock.mock.calls[1][0]);
     expect(secondCallUrl).toContain("since=2025-04-27T00%3A00%3A00Z");
@@ -138,7 +139,7 @@ describe("useJobEvents", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     expect(wsInstances.length).toBe(0);
-    expect(result.current).toEqual([]);
+    expect(result.current.events).toEqual([]);
   });
 
   it("opens a WebSocket and appends streamed events when isLive is true", async () => {
@@ -162,7 +163,7 @@ describe("useJobEvents", () => {
     const { result } = renderHook(() => useJobEvents("job-1", true));
 
     await waitFor(() => expect(wsInstances.length).toBe(1));
-    expect(result.current.length).toBe(1);
+    expect(result.current.events.length).toBe(1);
 
     const ws = wsInstances[0];
     expect(ws.url).toContain("/api/v1/jobs/job-1/events");
@@ -178,21 +179,46 @@ describe("useJobEvents", () => {
       });
     });
 
-    await waitFor(() => expect(result.current.length).toBe(2));
-    expect(result.current[1]).toMatchObject({
+    await waitFor(() => expect(result.current.events.length).toBe(2));
+    expect(result.current.events[1]).toMatchObject({
       name: "train_loss",
       value: 0.3,
       step: 3,
     });
   });
 
-  it("returns no events and skips fetch/WS when jobId is null", async () => {
+  it("returns empty events + null error and skips fetch/WS when jobId is null", async () => {
     const fetchMock = global.fetch as MockFetch;
     const { result } = renderHook(() => useJobEvents(null, true));
 
     await new Promise((r) => setTimeout(r, 10));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(wsInstances.length).toBe(0);
-    expect(result.current).toEqual([]);
+    expect(result.current.events).toEqual([]);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("surfaces an error on HTTP 4xx and does not open a WebSocket", async () => {
+    const fetchMock = global.fetch as MockFetch;
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "forbidden" }),
+    });
+
+    const { result } = renderHook(() => useJobEvents("job-1", true));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.error).toContain("403");
+    expect(result.current.events).toEqual([]);
+    expect(wsInstances.length).toBe(0);
+  });
+
+  it("surfaces a network error from fetch", async () => {
+    const fetchMock = global.fetch as MockFetch;
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+
+    const { result } = renderHook(() => useJobEvents("job-1", false));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.error).toContain("ECONNREFUSED");
   });
 });

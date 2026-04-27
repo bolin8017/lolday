@@ -26,7 +26,7 @@ export default function JobDetailPage() {
   const isPending = job?.status === "pending" || job?.status === "preparing";
   const { data: queuePos } = useJobQueuePosition(id, isPending);
   const isLive = job != null && (NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status);
-  const events = useJobEvents(id, isLive);
+  const { events, error: eventsError } = useJobEvents(id, isLive);
   if (!job) return <p className="text-muted-foreground">Loading…</p>;
 
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;
@@ -86,11 +86,14 @@ export default function JobDetailPage() {
               <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
             </Card>
           )}
-          {events.length > 0 && (
+          {(events.length > 0 || eventsError) && (
             <Card>
               <CardHeader><CardTitle>Live metrics</CardTitle></CardHeader>
               <CardContent>
-                <JobMetricChart events={events} />
+                {eventsError && (
+                  <p className="text-sm text-destructive">{eventsError}</p>
+                )}
+                {events.length > 0 && <JobMetricChart events={events} />}
               </CardContent>
             </Card>
           )}

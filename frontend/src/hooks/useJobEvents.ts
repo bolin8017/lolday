@@ -25,21 +25,34 @@ function flatten(e: HttpEvent): MaldetEvent {
   return { ts: e.ts, kind: e.kind, ...e.payload };
 }
 
+export type UseJobEventsResult = {
+  events: MaldetEvent[];
+  error: string | null;
+};
+
+// Order-of-operations invariant: the WS subscription is registered ONLY after
+// the historical fetch loop has committed `setEvents(all)`. The WS handler's
+// `setEvents(prev => [...prev, event])` therefore can never interleave with
+// the historical replay's setState — they are strictly sequential. Don't
+// reorder these two phases without re-examining the de-duplication story.
 export function useJobEvents(
   jobId: string | null,
   isLive: boolean,
-): MaldetEvent[] {
+): UseJobEventsResult {
   const [events, setEvents] = useState<MaldetEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!jobId) {
       setEvents([]);
+      setError(null);
       return;
     }
     let cancelled = false;
     let ws: WebSocket | null = null;
 
     (async () => {
+      setError(null);
       const all: MaldetEvent[] = [];
       let cursor: { since: string | null; since_id: string | null } = {
         since: null,
@@ -49,11 +62,20 @@ export function useJobEvents(
         const params = new URLSearchParams({ limit: String(PAGE_LIMIT) });
         if (cursor.since) params.set("since", cursor.since);
         if (cursor.since_id) params.set("since_id", cursor.since_id);
-        const resp = await fetch(
-          `/api/v1/jobs/${jobId}/events?${params.toString()}`,
-          { credentials: "include" },
-        );
-        if (!resp.ok) break;
+        let resp: Response;
+        try {
+          resp = await fetch(
+            `/api/v1/jobs/${jobId}/events?${params.toString()}`,
+            { credentials: "include" },
+          );
+        } catch (e) {
+          if (!cancelled) setError(`Network error loading history: ${(e as Error).message}`);
+          return;
+        }
+        if (!resp.ok) {
+          if (!cancelled) setError(`Failed to load history: HTTP ${resp.status}`);
+          return;
+        }
         const page = (await resp.json()) as EventsPage;
         for (const e of page.events) all.push(flatten(e));
         if (!page.next_since) break;
@@ -86,5 +108,5 @@ export function useJobEvents(
     };
   }, [jobId, isLive]);
 
-  return events;
+  return { events, error };
 }
