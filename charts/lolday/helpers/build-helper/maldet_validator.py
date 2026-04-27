@@ -79,19 +79,43 @@ def validate_manifest(repo: Path) -> DetectorManifest:
     return manifest
 
 
+_INSTALL_TARGET = Path("/tmp/maldet-validator-site-packages")
+
+
 def install_detector(repo: Path) -> None:
-    """``pip install`` the detector source so its modules are importable.
+    """``pip install`` the detector source into a tmp target dir so its modules
+    are importable.
 
     Phase 11e: ``introspect_params_schemas`` needs to import each stage's
     ``config_class``; that requires the detector package to be on sys.path.
+
+    The build-helper image runs as UID 1000 with no $HOME, so ``pip install``
+    (default site-packages or ``--user``) hits "Permission denied: '/.local'".
+    Use ``--target`` into ``/tmp`` (always writable) and prepend that dir to
+    sys.path so the import sees the freshly-installed package.
+
     The build-helper image already has ``maldet[lightning]>=1.1`` preinstalled
     so torch/lightning don't need re-downloading; only the detector's own
     light deps (sklearn, pyelftools) hit the wire.
     """
+    import site
+
+    _INSTALL_TARGET.mkdir(parents=True, exist_ok=True)
+    # ``--no-deps`` avoids fetching the detector's transitive deps (sklearn,
+    # torch, lightning, etc) into ``--target``. The build-helper image already
+    # has those in system site-packages via ``maldet[lightning]``. Without
+    # ``--no-deps`` an elfcnndet-class detector pulls torch+CUDA into /tmp and
+    # OOM-kills the validate container (exit 137).
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", str(repo)],
+        [
+            sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet",
+            "--no-deps", "--target", str(_INSTALL_TARGET), str(repo),
+        ],
         check=True,
     )
+    if str(_INSTALL_TARGET) not in sys.path:
+        sys.path.insert(0, str(_INSTALL_TARGET))
+    site.addsitedir(str(_INSTALL_TARGET))
 
 
 def introspect_params_schemas(manifest: DetectorManifest) -> dict[str, Any]:
