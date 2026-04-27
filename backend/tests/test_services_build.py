@@ -93,7 +93,9 @@ def test_buildkit_container_is_rootless_not_privileged():
     # No pod volume should use hostPath (the build pipeline is designed
     # to read everything through emptyDir + Secret mounts).
     for vol in spec["volumes"]:
-        assert "hostPath" not in vol, f"volume {vol.get('name')} uses hostPath — escape hatch"
+        assert "hostPath" not in vol, (
+            f"volume {vol.get('name')} uses hostPath — escape hatch"
+        )
 
 
 def test_buildkit_destination_and_insecure_registry_flags():
@@ -155,11 +157,11 @@ def test_buildkit_image_from_settings_not_hardcoded():
 
 def test_buildkit_container_has_required_env():
     """BUILDKITD_FLAGS and DOCKER_CONFIG are both load-bearing:
-      - BUILDKITD_FLAGS=--oci-worker-no-process-sandbox is the K8s
-        equivalent of Docker's systempaths=unconfined; without it the
-        rootless daemon fails to start inside the pod.
-      - DOCKER_CONFIG points buildctl at the mounted Harbor dockerconfigjson;
-        otherwise pushes get 401 on unauthenticated.
+    - BUILDKITD_FLAGS=--oci-worker-no-process-sandbox is the K8s
+      equivalent of Docker's systempaths=unconfined; without it the
+      rootless daemon fails to start inside the pod.
+    - DOCKER_CONFIG points buildctl at the mounted Harbor dockerconfigjson;
+      otherwise pushes get 401 on unauthenticated.
     """
     job = build_job_spec(
         build_id=uuid4(),
@@ -190,23 +192,31 @@ def test_buildkit_state_volume_writable():
     state_vol = next(v for v in spec["volumes"] if v["name"] == "buildkit-state")
     assert "emptyDir" in state_vol
     buildkit = spec["containers"][0]
-    state_mount = next(m for m in buildkit["volumeMounts"] if m["name"] == "buildkit-state")
+    state_mount = next(
+        m for m in buildkit["volumeMounts"] if m["name"] == "buildkit-state"
+    )
     assert state_mount["mountPath"] == "/home/user/.local/share/buildkit"
     assert state_mount.get("readOnly") is not True
 
 
-def test_git_credential_secret_contains_token_and_build_token():
+def test_git_credential_secret_contains_username_and_token():
+    """The clone init container reads username + token to authenticate to GitHub.
+    Phase 11c removed the build_token round-trip — there's no schema-POST
+    callback for the validator any more, so the secret is now just credentials.
+    """
     secret = build_git_credential_secret(
         build_id=uuid4(),
         username="bolin8017",
         pat_token="ghp_xxx",
-        build_token="btok_abc",
     )
     assert secret["type"] == "Opaque"
     data = secret["stringData"]
     assert data["username"] == "bolin8017"
     assert data["token"] == "ghp_xxx"
-    assert data["build_token"] == "btok_abc"
+    # Regression guard: build_token was a v0 artefact for the schema-POST
+    # callback. Re-introducing it would silently re-couple the build pipeline
+    # to a flow Phase 11c deleted.
+    assert "build_token" not in data
 
 
 def test_slugify_lowercases():
@@ -229,7 +239,10 @@ def test_slugify_collapses_consecutive_hyphens():
 
 def test_build_job_name_k8s_safe():
     from uuid import UUID
-    name = build_job_name("UPXelfdet", "v0.1.0", UUID("12345678-1234-5678-1234-567812345678"))
+
+    name = build_job_name(
+        "UPXelfdet", "v0.1.0", UUID("12345678-1234-5678-1234-567812345678")
+    )
     # must be lowercase DNS-1123, <= 63 chars, no dots
     assert name.islower()
     assert len(name) <= 63

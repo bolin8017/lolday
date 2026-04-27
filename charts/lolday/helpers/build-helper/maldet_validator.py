@@ -55,7 +55,7 @@ def validate_manifest(repo: Path) -> DetectorManifest:
             f"maldet.toml not found at {manifest_path} (Phase 11c contract)",
         )
     try:
-        return load_manifest(manifest_path)
+        manifest = load_manifest(manifest_path)
     except ManifestNotFoundError as exc:
         raise ValidationError("manifest_missing", str(exc)) from exc
     except Exception as exc:
@@ -63,16 +63,32 @@ def validate_manifest(repo: Path) -> DetectorManifest:
         raise ValidationError(
             "manifest_invalid", f"{type(exc).__name__}: {exc}"
         ) from exc
+    # The pydantic schema constrains types only — empty / whitespace-only
+    # strings here would still parse, then explode downstream as the OCI
+    # registry tag or label payload. Reject them at validate time so the
+    # detector author sees a clear error before the build-pipeline burns
+    # cycles.
+    if not manifest.detector.name.strip() or not manifest.detector.version.strip():
+        raise ValidationError(
+            "manifest_invalid",
+            "detector.name and detector.version must be non-empty",
+        )
+    return manifest
 
 
 def write_build_args(*, repo: Path, out: Path, git_sha_path: Path) -> None:
     """Compute the 5 build-args and write each to ``out/<NAME>``."""
     manifest = validate_manifest(repo)
     git_sha = git_sha_path.read_text().strip() if git_sha_path.is_file() else ""
+    # ``model_dump(mode="json")`` already coerces every leaf to a JSON-native
+    # type, so json.dumps should never see a non-serialisable value. Drop
+    # ``default=str`` so a regression that lets a stray Path/datetime through
+    # raises TypeError loudly instead of silently base64-encoding ``"PosixPath('...')"``
+    # into the OCI label.
     manifest_b64 = base64.b64encode(
-        json.dumps(
-            manifest.model_dump(mode="json"), separators=(",", ":"), default=str
-        ).encode("utf-8")
+        json.dumps(manifest.model_dump(mode="json"), separators=(",", ":")).encode(
+            "utf-8"
+        )
     ).decode("ascii")
     values = {
         "MALDET_NAME": manifest.detector.name,

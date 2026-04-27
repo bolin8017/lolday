@@ -80,5 +80,7 @@ def test_buildkit_command_assembles_build_args_from_files() -> None:
         "GIT_COMMIT",
     ):
         assert key in joined, f"buildkit args do not reference {key}"
-    # The five --opt build-arg flags are constructed from the files.
-    assert "--opt build-arg:" in joined or "build-arg:MALDET_NAME=" in joined
+    # Exactly five --opt build-arg flags — drop one and the missing build
+    # arg makes the buildkit Dockerfile sub a default, silently producing
+    # an image whose manifest label is empty / stale.
+    assert joined.count("--opt build-arg:") == 5

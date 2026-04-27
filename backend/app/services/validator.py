@@ -5,6 +5,7 @@ import pydantic
 from maldet.manifest import DetectorManifest
 
 from app.config import settings
+from app.models.job import ResourceProfile
 
 REPO_MAX_SIZE_BYTES = settings.REPO_MAX_SIZE_MB * 1024 * 1024
 
@@ -71,26 +72,40 @@ def _check_maldet_toml(repo_root: Path) -> None:
             "maldet.toml required at repo root (Phase 11c contract)",
         )
     try:
-        data = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+        text = manifest_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise StaticValidationError(
+            "manifest_unparseable",
+            f"maldet.toml is not valid UTF-8: {e}",
+        ) from e
+    try:
+        data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         raise StaticValidationError(
             "manifest_unparseable",
             f"maldet.toml is not valid TOML: {e}",
         ) from e
     try:
-        DetectorManifest.model_validate(data)
+        manifest = DetectorManifest.model_validate(data)
     except pydantic.ValidationError as e:
         raise StaticValidationError(
             "manifest_invalid",
             f"maldet.toml fails DetectorManifest schema: {e}",
         ) from e
+    # The pydantic schema only constrains types — empty strings would still
+    # parse, then explode downstream as Harbor `repository:` or registry
+    # tag. Reject them at submit time so the detector author sees a clear
+    # error instead of a confusing build/registry failure.
+    if not manifest.detector.name.strip() or not manifest.detector.version.strip():
+        raise StaticValidationError(
+            "manifest_invalid",
+            "detector.name and detector.version must be non-empty",
+        )
 
 
 # ---------------------------------------------------------------------------
-# Phase 11b: job-submission pre-flight validators (unchanged in 11c)
+# Job-submission pre-flight validators
 # ---------------------------------------------------------------------------
-
-from app.models.job import ResourceProfile  # noqa: E402
 
 _PROFILE_TO_MANIFEST_TOKEN = {
     ResourceProfile.STANDARD: "cpu",
@@ -156,7 +171,10 @@ def validate_job_submission(
     # Multi-GPU profile requires explicit detector opt-in — silently running
     # single-GPU semantics on a 2-GPU allocation wastes the unused device
     # unless the detector author has declared a distributed strategy.
-    if resource_profile == ResourceProfile.GPU2 and not manifest.lifecycle.supports_distributed:
+    if (
+        resource_profile == ResourceProfile.GPU2
+        and not manifest.lifecycle.supports_distributed
+    ):
         raise JobSubmissionError(
             f"resource_profile {resource_profile.value!r} allocates multiple GPUs but "
             f"detector's lifecycle.supports_distributed is "

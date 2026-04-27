@@ -1,4 +1,3 @@
-import secrets
 import uuid
 from typing import Annotated
 from uuid import UUID
@@ -43,6 +42,7 @@ def require_detector_access(write: bool = False):
     write=False: any authenticated user can read
     write=True: owner or admin only
     """
+
     async def _inner(
         detector: Detector = Depends(load_detector),
         user: User = Depends(current_active_user),
@@ -54,10 +54,6 @@ def require_detector_access(write: bool = False):
         raise HTTPException(status_code=403, detail="not owner / admin")
 
     return _inner
-
-
-def generate_build_token() -> str:
-    return f"btok_{secrets.token_urlsafe(32)}"
 
 
 async def require_job_token(

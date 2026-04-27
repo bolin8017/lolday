@@ -59,6 +59,7 @@ async def _user_context(session: AsyncSession, user_id) -> tuple[str, str | None
     since email is required on User).
     """
     from app.models import User
+
     user = await session.get(User, user_id)
     if user is None:
         return ("unknown", None)
@@ -69,6 +70,7 @@ async def _user_context(session: AsyncSession, user_id) -> tuple[str, str | None
 async def _detector_label(session: AsyncSession, detector_id) -> str:
     """Returns detector.display_name, or "unknown" if the row was deleted."""
     from app.models import Detector
+
     det = await session.get(Detector, detector_id)
     if det is None:
         return "unknown"
@@ -91,7 +93,9 @@ def _primary_metric(metrics: dict) -> tuple[str, float] | None:
 
 
 async def _fire_job_failed_notify(
-    session: AsyncSession, j, reason: str,
+    session: AsyncSession,
+    j,
+    reason: str,
 ) -> None:
     """Schedule a job-failed Discord notify without blocking the reconciler.
 
@@ -99,6 +103,7 @@ async def _fire_job_failed_notify(
     phase, wall-clock TIMEOUT, and k8s_job_missing (404 on GET).
     """
     from app.models import DatasetConfig, DetectorVersion
+
     user_name, discord_id = await _user_context(session, j.owner_id)
     dv = await session.get(DetectorVersion, j.detector_version_id)
     det_label = await _detector_label(session, dv.detector_id) if dv else "unknown"
@@ -108,15 +113,18 @@ async def _fire_job_failed_notify(
     if ds_id:
         ds = await session.get(DatasetConfig, ds_id)
         dataset_name = ds.name if ds else None
-    asyncio.create_task(notify_job_failed(
-        user_name=user_name,
-        user_discord_id=discord_id,
-        job_type=j.type.value,
-        detector_label=detector_label,
-        dataset_name=dataset_name,
-        failure_reason=reason,
-        job_url=_ui_url(f"/jobs/{j.id}"),
-    ))
+    asyncio.create_task(
+        notify_job_failed(
+            user_name=user_name,
+            user_discord_id=discord_id,
+            job_type=j.type.value,
+            detector_label=detector_label,
+            dataset_name=dataset_name,
+            failure_reason=reason,
+            job_url=_ui_url(f"/jobs/{j.id}"),
+        )
+    )
+
 
 # Loop tuning. Module-level so tests can monkeypatch to collapse iteration time.
 SYNC_EVERY_N_ITERATIONS = 6
@@ -136,14 +144,16 @@ async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
             await session.commit()
             user_name, discord_id = await _user_context(session, b.triggered_by_id)
             label = await _detector_label(session, b.detector_id)
-            asyncio.create_task(notify_build_failed(
-                user_name=user_name,
-                user_discord_id=discord_id,
-                detector_label=label,
-                git_tag=b.git_tag,
-                failure_reason="k8s_job_missing",
-                build_url=_ui_url(f"/detectors/{b.detector_id}"),
-            ))
+            asyncio.create_task(
+                notify_build_failed(
+                    user_name=user_name,
+                    user_discord_id=discord_id,
+                    detector_label=label,
+                    git_tag=b.git_tag,
+                    failure_reason="k8s_job_missing",
+                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                )
+            )
         return
 
     # Wall-clock timeout gates every post-build state. A build whose Job
@@ -151,8 +161,9 @@ async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
     # would otherwise route to _handle_succeeded forever; this check has
     # to sit above the dispatch, not inside an elif, for the Error-retry
     # loop to be genuinely bounded.
-    if (datetime.now(timezone.utc) - b.started_at.replace(tzinfo=timezone.utc)).total_seconds() \
-            > settings.BUILD_TIMEOUT_SECONDS + 60:
+    if (
+        datetime.now(timezone.utc) - b.started_at.replace(tzinfo=timezone.utc)
+    ).total_seconds() > settings.BUILD_TIMEOUT_SECONDS + 60:
         await _handle_timeout(session, b)
         return
 
@@ -166,9 +177,12 @@ async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
 
 async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
     from app.models.detector import Detector
+
     detector = await session.get(Detector, b.detector_id)
     harbor = HarborClient(
-        settings.HARBOR_URL, settings.HARBOR_ADMIN_USERNAME, settings.HARBOR_ADMIN_PASSWORD
+        settings.HARBOR_URL,
+        settings.HARBOR_ADMIN_USERNAME,
+        settings.HARBOR_ADMIN_PASSWORD,
     )
     digest = await harbor.get_artifact_digest("detectors", detector.name, b.git_tag)
     if digest is None:
@@ -189,7 +203,9 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
             logger.warning(
                 "Harbor returned scan_status=Error for build=%s detector=%s digest=%s "
                 "— retriggering scan (not promoting)",
-                b.id, detector.name, digest,
+                b.id,
+                detector.name,
+                digest,
             )
         try:
             await harbor.trigger_scan("detectors", detector.name, digest)
@@ -198,7 +214,10 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
             logger.warning(
                 "trigger_scan failed for build=%s detector=%s digest=%s: %s "
                 "(will retry next reconcile cycle)",
-                b.id, detector.name, digest, e,
+                b.id,
+                detector.name,
+                digest,
+                e,
             )
             # Do NOT flip to SCANNING — leave the build in its current status
             # so the next loop pass re-enters this branch and retries.
@@ -217,7 +236,10 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         BACKEND_ERRORS.labels(stage="harbor_scan_unhandled_status").inc()
         logger.error(
             "unhandled Harbor scan status %s for build=%s detector=%s digest=%s",
-            scan.status, b.id, detector.name, digest,
+            scan.status,
+            b.id,
+            detector.name,
+            digest,
         )
         b.status = DetectorBuildStatus.SCANNING
         await session.commit()
@@ -233,14 +255,16 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         await session.commit()
         user_name, discord_id = await _user_context(session, b.triggered_by_id)
         label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(notify_trivy_blocked(
-            user_name=user_name,
-            user_discord_id=discord_id,
-            detector_label=label,
-            git_tag=b.git_tag,
-            cve_summary=f"{scan.critical} critical, {scan.high} high",
-            build_url=_ui_url(f"/detectors/{b.detector_id}"),
-        ))
+        asyncio.create_task(
+            notify_trivy_blocked(
+                user_name=user_name,
+                user_discord_id=discord_id,
+                detector_label=label,
+                git_tag=b.git_tag,
+                cve_summary=f"{scan.critical} critical, {scan.high} high",
+                build_url=_ui_url(f"/detectors/{b.detector_id}"),
+            )
+        )
     else:
         # A DetectorVersion may already exist for this (detector_id, git_tag)
         # from a prior build of the same tag. Two legitimate replay paths:
@@ -254,12 +278,14 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         #      and the operator must bump the tag or delete the existing
         #      version first. This surfaces the anomaly instead of handing
         #      the user stale inference results.
-        existing_version = (await session.execute(
-            select(DetectorVersion).where(
-                DetectorVersion.detector_id == b.detector_id,
-                DetectorVersion.git_tag == b.git_tag,
+        existing_version = (
+            await session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == b.detector_id,
+                    DetectorVersion.git_tag == b.git_tag,
+                )
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
         if existing_version is None:
             # Fetch OCI image labels for the just-scanned artifact and extract
             # the maldet manifest. A detector without `io.maldet.manifest`
@@ -283,14 +309,16 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 await session.commit()
                 user_name, discord_id = await _user_context(session, b.triggered_by_id)
                 label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(notify_build_failed(
-                    user_name=user_name,
-                    user_discord_id=discord_id,
-                    detector_label=label,
-                    git_tag=b.git_tag,
-                    failure_reason="harbor_labels_fetch_failed",
-                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                ))
+                asyncio.create_task(
+                    notify_build_failed(
+                        user_name=user_name,
+                        user_discord_id=discord_id,
+                        detector_label=label,
+                        git_tag=b.git_tag,
+                        failure_reason="harbor_labels_fetch_failed",
+                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                    )
+                )
                 await _cleanup_build_secret(b.id)
                 return
 
@@ -307,14 +335,16 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 await session.commit()
                 user_name, discord_id = await _user_context(session, b.triggered_by_id)
                 label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(notify_build_failed(
-                    user_name=user_name,
-                    user_discord_id=discord_id,
-                    detector_label=label,
-                    git_tag=b.git_tag,
-                    failure_reason="manifest_label_missing",
-                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                ))
+                asyncio.create_task(
+                    notify_build_failed(
+                        user_name=user_name,
+                        user_discord_id=discord_id,
+                        detector_label=label,
+                        git_tag=b.git_tag,
+                        failure_reason="manifest_label_missing",
+                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                    )
+                )
                 await _cleanup_build_secret(b.id)
                 return
 
@@ -332,25 +362,54 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 await session.commit()
                 user_name, discord_id = await _user_context(session, b.triggered_by_id)
                 label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(notify_build_failed(
-                    user_name=user_name,
-                    user_discord_id=discord_id,
-                    detector_label=label,
-                    git_tag=b.git_tag,
-                    failure_reason="manifest_invalid",
-                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                ))
+                asyncio.create_task(
+                    notify_build_failed(
+                        user_name=user_name,
+                        user_discord_id=discord_id,
+                        detector_label=label,
+                        git_tag=b.git_tag,
+                        failure_reason="manifest_invalid",
+                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                    )
+                )
                 await _cleanup_build_secret(b.id)
                 return
 
             manifest_dict = manifest_model.model_dump(mode="json")
 
-            # The build-helper stamps the commit SHA into the OCI label
-            # ``org.opencontainers.image.revision`` (Dockerfile LABEL +
-            # BuildKit ``--label`` from the build-helper start hook). That is
-            # the canonical post-build source of truth — no callback writes
-            # ``b.git_sha`` after Phase 11c removed the v0 schema-POST route.
-            commit_sha = labels.get("org.opencontainers.image.revision", "") or ""
+            # The buildkit container stamps the commit SHA into the standard
+            # OCI label ``org.opencontainers.image.revision`` via a
+            # platform-emitted ``--label`` flag (services/build.py — the sh
+            # wrapper around buildctl-daemonless.sh). This is the canonical
+            # post-build source of truth — no callback writes ``b.git_sha``
+            # after Phase 11c removed the v0 schema-POST route. Fail closed
+            # if the label is missing so we never persist a DetectorVersion
+            # with empty git_sha.
+            commit_sha = labels.get("org.opencontainers.image.revision", "")
+            if not commit_sha:
+                BACKEND_ERRORS.labels(stage="git_sha_label_missing").inc()
+                logger.error(
+                    "build image has no org.opencontainers.image.revision label",
+                    extra={"build_id": str(b.id)},
+                )
+                b.status = DetectorBuildStatus.FAILED
+                b.failure_reason = "git_sha_label_missing"
+                b.finished_at = datetime.now(timezone.utc)
+                await session.commit()
+                user_name, discord_id = await _user_context(session, b.triggered_by_id)
+                label = await _detector_label(session, b.detector_id)
+                asyncio.create_task(
+                    notify_build_failed(
+                        user_name=user_name,
+                        user_discord_id=discord_id,
+                        detector_label=label,
+                        git_tag=b.git_tag,
+                        failure_reason="git_sha_label_missing",
+                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                    )
+                )
+                await _cleanup_build_secret(b.id)
+                return
 
             version = DetectorVersion(
                 detector_id=b.detector_id,
@@ -369,8 +428,10 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 logger.warning(
                     "digest divergence for (detector_id=%s, tag=%s): "
                     "existing=%s new=%s — refusing to rebind",
-                    b.detector_id, b.git_tag,
-                    existing_version.image_digest, digest,
+                    b.detector_id,
+                    b.git_tag,
+                    existing_version.image_digest,
+                    digest,
                 )
                 b.status = DetectorBuildStatus.FAILED
                 b.failure_reason = (
@@ -382,14 +443,16 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 await session.commit()
                 user_name, discord_id = await _user_context(session, b.triggered_by_id)
                 label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(notify_build_failed(
-                    user_name=user_name,
-                    user_discord_id=discord_id,
-                    detector_label=label,
-                    git_tag=b.git_tag,
-                    failure_reason=b.failure_reason,
-                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                ))
+                asyncio.create_task(
+                    notify_build_failed(
+                        user_name=user_name,
+                        user_discord_id=discord_id,
+                        detector_label=label,
+                        git_tag=b.git_tag,
+                        failure_reason=b.failure_reason,
+                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                    )
+                )
                 await _cleanup_build_secret(b.id)
                 return
             commit_sha = existing_version.git_sha or ""
@@ -397,7 +460,9 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
             logger.warning(
                 "detector_version replay for (%s, %s) digest=%s — "
                 "idempotent no-op on the existing row",
-                b.detector_id, b.git_tag, digest,
+                b.detector_id,
+                b.git_tag,
+                digest,
             )
         b.status = DetectorBuildStatus.SUCCEEDED
         b.trivy_critical = scan.critical
@@ -406,14 +471,16 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         await session.commit()
         user_name, discord_id = await _user_context(session, b.triggered_by_id)
         label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(notify_build_completed(
-            user_name=user_name,
-            user_discord_id=discord_id,
-            detector_label=label,
-            git_tag=b.git_tag,
-            commit_sha=commit_sha,
-            build_url=_ui_url(f"/detectors/{b.detector_id}"),
-        ))
+        asyncio.create_task(
+            notify_build_completed(
+                user_name=user_name,
+                user_discord_id=discord_id,
+                detector_label=label,
+                git_tag=b.git_tag,
+                commit_sha=commit_sha,
+                build_url=_ui_url(f"/detectors/{b.detector_id}"),
+            )
+        )
     await _cleanup_build_secret(b.id)
 
 
@@ -426,14 +493,16 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
     await session.commit()
     user_name, discord_id = await _user_context(session, b.triggered_by_id)
     label = await _detector_label(session, b.detector_id)
-    asyncio.create_task(notify_build_failed(
-        user_name=user_name,
-        user_discord_id=discord_id,
-        detector_label=label,
-        git_tag=b.git_tag,
-        failure_reason=reason,
-        build_url=_ui_url(f"/detectors/{b.detector_id}"),
-    ))
+    asyncio.create_task(
+        notify_build_failed(
+            user_name=user_name,
+            user_discord_id=discord_id,
+            detector_label=label,
+            git_tag=b.git_tag,
+            failure_reason=reason,
+            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+        )
+    )
     await _cleanup_build_secret(b.id)
 
 
@@ -452,7 +521,9 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
             BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
             logger.warning(
                 "k8s build-job cleanup returned %s for build %s",
-                exc.status, b.id, exc_info=True,
+                exc.status,
+                b.id,
+                exc_info=True,
             )
     b.status = DetectorBuildStatus.TIMEOUT
     b.failure_reason = "build exceeded timeout"
@@ -460,14 +531,16 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
     await session.commit()
     user_name, discord_id = await _user_context(session, b.triggered_by_id)
     label = await _detector_label(session, b.detector_id)
-    asyncio.create_task(notify_build_failed(
-        user_name=user_name,
-        user_discord_id=discord_id,
-        detector_label=label,
-        git_tag=b.git_tag,
-        failure_reason="build exceeded timeout",
-        build_url=_ui_url(f"/detectors/{b.detector_id}"),
-    ))
+    asyncio.create_task(
+        notify_build_failed(
+            user_name=user_name,
+            user_discord_id=discord_id,
+            detector_label=label,
+            git_tag=b.git_tag,
+            failure_reason="build exceeded timeout",
+            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+        )
+    )
     await _cleanup_build_secret(b.id)
 
 
@@ -507,7 +580,7 @@ async def _capture_log_tail(b: DetectorBuild) -> str:
             container="kaniko",
             tail_lines=200,
         )
-        return log[-settings.BUILD_LOG_TAIL_BYTES:]
+        return log[-settings.BUILD_LOG_TAIL_BYTES :]
     except ApiException:
         return ""
 
@@ -522,10 +595,10 @@ async def _extract_failure_reason(b: DetectorBuild) -> str:
         if not pods.items:
             return "pod_missing"
         pod = pods.items[0]
-        for ic in (pod.status.init_container_statuses or []):
+        for ic in pod.status.init_container_statuses or []:
             if ic.state.terminated and ic.state.terminated.exit_code != 0:
                 return f"{ic.name}_failed: exit={ic.state.terminated.exit_code}"
-        for cs in (pod.status.container_statuses or []):
+        for cs in pod.status.container_statuses or []:
             if cs.state.terminated and cs.state.terminated.exit_code != 0:
                 return f"{cs.name}_failed: exit={cs.state.terminated.exit_code}"
         return "unknown_failure"
@@ -544,7 +617,9 @@ async def _cleanup_build_secret(build_id) -> None:
             BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
             logger.warning(
                 "build secret cleanup returned %s for build %s",
-                exc.status, build_id, exc_info=True,
+                exc.status,
+                build_id,
+                exc_info=True,
             )
 
 
@@ -564,7 +639,9 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                         await reconcile_build(session, b)
                     except Exception:
                         BACKEND_ERRORS.labels(stage="reconcile_build").inc()
-                        logger.exception("reconcile_build failed", extra={"build_id": str(b.id)})
+                        logger.exception(
+                            "reconcile_build failed", extra={"build_id": str(b.id)}
+                        )
 
                 # Job reconcile pass (Phase 4)
                 res_jobs = await session.execute(
@@ -575,7 +652,9 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                         await reconcile_job(session, j)
                     except Exception:
                         BACKEND_ERRORS.labels(stage="reconcile_job").inc()
-                        logger.exception("reconcile_job failed", extra={"job_id": str(j.id)})
+                        logger.exception(
+                            "reconcile_job failed", extra={"job_id": str(j.id)}
+                        )
 
                 # Model version sync every N iterations (~60s at default N=6)
                 if iteration % SYNC_EVERY_N_ITERATIONS == 0:
@@ -645,7 +724,9 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
                 BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
                 logger.warning(
                     "volcano job delete returned %s for job %s",
-                    exc.status, j.id, exc_info=True,
+                    exc.status,
+                    j.id,
+                    exc_info=True,
                 )
         j.status = JobStatus.TIMEOUT
         j.failure_reason = "detector_timeout"
@@ -685,13 +766,13 @@ def _job_timed_out(j: Job, vjob: dict) -> bool:
         JobType.PREDICT: settings.JOB_ACTIVE_DEADLINE_PREDICT_SECONDS,
     }
     deadline = deadline_map.get(j.type, 3600)
-    elapsed = (datetime.now(timezone.utc) - j.started_at.replace(tzinfo=timezone.utc)).total_seconds()
+    elapsed = (
+        datetime.now(timezone.utc) - j.started_at.replace(tzinfo=timezone.utc)
+    ).total_seconds()
     return elapsed > deadline + 60
 
 
-async def _check_event_terminal(
-    session: AsyncSession, job_id: uuid.UUID
-) -> str | None:
+async def _check_event_terminal(session: AsyncSession, job_id: uuid.UUID) -> str | None:
     """Return 'success' / 'failure' based on the most recent stage_end event, else None."""
     from app.models import JobEvent
 
@@ -755,35 +836,48 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
     # Notify user of completion.
     user_name, discord_id = await _user_context(session, j.owner_id)
     from app.models import DetectorVersion
+
     dv = await session.get(DetectorVersion, j.detector_version_id)
     det_label = await _detector_label(session, dv.detector_id) if dv else "unknown"
     detector_label = f"{det_label} {dv.git_tag}" if dv else det_label
     dataset_name = None
     if j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id:
         from app.models import DatasetConfig
+
         ds_id = j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id
         ds = await session.get(DatasetConfig, ds_id)
         dataset_name = ds.name if ds else None
     duration = None
     if j.started_at and j.finished_at:
-        sa = j.started_at if j.started_at.tzinfo else j.started_at.replace(tzinfo=timezone.utc)
-        fa = j.finished_at if j.finished_at.tzinfo else j.finished_at.replace(tzinfo=timezone.utc)
+        sa = (
+            j.started_at
+            if j.started_at.tzinfo
+            else j.started_at.replace(tzinfo=timezone.utc)
+        )
+        fa = (
+            j.finished_at
+            if j.finished_at.tzinfo
+            else j.finished_at.replace(tzinfo=timezone.utc)
+        )
         duration = int((fa - sa).total_seconds())
     mlflow_url = (
         _ui_url(f"/runs/{j.mlflow_experiment_id}/{j.mlflow_run_id}")
-        if j.mlflow_experiment_id and j.mlflow_run_id else None
+        if j.mlflow_experiment_id and j.mlflow_run_id
+        else None
     )
-    asyncio.create_task(notify_job_completed(
-        user_name=user_name,
-        user_discord_id=discord_id,
-        job_type=j.type.value,
-        detector_label=detector_label,
-        dataset_name=dataset_name,
-        duration_seconds=duration,
-        primary_metric=_primary_metric(metrics),
-        job_url=_ui_url(f"/jobs/{j.id}"),
-        mlflow_url=mlflow_url,
-    ))
+    asyncio.create_task(
+        notify_job_completed(
+            user_name=user_name,
+            user_discord_id=discord_id,
+            job_type=j.type.value,
+            detector_label=detector_label,
+            dataset_name=dataset_name,
+            duration_seconds=duration,
+            primary_metric=_primary_metric(metrics),
+            job_url=_ui_url(f"/jobs/{j.id}"),
+            mlflow_url=mlflow_url,
+        )
+    )
     await _cleanup_job_secret(j)
 
 
@@ -839,13 +933,17 @@ async def _extract_job_failure_reason(j: Job) -> str:
         return "pod_missing"
     pod = pods.items[0]
 
-    for ic in (pod.status.init_container_statuses or []):
-        if ic.state and ic.state.terminated and ic.state.terminated.exit_code not in (0, None):
+    for ic in pod.status.init_container_statuses or []:
+        if (
+            ic.state
+            and ic.state.terminated
+            and ic.state.terminated.exit_code not in (0, None)
+        ):
             if ic.name == "model-fetcher":
                 return "source_model_not_found"
             return f"init_{ic.name}_failed"
 
-    for cs in (pod.status.container_statuses or []):
+    for cs in pod.status.container_statuses or []:
         if cs.state and cs.state.terminated:
             ec = cs.state.terminated.exit_code
             if ec == 137:
@@ -878,6 +976,7 @@ async def _capture_job_log_tail(j: Job) -> str:
 async def _cleanup_job_secret(j: Job) -> None:
     try:
         from app.services.job_spec import _job_token_secret_name
+
         core_v1().delete_namespaced_secret(
             name=_job_token_secret_name(j.id),
             namespace=settings.JOB_NAMESPACE,
@@ -887,7 +986,9 @@ async def _cleanup_job_secret(j: Job) -> None:
             BACKEND_ERRORS.labels(stage="k8s_cleanup").inc()
             logger.warning(
                 "job token secret cleanup returned %s for job %s",
-                exc.status, j.id, exc_info=True,
+                exc.status,
+                j.id,
+                exc_info=True,
             )
 
 

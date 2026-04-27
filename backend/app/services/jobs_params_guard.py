@@ -1,6 +1,7 @@
 """Guard for user-supplied Hydra overrides on job submission.
 
-Phase 11b/11c removed the v0 per-detector pydantic JSON schema validation. To
+The platform no longer enforces a per-detector pydantic JSON schema, so any
+key the user submits flows through to the Hydra config layer unchanged. To
 keep the platform from accepting Hydra overrides that would (a) execute
 arbitrary code via ``_target_`` instantiation or (b) clobber platform-controlled
 sections of the rendered Hydra YAML (paths/data/mlflow are platform-injected),

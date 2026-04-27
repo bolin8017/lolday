@@ -118,3 +118,39 @@ def test_main_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     rc = mv.main()
     assert rc == 0
     assert (out / "MALDET_NAME").read_text() == "demo"
+
+
+def test_main_returns_1_when_repo_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing/non-directory repo path must surface as exit code 1, never
+    bubble up as an uncaught exception that the init container would
+    misdiagnose as a Python crash."""
+    monkeypatch.setattr(
+        sys, "argv", ["maldet_validator", str(tmp_path / "does-not-exist")]
+    )
+    rc = mv.main()
+    assert rc == 1
+
+
+def test_main_emits_structured_json_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """Failures land on stderr as structured JSON (``{"validation_error":
+    {"code", "message"}}``). The reconciler scrapes init-container stderr
+    to populate ``DetectorBuild.failure_reason`` — a free-form traceback
+    here would lose the structured ``code`` and break the failure-reason
+    classification."""
+    # Repo exists but doesn't satisfy the contract: missing maldet.toml.
+    repo = tmp_path / "src"
+    repo.mkdir()
+    (repo / "Dockerfile").write_text("FROM x\n")
+    out = tmp_path / "build-args"
+    out.mkdir()
+    monkeypatch.setattr(sys, "argv", ["maldet_validator", str(repo), str(out)])
+    rc = mv.main()
+    assert rc == 1
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err.strip())
+    assert payload["validation_error"]["code"] == "manifest_missing"
+    assert "maldet.toml" in payload["validation_error"]["message"]

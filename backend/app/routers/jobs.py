@@ -4,7 +4,16 @@ from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +55,9 @@ router = APIRouter()
 
 
 def _get_mlflow_client() -> MlflowClient:
-    return MlflowClient(settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS)
+    return MlflowClient(
+        settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
+    )
 
 
 async def _load_dataset(
@@ -56,7 +67,9 @@ async def _load_dataset(
         return None
     ds = await session.get(DatasetConfig, ds_id)
     if ds is None or ds.deleted_at is not None:
-        raise HTTPException(status_code=422, detail=f"{field}: dataset not found or deleted")
+        raise HTTPException(
+            status_code=422, detail=f"{field}: dataset not found or deleted"
+        )
     if (
         ds.visibility == DatasetVisibility.PRIVATE
         and ds.owner_id != user.id
@@ -64,24 +77,6 @@ async def _load_dataset(
     ):
         raise HTTPException(status_code=422, detail=f"{field}: dataset not accessible")
     return ds
-
-
-def _extract_defaults(schema: dict) -> dict:
-    """Pull default values out of a Pydantic-generated JSON schema."""
-    defaults: dict = {}
-    properties = schema.get("properties", {})
-    defs = schema.get("$defs", {})
-
-    for key, prop in properties.items():
-        if "default" in prop:
-            defaults[key] = prop["default"]
-        elif "$ref" in prop:
-            ref_name = prop["$ref"].split("/")[-1]
-            ref_schema = defs.get(ref_name, {})
-            nested = _extract_defaults(ref_schema)
-            if nested:
-                defaults[key] = nested
-    return defaults
 
 
 _KNOWN_DISTRIBUTED_STRATEGIES = frozenset({"ddp", "fsdp", "deepspeed"})
@@ -129,9 +124,15 @@ async def create_job(
         raise HTTPException(status_code=422, detail="detector_version not found")
 
     # 2. dataset refs
-    train_ds = await _load_dataset(body.train_dataset_id, session, user, "train_dataset_id")
-    test_ds = await _load_dataset(body.test_dataset_id, session, user, "test_dataset_id")
-    predict_ds = await _load_dataset(body.predict_dataset_id, session, user, "predict_dataset_id")
+    train_ds = await _load_dataset(
+        body.train_dataset_id, session, user, "train_dataset_id"
+    )
+    test_ds = await _load_dataset(
+        body.test_dataset_id, session, user, "test_dataset_id"
+    )
+    predict_ds = await _load_dataset(
+        body.predict_dataset_id, session, user, "predict_dataset_id"
+    )
 
     # 3. source model
     source_run_id = None
@@ -139,7 +140,9 @@ async def create_job(
     if body.source_model_version_id is not None:
         source_model = await session.get(ModelVersion, body.source_model_version_id)
         if source_model is None:
-            raise HTTPException(status_code=422, detail="source_model_version not found")
+            raise HTTPException(
+                status_code=422, detail="source_model_version not found"
+            )
         source_run_id = source_model.mlflow_run_id
 
     # 4. User-params guard (Phase 11c — replaces v0 jsonschema validation)
@@ -156,9 +159,12 @@ async def create_job(
         )
     try:
         from maldet.manifest import DetectorManifest
+
         manifest_model = DetectorManifest.model_validate(dv.manifest)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"stored manifest invalid: {exc}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"stored manifest invalid: {exc}"
+        ) from exc
     try:
         validate_job_submission(
             manifest=manifest_model,
@@ -180,29 +186,43 @@ async def create_job(
         source_model=str(source_model.id) if source_model else None,
         params=body.params,
     )
-    window_start = datetime.now(timezone.utc) - timedelta(seconds=settings.JOB_IDEMPOTENCY_WINDOW_SECONDS)
-    dup = (await session.execute(
-        select(Job).where(
-            Job.idempotency_key == idem_key,
-            Job.submitted_at >= window_start,
-            Job.status.in_(NON_TERMINAL_STATUSES),
+    window_start = datetime.now(timezone.utc) - timedelta(
+        seconds=settings.JOB_IDEMPOTENCY_WINDOW_SECONDS
+    )
+    dup = (
+        await session.execute(
+            select(Job).where(
+                Job.idempotency_key == idem_key,
+                Job.submitted_at >= window_start,
+                Job.status.in_(NON_TERMINAL_STATUSES),
+            )
         )
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
     if dup is not None:
-        raise HTTPException(status_code=409, detail=f"duplicate submission; existing job: {dup.id}")
+        raise HTTPException(
+            status_code=409, detail=f"duplicate submission; existing job: {dup.id}"
+        )
 
     # 6. Concurrency
-    in_flight = (await session.execute(
-        select(func.count()).select_from(Job).where(
-            Job.owner_id == user.id,
-            Job.status.in_(NON_TERMINAL_STATUSES),
+    in_flight = (
+        await session.execute(
+            select(func.count())
+            .select_from(Job)
+            .where(
+                Job.owner_id == user.id,
+                Job.status.in_(NON_TERMINAL_STATUSES),
+            )
         )
-    )).scalar_one()
+    ).scalar_one()
     if in_flight >= settings.JOB_PER_USER_CONCURRENCY:
-        raise HTTPException(status_code=429, detail=f"in-flight limit ({settings.JOB_PER_USER_CONCURRENCY}) reached")
+        raise HTTPException(
+            status_code=429,
+            detail=f"in-flight limit ({settings.JOB_PER_USER_CONCURRENCY}) reached",
+        )
 
     # 7. Integrity spot-check (only if samples dir exists locally)
     from pathlib import Path
+
     samples_root = Path(settings.SAMPLES_LOCAL_ROOT)
     if samples_root.exists():
         try:
@@ -218,7 +238,9 @@ async def create_job(
                     missing_threshold=settings.DATASET_SPOT_CHECK_MISSING_THRESHOLD,
                 )
         except DatasetIntegrityError as e:
-            raise HTTPException(status_code=422, detail=f"dataset_integrity_failed: {e}")
+            raise HTTPException(
+                status_code=422, detail=f"dataset_integrity_failed: {e}"
+            )
 
     # 8. MLflow experiment + run
     client = _get_mlflow_client()
@@ -284,7 +306,11 @@ async def create_job(
         mlflow_run_id=run_id,
         mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
         source_run_id=source_run_id,
-        source_artifact_path=(resolve_source_model_path(f"runs:/{source_run_id}/model") if source_run_id else None),
+        source_artifact_path=(
+            resolve_source_model_path(f"runs:/{source_run_id}/model")
+            if source_run_id
+            else None
+        ),
         internal_events_url=f"{settings.INTERNAL_EVENTS_BASE_URL}/internal/jobs/{job.id}/events",
         resource_profile=body.resource_profile,
         gpu_strategy=gpu_strategy,
@@ -333,7 +359,9 @@ async def list_jobs(
     if detector_id is not None:
         filters.append(
             Job.detector_version_id.in_(
-                select(DetectorVersion.id).where(DetectorVersion.detector_id == detector_id)
+                select(DetectorVersion.id).where(
+                    DetectorVersion.detector_id == detector_id
+                )
             )
         )
 
@@ -342,7 +370,12 @@ async def list_jobs(
         count_stmt = count_stmt.where(and_(*filters))
     total = (await session.execute(count_stmt)).scalar_one()
 
-    stmt = select(Job).order_by(Job.submitted_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    stmt = (
+        select(Job)
+        .order_by(Job.submitted_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     if filters:
         stmt = stmt.where(and_(*filters))
     items = (await session.execute(stmt)).scalars().all()
@@ -382,7 +415,9 @@ async def get_job_logs(
         return _stream_live_logs(job)
     age = datetime.now(timezone.utc) - job.finished_at.replace(tzinfo=timezone.utc)
     if age.total_seconds() > 86400:
-        return Response(content=job.log_tail or "", status_code=410, media_type="text/plain")
+        return Response(
+            content=job.log_tail or "", status_code=410, media_type="text/plain"
+        )
     return Response(content=job.log_tail or "", media_type="text/plain")
 
 
@@ -405,7 +440,9 @@ def _stream_live_logs(job: Job):
     except Exception:
         BACKEND_ERRORS.labels(stage="job_logs_fetch").inc()
         logger.exception("job logs fetch failed", extra={"job_id": str(job.id)})
-        return Response(content="(logs unavailable)", media_type="text/plain", status_code=503)
+        return Response(
+            content="(logs unavailable)", media_type="text/plain", status_code=503
+        )
 
 
 @router.get("/{job_id}/queue-position")
@@ -450,7 +487,9 @@ async def cancel_job(
             )
 
     job.status = JobStatus.CANCELLED
-    job.failure_reason = "cancelled_by_user" if job.owner_id == user.id else "cancelled_by_admin"
+    job.failure_reason = (
+        "cancelled_by_user" if job.owner_id == user.id else "cancelled_by_admin"
+    )
     job.finished_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(job)
@@ -631,7 +670,8 @@ async def websocket_job_events(
             recv_task = asyncio.create_task(websocket.receive_text())
             get_task = asyncio.create_task(queue.get())
             done, pending = await asyncio.wait(
-                {recv_task, get_task}, return_when=asyncio.FIRST_COMPLETED,
+                {recv_task, get_task},
+                return_when=asyncio.FIRST_COMPLETED,
             )
             for t in pending:
                 t.cancel()

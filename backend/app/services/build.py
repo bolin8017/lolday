@@ -31,7 +31,7 @@ def build_secret_name(build_id: UUID) -> str:
 
 
 def build_git_credential_secret(
-    build_id: UUID, username: str, pat_token: str, build_token: str
+    build_id: UUID, username: str, pat_token: str
 ) -> dict[str, Any]:
     return {
         "apiVersion": "v1",
@@ -41,7 +41,6 @@ def build_git_credential_secret(
         "stringData": {
             "username": username,
             "token": pat_token,
-            "build_token": build_token,
         },
     }
 
@@ -114,12 +113,13 @@ def build_job_spec(
                     },
                     "volumes": [
                         {"name": "workspace", "emptyDir": {"sizeLimit": "2Gi"}},
-                        # Sized for the heaviest realistic DL detector: a
-                        # `uv pip install <repo>` of a torch-dependent detector
-                        # pulls torch (~2Gi) plus its full nvidia-cu12 wheel
-                        # set (nvidia-cudnn, cublas, cufft, cusolver,
-                        # cusparse, nccl, cuda-nvrtc…) totalling ~7Gi
-                        # extracted. Plus the venv + uv staging buffer.
+                        # buildkit's daemonless wrapper materialises transient
+                        # frontend artefacts (parsed Dockerfile, intermediate
+                        # build state, the squashed-layer overflow buffer when
+                        # exporting to registry) under /tmp. With CUDA-base
+                        # images the squashed final layer alone can be 5-8 GiB
+                        # before push, so 12 GiB gives buildkit enough headroom
+                        # without bleeding into node ephemeral-storage pressure.
                         {"name": "tmp", "emptyDir": {"sizeLimit": "12Gi"}},
                         # BuildKit's overlay snapshotter needs a writable
                         # directory under HOME. Disk-backed (not tmpfs) so
@@ -165,8 +165,8 @@ def build_job_spec(
                             "args": [
                                 "set +x; "
                                 "git clone --depth=1 --recurse-submodules "
-                                "--branch=\"$GIT_TAG\" "
-                                "\"https://$GIT_USER:$GIT_TOKEN@github.com/$REPO.git\" "
+                                '--branch="$GIT_TAG" '
+                                '"https://$GIT_USER:$GIT_TOKEN@github.com/$REPO.git" '
                                 "/workspace/src && "
                                 "git -C /workspace/src rev-parse HEAD > /workspace/git-sha"
                             ],
@@ -176,13 +176,19 @@ def build_job_spec(
                                 {
                                     "name": "GIT_USER",
                                     "valueFrom": {
-                                        "secretKeyRef": {"name": secret_name, "key": "username"}
+                                        "secretKeyRef": {
+                                            "name": secret_name,
+                                            "key": "username",
+                                        }
                                     },
                                 },
                                 {
                                     "name": "GIT_TOKEN",
                                     "valueFrom": {
-                                        "secretKeyRef": {"name": secret_name, "key": "token"}
+                                        "secretKeyRef": {
+                                            "name": secret_name,
+                                            "key": "token",
+                                        }
                                     },
                                 },
                             ],
@@ -216,46 +222,36 @@ def build_job_spec(
                             "args": ["/workspace/src", "/workspace/build-args"],
                             "env": [
                                 {"name": "BUILD_ID", "value": str(build_id)},
-                                {
-                                    "name": "BUILD_TOKEN",
-                                    "valueFrom": {
-                                        "secretKeyRef": {"name": secret_name, "key": "build_token"}
-                                    },
-                                },
-                                {"name": "BACKEND_URL", "value": settings.BACKEND_INTERNAL_URL},
                             ],
                             "volumeMounts": [
                                 {"name": "workspace", "mountPath": "/workspace"},
                                 {"name": "tmp", "mountPath": "/tmp"},
                                 # Writable: validator emits the per-key
                                 # MALDET_* files here.
-                                {"name": "build-args", "mountPath": "/workspace/build-args"},
+                                {
+                                    "name": "build-args",
+                                    "mountPath": "/workspace/build-args",
+                                },
                             ],
                             "securityContext": base_sc,
+                            # Phase 11c validator only parses ``maldet.toml``
+                            # (tomllib + pydantic ``DetectorManifest``) and
+                            # writes 5 small files (~few hundred KB total,
+                            # MALDET_MANIFEST_B64 dominates) to the build-args
+                            # dir. No pip install, no source import. Peak
+                            # memory hovers around 60-80 MiB; the 256 MiB
+                            # limit is a generous ceiling so a runaway pydantic
+                            # error chain doesn't escape silently.
                             "resources": {
                                 "requests": {
-                                    "cpu": "200m",
-                                    "memory": "256Mi",
-                                    # Validator now runs with --no-deps and
-                                    # extracts the config schema via importlib
-                                    # on a single file — peak /tmp usage is
-                                    # well under 256Mi. Request stays modest.
-                                    "ephemeral-storage": "256Mi",
+                                    "cpu": "100m",
+                                    "memory": "128Mi",
+                                    "ephemeral-storage": "128Mi",
                                 },
-                                # RSS upper bound: even though the --no-deps
-                                # validator never loads torch, leave the 8Gi
-                                # headroom in case a detector author's config
-                                # module accidentally imports something heavy.
                                 "limits": {
-                                    "cpu": "1",
-                                    "memory": "8Gi",
-                                    # /tmp EmptyDir has a 12Gi sizeLimit; the
-                                    # limit here matches so kubelet evicts the
-                                    # container (not the whole node) if the
-                                    # validator runs away. Prevents the stale
-                                    # /tmp usage from the old design
-                                    # triggering node-level eviction.
-                                    "ephemeral-storage": "14Gi",
+                                    "cpu": "500m",
+                                    "memory": "256Mi",
+                                    "ephemeral-storage": "1Gi",
                                 },
                             },
                         },
@@ -293,32 +289,58 @@ def build_job_spec(
                                 f"--export-cache type=registry,ref={cache_repo},mode=max,registry.insecure=true "
                                 f"--import-cache type=registry,ref={cache_repo},registry.insecure=true "
                                 "--progress plain "
-                                "--opt build-arg:MALDET_NAME=\"$MN\" "
-                                "--opt build-arg:MALDET_VERSION=\"$MV\" "
-                                "--opt build-arg:MALDET_FRAMEWORK=\"$MF\" "
-                                "--opt build-arg:MALDET_MANIFEST_B64=\"$MB\" "
-                                "--opt build-arg:GIT_COMMIT=\"$GC\""
+                                '--opt build-arg:MALDET_NAME="$MN" '
+                                '--opt build-arg:MALDET_VERSION="$MV" '
+                                '--opt build-arg:MALDET_FRAMEWORK="$MF" '
+                                '--opt build-arg:MALDET_MANIFEST_B64="$MB" '
+                                '--opt build-arg:GIT_COMMIT="$GC" '
+                                # Stamp the commit SHA into the standard OCI
+                                # revision label so the reconciler can read it
+                                # back without depending on the detector
+                                # author's Dockerfile to set it. Read by
+                                # _handle_succeeded → DetectorVersion.git_sha.
+                                '--opt label:org.opencontainers.image.revision="$GC"'
                             ],
                             "env": [
                                 # buildctl-daemonless.sh retries daemon
                                 # startup this many times before exiting 1.
-                                {"name": "BUILDCTL_CONNECT_RETRIES_ON_STARTUP", "value": "10"},
+                                {
+                                    "name": "BUILDCTL_CONNECT_RETRIES_ON_STARTUP",
+                                    "value": "10",
+                                },
                                 # Required for rootless in Kubernetes. Docker
                                 # sets `systempaths=unconfined` via daemon.json;
                                 # we don't have that, so explicitly disable the
                                 # process sandbox.
-                                {"name": "BUILDKITD_FLAGS", "value": "--oci-worker-no-process-sandbox"},
+                                {
+                                    "name": "BUILDKITD_FLAGS",
+                                    "value": "--oci-worker-no-process-sandbox",
+                                },
                                 # buildctl reads $DOCKER_CONFIG/config.json to
                                 # authenticate to the registry; the secret is
                                 # mounted as single file named config.json.
-                                {"name": "DOCKER_CONFIG", "value": "/home/user/.docker"},
+                                {
+                                    "name": "DOCKER_CONFIG",
+                                    "value": "/home/user/.docker",
+                                },
                             ],
                             "volumeMounts": [
-                                {"name": "workspace", "mountPath": "/workspace", "readOnly": True},
-                                {"name": "harbor-docker-cfg", "mountPath": "/home/user/.docker", "readOnly": True},
+                                {
+                                    "name": "workspace",
+                                    "mountPath": "/workspace",
+                                    "readOnly": True,
+                                },
+                                {
+                                    "name": "harbor-docker-cfg",
+                                    "mountPath": "/home/user/.docker",
+                                    "readOnly": True,
+                                },
                                 # BuildKit snapshotter + metadata DB live here;
                                 # emptyDir backed by node disk (not tmpfs).
-                                {"name": "buildkit-state", "mountPath": "/home/user/.local/share/buildkit"},
+                                {
+                                    "name": "buildkit-state",
+                                    "mountPath": "/home/user/.local/share/buildkit",
+                                },
                                 # buildctl writes temporary frontend files here.
                                 {"name": "tmp", "mountPath": "/tmp"},
                                 # Phase 11c: per-key MALDET_* files written
@@ -326,7 +348,11 @@ def build_job_spec(
                                 # the sh -c wrapper above. Read-only — we
                                 # never want buildkitd writing into this
                                 # directory.
-                                {"name": "build-args", "mountPath": "/workspace/build-args", "readOnly": True},
+                                {
+                                    "name": "build-args",
+                                    "mountPath": "/workspace/build-args",
+                                    "readOnly": True,
+                                },
                             ],
                             "securityContext": buildkit_sc,
                             "resources": {

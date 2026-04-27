@@ -407,10 +407,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Submit Schema
-         * @description Called by validate init container with Pydantic JSON schema + git_sha.
-         */
+        /** Submit Schema */
         post: operations["submit_schema_api_v1_internal_builds__build_id__schema_post"];
         delete?: never;
         options?: never;

@@ -26,14 +26,26 @@ def upgrade() -> None:
     The pydantic JSON schema flow (validate-init-container → /builds/{id}/schema
     → detector_build.pending_schema → detector_version.config_schema → jobs
     router jsonschema.validate) is replaced in Phase 11c by manifest-driven
-    validation. No data preserved on downgrade — compat is not a goal.
+    validation. The Phase 11c contract also removes the build-token round-trip
+    that was used to authenticate the validator's schema-POST callback —
+    detector_build.build_token is dropped here. No data preserved on
+    downgrade — compat is not a goal.
     """
     op.drop_column("detector_build", "pending_schema")
     op.drop_column("detector_version", "config_schema")
+    op.drop_column("detector_build", "build_token")
 
 
 def downgrade() -> None:
-    """Re-add the columns as nullable empty JSON. No row-level data is restored."""
+    """Re-add the columns as nullable empty JSON / nullable string.
+
+    No row-level data is restored. ``detector_version.config_schema`` is
+    re-added as NOT NULL with ``'{}'::jsonb`` server_default so existing
+    rows backfill an empty schema; the downgrade does NOT restore the v0
+    per-detector pydantic JSON schemas that the upgrade dropped.
+    ``detector_build.build_token`` re-added as nullable String(80); existing
+    rows will have NULL — downgrade does not re-issue v0 build tokens.
+    """
     op.add_column(
         "detector_build",
         sa.Column(
@@ -52,3 +64,7 @@ def downgrade() -> None:
         ),
     )
     op.alter_column("detector_version", "config_schema", server_default=None)
+    op.add_column(
+        "detector_build",
+        sa.Column("build_token", sa.String(length=80), nullable=True),
+    )

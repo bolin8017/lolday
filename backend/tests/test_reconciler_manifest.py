@@ -46,16 +46,20 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
     from app.services.harbor import ScanResult, ScanStatus
 
     detector = Detector(
-        name="elfrfdet", display_name="elfrfdet",
-        git_url="https://github.com/bolin8017/elfrfdet.git", owner_id=uuid4(),
+        name="elfrfdet",
+        display_name="elfrfdet",
+        git_url="https://github.com/bolin8017/elfrfdet.git",
+        owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
 
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v2.0.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-elfrfdet-1", status=DetectorBuildStatus.SCANNING,
-        build_token="btok_mfst_ok",
+        detector_id=detector.id,
+        git_tag="v2.0.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-elfrfdet-1",
+        status=DetectorBuildStatus.SCANNING,
     )
     db_session.add(build)
     await db_session.commit()
@@ -72,9 +76,11 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
         "org.opencontainers.image.revision": "abc123def456",
     }
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc, \
-         patch("app.reconciler.core_v1"):
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.core_v1"),
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:deadbeef")
         hc.return_value.get_scan = AsyncMock(
@@ -86,9 +92,17 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
     await db_session.refresh(build)
     assert build.status == DetectorBuildStatus.SUCCEEDED
 
-    rows = (await db_session.execute(
-        select(DetectorVersion).where(DetectorVersion.detector_id == detector.id)
-    )).scalars().all()
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1
     dv = rows[0]
     assert dv.image_digest == "sha256:deadbeef"
@@ -116,15 +130,19 @@ async def test_reconcile_fails_when_manifest_label_missing(db_session):
     from app.metrics import BACKEND_ERRORS
 
     detector = Detector(
-        name="nolabel", display_name="nolabel",
-        git_url="https://github.com/x/nolabel.git", owner_id=uuid4(),
+        name="nolabel",
+        display_name="nolabel",
+        git_url="https://github.com/x/nolabel.git",
+        owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-nolabel", status=DetectorBuildStatus.SCANNING,
-        build_token="btok_nomfst",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-nolabel",
+        status=DetectorBuildStatus.SCANNING,
     )
     db_session.add(build)
     await db_session.commit()
@@ -135,9 +153,11 @@ async def test_reconcile_fails_when_manifest_label_missing(db_session):
 
     before = BACKEND_ERRORS.labels(stage="manifest_missing")._value.get()
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc, \
-         patch("app.reconciler.core_v1"):
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.core_v1"),
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:nomfst")
         hc.return_value.get_scan = AsyncMock(
@@ -154,12 +174,95 @@ async def test_reconcile_fails_when_manifest_label_missing(db_session):
     assert build.failure_reason == "manifest_label_missing"
     assert build.finished_at is not None
 
-    rows = (await db_session.execute(
-        select(DetectorVersion).where(DetectorVersion.detector_id == detector.id)
-    )).scalars().all()
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert rows == []
 
     after = BACKEND_ERRORS.labels(stage="manifest_missing")._value.get()
+    assert after == before + 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_fails_when_revision_label_missing(db_session):
+    """C2 fix: scan Success 0 CVEs + valid manifest label, but the image is
+    missing ``org.opencontainers.image.revision`` → build FAILED with
+    ``failure_reason="git_sha_label_missing"``. Without this fail-close, a
+    DetectorVersion would be persisted with empty ``git_sha``, breaking
+    audit trails for the canonical post-Phase-11c flow.
+    """
+    from app.reconciler import reconcile_build
+    from app.services.harbor import ScanResult, ScanStatus
+    from app.metrics import BACKEND_ERRORS
+
+    detector = Detector(
+        name="norev",
+        display_name="norev",
+        git_url="https://github.com/x/norev.git",
+        owner_id=uuid4(),
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.2.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-norev",
+        status=DetectorBuildStatus.SCANNING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    fake_job = MagicMock()
+    fake_job.status.succeeded = 1
+    fake_job.status.failed = 0
+
+    before = BACKEND_ERRORS.labels(stage="git_sha_label_missing")._value.get()
+
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.core_v1"),
+    ):
+        bv.return_value.read_namespaced_job.return_value = fake_job
+        hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:norev")
+        hc.return_value.get_scan = AsyncMock(
+            return_value=ScanResult(ScanStatus.SUCCESS, 0, 0, 0, 0)
+        )
+        # Manifest label is present and valid, but the revision label is
+        # absent — i.e. the buildkit image-build forgot to stamp the SHA.
+        hc.return_value.get_image_labels = AsyncMock(
+            return_value={"io.maldet.manifest": _b64_manifest()}
+        )
+        await reconcile_build(db_session, build)
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.FAILED
+    assert build.failure_reason == "git_sha_label_missing"
+    assert build.finished_at is not None
+
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == []
+
+    after = BACKEND_ERRORS.labels(stage="git_sha_label_missing")._value.get()
     assert after == before + 1
 
 
@@ -173,15 +276,19 @@ async def test_reconcile_fails_when_manifest_label_malformed(db_session):
     from app.metrics import BACKEND_ERRORS
 
     detector = Detector(
-        name="badmfst", display_name="badmfst",
-        git_url="https://github.com/x/badmfst.git", owner_id=uuid4(),
+        name="badmfst",
+        display_name="badmfst",
+        git_url="https://github.com/x/badmfst.git",
+        owner_id=uuid4(),
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
-        detector_id=detector.id, git_tag="v0.1.0", triggered_by_id=uuid4(),
-        k8s_job_name="build-badmfst", status=DetectorBuildStatus.SCANNING,
-        build_token="btok_badmfst",
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=uuid4(),
+        k8s_job_name="build-badmfst",
+        status=DetectorBuildStatus.SCANNING,
     )
     db_session.add(build)
     await db_session.commit()
@@ -192,9 +299,11 @@ async def test_reconcile_fails_when_manifest_label_malformed(db_session):
 
     before = BACKEND_ERRORS.labels(stage="manifest_invalid")._value.get()
 
-    with patch("app.reconciler.batch_v1") as bv, \
-         patch("app.reconciler.HarborClient") as hc, \
-         patch("app.reconciler.core_v1"):
+    with (
+        patch("app.reconciler.batch_v1") as bv,
+        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.core_v1"),
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:bad")
         hc.return_value.get_scan = AsyncMock(
@@ -212,9 +321,17 @@ async def test_reconcile_fails_when_manifest_label_malformed(db_session):
     assert build.failure_reason == "manifest_invalid"
     assert build.finished_at is not None
 
-    rows = (await db_session.execute(
-        select(DetectorVersion).where(DetectorVersion.detector_id == detector.id)
-    )).scalars().all()
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert rows == []
 
     after = BACKEND_ERRORS.labels(stage="manifest_invalid")._value.get()
