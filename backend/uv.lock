@@ -948,7 +948,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "jsonschema", specifier = ">=4.20,<5" },
     { name = "kubernetes", specifier = ">=31.0.0" },
-    { name = "maldet", directory = "../../../../maldet" },
+    { name = "maldet", specifier = ">=1.1,<2" },
     { name = "mlflow-skinny", specifier = ">=2.20.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = "~=7.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
@@ -990,7 +990,8 @@ wheels = [
 
 [[package]]
 name = "maldet"
-source = { directory = "../../../../maldet" }
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hydra-core" },
     { name = "hydra-zen" },
@@ -1005,39 +1006,10 @@ dependencies = [
     { name = "tomli-w" },
     { name = "typer" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "hydra-core", specifier = ">=1.3" },
-    { name = "hydra-zen", specifier = ">=0.13" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "joblib", specifier = ">=1.3" },
-    { name = "lightning", marker = "extra == 'all'", specifier = ">=2.5" },
-    { name = "lightning", marker = "extra == 'lightning'", specifier = ">=2.5" },
-    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.5" },
-    { name = "mkdocstrings", extras = ["python"], marker = "extra == 'dev'", specifier = ">=0.25" },
-    { name = "mlflow", marker = "extra == 'all'", specifier = ">=2.20" },
-    { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.20" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "omegaconf", specifier = ">=2.3" },
-    { name = "pandas", specifier = ">=2.1" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
-    { name = "pydantic", specifier = ">=2.6" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "scikit-learn", specifier = ">=1.4" },
-    { name = "structlog", specifier = ">=24.1" },
-    { name = "tomli-w", specifier = ">=1.0" },
-    { name = "torch", marker = "extra == 'all'", specifier = ">=2.2,<2.7" },
-    { name = "torch", marker = "extra == 'lightning'", specifier = ">=2.2,<2.7" },
-    { name = "torchmetrics", marker = "extra == 'all'", specifier = ">=1.3" },
-    { name = "torchmetrics", marker = "extra == 'lightning'", specifier = ">=1.3" },
-    { name = "typer", specifier = ">=0.12" },
+sdist = { url = "https://files.pythonhosted.org/packages/bb/9c/b8e764b9d20ff8e39880e35ef6f9e06a6cea93d6e4380295a3b08b17720f/maldet-1.1.0.tar.gz", hash = "sha256:1407aae431de61cf3743bef823cd24821d16d04d3f05b44b5e1e2a25eae7b6af", size = 44681, upload-time = "2026-04-27T17:56:48.082Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/83/32/6a271ae29df8030ae51543f3df4a980eca2de5658533c916b0b099f9849a/maldet-1.1.0-py3-none-any.whl", hash = "sha256:37403b88a8a5cadde31b09203cef2abfa0a33bffe7f6f514a7a2a2b947ab571f", size = 37449, upload-time = "2026-04-27T17:56:46.362Z" },
 ]
-provides-extras = ["all", "dev", "lightning", "mlflow"]
 
 [[package]]
 name = "markdown-it-py"
