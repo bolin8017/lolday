@@ -25,7 +25,7 @@ from app.models import Role, User
 logger = logging.getLogger(__name__)
 
 
-_REQUIRED_CLAIMS = ["exp", "iat", "aud", "iss", "email"]
+_REQUIRED_CLAIMS = ["exp", "iat", "aud", "iss"]
 
 
 def verify_cf_token(
@@ -169,7 +169,20 @@ async def resolve_user_from_jwt(
         )
         raise CfAccessAuthError(f"invalid Cloudflare Access token: {e}") from e
 
-    return await get_or_create_user_by_email(session, claims["email"])
+    # User SSO JWTs carry `email`. Service-token JWTs carry `common_name`
+    # (the service-token name) and no email — synthesize a stable identifier
+    # so the same User row is reused across calls.
+    email = claims.get("email")
+    if not email:
+        common_name = claims.get("common_name")
+        if not common_name:
+            logger.warning(
+                "cf_access 401 %s: JWT has neither email nor common_name claim",
+                log_context,
+            )
+            raise CfAccessAuthError("token has neither email nor common_name claim")
+        email = f"service-{common_name}@cf-access.local"
+    return await get_or_create_user_by_email(session, email)
 
 
 async def cf_access_user(
