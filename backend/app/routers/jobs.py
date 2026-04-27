@@ -311,7 +311,7 @@ async def create_job(
             if source_run_id
             else None
         ),
-        internal_events_url=f"{settings.INTERNAL_EVENTS_BASE_URL}/internal/jobs/{job.id}/events",
+        internal_events_url=f"{settings.INTERNAL_EVENTS_BASE_URL}/api/v1/internal/jobs/{job.id}/events",
         resource_profile=body.resource_profile,
         gpu_strategy=gpu_strategy,
     )
