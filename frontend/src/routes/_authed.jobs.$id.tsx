@@ -25,8 +25,8 @@ export default function JobDetailPage() {
   const nav = useNavigate();
   const isPending = job?.status === "pending" || job?.status === "preparing";
   const { data: queuePos } = useJobQueuePosition(id, isPending);
-  const shouldStream = job != null && (NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status);
-  const events = useJobEvents(shouldStream ? id : null);
+  const isLive = job != null && (NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status);
+  const events = useJobEvents(id, isLive);
   if (!job) return <p className="text-muted-foreground">Loading…</p>;
 
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;

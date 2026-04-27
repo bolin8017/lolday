@@ -2,6 +2,25 @@
 
 import pytest
 
+from app.models import Role
+from tests.conftest import _as_user, _make_user
+
+
+@pytest.mark.asyncio
+async def test_service_token_user_can_read_self(client):
+    """Service-token JWTs synthesize emails like
+    ``service-<name>@cf-access.local``. ``EmailStr`` in
+    ``fastapi_users.schemas.BaseUser`` rejects ``.local`` as a reserved TLD,
+    so the response model on ``GET /users/me`` 500s when serializing the
+    service-token User row. ``UserRead.email`` must be a plain ``str``.
+    """
+    email = "service-abc123@cf-access.local"
+    await _make_user(email, role=Role.ADMIN, is_superuser=True)
+    c = _as_user(client, email)
+    r = await c.get("/api/v1/users/me")
+    assert r.status_code == 200, r.text
+    assert r.json()["email"] == email
+
 
 @pytest.mark.asyncio
 async def test_patch_users_me_rejects_role_smuggling(user_client):

@@ -1,15 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useDetectors, useDetectorVersions, useDetectorVersion } from "@/api/queries/detectors";
+import { useDetectors, useDetectorVersions } from "@/api/queries/detectors";
 import { useDatasets } from "@/api/queries/datasets";
 import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
 import { useSubmitJob, useJob, type JobType } from "@/api/queries/jobs";
-import { RjsfConfigForm } from "./RjsfConfigForm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { requiredFieldsForType } from "./JobSubmitForm.logic";
+import { parseParams, requiredFieldsForType } from "./JobSubmitForm.logic";
 
 const TYPES: JobType[] = ["train", "evaluate", "predict"];
 
@@ -26,12 +25,13 @@ export function JobSubmitForm() {
   const [predictDatasetId, setPredictDatasetId] = useState("");
   const [sourceModelName, setSourceModelName] = useState("");
   const [sourceModelVersionId, setSourceModelVersionId] = useState("");
-  const [config, setConfig] = useState<Record<string, unknown>>({});
+  const [paramsText, setParamsText] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const parsedParams = useMemo(() => parseParams(paramsText), [paramsText]);
 
   const { data: detectors } = useDetectors();
   const { data: versions } = useDetectorVersions(detectorId);
-  const { data: versionDetail } = useDetectorVersion(detectorId, versionTag);
   const { data: datasets } = useDatasets("all");
   const { data: models } = useRegisteredModels();
   const { data: modelVersions } = useModelVersions(sourceModelName);
@@ -43,7 +43,6 @@ export function JobSubmitForm() {
     if (fromJob.train_dataset_id) setTrainDatasetId(fromJob.train_dataset_id);
     if (fromJob.test_dataset_id) setTestDatasetId(fromJob.test_dataset_id);
     if (fromJob.predict_dataset_id) setPredictDatasetId(fromJob.predict_dataset_id);
-    if (fromJob.resolved_config) setConfig(fromJob.resolved_config as Record<string, unknown>);
   }, [fromJob]);
 
   const datasetsArr = ((datasets as { items?: { id: string; name: string }[] })?.items) ?? (datasets as unknown as { id: string; name: string }[]) ?? [];
@@ -56,6 +55,7 @@ export function JobSubmitForm() {
 
   const canSubmit = (() => {
     if (!detectorId || !versionTag) return false;
+    if (!parsedParams.ok) return false;
     const need = requiredFieldsForType(type);
     if (need.includes("train_dataset_id") && !trainDatasetId) return false;
     if (need.includes("test_dataset_id") && !testDatasetId) return false;
@@ -68,6 +68,10 @@ export function JobSubmitForm() {
     setSubmitError(null);
     const versionId = versionsArr.find((v) => v.git_tag === versionTag)?.id;
     if (!versionId) return;
+    if (!parsedParams.ok) {
+      setSubmitError(parsedParams.error);
+      return;
+    }
     try {
       const job = await mut.mutateAsync({
         type,
@@ -76,7 +80,7 @@ export function JobSubmitForm() {
         test_dataset_id: ["train", "evaluate"].includes(type) ? testDatasetId : null,
         predict_dataset_id: type === "predict" ? predictDatasetId : null,
         source_model_version_id: ["evaluate", "predict"].includes(type) ? sourceModelVersionId : null,
-        params: config,
+        params: parsedParams.value,
       } as unknown as import("@/api/schema.gen").components["schemas"]["JobCreate"]);
       nav(`/jobs/${job.id}`);
     } catch (e) {
@@ -172,16 +176,21 @@ export function JobSubmitForm() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Hyperparameters</CardTitle></CardHeader>
-        <CardContent>
-          {versionDetail?.config_schema ? (
-            <RjsfConfigForm
-              schema={versionDetail.config_schema as object}
-              value={config}
-              onChange={setConfig}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">Pick a detector + version to load its config schema.</p>
+        <CardHeader><CardTitle>Hyperparameters (optional JSON)</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Override detector defaults with a JSON object, e.g. <code>{"{\"epochs\": 5}"}</code>. Leave blank to use the detector's manifest defaults.
+          </p>
+          <textarea
+            value={paramsText}
+            onChange={(e) => setParamsText(e.target.value)}
+            placeholder="{}"
+            rows={6}
+            className="w-full rounded border border-input bg-background px-3 py-2 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            spellCheck={false}
+          />
+          {!parsedParams.ok && (
+            <p className="text-sm text-destructive">{parsedParams.error}</p>
           )}
         </CardContent>
       </Card>

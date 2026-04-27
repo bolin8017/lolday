@@ -398,17 +398,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/internal/builds/{build_id}/schema": {
+    "/api/v1/jobs/{job_id}/events": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Job Events
+         * @description Paginate job events by a composite ``(ts, id)`` cursor.
+         *
+         *     A naive ``ts > since`` filter skips events whose timestamp collides
+         *     (ms-level ties land often under Volcano + fsync bursts). Ordering by
+         *     ``(ts, id)`` and filtering by ``ts > since OR (ts = since AND id > since_id)``
+         *     gives strict monotonicity without losing colliding events.
+         */
+        get: operations["list_job_events_api_v1_jobs__job_id__events_get"];
         put?: never;
-        /** Submit Schema */
-        post: operations["submit_schema_api_v1_internal_builds__build_id__schema_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -426,6 +434,26 @@ export interface paths {
         get: operations["internal_get_job_config_api_v1_internal_jobs__job_id__config_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/jobs/{job_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest Event
+         * @description Receive a single event from the sidecar; persist + broadcast.
+         */
+        post: operations["ingest_event_api_v1_internal_jobs__job_id__events_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -679,11 +707,7 @@ export interface components {
             /** Git Tag */
             git_tag: string;
         };
-        /**
-         * BuildRead
-         * @description Note: intentionally excludes build_token and pending_schema — these are
-         *     internal credentials / working state, not for client consumption.
-         */
+        /** BuildRead */
         BuildRead: {
             /**
              * Id
@@ -899,12 +923,45 @@ export interface components {
             /** @default standard */
             resource_profile: components["schemas"]["ResourceProfile"];
         };
-        /** JobInternalConfig */
-        JobInternalConfig: {
-            /** Config */
-            config: {
+        /** JobEventOut */
+        JobEventOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /** Kind */
+            kind: string;
+            /** Payload */
+            payload: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * JobEventsPage
+         * @description One page of events plus a ``(next_since, next_id)`` cursor.
+         *
+         *     The composite cursor survives microsecond-collision timestamps —
+         *     using just ``next_since`` with a ``>`` filter would skip any event
+         *     whose ``ts`` exactly equalled the previous page's last event.
+         */
+        JobEventsPage: {
+            /** Events */
+            events: components["schemas"]["JobEventOut"][];
+            /** Next Since */
+            next_since?: string | null;
+            /** Next Id */
+            next_id?: string | null;
+        };
+        /** JobInternalConfig */
+        JobInternalConfig: {
+            /** Yaml */
+            yaml: string;
             /** Train Csv */
             train_csv: string | null;
             /** Test Csv */
@@ -1192,10 +1249,6 @@ export interface components {
              */
             built_at: string;
             status: components["schemas"]["DetectorVersionStatus"];
-            /** Config Schema */
-            config_schema: {
-                [key: string]: unknown;
-            };
         };
     };
     responses: never;
@@ -2240,24 +2293,20 @@ export interface operations {
             };
         };
     };
-    submit_schema_api_v1_internal_builds__build_id__schema_post: {
+    list_job_events_api_v1_jobs__job_id__events_get: {
         parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
+            query?: {
+                since?: string | null;
+                since_id?: string | null;
+                limit?: number;
             };
+            header?: never;
             path: {
-                build_id: string;
+                job_id: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2265,9 +2314,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JobEventsPage"];
                 };
             };
             /** @description Validation Error */
@@ -2301,6 +2348,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobInternalConfig"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_event_api_v1_internal_jobs__job_id__events_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

@@ -26,6 +26,12 @@ def _validate_discord_user_id(v):
 
 
 class UserRead(schemas.BaseUser[uuid.UUID]):
+    # Override BaseUser.email (EmailStr) with plain str: Cloudflare Access
+    # service tokens synthesize emails like `service-<name>@cf-access.local`,
+    # and Pydantic's email-validator rejects `.local` (RFC 6761 reserved TLD).
+    # Email format is validated on user creation; the response shape doesn't
+    # need to re-validate.
+    email: str
     role: Role
     display_name: str | None = None
     discord_user_id: str | None = None

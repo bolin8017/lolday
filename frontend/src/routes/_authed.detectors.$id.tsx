@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router";
 import { useState } from "react";
-import { useDetector, useDetectorVersion, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild } from "@/api/queries/detectors";
+import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild } from "@/api/queries/detectors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { JsonViewer } from "@/components/common/JsonViewer";
 import { LogTail } from "@/components/common/LogTail";
 import { formatRelative, formatDuration } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -28,7 +27,6 @@ export default function DetectorDetailPage() {
   const triggerBuild = useTriggerBuild(id);
   const cancelBuild = useCancelBuild(id);
   const [pickedTag, setPickedTag] = useState<string | null>(null);
-  const [openSchemaTag, setOpenSchemaTag] = useState<string | null>(null);
   const [buildDialogOpen, setBuildDialogOpen] = useState(false);
 
   if (!det) return <p className="text-muted-foreground">Loading…</p>;
@@ -51,13 +49,6 @@ export default function DetectorDetailPage() {
       cell: ({ row }) => <span className="font-mono">{row.original.git_sha.slice(0, 10)}</span> },
     { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
     { accessorKey: "built_at", header: "Built", cell: ({ row }) => formatRelative(row.original.built_at) },
-    { id: "actions", header: "",
-      cell: ({ row }) => (
-        <Button variant="ghost" size="sm" onClick={() => setOpenSchemaTag(row.original.tag)}>
-          View config schema
-        </Button>
-      ),
-    },
   ];
 
   const buildsCols: ColumnDef<BuildRow>[] = [
@@ -116,14 +107,6 @@ export default function DetectorDetailPage() {
 
         <TabsContent value="versions">
           <DataTable data={versionsArr} columns={versionsCols} emptyMessage="No versions built yet." />
-          <Sheet open={!!openSchemaTag} onOpenChange={(o) => !o && setOpenSchemaTag(null)}>
-            <SheetContent className="w-[720px] sm:max-w-[760px]">
-              <SheetHeader><SheetTitle>Config schema: {openSchemaTag}</SheetTitle></SheetHeader>
-              <div className="mt-4">
-                <VersionSchemaView detectorId={id} tag={openSchemaTag ?? ""} />
-              </div>
-            </SheetContent>
-          </Sheet>
         </TabsContent>
 
         <TabsContent value="builds">
@@ -167,8 +150,3 @@ export default function DetectorDetailPage() {
   );
 }
 
-function VersionSchemaView({ detectorId, tag }: { detectorId: string; tag: string }) {
-  const { data } = useDetectorVersion(detectorId, tag);
-  if (!data) return <p className="text-muted-foreground">Loading…</p>;
-  return <JsonViewer value={data.config_schema} />;
-}
