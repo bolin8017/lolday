@@ -169,8 +169,20 @@ async def create_job(
     except JobSubmissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # 4b. User-params validation against manifest's params_schema (phase 11e)
-    stage_spec = manifest_model.stages[body.type.value]
+    # 4b. User-params validation against manifest's params_schema (phase 11e).
+    # `validate_job_submission` already verified the stage is in `lifecycle.stages`,
+    # but the manifest may declare a stage in lifecycle without filling in a
+    # matching `[stages.X]` block (e.g. detector author forgot evaluate). Reject
+    # with a 400 + actionable message instead of letting `KeyError` 500.
+    stage_spec = manifest_model.stages.get(body.type.value)
+    if stage_spec is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"manifest declares lifecycle stage {body.type.value!r} but "
+                f"missing [stages.{body.type.value}] block; rebuild detector with maldet ≥ 1.1"
+            ),
+        )
     try:
         validate_user_params(params=body.params, schema=stage_spec.params_schema)
     except UserParamsRejected as e:
