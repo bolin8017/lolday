@@ -1,6 +1,7 @@
-import { useParams, Link } from "react-router";
+import { useParams, Link, useNavigate } from "react-router";
 import { useState } from "react";
-import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild, useDetectorVersion } from "@/api/queries/detectors";
+import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild, useDetectorVersion, useDeleteDetector, useDeleteVersion } from "@/api/queries/detectors";
+import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -55,9 +56,12 @@ export default function DetectorDetailPage() {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <Button variant="ghost" size="sm" onClick={() => setOpenManifestTag(row.original.tag)}>
-          View manifest
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setOpenManifestTag(row.original.tag)}>
+            View manifest
+          </Button>
+          <VersionDeleteButton detectorId={id} version={row.original} />
+        </div>
       ),
     },
   ];
@@ -94,7 +98,10 @@ export default function DetectorDetailPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{det.display_name}</h1>
-        <Link to="/detectors" className="text-sm text-muted-foreground">← back</Link>
+        <div className="flex items-center gap-2">
+          <DetectorDeleteButton detector={det} />
+          <Link to="/detectors" className="text-sm text-muted-foreground">← back</Link>
+        </div>
       </div>
 
       <Tabs defaultValue="overview">
@@ -187,5 +194,97 @@ function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) 
     );
   }
   return <JsonViewer value={manifest} />;
+}
+
+function DetectorDeleteButton({ detector }: { detector: { id: string; name: string } }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const deleteMut = useDeleteDetector();
+  const nav = useNavigate();
+
+  return (
+    <>
+      <Button
+        variant="destructive"
+        size="sm"
+        onClick={() => setOpen(true)}
+      >
+        Delete
+      </Button>
+      <DeleteConfirmDialog
+        open={open}
+        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        title={`Delete detector ${detector.name}?`}
+        description={
+          <>
+            This soft-deletes the detector. All versions and Harbor
+            images will be permanently purged. Historical jobs and runs
+            remain visible but will reference a deleted detector.
+          </>
+        }
+        confirmText={detector.name}
+        onConfirm={async () => {
+          try {
+            await deleteMut.mutateAsync(detector.id);
+            nav("/detectors");
+          } catch (e) {
+            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            setError(detail ?? { message: "Delete failed." });
+          }
+        }}
+        pending={deleteMut.isPending}
+        errorBanner={error}
+      />
+    </>
+  );
+}
+
+function VersionDeleteButton({
+  detectorId,
+  version,
+}: {
+  detectorId: string;
+  version: { tag: string };
+}) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const deleteMut = useDeleteVersion(detectorId);
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={() => setOpen(true)}
+      >
+        Delete
+      </Button>
+      <DeleteConfirmDialog
+        open={open}
+        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        title={`Delete version ${version.tag}?`}
+        description={
+          <>
+            This soft-deletes only this version. The Harbor image for
+            this tag will be permanently purged. Historical jobs that
+            ran against this version remain visible.
+          </>
+        }
+        confirmText={version.tag}
+        onConfirm={async () => {
+          try {
+            await deleteMut.mutateAsync(version.tag);
+            setOpen(false);
+          } catch (e) {
+            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            setError(detail ?? { message: "Delete failed." });
+          }
+        }}
+        pending={deleteMut.isPending}
+        errorBanner={error}
+      />
+    </>
+  );
 }
 
