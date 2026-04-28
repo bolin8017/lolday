@@ -18,7 +18,14 @@ import type { ColumnDef } from "@tanstack/react-table";
 
 export const handle = { breadcrumb: "Detector" };
 
-interface VersionRow { tag: string; git_sha: string; status: string; built_at: string }
+// Phase 13a fix: was `interface VersionRow { tag: string; ... }` but backend
+// schema (VersionRead in app/schemas/detector.py) uses `git_tag`. The
+// mismatch made `row.original.tag` undefined, so View manifest and
+// Delete-version both did nothing. Field names below MUST match the
+// backend VersionRead model. The list endpoint currently returns a dict
+// (not response_model-typed), so this can't be sourced from schema.gen.ts;
+// when that's fixed, replace with `components["schemas"]["VersionRead"]`.
+interface VersionRow { id: string; git_tag: string; git_sha: string; status: string; built_at: string }
 interface BuildRow { id: string; git_tag: string; status: string; started_at: string; finished_at: string | null; log_tail: string | null }
 
 export default function DetectorDetailPage() {
@@ -48,7 +55,7 @@ export default function DetectorDetailPage() {
   const buildsArr = unwrap<BuildRow>(builds);
 
   const versionsCols: ColumnDef<VersionRow>[] = [
-    { accessorKey: "tag", header: "Tag" },
+    { accessorKey: "git_tag", header: "Tag" },
     { accessorKey: "git_sha", header: "Commit",
       cell: ({ row }) => <span className="font-mono">{row.original.git_sha.slice(0, 10)}</span> },
     { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
@@ -58,7 +65,7 @@ export default function DetectorDetailPage() {
       header: "",
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => setOpenManifestTag(row.original.tag)}>
+          <Button variant="ghost" size="sm" onClick={() => setOpenManifestTag(row.original.git_tag)}>
             View manifest
           </Button>
           <VersionDeleteButton detectorId={id} version={row.original} />
@@ -245,7 +252,7 @@ function VersionDeleteButton({
   version,
 }: {
   detectorId: string;
-  version: { tag: string };
+  version: { git_tag: string };
 }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<ReturnType<typeof detailToDeleteBanner> | null>(null);
@@ -264,7 +271,7 @@ function VersionDeleteButton({
       <DeleteConfirmDialog
         open={open}
         onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
-        title={`Delete version ${version.tag}?`}
+        title={`Delete version ${version.git_tag}?`}
         description={
           <>
             This soft-deletes only this version. The Harbor image for
@@ -272,10 +279,10 @@ function VersionDeleteButton({
             ran against this version remain visible.
           </>
         }
-        confirmText={version.tag}
+        confirmText={version.git_tag}
         onConfirm={async () => {
           try {
-            await deleteMut.mutateAsync(version.tag);
+            await deleteMut.mutateAsync(version.git_tag);
             setOpen(false);
           } catch (e) {
             const detail = (e as { detail?: { code?: string; message?: string } })?.detail;

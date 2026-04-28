@@ -55,7 +55,7 @@ test.describe.serial("Phase 13a deploy verification", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("A1: View manifest legacy fallback (skipped if no legacy versions in cluster)", async ({ page }) => {
+  test("A1: View manifest legacy fallback (skipped if no legacy versions in cluster)", async () => {
     test.skip(true, "no legacy (manifest IS NULL) versions in deployed cluster as of phase13a");
     // If a legacy version is later inserted, replace the skip with:
     //   await page.goto(`/detectors/${LEGACY_DETECTOR_ID}`)
