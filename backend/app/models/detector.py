@@ -25,7 +25,8 @@ from app.models.user import Base
 
 class DetectorVersionStatus(str, enum.Enum):
     ACTIVE = "active"
-    RETENTION_PRUNED = "retention_pruned"
+    RETENTION_PRUNED = "retention_pruned"   # GC by reconciler retention
+    DELETED = "deleted"                      # Phase 13a (A4): user-initiated soft delete
 
 
 class DetectorBuildStatus(str, enum.Enum):
