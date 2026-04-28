@@ -11,7 +11,15 @@ from app.models.detector import Detector
 from app.services.job_tokens import verify_token
 from app.users import current_active_user
 
-ROLE_HIERARCHY = {Role.USER: 0, Role.DEVELOPER: 1, Role.ADMIN: 2}
+ROLE_HIERARCHY = {
+    # Machine principal — strictly less privileged than any human role so
+    # a service-token caller falling through to a require_role(...)-guarded
+    # route gets a clean 403, not a 500 (KeyError). Phase 12.1.
+    Role.SERVICE_TOKEN: -1,
+    Role.USER: 0,
+    Role.DEVELOPER: 1,
+    Role.ADMIN: 2,
+}
 
 
 def require_role(min_role: Role):

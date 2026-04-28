@@ -23,6 +23,27 @@ async def test_service_token_user_can_read_self(client):
 
 
 @pytest.mark.asyncio
+async def test_service_token_role_user_can_read_self(client):
+    """Phase 12.1 regression: a row with ``role=Role.SERVICE_TOKEN`` (the
+    actual machine-principal shape, not the prior test's ADMIN-impersonating
+    one) must round-trip through FastAPI/Pydantic. Catches a Pydantic-side
+    regression that the bare SAEnum round-trip can't — e.g. a future
+    ``use_enum_values=False`` flip serialising ``"SERVICE_TOKEN"`` instead
+    of ``"service_token"``.
+    """
+    email = "service-real@cf-access.local"
+    await _make_user(email, role=Role.SERVICE_TOKEN)
+    c = _as_user(client, email)
+    r = await c.get("/api/v1/users/me")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["email"] == email
+    assert body["role"] == "service_token", (
+        f"role must serialise as the lowercase VALUE, got {body['role']!r}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_patch_users_me_rejects_role_smuggling(user_client):
     """Privilege escalation guard: UserSelfUpdate(extra='forbid') means PATCH
     /users/me with a `role` field must 422 — not silently drop like pydantic's
