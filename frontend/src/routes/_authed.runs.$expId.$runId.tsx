@@ -2,10 +2,10 @@ import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useRun } from "@/api/queries/runs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MetricCards } from "@/components/charts/MetricCards";
+import { MetricsTable } from "@/components/jobs/MetricsTable";
 import { ConfusionMatrix } from "@/components/charts/ConfusionMatrix";
 import { ArtifactTree } from "@/components/common/ArtifactTree";
-import { JsonViewer } from "@/components/common/JsonViewer";
+import { JsonTreeView } from "@/components/common/JsonTreeView";
 
 export const handle = { breadcrumb: "Run" };
 
@@ -42,7 +42,7 @@ export default function RunDetailPage() {
       <h1 className="text-2xl font-semibold">Run {runId.slice(0, 10)}</h1>
       <Card>
         <CardHeader><CardTitle>Metrics</CardTitle></CardHeader>
-        <CardContent><MetricCards metrics={run.metrics ?? {}} /></CardContent>
+        <CardContent><MetricsTable metrics={run.metrics ?? {}} /></CardContent>
       </Card>
       {cm && (
         <Card>
@@ -52,11 +52,11 @@ export default function RunDetailPage() {
       )}
       <Card>
         <CardHeader><CardTitle>Params</CardTitle></CardHeader>
-        <CardContent><JsonViewer value={run.params ?? {}} /></CardContent>
+        <CardContent><JsonTreeView value={run.params ?? {}} /></CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle>Tags</CardTitle></CardHeader>
-        <CardContent><JsonViewer value={run.tags ?? {}} /></CardContent>
+        <CardContent><JsonTreeView value={run.tags ?? {}} /></CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle>Artifacts</CardTitle></CardHeader>

@@ -69,6 +69,94 @@ async def test_transition_writes_audit_log(user_client, seed_model_version, db_s
 
 
 @pytest.mark.asyncio
+async def test_get_model_version_by_id_returns_record(
+    user_client, seed_model_version, db_session
+):
+    from app.models import ModelVersion
+    from sqlalchemy import select
+
+    name, version = await seed_model_version()
+    mv = (
+        await db_session.execute(
+            select(ModelVersion).where(
+                ModelVersion.mlflow_name == name,
+                ModelVersion.mlflow_version == version,
+            )
+        )
+    ).scalar_one()
+    r = await user_client.get(f"/api/v1/models/versions/{mv.id}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == str(mv.id)
+    assert body["mlflow_name"] == name
+    assert body["mlflow_version"] == version
+
+
+@pytest.mark.asyncio
+async def test_get_model_version_by_id_404_missing(user_client):
+    from uuid import uuid4
+
+    r = await user_client.get(f"/api/v1/models/versions/{uuid4()}")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_versions_by_source_job_id_filter(
+    user_client, seed_model_version, db_session
+):
+    from app.models import ModelVersion
+    from sqlalchemy import select
+
+    name, version = await seed_model_version()
+    # Seed a second model version (different source_job) — must not appear in result.
+    await seed_model_version()
+
+    mv = (
+        await db_session.execute(
+            select(ModelVersion).where(
+                ModelVersion.mlflow_name == name,
+                ModelVersion.mlflow_version == version,
+            )
+        )
+    ).scalar_one()
+
+    r = await user_client.get(
+        "/api/v1/models/versions",
+        params={"source_job_id": str(mv.source_job_id)},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == str(mv.id)
+    assert body["items"][0]["source_job_id"] == str(mv.source_job_id)
+
+
+@pytest.mark.asyncio
+async def test_get_models_versions_takes_precedence_over_name_route(user_client):
+    """Regression: GET /models/versions resolves to the list endpoint.
+
+    /models/versions and /models/{name} share the prefix. If route
+    registration order broke, /{name=versions} would match first and
+    return 404 'model not found'. Asserting 400 with "source_job_id" in
+    the detail proves the more-specific list endpoint wins.
+    """
+    r = await user_client.get("/api/v1/models/versions")
+    assert r.status_code == 400
+    assert "source_job_id" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_name_route_still_resolves_for_non_versions_name(
+    user_client, seed_model_version
+):
+    """GET /models/{name} still works for names other than 'versions'."""
+    name, _ = await seed_model_version()
+    r = await user_client.get(f"/api/v1/models/{name}")
+    assert r.status_code == 200
+    assert r.json()["name"] == name
+
+
+@pytest.mark.asyncio
 async def test_delete_model_version_only_none_or_archived(
     user_client, seed_model_version
 ):

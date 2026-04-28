@@ -297,3 +297,139 @@ async def test_submit_job_rejects_corrupt_manifest_400(
     )
     assert r.status_code == 400, r.text
     assert "stored manifest invalid" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 13b B1 — GET /api/v1/jobs/{job_id}/prediction-summary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_prediction_summary_endpoint_returns_cached(
+    async_client, detector_factory, version_factory, job_factory,
+    auth_owner_headers,
+) -> None:
+    """Happy path: predict job with cached summary returns 200 + body."""
+    detector = await detector_factory(name="psum-ok")
+    version = await version_factory(detector_id=detector.id, git_tag="v1.0.0")
+    summary = {
+        "total": 100,
+        "distribution": {"Malware": 60, "Benign": 40},
+        "duration_seconds": 12.0,
+    }
+    job = await job_factory(
+        detector_version_id=version.id,
+        status="succeeded",
+        job_type="predict",
+        summary_metrics={"prediction_summary": summary},
+    )
+
+    resp = await async_client.get(
+        f"/api/v1/jobs/{job.id}/prediction-summary",
+        headers=auth_owner_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == summary
+
+
+@pytest.mark.asyncio
+async def test_prediction_summary_endpoint_404_when_unavailable(
+    async_client, detector_factory, version_factory, job_factory,
+    auth_owner_headers,
+) -> None:
+    """Predict job without cached summary → 404 with code summary_unavailable."""
+    detector = await detector_factory(name="psum-miss")
+    version = await version_factory(detector_id=detector.id, git_tag="v1.0.0")
+    job = await job_factory(
+        detector_version_id=version.id,
+        status="succeeded",
+        job_type="predict",
+        # summary_metrics omitted: simulate legacy / failed predict run
+    )
+
+    resp = await async_client.get(
+        f"/api/v1/jobs/{job.id}/prediction-summary",
+        headers=auth_owner_headers,
+    )
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"]["code"] == "summary_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_prediction_summary_endpoint_400_for_non_predict(
+    async_client, detector_factory, version_factory, job_factory,
+    auth_owner_headers,
+) -> None:
+    """Train job → 400 with code not_predict_job, even with summary_metrics set."""
+    detector = await detector_factory(name="psum-train")
+    version = await version_factory(detector_id=detector.id, git_tag="v1.0.0")
+    job = await job_factory(
+        detector_version_id=version.id,
+        status="succeeded",
+        job_type="train",
+        summary_metrics={"prediction_summary": {"total": 1}},
+    )
+
+    resp = await async_client.get(
+        f"/api/v1/jobs/{job.id}/prediction-summary",
+        headers=auth_owner_headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["code"] == "not_predict_job"
+
+
+@pytest.mark.asyncio
+async def test_prediction_summary_endpoint_404_for_other_user(
+    async_client, detector_factory, version_factory, job_factory,
+    auth_other_user_headers,
+) -> None:
+    """Non-owner non-admin → 404 (does not leak existence)."""
+    detector = await detector_factory(name="psum-cross")
+    version = await version_factory(detector_id=detector.id, git_tag="v1.0.0")
+    job = await job_factory(
+        detector_version_id=version.id,
+        status="succeeded",
+        job_type="predict",
+        summary_metrics={"prediction_summary": {"total": 1}},
+    )
+
+    resp = await async_client.get(
+        f"/api/v1/jobs/{job.id}/prediction-summary",
+        headers=auth_other_user_headers,
+    )
+    assert resp.status_code == 404, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Phase 13b B3 — submit_job round-trips raw user_params on JobRead
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_submit_job_records_user_params(
+    user_client, seed_detector_version, seed_dataset
+) -> None:
+    """Phase 13b B3: submit_job persists the raw request `params` dict on
+    `Job.user_params` so the resolved-config UI can highlight overrides
+    against the manifest defaults. Round-trip via GET /jobs/{id}."""
+    dv_id = await seed_detector_version()
+    train_ds = await seed_dataset(name="up-tr")
+    test_ds = await seed_dataset(name="up-te")
+    user_params = {"n_estimators": 200, "max_depth": 10}
+
+    submit = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": user_params,
+        },
+    )
+    assert submit.status_code == 202, submit.text
+    job_id = submit.json()["id"]
+
+    detail = await user_client.get(f"/api/v1/jobs/{job_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["user_params"] == user_params

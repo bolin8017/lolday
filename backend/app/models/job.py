@@ -105,6 +105,9 @@ class Job(Base):
         ForeignKey("user.id"), nullable=False
     )
     resolved_config: Mapped[dict] = mapped_column(_JSONB, nullable=False)
+    # Phase 13b B3: raw user-submitted params (before defaults merge), used
+    # by the resolved-config UI to highlight what the user actually changed.
+    user_params: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
     mlflow_experiment_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     mlflow_run_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     k8s_job_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
