@@ -154,6 +154,27 @@ export function useDeleteDetector() {
       });
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: detectorsKeys.all }),
+    onSuccess: (_data, id) => {
+      // Phase 13a A4: invalidate list and the deleted detector's detail
+      qc.invalidateQueries({ queryKey: detectorsKeys.list() });
+      qc.invalidateQueries({ queryKey: detectorsKeys.detail(id) });
+    },
+  });
+}
+
+export function useDeleteVersion(detectorId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (tag: string) => {
+      const { error } = await client.DELETE(
+        "/api/v1/detectors/{detector_id}/versions/{tag}",
+        { params: { path: { detector_id: detectorId, tag } } },
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: detectorsKeys.versions(detectorId) });
+      qc.invalidateQueries({ queryKey: detectorsKeys.builds(detectorId) });
+    },
   });
 }
