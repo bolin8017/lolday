@@ -1,9 +1,9 @@
 """Tests for service-token user handling: skip Discord notify + friendly name.
 
-Phase 12.1: CF Access service-token JWTs lack `email`, so cf_access.py
-synthesises ``service-<common_name>@cf-access.local``. Those rows are
-machine principals — Discord events for them dilute the channel and
-are not actionable. We:
+CF Access service-token JWTs lack `email`, so cf_access.py synthesises
+``service-<common_name>@cf-access.local``. Those rows are machine
+principals — Discord events for them dilute the channel and are not
+actionable. We:
 
   (A) early-return from `_user_context` so every notify_* call skips,
   (B) override the auto-derived `display_name` to a human-friendly
@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.auth.cf_access import get_or_create_user_by_email
-from app.models import User
+from app.models import Role, User
 from app.reconciler import _fire_job_failed_notify, _user_context
 
 SERVICE_TOKEN_EMAIL = "service-abc123def456.access@cf-access.local"
@@ -28,10 +28,33 @@ SERVICE_TOKEN_FRIENDLY_NAME = "Internal service token"
 
 def test_user_is_service_token_property():
     """Service-token rows must self-identify so policy code can skip them."""
-    svc = User(email=SERVICE_TOKEN_EMAIL, hashed_password="!", is_active=True)
-    real = User(email="alice@example.com", hashed_password="!", is_active=True)
+    svc = User(
+        email=SERVICE_TOKEN_EMAIL,
+        hashed_password="!",
+        role=Role.SERVICE_TOKEN,
+        is_active=True,
+    )
+    real = User(
+        email="alice@example.com",
+        hashed_password="!",
+        role=Role.USER,
+        is_active=True,
+    )
     assert svc.is_service_token is True
     assert real.is_service_token is False
+
+
+def test_user_is_service_token_ignores_email_when_role_is_user():
+    """Email-suffix collision must not flip is_service_token; role is the
+    sole source of truth (regression guard for the refactor away from
+    email-suffix probing)."""
+    spoof = User(
+        email=SERVICE_TOKEN_EMAIL,
+        hashed_password="!",
+        role=Role.USER,
+        is_active=True,
+    )
+    assert spoof.is_service_token is False
 
 
 @pytest.mark.asyncio
@@ -40,6 +63,7 @@ async def test_user_context_returns_none_for_service_token(db_session):
     svc = User(
         email=SERVICE_TOKEN_EMAIL,
         hashed_password="!",
+        role=Role.SERVICE_TOKEN,
         is_active=True,
         is_verified=True,
     )
@@ -51,12 +75,12 @@ async def test_user_context_returns_none_for_service_token(db_session):
 
 
 @pytest.mark.asyncio
-async def test_user_context_returns_tuple_for_real_user(db_session, seed_user):
-    """Real users still get the (display_name, discord_id) tuple."""
+async def test_user_context_returns_dataclass_for_real_user(db_session, seed_user):
+    """Real users still get a populated NotifyContext."""
     ctx = await _user_context(db_session, seed_user.id)
     assert ctx is not None
-    name, discord_id = ctx
-    assert isinstance(name, str)
+    assert isinstance(ctx.name, str)
+    assert ctx.name  # non-empty
 
 
 @pytest.mark.asyncio
@@ -67,6 +91,7 @@ async def test_fire_job_failed_notify_skips_service_token(db_session, seed_job):
     svc = User(
         email=SERVICE_TOKEN_EMAIL,
         hashed_password="!",
+        role=Role.SERVICE_TOKEN,
         is_active=True,
         is_verified=True,
     )
@@ -90,10 +115,22 @@ async def test_fire_job_failed_notify_skips_service_token(db_session, seed_job):
 @pytest.mark.asyncio
 async def test_service_token_create_uses_friendly_display_name(db_session):
     """Auto-creating a service-token user must NOT pin the raw email
-    local-part as display_name (it's a 64-char hex stamp humans can't read).
+    local-part as display_name (it's a 64-char hex stamp humans can't read),
+    AND must set ``role=Role.SERVICE_TOKEN`` so subsequent notify policy
+    works without a follow-up migration.
     """
     user = await get_or_create_user_by_email(db_session, SERVICE_TOKEN_EMAIL)
     assert user.display_name == SERVICE_TOKEN_FRIENDLY_NAME
+    assert user.role == Role.SERVICE_TOKEN
+    assert user.is_service_token is True
+
+
+@pytest.mark.asyncio
+async def test_real_user_create_sets_role_user(db_session):
+    """Regression guard: only service-token rows get role=SERVICE_TOKEN."""
+    user = await get_or_create_user_by_email(db_session, "alice@example.com")
+    assert user.role == Role.USER
+    assert user.is_service_token is False
 
 
 @pytest.mark.asyncio
@@ -173,3 +210,85 @@ async def seed_job(db_session, seed_detector_version, seed_dataset, seed_user):
         await db_session.refresh(j)
         return j
     return _seed
+
+
+# ---- (A) service-token build paths skip notify ------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reconcile_build_manifest_missing_skips_service_token(db_session):
+    """Drives reconcile_build into the `manifest_label_missing` path with
+    a service-token-owned build and asserts notify_build_failed is NEVER
+    awaited. This is the cheapest regression guard against a future
+    typo that flips ``if ctx is not None:`` on one of the seven manifest-
+    pipeline callsites inside reconcile_build.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch as mpatch
+
+    from app.models import User
+    from app.models.detector import (
+        Detector,
+        DetectorBuild,
+        DetectorBuildStatus,
+    )
+    from app.reconciler import reconcile_build
+
+    svc = User(
+        email=SERVICE_TOKEN_EMAIL,
+        hashed_password="!",
+        role=Role.SERVICE_TOKEN,
+        is_active=True,
+        is_verified=True,
+    )
+    db_session.add(svc)
+    await db_session.commit()
+    await db_session.refresh(svc)
+
+    detector = Detector(
+        name="srvc-det",
+        display_name="Srvc",
+        git_url="https://github.com/x/y.git",
+        owner_id=svc.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    await db_session.refresh(detector)
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.0.1",
+        triggered_by_id=svc.id,
+        k8s_job_name="build-srvc",
+        status=DetectorBuildStatus.SCANNING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+    await db_session.refresh(build)
+
+    fake_job = MagicMock()
+    fake_job.status.succeeded = 1
+    fake_job.status.failed = 0
+
+    from app.services.harbor import ScanResult, ScanStatus
+
+    with mpatch("app.reconciler.batch_v1") as bv, \
+         mpatch("app.reconciler.HarborClient") as hc, \
+         mpatch("app.reconciler.notify_build_failed", new=AsyncMock()) as m:
+        bv.return_value.read_namespaced_job.return_value = fake_job
+        hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:abc")
+        hc.return_value.get_scan = AsyncMock(
+            return_value=ScanResult(ScanStatus.SUCCESS, 0, 0, 0, 0)
+        )
+        # Drives the manifest_label_missing branch — labels come back
+        # without `io.maldet.manifest`.
+        hc.return_value.get_image_labels = AsyncMock(return_value={})
+        await reconcile_build(db_session, build)
+
+    assert m.await_count == 0, (
+        "service-token build must NOT trigger notify_build_failed; "
+        f"got {m.await_count} call(s)"
+    )
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.FAILED, build.status
+    assert build.failure_reason == "manifest_label_missing", build.failure_reason

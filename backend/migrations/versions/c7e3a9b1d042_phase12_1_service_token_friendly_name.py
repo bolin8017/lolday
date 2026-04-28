@@ -1,11 +1,11 @@
 """phase12_1_service_token_friendly_name
 
 Rename CF Access service-token User rows whose ``display_name`` is still
-the auto-derived raw email local part (a 64-char hex stamp ending in
-``.access``) to the friendly fixed label. Without this, the existing
-service-token row keeps surfacing as ``@service-...access`` in Discord
-events that pre-date the Phase 12.1 ``_user_context`` skip, and in any
-admin UI that renders `display_name`.
+the auto-derived raw email local-part (shaped ``service-<64-hex>.access``)
+to the friendly fixed label. Without this, an existing service-token row
+keeps surfacing as ``@service-...access`` in any admin UI that renders
+`display_name`, and in Discord events emitted before the
+``_user_context`` skip lands.
 
 Idempotent: only rewrites rows that still match the auto-derived form,
 so re-running on a DB an admin already customised is a no-op.

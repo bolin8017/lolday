@@ -98,8 +98,9 @@ backend:
 # =============================================================================
 postgresql:
   enabled: true
-  # Phase 12: pin to alpine variant — smaller surface, fewer glibc CVEs.
-  # Data files are byte-identical between debian/alpine builds (same major).
+  # Pin to alpine variant — smaller surface, fewer glibc CVEs. PG data
+  # files are byte-identical between debian/alpine builds at the same
+  # major, so the swap is reversible.
   image: postgres:16-alpine
   storage:
     size: 10Gi
@@ -113,19 +114,19 @@ postgresql:
 # =============================================================================
 redis:
   enabled: true
-  # Phase 12: pin to redis 7.4 alpine. The rolling `7-alpine` tag picked up
-  # CVE-2025-68121 (Go crypto/tls) via baked-in tooling; 7.4 is the current
-  # stable LTS line and forces a fresh layer pull on upgrade.
+  # Pin to a specific minor (alpine variant) — the rolling `7-alpine` tag
+  # picked up CVE-2025-68121 (Go crypto/tls) via baked-in tooling and the
+  # tag was immutable so re-pulls didn't refresh the layer.
   image: redis:7.4-alpine
 
 # =============================================================================
 # Harbor Container Registry
 # =============================================================================
-# Phase 12: chart 1.18.3 ships goharbor/* :v2.14.3 by default, but those base
-# images carry CRITICAL CVEs (CVE-2026-2781, CVE-2026-4438, CVE-2026-33186 from
-# glibc / NSS / google.golang.org/grpc). Upstream tagged v2.15.0 (4 days ago)
-# with rebuilt bases. We don't use the docker-hub proxy-cache feature
-# (issue #23145 affects only that path) so v2.15.0 is safe for us.
+# Chart 1.18.3 ships goharbor/* :v2.14.3 by default, but those base images
+# carry CRITICAL CVEs (CVE-2026-2781, CVE-2026-4438, CVE-2026-33186 from
+# glibc / NSS / google.golang.org/grpc). Upstream v2.15.0 ships rebuilt
+# Photon bases. The v2.15 docker-hub proxy-cache regression
+# (goharbor/harbor#23145) doesn't affect us — we don't enable that feature.
 harbor:
   enabled: true
   nginx:
@@ -459,10 +460,10 @@ loki:
   # ChunksCache / ResultsCache are not needed at lab scale
   chunksCache: { enabled: false }
   resultsCache: { enabled: false }
-  # Phase 12: loki chart 7.0.0 still pins kiwigrid/k8s-sidecar:2.5.0 by
-  # default; that image carries CVE-2025-15467 (OpenSSL RCE/DoS via
-  # oversized IV, fixed in libssl 3.5.5-r0). Override to 2.7.1 to pick
-  # up the alpine rebuild that ships the patched OpenSSL.
+  # The loki chart still pins kiwigrid/k8s-sidecar:2.5.0 by default;
+  # that image carries CVE-2025-15467 (OpenSSL RCE/DoS via oversized IV,
+  # fixed in libssl 3.5.5-r0). 2.7.1 is the alpine rebuild with the
+  # patched OpenSSL.
   sidecar:
     image:
       tag: 2.7.1
@@ -614,12 +615,12 @@ trivy-operator:
     resources:
       requests: { cpu: 100m, memory: 256Mi }
       limits:   { cpu: 500m, memory: 1Gi }
-    # Phase 12: residual CVEs whose fixes exist upstream but haven't
-    # reached the images we deploy. The chart bumps in this PR already
-    # brought us from 84 → 62 CRITICAL — this Rego policy closes the
-    # remaining noise so TrivyCriticalCVE only fires on genuinely-new
-    # findings. Re-evaluate quarterly; remove an entry from
-    # `residual_cves` once the upstream image lands a fixed tag.
+    # Residual CVEs whose fixes exist upstream but haven't reached the
+    # images we deploy yet. Chart-level bumps fix the bulk; this Rego
+    # policy closes the long tail so TrivyCriticalCVE only fires on
+    # genuinely-new findings. Re-evaluate by 2026-07-28 — remove an
+    # entry from `residual_cves` once the upstream image ships a
+    # fixed tag.
     #
     # Per-CVE rationale:
     # - CVE-2025-68121 — Go crypto/tls cert-validation bypass on

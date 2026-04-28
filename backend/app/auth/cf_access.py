@@ -15,11 +15,12 @@ from typing import Any
 import jwt as pyjwt
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
+from app.metrics import BACKEND_ERRORS
 from app.models import Role, User
 
 logger = logging.getLogger(__name__)
@@ -85,24 +86,42 @@ async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User
         await session.execute(select(User).where(User.email == email))
     ).scalar_one_or_none()
     if existing is not None:
-        # Phase 12.1: a service-token row created by older code carries the
-        # raw email local-part as display_name (a 64-char hex stamp).
-        # Rewrite to the friendly label on next visit, but only if the
-        # current value still matches the auto-derived form — never
-        # clobber a name an admin chose deliberately.
+        # A service-token row created by older code carries the raw email
+        # local-part as display_name (a 64-char hex stamp). Rewrite to
+        # the friendly label on next visit — but only if the current
+        # value still matches the auto-derived form, so we never clobber
+        # a name an admin chose deliberately.
+        #
+        # The rename is purely cosmetic: a transient DB error here must
+        # not break the auth path. Failures are swallowed (rollback +
+        # metric); the next visit retries.
         if (
             email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN)
             and existing.display_name == email.split("@", 1)[0]
         ):
             existing.display_name = SERVICE_TOKEN_DISPLAY_NAME
-            await session.commit()
-            await session.refresh(existing)
+            try:
+                await session.commit()
+                await session.refresh(existing)
+            except SQLAlchemyError:
+                BACKEND_ERRORS.labels(stage="display_name_rename").inc()
+                logger.warning(
+                    "service-token display_name rename failed for %s",
+                    email,
+                    exc_info=True,
+                )
+                await session.rollback()
         return existing
 
+    initial_role = (
+        Role.SERVICE_TOKEN
+        if email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN)
+        else Role.USER
+    )
     user = User(
         email=email,
         hashed_password=_sso_sentinel_password(),
-        role=Role.USER,
+        role=initial_role,
         display_name=_default_display_name_for(email),
         is_active=True,
         is_verified=True,

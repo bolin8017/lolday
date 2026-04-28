@@ -15,6 +15,11 @@ class Role(str, enum.Enum):
     ADMIN = "admin"
     DEVELOPER = "developer"
     USER = "user"
+    # Machine principal — set on rows created from a Cloudflare Access
+    # service-token JWT (synthesised email ``service-<cn>@cf-access.local``).
+    # Discord notification policy keys off ``Role.SERVICE_TOKEN`` so the
+    # rule survives the operator editing a row's email by hand.
+    SERVICE_TOKEN = "service_token"
 
 
 # cf_access.py synthesises ``service-<common_name>@cf-access.local`` for
@@ -35,7 +40,8 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     def is_service_token(self) -> bool:
         """True for CF Access service-token principals.
 
-        Phase 12.1 skips Discord notifications for them — those events
-        flooded the user-event channel with un-actionable noise.
+        Backed by ``role``, not by an email-suffix probe — survives an
+        admin editing the email field, surfaces in /admin/users as a
+        normal column, and is indexable via the existing ``role_enum``.
         """
-        return bool(self.email and self.email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN))
+        return self.role == Role.SERVICE_TOKEN

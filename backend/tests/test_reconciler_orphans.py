@@ -1,9 +1,9 @@
 """Tests for orphan vcjob reconciliation.
 
-Phase 12: covers the case where a Volcano Job exists in K8s but the
-corresponding `job` row is missing from the DB. The reconciler should
-list vcjobs, cross-check the `lolday.job-id` label against the DB, and
-delete orphans (with their associated job-token Secret).
+Covers the case where a Volcano Job exists in K8s but the corresponding
+`job` row is missing from the DB. The reconciler lists vcjobs, cross-
+checks the `lolday.job-id` label against the DB, and deletes orphans
+(with their associated job-token Secret).
 """
 
 import uuid
@@ -168,3 +168,159 @@ async def test_secret_404_is_tolerated(db_session, seed_job):
             await reconcile_orphan_vcjobs(db_session)
 
     assert delete_calls == ["job-train-orphan"], delete_calls
+
+
+@pytest.mark.asyncio
+async def test_list_apiexception_propagates(db_session):
+    """A failed Volcano API list must surface as an exception, so
+    `reconciler_loop` logs + counts it like the other reconcile passes
+    (regression guard against silently returning 0)."""
+    from kubernetes.client import ApiException
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            raise ApiException(status=403, reason="Forbidden")
+        def delete_namespaced_custom_object(self, *a, **kw):  # never reached
+            raise AssertionError("delete must not run when list failed")
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):  # never reached
+            raise AssertionError("secret delete must not run when list failed")
+
+    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
+        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
+            with pytest.raises(ApiException):
+                await reconcile_orphan_vcjobs(db_session)
+
+
+@pytest.mark.asyncio
+async def test_delete_non_404_apiexception_continues(db_session):
+    """A 5xx on one delete must not abort the iteration — the reconciler
+    moves on to the next vcjob."""
+    from kubernetes.client import ApiException
+
+    orphan_a = str(uuid.uuid4())
+    orphan_b = str(uuid.uuid4())
+    delete_attempts: list[str] = []
+    secret_attempts: list[str] = []
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": [
+                _vcjob("job-train-a", orphan_a),
+                _vcjob("job-train-b", orphan_b),
+            ]}
+        def delete_namespaced_custom_object(self, *a, **kw):
+            delete_attempts.append(kw["name"])
+            if kw["name"] == "job-train-a":
+                raise ApiException(status=500, reason="server error")
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):
+            secret_attempts.append(kw["name"])
+
+    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
+        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
+            await reconcile_orphan_vcjobs(db_session)
+
+    # both vcjobs were attempted; only the second succeeded so its secret
+    # cleanup ran. The first is left for the next pass.
+    assert delete_attempts == ["job-train-a", "job-train-b"], delete_attempts
+    assert secret_attempts == [
+        f"job-token-{orphan_b.replace('-', '')[:16]}"
+    ], secret_attempts
+
+
+@pytest.mark.asyncio
+async def test_vcjob_404_still_cleans_secret(db_session):
+    """If the vcjob is already gone (404) but the orphan token Secret
+    survives, secret cleanup must still run — otherwise stale Secrets
+    accumulate forever."""
+    from kubernetes.client import ApiException
+
+    orphan_uuid = str(uuid.uuid4())
+    secret_attempts: list[str] = []
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": [_vcjob("job-train-orphan", orphan_uuid)]}
+        def delete_namespaced_custom_object(self, *a, **kw):
+            raise ApiException(status=404)
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):
+            secret_attempts.append(kw["name"])
+
+    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
+        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
+            await reconcile_orphan_vcjobs(db_session)
+
+    assert secret_attempts == [
+        f"job-token-{orphan_uuid.replace('-', '')[:16]}"
+    ], secret_attempts
+
+
+@pytest.mark.asyncio
+async def test_age_guard_skips_freshly_created_vcjobs(db_session):
+    """A vcjob younger than ORPHAN_GRACE_SECONDS must NOT be deleted —
+    that window covers the gap between the API's K8s create and DB
+    commit, so a freshly-submitted job isn't ripped out from under
+    the user."""
+    from datetime import datetime, timezone
+
+    fresh_uuid = str(uuid.uuid4())
+    fresh_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    delete_calls: list[str] = []
+
+    fresh_vjob = _vcjob("job-train-fresh", fresh_uuid)
+    fresh_vjob["metadata"]["creationTimestamp"] = fresh_ts
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": [fresh_vjob]}
+        def delete_namespaced_custom_object(self, *a, **kw):
+            delete_calls.append(kw["name"])
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):
+            pass
+
+    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
+        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
+            await reconcile_orphan_vcjobs(db_session)
+
+    assert delete_calls == [], delete_calls
+
+
+@pytest.mark.asyncio
+async def test_malformed_label_increments_metric(db_session):
+    """A vcjob carrying a non-UUID lolday.job-id label is foreign data —
+    we skip it AND increment a metric so the dashboard surfaces the
+    bad emitter."""
+    from app.metrics import BACKEND_ERRORS
+
+    counter = BACKEND_ERRORS.labels(stage="orphan_vcjob_malformed_label")
+    before = counter._value.get() if hasattr(counter, "_value") else 0
+
+    bad = _vcjob("job-train-bad", "not-a-uuid-at-all")
+
+    delete_calls: list[str] = []
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": [bad]}
+        def delete_namespaced_custom_object(self, *a, **kw):
+            delete_calls.append(kw["name"])
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):
+            pass
+
+    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
+        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
+            await reconcile_orphan_vcjobs(db_session)
+
+    assert delete_calls == [], delete_calls
+    after = counter._value.get() if hasattr(counter, "_value") else 0
+    assert after == before + 1, (before, after)

@@ -19,7 +19,7 @@ spec:
         fsGroup: 999
       containers:
         - name: init
-          image: {{ .Values.postgresql.image | default "postgres:16" }}
+          image: {{ .Values.postgresql.image | default "postgres:16-alpine" }}
           command: [sh, -c]
           args:
             - |
