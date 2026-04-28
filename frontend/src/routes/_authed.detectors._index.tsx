@@ -1,12 +1,74 @@
+import { useState } from "react";
 import { Link } from "react-router";
-import { useDetectors, type Detector } from "@/api/queries/detectors";
+import { useDeleteDetector, useDetectors, type Detector } from "@/api/queries/detectors";
+import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 import { DataTable } from "@/components/tables/DataTable";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatRelative } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Plus } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
 
 export const handle = { breadcrumb: "Detectors" };
+
+function DetectorRowActions({ detector }: { detector: { id: string; name: string } }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const deleteMut = useDeleteDetector();
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={(e) => {
+              e.preventDefault();
+              setOpen(true);
+            }}
+          >
+            Delete detector
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DeleteConfirmDialog
+        open={open}
+        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        title={`Delete detector ${detector.name}?`}
+        description={
+          <>
+            This soft-deletes the detector. All versions and Harbor images
+            will be permanently purged. Historical jobs and runs remain
+            visible but will reference a deleted detector.
+          </>
+        }
+        confirmText={detector.name}
+        onConfirm={async () => {
+          try {
+            await deleteMut.mutateAsync(detector.id);
+            setOpen(false);
+          } catch (e) {
+            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            setError(detail ?? { message: "Delete failed." });
+          }
+        }}
+        pending={deleteMut.isPending}
+        errorBanner={error}
+      />
+    </>
+  );
+}
 
 const columns: ColumnDef<Detector>[] = [
   { accessorKey: "display_name", header: "Name" },
@@ -16,6 +78,11 @@ const columns: ColumnDef<Detector>[] = [
     cell: ({ row }) => <span className="font-mono text-xs">{row.original.git_url}</span> },
   { accessorKey: "created_at", header: "Created",
     cell: ({ row }) => formatRelative(row.original.created_at) },
+  {
+    id: "actions",
+    header: "",
+    cell: ({ row }) => <DetectorRowActions detector={{ id: row.original.id, name: row.original.display_name }} />,
+  },
 ];
 
 export default function DetectorsListPage() {
