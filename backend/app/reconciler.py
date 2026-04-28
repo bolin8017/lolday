@@ -680,24 +680,20 @@ async def _capture_pod_logs(
 
 
 async def _capture_log_tail(b: DetectorBuild) -> str:
-    try:
-        pods = core_v1().list_namespaced_pod(
-            namespace=settings.BUILD_NAMESPACE,
-            label_selector=f"lolday.io/build-id={b.id}",
-        )
-        if not pods.items:
-            return ""
-        pod = pods.items[0]
-        # Combine kaniko logs (main container) if available
-        log = core_v1().read_namespaced_pod_log(
-            name=pod.metadata.name,
-            namespace=settings.BUILD_NAMESPACE,
-            container="kaniko",
-            tail_lines=200,
-        )
-        return log[-settings.BUILD_LOG_TAIL_BYTES :]
-    except ApiException:
-        return ""
+    """Capture build pod's log tail.
+
+    Phase 13a A2: was hard-coded to container='kaniko' (wrong — actual
+    name is 'buildkit'). Now uses the generic helper with init-container
+    fallback for when builds fail in clone/validate.
+    """
+    return await _capture_pod_logs(
+        namespace=settings.BUILD_NAMESPACE,
+        label_selector=f"lolday.io/build-id={b.id}",
+        main_container="buildkit",
+        init_containers=("clone", "validate"),
+        failure_reason=b.failure_reason,
+        tail_bytes=settings.BUILD_LOG_TAIL_BYTES,
+    )
 
 
 async def _extract_failure_reason(b: DetectorBuild) -> str:
@@ -1148,23 +1144,20 @@ async def _extract_job_failure_reason(j: Job) -> str:
 
 
 async def _capture_job_log_tail(j: Job) -> str:
-    try:
-        pods = core_v1().list_namespaced_pod(
-            namespace=settings.JOB_NAMESPACE,
-            label_selector=f"lolday.job-id={j.id}",
-        )
-        if not pods.items:
-            return ""
-        pod = pods.items[0]
-        log = core_v1().read_namespaced_pod_log(
-            name=pod.metadata.name,
-            namespace=settings.JOB_NAMESPACE,
-            container="detector",
-            tail_lines=200,
-        )
-        return log[-8192:]
-    except ApiException:
-        return ""
+    """Capture job pod's log tail.
+
+    Phase 13a A2: previously read main 'detector' container only. Now
+    also captures init-container logs (config-writer, model-fetcher) when
+    the job fails before main starts.
+    """
+    return await _capture_pod_logs(
+        namespace=settings.JOB_NAMESPACE,
+        label_selector=f"lolday.job-id={j.id}",
+        main_container="detector",
+        init_containers=("config-writer", "model-fetcher"),
+        failure_reason=j.failure_reason,
+        tail_bytes=8192,
+    )
 
 
 async def _cleanup_job_secret(j: Job) -> None:

@@ -149,3 +149,38 @@ async def test_capture_pod_logs_truncates_to_tail_bytes(mock_k8s_pod):
             tail_bytes=8192,
         )
     assert len(result) <= 8192
+
+
+@pytest.mark.asyncio
+async def test_capture_log_tail_uses_buildkit_container(mock_k8s_pod):
+    """Regression: previous code looked for 'kaniko' which didn't exist,
+    so log_tail was always empty for real builds."""
+    from app.reconciler import _capture_log_tail
+    from app.models.detector import DetectorBuild
+
+    build = MagicMock(spec=DetectorBuild)
+    build.id = uuid4()
+    build.failure_reason = None
+
+    v1 = _make_v1(mock_k8s_pod, {"buildkit": "buildctl-daemonless: pushed sha256:abc"})
+    with patch("app.reconciler.core_v1", return_value=v1):
+        result = await _capture_log_tail(build)
+    assert "pushed sha256:abc" in result
+    assert "[buildkit]" in result
+
+
+@pytest.mark.asyncio
+async def test_capture_pod_logs_list_api_error_returns_empty():
+    """list_namespaced_pod raising ApiException → return empty string."""
+    v1 = MagicMock()
+    v1.list_namespaced_pod.side_effect = ApiException(status=403, reason="Forbidden")
+    with patch("app.reconciler.core_v1", return_value=v1):
+        result = await _capture_pod_logs(
+            namespace="test-ns",
+            label_selector="lolday.io/build-id=xyz",
+            main_container="buildkit",
+            init_containers=("clone", "validate"),
+            failure_reason=None,
+            tail_bytes=1024,
+        )
+    assert result == ""
