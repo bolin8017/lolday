@@ -614,6 +614,7 @@ async def job_factory(db_session):
         detector_version_id,
         status: str = "pending",
         job_type: str = "train",
+        **extra_fields,
     ):
         owner = (
             await db_session.execute(
@@ -636,6 +637,7 @@ async def job_factory(db_session):
             owner_id=owner.id,
             resolved_config={},
             idempotency_key=_uuid.uuid4().hex,
+            **extra_fields,
         )
         db_session.add(job)
         await db_session.commit()

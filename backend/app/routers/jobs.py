@@ -415,6 +415,42 @@ async def get_job(
     return JobRead.model_validate(job)
 
 
+@router.get("/{job_id}/prediction-summary")
+async def get_prediction_summary(
+    job_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+) -> dict:
+    """Phase 13b B1: prediction summary cached on successful predict jobs.
+
+    Cache miss returns 404; the reconciler projection populates the cache on
+    terminal transition. Returning 404 (rather than recomputing on demand)
+    keeps the read path predictable; legacy predict jobs without the cache
+    need a one-shot backfill script.
+    """
+    job = await session.get(Job, job_id)
+    if job is None or (job.owner_id != user.id and user.role.value != "admin"):
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.type != JobType.PREDICT:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "not_predict_job",
+                "message": "prediction-summary is only available on predict jobs",
+            },
+        )
+    ps = (job.summary_metrics or {}).get("prediction_summary")
+    if not ps:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "summary_unavailable",
+                "message": "prediction summary not available for this job (legacy or failed)",
+            },
+        )
+    return ps
+
+
 @router.get("/{job_id}/logs")
 async def get_job_logs(
     job_id: uuid.UUID,
