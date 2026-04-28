@@ -600,6 +600,85 @@ async def _update_progress(session: AsyncSession, b: DetectorBuild, job) -> None
     await session.commit()
 
 
+def _container_from_failure_reason(failure_reason: str | None) -> str | None:
+    """Extract container name from a failure_reason string like 'clone_failed: exit=1'."""
+    if not failure_reason:
+        return None
+    head = failure_reason.split(":", 1)[0].strip()
+    if head.endswith("_failed"):
+        return head.removesuffix("_failed")
+    return None
+
+
+async def _capture_pod_logs(
+    *,
+    namespace: str,
+    label_selector: str,
+    main_container: str,
+    init_containers: tuple[str, ...],
+    failure_reason: str | None,
+    tail_bytes: int,
+    tail_lines: int = 200,
+) -> str:
+    """Capture log tail from the failing or main container of a labeled pod.
+
+    Phase 13a A2: previous implementations hard-coded the container name
+    (kaniko vs buildkit; detector only) and could not surface init-container
+    output when the build/job failed before main started. This generic
+    helper:
+      1. Tries the container hinted by failure_reason first (e.g.
+         'validate_failed' → 'validate').
+      2. Falls back to main_container.
+      3. Falls back to each init_container in order.
+      4. Concatenates whatever logs were retrievable, prefixed with a
+         '[<container>]' header line so the reader can tell what's what.
+      5. Returns "" if no logs are retrievable from any container.
+
+    The result is truncated to `tail_bytes` from the end so the persisted
+    log_tail column doesn't blow up.
+    """
+    try:
+        pods = core_v1().list_namespaced_pod(
+            namespace=namespace, label_selector=label_selector,
+        )
+    except ApiException:
+        return ""
+    if not pods.items:
+        return ""
+    pod = pods.items[0]
+
+    # Build the container query order
+    hinted = _container_from_failure_reason(failure_reason)
+    order: list[str] = []
+    if hinted and (hinted == main_container or hinted in init_containers):
+        order.append(hinted)
+    if main_container not in order:
+        order.append(main_container)
+    for ic in init_containers:
+        if ic not in order:
+            order.append(ic)
+
+    # Try each container in order; collect what we can.
+    chunks: list[str] = []
+    for container in order:
+        try:
+            log = core_v1().read_namespaced_pod_log(
+                name=pod.metadata.name,
+                namespace=namespace,
+                container=container,
+                tail_lines=tail_lines,
+            )
+        except ApiException:
+            continue
+        if log:
+            chunks.append(f"[{container}]\n{log}")
+
+    if not chunks:
+        return ""
+    combined = "\n\n".join(chunks)
+    return combined[-tail_bytes:]
+
+
 async def _capture_log_tail(b: DetectorBuild) -> str:
     try:
         pods = core_v1().list_namespaced_pod(
