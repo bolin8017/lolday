@@ -192,6 +192,34 @@ export interface paths {
         patch: operations["update_detector_api_v1_detectors__detector_id__patch"];
         trace?: never;
     };
+    "/api/v1/detectors/{detector_id}/versions/{tag}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Version */
+        get: operations["get_version_api_v1_detectors__detector_id__versions__tag__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Version
+         * @description Soft-delete a single detector version. Phase 13a A4.
+         *
+         *     Sets `DetectorVersionStatus.DELETED`, best-effort purges the Harbor
+         *     artifact, and returns 204. Returns 409 if any job using this version
+         *     is non-terminal.
+         *
+         *     Historical jobs that reference the deleted version row remain
+         *     queryable; the FK is intact (we never DROP the row).
+         */
+        delete: operations["delete_version_api_v1_detectors__detector_id__versions__tag__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/detectors/{detector_id}/versions": {
         parameters: {
             query?: never;
@@ -204,24 +232,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/detectors/{detector_id}/versions/{tag}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Version */
-        get: operations["get_version_api_v1_detectors__detector_id__versions__tag__get"];
-        put?: never;
-        post?: never;
-        /** Delete Version */
-        delete: operations["delete_version_api_v1_detectors__detector_id__versions__tag__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -348,6 +358,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs/{job_id}/prediction-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Prediction Summary
+         * @description Phase 13b B1: prediction summary cached on successful predict jobs.
+         *
+         *     Cache miss returns 404; the reconciler projection populates the cache on
+         *     terminal transition. Returning 404 (rather than recomputing on demand)
+         *     keeps the read path predictable; legacy predict jobs without the cache
+         *     need a one-shot backfill script.
+         */
+        get: operations["get_prediction_summary_api_v1_jobs__job_id__prediction_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{job_id}/logs": {
         parameters: {
             query?: never;
@@ -455,6 +490,53 @@ export interface paths {
          * @description Receive a single event from the sidecar; persist + broadcast.
          */
         post: operations["ingest_event_api_v1_internal_jobs__job_id__events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/versions/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Model Version By Id
+         * @description Look up a ModelVersion by its UUID primary key.
+         *
+         *     Used by Phase 13b SourceModelCard which receives ``source_model_version_id``
+         *     from JobRead and needs to render the corresponding model card.
+         */
+        get: operations["get_model_version_by_id_api_v1_models_versions__version_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Model Versions By Filter
+         * @description List ModelVersions filtered by ``source_job_id``.
+         *
+         *     Used by Phase 13b TrainedModelCard to find the model produced by a given
+         *     train job. ``source_job_id`` is currently the only supported filter; calling
+         *     this endpoint without it returns 400.
+         */
+        get: operations["list_model_versions_by_filter_api_v1_models_versions_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -864,7 +946,7 @@ export interface components {
          * DetectorVersionStatus
          * @enum {string}
          */
-        DetectorVersionStatus: "active" | "retention_pruned";
+        DetectorVersionStatus: "active" | "retention_pruned" | "deleted";
         /** GitCredentialRead */
         GitCredentialRead: {
             provider: components["schemas"]["GitProvider"];
@@ -1031,6 +1113,10 @@ export interface components {
             resolved_config: {
                 [key: string]: unknown;
             };
+            /** User Params */
+            user_params?: {
+                [key: string]: unknown;
+            } | null;
             /** Log Tail */
             log_tail: string | null;
             resource_profile: components["schemas"]["ResourceProfile"];
@@ -1169,7 +1255,7 @@ export interface components {
          * Role
          * @enum {string}
          */
-        Role: "admin" | "developer" | "user";
+        Role: "admin" | "developer" | "user" | "service_token";
         /** UserRead */
         UserRead: {
             /**
@@ -1845,39 +1931,6 @@ export interface operations {
             };
         };
     };
-    list_versions_api_v1_detectors__detector_id__versions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                detector_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_version_api_v1_detectors__detector_id__versions__tag__get: {
         parameters: {
             query?: never;
@@ -1915,8 +1968,8 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                detector_id: string;
                 tag: string;
+                detector_id: string;
             };
             cookie?: never;
         };
@@ -1928,6 +1981,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_versions_api_v1_detectors__detector_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                detector_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
             };
             /** @description Validation Error */
             422: {
@@ -2236,6 +2322,39 @@ export interface operations {
             };
         };
     };
+    get_prediction_summary_api_v1_jobs__job_id__prediction_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_job_logs_api_v1_jobs__job_id__logs_get: {
         parameters: {
             query?: never;
@@ -2425,6 +2544,68 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_version_by_id_api_v1_models_versions__version_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelVersionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_model_versions_by_filter_api_v1_models_versions_get: {
+        parameters: {
+            query?: {
+                source_job_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelVersionList"];
                 };
             };
             /** @description Validation Error */
