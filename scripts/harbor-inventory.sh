@@ -1,7 +1,11 @@
 #!/bin/bash
 # Inspect Harbor: list projects, repositories, and tags for each.
 set -eu
-SECRETS=${SECRETS:-$HOME/.lolday-secrets.env}
+# Phase 13a: secrets moved from ~/ into repo root. Fall back to ~/ for older
+# checkouts where the file may still live there.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SECRETS=${SECRETS:-${REPO_ROOT}/.lolday-secrets.env}
+[ -f "$SECRETS" ] || SECRETS="$HOME/.lolday-secrets.env"
 . "$SECRETS"
 
 pkill -f "kubectl.*port-forward svc/harbor 8181:" 2>/dev/null || true

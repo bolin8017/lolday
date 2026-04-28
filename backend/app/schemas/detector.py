@@ -43,7 +43,9 @@ class VersionRead(BaseModel):
 
 
 class VersionDetailRead(VersionRead):
-    manifest: dict[str, Any]   # phase 11e — full maldet 1.1 manifest (JSONB column)
+    # Phase 13a (A1): nullable for legacy versions built before maldet 1.1
+    # whose `manifest` JSONB column is NULL. Frontend renders a fallback.
+    manifest: dict[str, Any] | None
 
 
 class BuildCreate(BaseModel):

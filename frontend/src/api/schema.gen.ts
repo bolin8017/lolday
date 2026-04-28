@@ -220,7 +220,8 @@ export interface paths {
         get: operations["get_version_api_v1_detectors__detector_id__versions__tag__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Version */
+        delete: operations["delete_version_api_v1_detectors__detector_id__versions__tag__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1253,7 +1254,7 @@ export interface components {
             /** Manifest */
             manifest: {
                 [key: string]: unknown;
-            };
+            } | null;
         };
     };
     responses: never;
@@ -1897,6 +1898,36 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["VersionDetailRead"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_version_api_v1_detectors__detector_id__versions__tag__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                detector_id: string;
+                tag: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -26,6 +26,8 @@ Thumbs.db
 *.env.*
 !*.env.example
 **/secrets/
+# Lolday Cloudflare Access app/policy JSON snapshots (audit backups, may contain IDs)
+.lolday-cloudflare-access-backups/
 
 # Superpowers brainstorm sessions
 .superpowers/

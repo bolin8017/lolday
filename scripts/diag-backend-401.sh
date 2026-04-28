@@ -40,9 +40,20 @@ fi
 
 echo
 echo "=== 4. Harbor artifact list for lolday-backend ==="
-# Load secrets as the user, then run curl as root (need access to secrets file)
-if [ -f /home/bolin8017/.lolday-secrets.env ]; then
-  HARBOR_ADMIN_PASSWORD=$(grep '^export HARBOR_ADMIN_PASSWORD=' /home/bolin8017/.lolday-secrets.env | cut -d= -f2-)
+# Load secrets as the user, then run curl as root (need access to secrets file).
+# Phase 13a: secrets file moved from ~/.lolday-secrets.env to repo root. Fall
+# back to home for older checkouts.
+SECRETS_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.lolday-secrets.env"
+SECRETS_HOME="/home/bolin8017/.lolday-secrets.env"
+if [ -f "$SECRETS_REPO" ]; then
+  SECRETS_FILE="$SECRETS_REPO"
+elif [ -f "$SECRETS_HOME" ]; then
+  SECRETS_FILE="$SECRETS_HOME"
+else
+  SECRETS_FILE=""
+fi
+if [ -n "$SECRETS_FILE" ]; then
+  HARBOR_ADMIN_PASSWORD=$(grep '^export HARBOR_ADMIN_PASSWORD=' "$SECRETS_FILE" | cut -d= -f2-)
   kubectl run tmp-curl-$$ -n lolday --image=curlimages/curl --restart=Never --rm --command -- \
     sh -c "curl -s -u admin:$HARBOR_ADMIN_PASSWORD 'http://harbor.lolday.svc/api/v2.0/projects/lolday/repositories/lolday-backend/artifacts?with_tag=true&page_size=10' | head -c 800" 2>&1 | \
     grep -v 'pod/\|^[[:space:]]*$\|If you don' | head -15

@@ -1,6 +1,9 @@
-import { useParams, Link } from "react-router";
+import { useParams, Link, useNavigate } from "react-router";
 import { useState } from "react";
-import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild, useDetectorVersion } from "@/api/queries/detectors";
+import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild, useDetectorVersion, useDeleteDetector, useDeleteVersion } from "@/api/queries/detectors";
+import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
+import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
+import { LoldayApiError } from "@/api/errors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -16,7 +19,14 @@ import type { ColumnDef } from "@tanstack/react-table";
 
 export const handle = { breadcrumb: "Detector" };
 
-interface VersionRow { tag: string; git_sha: string; status: string; built_at: string }
+// Phase 13a fix: was `interface VersionRow { tag: string; ... }` but backend
+// schema (VersionRead in app/schemas/detector.py) uses `git_tag`. The
+// mismatch made `row.original.tag` undefined, so View manifest and
+// Delete-version both did nothing. Field names below MUST match the
+// backend VersionRead model. The list endpoint currently returns a dict
+// (not response_model-typed), so this can't be sourced from schema.gen.ts;
+// when that's fixed, replace with `components["schemas"]["VersionRead"]`.
+interface VersionRow { id: string; git_tag: string; git_sha: string; status: string; built_at: string }
 interface BuildRow { id: string; git_tag: string; status: string; started_at: string; finished_at: string | null; log_tail: string | null }
 
 export default function DetectorDetailPage() {
@@ -46,7 +56,7 @@ export default function DetectorDetailPage() {
   const buildsArr = unwrap<BuildRow>(builds);
 
   const versionsCols: ColumnDef<VersionRow>[] = [
-    { accessorKey: "tag", header: "Tag" },
+    { accessorKey: "git_tag", header: "Tag" },
     { accessorKey: "git_sha", header: "Commit",
       cell: ({ row }) => <span className="font-mono">{row.original.git_sha.slice(0, 10)}</span> },
     { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
@@ -55,9 +65,12 @@ export default function DetectorDetailPage() {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <Button variant="ghost" size="sm" onClick={() => setOpenManifestTag(row.original.tag)}>
-          View manifest
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setOpenManifestTag(row.original.git_tag)}>
+            View manifest
+          </Button>
+          <VersionDeleteButton detectorId={id} version={row.original} />
+        </div>
       ),
     },
   ];
@@ -94,7 +107,10 @@ export default function DetectorDetailPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{det.display_name}</h1>
-        <Link to="/detectors" className="text-sm text-muted-foreground">← back</Link>
+        <div className="flex items-center gap-2">
+          <DetectorDeleteButton detector={det} />
+          <Link to="/detectors" className="text-sm text-muted-foreground">← back</Link>
+        </div>
       </div>
 
       <Tabs defaultValue="overview">
@@ -176,11 +192,114 @@ function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) 
   const manifest = data?.manifest;
   if (manifest == null) {
     return (
-      <p className="text-sm text-destructive">
-        Version has no manifest (legacy build); rebuild with maldet ≥ 1.1.
-      </p>
+      <div className="space-y-2 text-sm">
+        <p className="text-destructive">
+          Version has no manifest (legacy build).
+        </p>
+        <p className="text-muted-foreground">
+          Rebuild this version with maldet ≥ 1.1 to see the typed manifest.
+        </p>
+      </div>
     );
   }
   return <JsonViewer value={manifest} />;
+}
+
+function DetectorDeleteButton({ detector }: { detector: { id: string; name: string } }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<ReturnType<typeof detailToDeleteBanner> | null>(null);
+  const deleteMut = useDeleteDetector();
+  const nav = useNavigate();
+
+  return (
+    <>
+      <Button
+        variant="destructive"
+        size="sm"
+        onClick={() => setOpen(true)}
+      >
+        Delete
+      </Button>
+      <DeleteConfirmDialog
+        open={open}
+        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        title={`Delete detector ${detector.name}?`}
+        description={
+          <>
+            This soft-deletes the detector. All versions and Harbor
+            images will be permanently purged. Historical jobs and runs
+            remain visible but will reference a deleted detector.
+          </>
+        }
+        confirmText={detector.name}
+        onConfirm={async () => {
+          try {
+            await deleteMut.mutateAsync(detector.id);
+            nav("/detectors");
+          } catch (e) {
+            // Phase 13a fix: read parseError's structuredDetail rather than
+            // an unsafe cast on raw e — the cast was returning undefined for
+            // 409 object-shaped detail and the in-flight banner never showed.
+            const detail = e instanceof LoldayApiError ? e.structuredDetail : undefined;
+            setError(detailToDeleteBanner(detail));
+          }
+        }}
+        pending={deleteMut.isPending}
+        errorBanner={error}
+      />
+    </>
+  );
+}
+
+function VersionDeleteButton({
+  detectorId,
+  version,
+}: {
+  detectorId: string;
+  version: { git_tag: string };
+}) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<ReturnType<typeof detailToDeleteBanner> | null>(null);
+  const deleteMut = useDeleteVersion(detectorId);
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={() => setOpen(true)}
+      >
+        Delete
+      </Button>
+      <DeleteConfirmDialog
+        open={open}
+        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        title={`Delete version ${version.git_tag}?`}
+        description={
+          <>
+            This soft-deletes only this version. The Harbor image for
+            this tag will be permanently purged. Historical jobs that
+            ran against this version remain visible.
+          </>
+        }
+        confirmText={version.git_tag}
+        onConfirm={async () => {
+          try {
+            await deleteMut.mutateAsync(version.git_tag);
+            setOpen(false);
+          } catch (e) {
+            // Phase 13a fix: read parseError's structuredDetail rather than
+            // an unsafe cast on raw e — the cast was returning undefined for
+            // 409 object-shaped detail and the in-flight banner never showed.
+            const detail = e instanceof LoldayApiError ? e.structuredDetail : undefined;
+            setError(detailToDeleteBanner(detail));
+          }
+        }}
+        pending={deleteMut.isPending}
+        errorBanner={error}
+      />
+    </>
+  );
 }
 

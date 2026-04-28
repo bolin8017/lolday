@@ -500,6 +500,22 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         b.status = DetectorBuildStatus.SUCCEEDED
         b.trivy_critical = scan.critical
         b.trivy_high = scan.high
+        # Phase 13a A2 follow-up: succeeded builds were never capturing
+        # log_tail (only the failure path did). Symmetric with how
+        # _handle_job_succeeded / _handle_job_failed both capture; users
+        # legitimately want to see buildkit progress for green builds too.
+        # Wrapped in try/except: if K8s API is misbehaving (non-ApiException
+        # exception, e.g. unexpected None pod metadata) we must not block
+        # the build's terminal-state commit, otherwise the build would
+        # spin in SCANNING until BUILD_TIMEOUT_SECONDS marks it TIMEOUT.
+        try:
+            b.log_tail = await _capture_log_tail(b)
+        except Exception:
+            BACKEND_ERRORS.labels(stage="log_capture_build").inc()
+            logger.warning(
+                "log capture failed for build %s — continuing without log_tail",
+                b.id, exc_info=True,
+            )
         b.finished_at = datetime.now(timezone.utc)
         await session.commit()
         ctx = await _user_context(session, b.triggered_by_id)
@@ -522,7 +538,17 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
     reason = await _extract_failure_reason(b)
     b.status = DetectorBuildStatus.FAILED
     b.failure_reason = reason
-    b.log_tail = await _capture_log_tail(b)
+    # Phase 13a follow-up (PR review EH-1): protect log capture so a
+    # K8s-side blip doesn't keep the build oscillating; symmetric with
+    # _handle_succeeded.
+    try:
+        b.log_tail = await _capture_log_tail(b)
+    except Exception:
+        BACKEND_ERRORS.labels(stage="log_capture_build").inc()
+        logger.warning(
+            "log capture failed for build %s — continuing without log_tail",
+            b.id, exc_info=True,
+        )
     b.finished_at = datetime.now(timezone.utc)
     await session.commit()
     ctx = await _user_context(session, b.triggered_by_id)
@@ -600,25 +626,100 @@ async def _update_progress(session: AsyncSession, b: DetectorBuild, job) -> None
     await session.commit()
 
 
-async def _capture_log_tail(b: DetectorBuild) -> str:
+def _container_from_failure_reason(failure_reason: str | None) -> str | None:
+    """Extract container name from a failure_reason string like 'clone_failed: exit=1'."""
+    if not failure_reason:
+        return None
+    head = failure_reason.split(":", 1)[0].strip()
+    if head.endswith("_failed"):
+        return head.removesuffix("_failed")
+    return None
+
+
+async def _capture_pod_logs(
+    *,
+    namespace: str,
+    label_selector: str,
+    main_container: str,
+    init_containers: tuple[str, ...],
+    failure_reason: str | None,
+    tail_bytes: int,
+    tail_lines: int = 200,
+) -> str:
+    """Capture log tail from the failing or main container of a labeled pod.
+
+    Phase 13a A2: previous implementations hard-coded the container name
+    (kaniko vs buildkit; detector only) and could not surface init-container
+    output when the build/job failed before main started. This generic
+    helper:
+      1. Tries the container hinted by failure_reason first (e.g.
+         'validate_failed' → 'validate').
+      2. Falls back to main_container.
+      3. Falls back to each init_container in order.
+      4. Concatenates whatever logs were retrievable, prefixed with a
+         '[<container>]' header line so the reader can tell what's what.
+      5. Returns "" if no logs are retrievable from any container.
+
+    The result is truncated to `tail_bytes` from the end so the persisted
+    log_tail column doesn't blow up.
+    """
     try:
         pods = core_v1().list_namespaced_pod(
-            namespace=settings.BUILD_NAMESPACE,
-            label_selector=f"lolday.io/build-id={b.id}",
+            namespace=namespace, label_selector=label_selector,
         )
-        if not pods.items:
-            return ""
-        pod = pods.items[0]
-        # Combine kaniko logs (main container) if available
-        log = core_v1().read_namespaced_pod_log(
-            name=pod.metadata.name,
-            namespace=settings.BUILD_NAMESPACE,
-            container="kaniko",
-            tail_lines=200,
-        )
-        return log[-settings.BUILD_LOG_TAIL_BYTES :]
     except ApiException:
         return ""
+    if not pods.items:
+        return ""
+    pod = pods.items[0]
+
+    # Build the container query order
+    hinted = _container_from_failure_reason(failure_reason)
+    order: list[str] = []
+    if hinted and (hinted == main_container or hinted in init_containers):
+        order.append(hinted)
+    if main_container not in order:
+        order.append(main_container)
+    for ic in init_containers:
+        if ic not in order:
+            order.append(ic)
+
+    # Try each container in order; collect what we can.
+    chunks: list[str] = []
+    for container in order:
+        try:
+            log = core_v1().read_namespaced_pod_log(
+                name=pod.metadata.name,
+                namespace=namespace,
+                container=container,
+                tail_lines=tail_lines,
+            )
+        except ApiException:
+            continue
+        if log:
+            chunks.append(f"[{container}]\n{log}")
+
+    if not chunks:
+        return ""
+    combined = "\n\n".join(chunks)
+    return combined[-tail_bytes:]
+
+
+async def _capture_log_tail(b: DetectorBuild) -> str:
+    """Capture build pod's log tail.
+
+    Phase 13a A2: was hard-coded to container='kaniko' (wrong — actual
+    name is 'buildkit'). Now uses the generic helper with init-container
+    fallback for when builds fail in clone/validate.
+    """
+    return await _capture_pod_logs(
+        namespace=settings.BUILD_NAMESPACE,
+        label_selector=f"lolday.io/build-id={b.id}",
+        main_container="buildkit",
+        init_containers=("clone", "validate"),
+        failure_reason=b.failure_reason,
+        tail_bytes=settings.BUILD_LOG_TAIL_BYTES,
+    )
 
 
 async def _extract_failure_reason(b: DetectorBuild) -> str:
@@ -1069,23 +1170,20 @@ async def _extract_job_failure_reason(j: Job) -> str:
 
 
 async def _capture_job_log_tail(j: Job) -> str:
-    try:
-        pods = core_v1().list_namespaced_pod(
-            namespace=settings.JOB_NAMESPACE,
-            label_selector=f"lolday.job-id={j.id}",
-        )
-        if not pods.items:
-            return ""
-        pod = pods.items[0]
-        log = core_v1().read_namespaced_pod_log(
-            name=pod.metadata.name,
-            namespace=settings.JOB_NAMESPACE,
-            container="detector",
-            tail_lines=200,
-        )
-        return log[-8192:]
-    except ApiException:
-        return ""
+    """Capture job pod's log tail.
+
+    Phase 13a A2: previously read main 'detector' container only. Now
+    also captures init-container logs (config-writer, model-fetcher) when
+    the job fails before main starts.
+    """
+    return await _capture_pod_logs(
+        namespace=settings.JOB_NAMESPACE,
+        label_selector=f"lolday.job-id={j.id}",
+        main_container="detector",
+        init_containers=("config-writer", "model-fetcher"),
+        failure_reason=j.failure_reason,
+        tail_bytes=8192,
+    )
 
 
 async def _cleanup_job_secret(j: Job) -> None:
