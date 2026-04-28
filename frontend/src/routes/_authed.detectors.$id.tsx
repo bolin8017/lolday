@@ -176,9 +176,14 @@ function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) 
   const manifest = data?.manifest;
   if (manifest == null) {
     return (
-      <p className="text-sm text-destructive">
-        Version has no manifest (legacy build); rebuild with maldet ≥ 1.1.
-      </p>
+      <div className="space-y-2 text-sm">
+        <p className="text-destructive">
+          Version has no manifest (legacy build).
+        </p>
+        <p className="text-muted-foreground">
+          Rebuild this version with maldet ≥ 1.1 to see the typed manifest.
+        </p>
+      </div>
     );
   }
   return <JsonViewer value={manifest} />;

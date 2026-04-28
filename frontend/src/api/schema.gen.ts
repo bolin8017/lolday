@@ -1253,7 +1253,7 @@ export interface components {
             /** Manifest */
             manifest: {
                 [key: string]: unknown;
-            };
+            } | null;
         };
     };
     responses: never;
