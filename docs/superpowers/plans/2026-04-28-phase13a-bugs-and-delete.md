@@ -2172,19 +2172,26 @@ git commit -m "chore(deploy): bump frontend default tag to phase13a"
 
 **Files:** none (deployment + smoke check).
 
-- [ ] **Step 1: Run alembic migration**
+- [ ] **Step 1: Run helm upgrade (Helm pre-upgrade hook auto-runs alembic)**
 
-```bash
-kubectl -n lolday exec deploy/backend -- alembic upgrade head
-```
-
-Expected: success; `detectorversionstatus` enum now includes `deleted`.
-
-- [ ] **Step 2: helm upgrade**
+The chart includes a Helm `pre-upgrade` hook (`charts/lolday/templates/alembic-upgrade-hook.yaml`)
+that runs `alembic upgrade head` from the new backend image automatically before backend
+pods roll out. So `helm upgrade` triggers both migration and deploy in the right order.
 
 ```bash
 helm upgrade --install lolday charts/lolday -n lolday --values charts/lolday/values.yaml
 ```
+
+The Helm output will show the pre-upgrade hook job completing before deployment rollout starts.
+
+To verify the enum value landed in the DB:
+
+```bash
+kubectl -n lolday exec deploy/postgresql -- psql -U postgres lolday \
+  -c "SELECT enum_range(NULL::detector_version_status);"
+```
+
+Expected output includes `deleted`.
 
 Wait for rollout:
 
@@ -2192,7 +2199,7 @@ Wait for rollout:
 kubectl -n lolday rollout status deploy/backend deploy/frontend
 ```
 
-- [ ] **Step 3: Manual verification (mirrors spec §Testing strategy → Manual verification)**
+- [ ] **Step 2: Manual verification (mirrors spec §Testing strategy → Manual verification)**
 
 1. Visit `/detectors/<id>` Versions tab; click `View manifest` on a phase 11e+ version → manifest tree visible.
 2. Click `View manifest` on a legacy version (if any in DB) → fallback message visible.
@@ -2204,7 +2211,7 @@ kubectl -n lolday rollout status deploy/backend deploy/frontend
 8. Visit a detector detail page → Versions tab; click Delete on a version; confirm; version gone from list.
 9. Submit a job; while it's queued, try deleting its version → 409 banner inline with "Cancel running jobs" message + link.
 
-- [ ] **Step 4: Commit any documented fixes if smoke uncovers issues**
+- [ ] **Step 3: Commit any documented fixes if smoke uncovers issues**
 
 If smoke uncovers any new issues, file as bugs and either fix-and-recommit or defer to Phase 13a.1.
 
