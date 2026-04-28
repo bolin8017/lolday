@@ -184,3 +184,23 @@ async def test_capture_pod_logs_list_api_error_returns_empty():
             tail_bytes=1024,
         )
     assert result == ""
+
+
+def test_both_build_handlers_capture_log_tail():
+    """Phase 13a A2 follow-up: regression guard. Earlier _handle_succeeded
+    was missing a `_capture_log_tail(b)` call (only the failure path had
+    it), so green builds shipped with log_tail=NULL and the UI showed
+    '(no output)'. Both handlers must capture; this test makes sure
+    nobody removes the call again.
+    """
+    import inspect
+    from app.reconciler import _handle_succeeded, _handle_failed
+
+    succ_src = inspect.getsource(_handle_succeeded)
+    fail_src = inspect.getsource(_handle_failed)
+    assert "_capture_log_tail(b)" in succ_src, (
+        "_handle_succeeded must capture build log_tail (phase 13a A2 fix)"
+    )
+    assert "_capture_log_tail(b)" in fail_src, (
+        "_handle_failed must capture build log_tail (pre-existing)"
+    )

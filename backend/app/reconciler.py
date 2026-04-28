@@ -500,6 +500,11 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         b.status = DetectorBuildStatus.SUCCEEDED
         b.trivy_critical = scan.critical
         b.trivy_high = scan.high
+        # Phase 13a A2 follow-up: succeeded builds were never capturing
+        # log_tail (only the failure path did). Symmetric with how
+        # _handle_job_succeeded / _handle_job_failed both capture; users
+        # legitimately want to see buildkit progress for green builds too.
+        b.log_tail = await _capture_log_tail(b)
         b.finished_at = datetime.now(timezone.utc)
         await session.commit()
         ctx = await _user_context(session, b.triggered_by_id)
