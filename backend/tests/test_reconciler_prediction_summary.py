@@ -57,7 +57,7 @@ async def test_project_prediction_summary_writes_to_summary_metrics(
         db_session, started_at=started, finished_at=finished
     )
 
-    csv = "sha256,predicted_class\nA,Malware\nB,Benign\nC,Malware\nD,Malware\n"
+    csv = "file_name,pred_label\nA,Malware\nB,Benign\nC,Malware\nD,Malware\n"
     with patch(
         "app.reconciler._read_mlflow_artifact",
         new=AsyncMock(return_value=csv),

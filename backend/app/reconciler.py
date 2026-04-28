@@ -1062,9 +1062,13 @@ async def _project_prediction_summary(session: AsyncSession, j: Job) -> None:
         )
         return
 
-    if not reader.fieldnames or "predicted_class" not in reader.fieldnames:
+    # maldet binary-classification evaluator writes `pred_label` per the
+    # framework's prediction-CSV contract (alongside pred_score and per-class
+    # probabilities). Detectors that emit a non-standard CSV are silently
+    # skipped — better to render no card than wrong counts.
+    if not reader.fieldnames or "pred_label" not in reader.fieldnames:
         return
-    distribution = Counter(row["predicted_class"] for row in rows)
+    distribution = Counter(row["pred_label"] for row in rows)
     total = len(rows)
     duration_seconds = (
         (j.finished_at - j.started_at).total_seconds()
