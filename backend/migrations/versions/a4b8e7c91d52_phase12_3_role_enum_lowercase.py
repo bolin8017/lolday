@@ -64,12 +64,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    if bind.dialect.name != "postgresql":
-        return
-    op.execute(text("COMMIT"))
-    op.execute(text("ALTER TYPE role_enum RENAME VALUE 'admin' TO 'ADMIN'"))
-    op.execute(
-        text("ALTER TYPE role_enum RENAME VALUE 'developer' TO 'DEVELOPER'")
+    # Renaming the PG enum values back to uppercase WITHOUT also reverting
+    # ``backend/app/models/user.py`` 's ``values_callable`` re-introduces
+    # the LookupError this revision was created to fix. The migration
+    # cannot revert the model file, so the safe contract is "downgrade
+    # requires a coordinated code rollback". Refuse loudly rather than
+    # silently complete and ship the operator a 500 storm at 2am.
+    raise RuntimeError(
+        "phase12_3_role_enum_lowercase downgrade re-introduces the "
+        "case-mismatch bug fixed by this revision. The companion change "
+        "in backend/app/models/user.py (the values_callable on User.role) "
+        "MUST be reverted in the same deploy before running this. If you "
+        "have done that, comment out this guard and rerun. See "
+        "docs/phase12.1-role-enum-bug.md for context."
     )
-    op.execute(text("ALTER TYPE role_enum RENAME VALUE 'user' TO 'USER'"))

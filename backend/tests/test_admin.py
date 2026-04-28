@@ -23,6 +23,22 @@ async def test_non_admin_cannot_list_users(auth_client_user: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_service_token_cannot_access_admin(
+    auth_client_service_token: AsyncClient,
+):
+    """Phase 12.1 regression: ``ROLE_HIERARCHY`` must map ``Role.SERVICE_TOKEN``
+    so ``require_role(...)`` returns 403 — not 500 (``KeyError``) which it
+    would without the entry. Machine principals are strictly less privileged
+    than any human role.
+    """
+    resp = await auth_client_service_token.get("/api/v1/admin/users")
+    assert resp.status_code == 403, (
+        f"expected 403 (Insufficient permissions), got "
+        f"{resp.status_code}: {resp.text}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_unauthenticated_cannot_list_users(client: AsyncClient):
     # No dependency_override installed; cf_access_user demands the JWT header → 401.
     resp = await client.get("/api/v1/admin/users")

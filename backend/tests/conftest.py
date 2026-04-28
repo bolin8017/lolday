@@ -130,6 +130,15 @@ async def auth_client_admin(client):
 
 
 @pytest_asyncio.fixture
+async def auth_client_service_token(client):
+    """CF Access service-token principal — role=SERVICE_TOKEN, synthesised
+    ``service-<name>@cf-access.local`` email shape (matches what
+    ``app.auth.cf_access`` mints for service-token JWTs)."""
+    await _make_user("service-test@cf-access.local", role=Role.SERVICE_TOKEN)
+    return _as_user(client, "service-test@cf-access.local")
+
+
+@pytest_asyncio.fixture
 async def user_client(client):
     """Alias used by dataset tests; regular USER-role user."""
     await _make_user("user1@example.dev", role=Role.USER)

@@ -36,7 +36,7 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/lolday-backend:phase12.1
+  image: harbor.lolday.svc:80/lolday/lolday-backend:phase12.1-2
   replicas: 1
   # Auth is Cloudflare Access SSO (see CF_ACCESS_* under env below); no
   # backend-side password secrets / firstAdmin seed / cookie config.

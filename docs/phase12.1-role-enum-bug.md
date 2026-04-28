@@ -95,6 +95,10 @@ Cons: bigger blast radius — every existing user row gets re-written; risk of f
 
 ## Recommendation
 
+> ⚠️ **Superseded — see "Resolution" section below.** We adopted Option B
+> after auditing the rest of the codebase's `SAEnum` usage; the rationale
+> is in the Resolution section.
+
 Go with **Option A**: smaller migration, identical semantics, fixes the immediate breakage.
 
 If we adopt B in the future, do it as a separate dedicated cleanup phase with explicit data migration tests.
@@ -124,6 +128,9 @@ And the existing Playwright specs (`phase11d-chart-verify`, `phase11e-full-flow`
 ---
 
 ## Suggested PR scope
+
+> **Historical — superseded; see "Resolution" section below.** The actual
+> PR scope diverged because we picked Option B over Option A.
 
 - Branch: `phase12.1-role-enum-fix`
 - Files:

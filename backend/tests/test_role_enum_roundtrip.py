@@ -60,11 +60,11 @@ def test_role_orm_writes_lowercase_value_and_roundtrips(
     """ORM insert of every Role member must store the lowercase VALUE
     in the DB and read back as the same Role member.
 
-    Fails on main because the model's NAME-based ``SAEnum`` writes
-    uppercase NAMEs (``'ADMIN'``, ``'DEVELOPER'``, ``'USER'``,
-    ``'SERVICE_TOKEN'``) — contradicting phase 12.2's lowercase-VALUE
-    backfill convention and the rest of the codebase's
-    ``values_callable``.
+    Regression for the phase 12 NAME-vs-VALUE mismatch (see migration
+    ``a4b8e7c91d52_phase12_3_role_enum_lowercase``) — without
+    ``values_callable``, the ORM serialised Role members to uppercase
+    NAMEs, contradicting phase 12.2's lowercase-VALUE backfill
+    convention and every other enum in the codebase.
     """
     engine = _alembic_head_engine(tmp_path, monkeypatch)
     user_id = uuid.uuid4()
@@ -102,16 +102,55 @@ def test_role_orm_writes_lowercase_value_and_roundtrips(
         assert rehydrated.role.name == role.name
 
 
+def test_role_user_default_stores_lowercase(tmp_path, monkeypatch):
+    """Omitting the ``role=`` kwarg picks up ``default=Role.USER`` from the
+    column. Phase 12.1 regression: the default must serialise through
+    the same ``values_callable`` path so the row stores ``'user'`` (not
+    ``'USER'``). A future change that bypasses the column default for a
+    Pythonic ``__init__`` default would silently re-introduce the
+    NAME-storage shape this PR exists to remove.
+    """
+    engine = _alembic_head_engine(tmp_path, monkeypatch)
+    user_id = uuid.uuid4()
+
+    with Session(engine) as session:
+        session.add(
+            User(
+                id=user_id,
+                email="default-role@example.dev",
+                hashed_password="!testing-only!",
+                # role= intentionally omitted — exercises the column default.
+                display_name="default-role",
+                is_active=True,
+                is_verified=True,
+                is_superuser=False,
+            )
+        )
+        session.commit()
+
+    with engine.connect() as conn:
+        raw = conn.execute(
+            sa.text('SELECT role FROM "user" WHERE id = :id'),
+            {"id": str(user_id)},
+        ).scalar_one()
+    assert raw == Role.USER.value, (
+        f"DB stored {raw!r} for the column default; expected lowercase "
+        f"VALUE {Role.USER.value!r}"
+    )
+
+
 def test_service_token_lowercase_value_reads_via_orm(tmp_path, monkeypatch):
     """A user row with ``role`` stored as the lowercase VALUE
     ``'service_token'`` (the exact shape phase 12.2's UPDATE produces in
     prod when back-filling existing CF Access service-token email rows)
     must read back through the ORM as ``Role.SERVICE_TOKEN``.
 
-    On main this raises ``LookupError`` because ``'service_token'`` is
-    not a Role NAME (the only NAME for that VALUE is ``'SERVICE_TOKEN'``).
-    The failure surfaced in production as 500 on
-    ``GET /api/v1/users/me`` with a Cloudflare Access service-token JWT.
+    Locks the deserialiser path independently of how the model writes:
+    test 1's parametrize covers ORM-write→ORM-read, this test covers
+    raw-SQL-write (matching the prod migration shape) → ORM-read. They
+    fail in different stack frames on a NAME-only model — the prod 500
+    on ``GET /api/v1/users/me`` reproduced exactly the ``LookupError``
+    this assertion guards against.
     """
     engine = _alembic_head_engine(tmp_path, monkeypatch)
     user_id = uuid.uuid4()
