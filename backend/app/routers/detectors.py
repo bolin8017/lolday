@@ -312,6 +312,83 @@ async def delete_detector(
     return Response(status_code=204)
 
 
+NON_TERMINAL_JOB_STATUSES = (
+    "pending", "preparing", "running",
+)
+
+
+@router.delete("/{detector_id}/versions/{tag}", status_code=204)
+async def delete_version(
+    tag: str,
+    detector: Detector = Depends(require_detector_access(write=True)),
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    """Soft-delete a single detector version. Phase 13a A4.
+
+    Sets `DetectorVersionStatus.DELETED`, best-effort purges the Harbor
+    artifact, and returns 204. Returns 409 if any job using this version
+    is non-terminal.
+
+    Historical jobs that reference the deleted version row remain
+    queryable; the FK is intact (we never DROP the row).
+    """
+    from app.models.job import Job
+
+    res = await session.execute(
+        select(DetectorVersion).where(
+            DetectorVersion.detector_id == detector.id,
+            DetectorVersion.git_tag == tag,
+        )
+    )
+    version = res.scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=404, detail="version not found")
+
+    if version.status != DetectorVersionStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail={
+            "code": "version_not_active",
+            "message": f"version is in status {version.status.value}, cannot delete",
+        })
+
+    in_flight = await session.execute(
+        select(Job.id).where(
+            Job.detector_version_id == version.id,
+            Job.status.in_(NON_TERMINAL_JOB_STATUSES),
+        ).limit(1)
+    )
+    if in_flight.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail={
+            "code": "version_has_in_flight_jobs",
+            "message": "Cancel running jobs that use this version before deleting it.",
+        })
+
+    version.status = DetectorVersionStatus.DELETED
+    await session.commit()
+
+    if settings.HARBOR_ADMIN_PASSWORD:
+        try:
+            harbor = HarborClient(
+                settings.HARBOR_URL,
+                settings.HARBOR_ADMIN_USERNAME,
+                settings.HARBOR_ADMIN_PASSWORD,
+            )
+            await harbor.delete_artifact(
+                "detectors", detector.name, version.image_digest,
+            )
+        except Exception:
+            BACKEND_ERRORS.labels(stage="version_delete_harbor").inc()
+            logger.exception(
+                "harbor purge on version soft-delete failed",
+                extra={
+                    "detector_version_id": str(version.id),
+                    "detector_name": detector.name,
+                    "tag": tag,
+                },
+            )
+
+    return Response(status_code=204)
+
+
 @router.get("/{detector_id}/versions")
 async def list_versions(
     detector: Detector = Depends(require_detector_access(write=False)),

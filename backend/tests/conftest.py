@@ -474,3 +474,163 @@ async def seed_model_version(db_session, seed_user, seed_detector_version, seed_
         await db_session.refresh(mv)
         return name, next_version
     return _seed
+
+
+# ---------------------------------------------------------------------------
+# Phase 13a A4 factory fixtures
+# ---------------------------------------------------------------------------
+
+@pytest_asyncio.fixture
+async def async_client(client):
+    """Bare async client (no auth headers set). Tests pass headers explicitly."""
+    return client
+
+
+@pytest.fixture
+def auth_owner_headers():
+    """Headers that identify the detector owner (DEVELOPER role)."""
+    return {"x-test-user-email": "dev@example.dev"}
+
+
+@pytest_asyncio.fixture
+async def auth_other_user_headers():
+    """Headers for a second user who does NOT own any detector created by the owner."""
+    await _make_user("other@example.dev", role=Role.USER)
+    return {"x-test-user-email": "other@example.dev"}
+
+
+@pytest_asyncio.fixture
+async def detector_factory(async_client, auth_owner_headers, monkeypatch):
+    """Return an async callable that creates a Detector via POST /api/v1/detectors.
+
+    Usage::
+
+        detector = await detector_factory(name="rfdet")
+        detector.id   # UUID
+        detector.name # str
+    """
+    from app.routers import detectors as dr
+
+    # Ensure the owner user exists before any request
+    await _make_user("dev@example.dev", role=Role.DEVELOPER)
+
+    async def _create(name: str = "det"):
+        async def fake_meta(url, pat):
+            return {"name": name, "description": "", "display_name": name}
+
+        monkeypatch.setattr(dr, "_clone_and_validate", fake_meta)
+
+        # Ensure owner has git credential (idempotent)
+        await async_client.put(
+            "/api/v1/users/me/git-credential",
+            json={"provider": "github", "token": "ghp_testtoken1234567890"},
+            headers=auth_owner_headers,
+        )
+        resp = await async_client.post(
+            "/api/v1/detectors",
+            json={"git_url": f"https://github.com/test/{name}.git"},
+            headers=auth_owner_headers,
+        )
+        assert resp.status_code == 201, resp.text
+
+        class _Det:
+            pass
+
+        import uuid as _uuid
+        d = _Det()
+        payload = resp.json()
+        d.id = _uuid.UUID(payload["id"])
+        d.name = payload["name"]
+        return d
+
+    return _create
+
+
+@pytest_asyncio.fixture
+async def version_factory(db_session):
+    """Return an async callable that inserts a DetectorVersion row directly via ORM.
+
+    Usage::
+
+        version = await version_factory(
+            detector_id=det.id, git_tag="v1.0.0", image_digest="sha256:abc",
+        )
+        version.id  # UUID
+    """
+    from app.models import DetectorVersion
+    from app.models.detector import DetectorVersionStatus
+
+    async def _create(
+        detector_id,
+        git_tag: str = "v0.1.0",
+        image_digest: str = "sha256:" + "a" * 64,
+        status: str = "active",
+    ):
+        status_enum = DetectorVersionStatus(status)
+        dv = DetectorVersion(
+            detector_id=detector_id,
+            git_tag=git_tag,
+            git_sha="b" * 40,
+            harbor_image=f"harbor.harbor.svc:80/detectors/det:{git_tag}",
+            image_digest=image_digest,
+            status=status_enum,
+            manifest=None,
+        )
+        db_session.add(dv)
+        await db_session.commit()
+        await db_session.refresh(dv)
+        return dv
+
+    return _create
+
+
+@pytest_asyncio.fixture
+async def job_factory(db_session):
+    """Return an async callable that inserts a Job row directly via ORM.
+
+    The job is owned by the detector owner (dev@example.dev).
+
+    Usage::
+
+        job = await job_factory(detector_version_id=version.id, status="running")
+        job.id  # UUID
+    """
+    import uuid as _uuid
+    from sqlalchemy import select as sa_select
+
+    from app.models import Job, User
+    from app.models.job import JobStatus, JobType
+
+    async def _create(
+        detector_version_id,
+        status: str = "pending",
+        job_type: str = "train",
+    ):
+        owner = (
+            await db_session.execute(
+                sa_select(User).where(User.email == "dev@example.dev")
+            )
+        ).scalar_one_or_none()
+        if owner is None:
+            owner = await _make_user("dev@example.dev", role=Role.DEVELOPER)
+            # re-fetch inside this session
+            owner = (
+                await db_session.execute(
+                    sa_select(User).where(User.email == "dev@example.dev")
+                )
+            ).scalar_one()
+
+        job = Job(
+            type=JobType(job_type),
+            status=JobStatus(status),
+            detector_version_id=detector_version_id,
+            owner_id=owner.id,
+            resolved_config={},
+            idempotency_key=_uuid.uuid4().hex,
+        )
+        db_session.add(job)
+        await db_session.commit()
+        await db_session.refresh(job)
+        return job
+
+    return _create
