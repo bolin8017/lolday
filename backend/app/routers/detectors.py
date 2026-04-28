@@ -21,7 +21,7 @@ from app.db import get_async_session
 from app.deps import require_detector_access, require_role
 from app.services.rate_limit import rate_limit_user
 from app.metrics import BACKEND_ERRORS
-from app.models import Role, User
+from app.models import Job, NON_TERMINAL_STATUSES, Role, User
 from app.models.credential import UserGitCredential
 from app.models.detector import (
     Detector,
@@ -312,11 +312,6 @@ async def delete_detector(
     return Response(status_code=204)
 
 
-NON_TERMINAL_JOB_STATUSES = (
-    "pending", "preparing", "running",
-)
-
-
 @router.delete("/{detector_id}/versions/{tag}", status_code=204)
 async def delete_version(
     tag: str,
@@ -332,8 +327,6 @@ async def delete_version(
     Historical jobs that reference the deleted version row remain
     queryable; the FK is intact (we never DROP the row).
     """
-    from app.models.job import Job
-
     res = await session.execute(
         select(DetectorVersion).where(
             DetectorVersion.detector_id == detector.id,
@@ -353,7 +346,7 @@ async def delete_version(
     in_flight = await session.execute(
         select(Job.id).where(
             Job.detector_version_id == version.id,
-            Job.status.in_(NON_TERMINAL_JOB_STATUSES),
+            Job.status.in_(NON_TERMINAL_STATUSES),
         ).limit(1)
     )
     if in_flight.scalar_one_or_none():
