@@ -132,20 +132,24 @@ async def test_list_versions_by_source_job_id_filter(
 
 
 @pytest.mark.asyncio
-async def test_list_versions_requires_source_job_id(user_client):
+async def test_get_models_versions_takes_precedence_over_name_route(user_client):
+    """Regression: GET /models/versions resolves to the list endpoint.
+
+    /models/versions and /models/{name} share the prefix. If route
+    registration order broke, /{name=versions} would match first and
+    return 404 'model not found'. Asserting 400 with "source_job_id" in
+    the detail proves the more-specific list endpoint wins.
+    """
     r = await user_client.get("/api/v1/models/versions")
     assert r.status_code == 400
+    assert "source_job_id" in r.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_versions_routes_do_not_collide_with_name_route(
+async def test_name_route_still_resolves_for_non_versions_name(
     user_client, seed_model_version
 ):
-    """Regression: GET /models/versions and /models/{name} share the prefix.
-
-    /versions and /versions/{id} must take precedence (registered first).
-    GET /models/{name} should still work for non-'versions' names.
-    """
+    """GET /models/{name} still works for names other than 'versions'."""
     name, _ = await seed_model_version()
     r = await user_client.get(f"/api/v1/models/{name}")
     assert r.status_code == 200

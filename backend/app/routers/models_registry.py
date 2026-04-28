@@ -68,11 +68,15 @@ async def list_model_versions_by_filter(
         raise HTTPException(
             status_code=400, detail="source_job_id query parameter required"
         )
+    # Cap is defensive — current contract says one job → one model version,
+    # but ModelVersion.source_job_id has no DB-level unique constraint, so a
+    # bug in the registration projector could in theory produce duplicates.
     items = (
         await session.execute(
             select(ModelVersion)
             .where(ModelVersion.source_job_id == source_job_id)
             .order_by(ModelVersion.mlflow_version.desc())
+            .limit(100)
         )
     ).scalars().all()
     return ModelVersionList(
