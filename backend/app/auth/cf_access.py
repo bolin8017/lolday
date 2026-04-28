@@ -64,18 +64,46 @@ def _sso_sentinel_password() -> str:
     return f"!sso_only!{secrets.token_urlsafe(16)}"
 
 
+def _default_display_name_for(email: str) -> str:
+    """Auto-derive a display_name for a brand-new SSO row.
+
+    Service-token principals get a friendly fixed label — their email
+    local part is a 64-char hex stamp humans can't read in Discord
+    embeds or admin tables.
+    """
+    from app.models.user import SERVICE_TOKEN_DISPLAY_NAME, SERVICE_TOKEN_EMAIL_DOMAIN
+
+    if email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN):
+        return SERVICE_TOKEN_DISPLAY_NAME
+    return email.split("@", 1)[0]
+
+
 async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User:
+    from app.models.user import SERVICE_TOKEN_DISPLAY_NAME, SERVICE_TOKEN_EMAIL_DOMAIN
+
     existing = (
         await session.execute(select(User).where(User.email == email))
     ).scalar_one_or_none()
     if existing is not None:
+        # Phase 12.1: a service-token row created by older code carries the
+        # raw email local-part as display_name (a 64-char hex stamp).
+        # Rewrite to the friendly label on next visit, but only if the
+        # current value still matches the auto-derived form — never
+        # clobber a name an admin chose deliberately.
+        if (
+            email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN)
+            and existing.display_name == email.split("@", 1)[0]
+        ):
+            existing.display_name = SERVICE_TOKEN_DISPLAY_NAME
+            await session.commit()
+            await session.refresh(existing)
         return existing
 
     user = User(
         email=email,
         hashed_password=_sso_sentinel_password(),
         role=Role.USER,
-        display_name=email.split("@", 1)[0],
+        display_name=_default_display_name_for(email),
         is_active=True,
         is_verified=True,
     )
