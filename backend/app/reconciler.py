@@ -1,4 +1,5 @@
 import asyncio
+import io
 import logging
 import uuid
 from dataclasses import dataclass
@@ -6,9 +7,11 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 import httpx
+import pandas as pd
 from kubernetes.client import ApiException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.db import async_session_maker
@@ -987,6 +990,98 @@ async def _project_summary_metrics(
     await session.commit()
 
 
+async def _read_mlflow_artifact(run_id: str, path: str) -> str:
+    """Fetch an MLflow artifact text body via the tracking server proxy.
+
+    Returns the raw text content. Raises ``FileNotFoundError`` on 404 so
+    the caller can decide whether to skip silently (predict jobs that
+    legitimately lack a ``predictions.csv`` should not surface as an
+    error).
+    """
+    url = (
+        f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow/runs/get"
+        f"?run_id={run_id}"
+    )
+    async with httpx.AsyncClient(
+        timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
+    ) as c:
+        run_resp = await c.get(url)
+        run_resp.raise_for_status()
+        artifact_uri: str = run_resp.json()["run"]["info"]["artifact_uri"]
+
+    prefix = "mlflow-artifacts:/"
+    if not artifact_uri.startswith(prefix):
+        raise RuntimeError(f"unexpected artifact_uri scheme: {artifact_uri!r}")
+    relative = artifact_uri[len(prefix):].rstrip("/")
+    download_url = (
+        f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow-artifacts/artifacts/"
+        f"{relative}/{path}"
+    )
+    async with httpx.AsyncClient(
+        timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
+    ) as c:
+        r = await c.get(download_url)
+    if r.status_code == 404:
+        raise FileNotFoundError(path)
+    r.raise_for_status()
+    return r.text
+
+
+async def _project_prediction_summary(session: AsyncSession, j: Job) -> None:
+    """Read predictions.csv via MLflow artifacts on a succeeded predict job,
+    compute total + class-distribution + duration, cache into
+    ``Job.summary_metrics["prediction_summary"]``.
+
+    Errors are logged + counted via ``BACKEND_ERRORS`` and never raised —
+    projection failure is observability tech debt, not a state-machine
+    issue. Job remains SUCCEEDED; the frontend falls back to a recompute
+    endpoint (Task 1.3) when the cache is absent.
+    """
+    if not j.mlflow_run_id:
+        return
+    try:
+        csv_text = await _read_mlflow_artifact(j.mlflow_run_id, "predictions.csv")
+    except FileNotFoundError:
+        return
+    except Exception:  # noqa: BLE001 — never raise out of the projector
+        BACKEND_ERRORS.labels(stage="prediction_summary_artifact_read").inc()
+        logger.exception(
+            "prediction_summary artifact read failed",
+            extra={"job_id": str(j.id)},
+        )
+        return
+
+    try:
+        df = pd.read_csv(io.StringIO(csv_text))
+    except Exception:  # noqa: BLE001 — defensive against malformed CSV
+        BACKEND_ERRORS.labels(stage="prediction_summary_csv_parse").inc()
+        logger.exception(
+            "prediction_summary csv parse failed",
+            extra={"job_id": str(j.id)},
+        )
+        return
+
+    if "predicted_class" not in df.columns:
+        return
+    distribution = df["predicted_class"].value_counts().to_dict()
+    total = int(len(df))
+    duration_seconds = (
+        (j.finished_at - j.started_at).total_seconds()
+        if (j.started_at and j.finished_at)
+        else None
+    )
+
+    sm = dict(j.summary_metrics or {})
+    sm["prediction_summary"] = {
+        "total": total,
+        "distribution": {str(k): int(v) for k, v in distribution.items()},
+        "duration_seconds": duration_seconds,
+    }
+    j.summary_metrics = sm
+    flag_modified(j, "summary_metrics")
+    await session.commit()
+
+
 async def _update_job_progress(session: AsyncSession, j: Job) -> None:
     """Transition PREPARING → RUNNING once the detector container starts."""
     try:
@@ -1038,6 +1133,16 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
         logger.exception(
             "summary_metrics projection failed", extra={"job_id": str(j.id)}
         )
+
+    if j.type == JobType.PREDICT:
+        try:
+            await _project_prediction_summary(session, j)
+        except Exception:  # noqa: BLE001 — never block job termination on projection
+            BACKEND_ERRORS.labels(stage="prediction_summary_projection").inc()
+            logger.exception(
+                "prediction_summary projection failed",
+                extra={"job_id": str(j.id)},
+            )
 
     # Re-read the projection result so the notify carries the same primary
     # metric the user will see on /jobs/<id>.
