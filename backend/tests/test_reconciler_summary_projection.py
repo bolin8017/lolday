@@ -13,10 +13,10 @@ from app.models.job import JobStatus, JobType, ResourceProfile
 from app.reconciler import _project_summary_metrics
 
 
-async def _make_terminal_job(session: AsyncSession) -> Job:
+async def _make_terminal_job(session: AsyncSession, type: JobType = JobType.TRAIN) -> Job:
     job = Job(
         id=_uuid.uuid4(),
-        type=JobType.TRAIN,
+        type=type,
         status=JobStatus.SUCCEEDED,
         owner_id=_uuid.uuid4(),
         detector_version_id=_uuid.uuid4(),
@@ -54,6 +54,7 @@ async def test_projection_takes_last_metric_per_name(db_session: AsyncSession) -
     assert job.summary_metrics == {
         "metrics": {"train_loss": 0.1},
         "confusion_matrix": {"labels": ["a", "b"], "matrix": [[1, 0], [0, 1]]},
+        "per_class": None,
     }
 
 
@@ -62,7 +63,7 @@ async def test_projection_empty_when_no_metric_events(db_session: AsyncSession) 
     job = await _make_terminal_job(db_session)
     await _project_summary_metrics(db_session, job.id)
     await db_session.refresh(job)
-    assert job.summary_metrics == {"metrics": {}, "confusion_matrix": None}
+    assert job.summary_metrics == {"metrics": {}, "confusion_matrix": None, "per_class": None}
 
 
 @pytest.mark.asyncio
@@ -126,3 +127,31 @@ async def test_projection_skips_malformed_metric_payload(db_session: AsyncSessio
     await _project_summary_metrics(db_session, job.id)
     await db_session.refresh(job)
     assert job.summary_metrics["metrics"] == {"good": 0.5}
+
+
+@pytest.mark.asyncio
+async def test_projects_per_class_event_into_summary_metrics(db_session: AsyncSession) -> None:
+    """Phase 13b B1: per_class event flows into summary_metrics.per_class."""
+    job = await _make_terminal_job(db_session, type=JobType.EVALUATE)
+    base = _dt.datetime.now(_dt.timezone.utc)
+    db_session.add(JobEvent(
+        id=_uuid.uuid4(), job_id=job.id, ts=base,
+        kind="metric", payload={"name": "accuracy", "value": 0.9},
+    ))
+    db_session.add(JobEvent(
+        id=_uuid.uuid4(), job_id=job.id, ts=base + _dt.timedelta(seconds=1),
+        kind="per_class", payload={
+            "per_class": {
+                "Malware": {"precision": 0.95, "recall": 0.94, "f1": 0.94, "support": 530},
+                "Benign":  {"precision": 0.88, "recall": 0.89, "f1": 0.88, "support": 470},
+            },
+        },
+    ))
+    await db_session.commit()
+
+    await _project_summary_metrics(db_session, job.id)
+    await db_session.refresh(job)
+
+    assert job.summary_metrics["metrics"]["accuracy"] == pytest.approx(0.9)
+    assert job.summary_metrics["per_class"]["Malware"]["f1"] == pytest.approx(0.94)
+    assert job.summary_metrics["per_class"]["Benign"]["support"] == 470

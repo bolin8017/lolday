@@ -945,18 +945,20 @@ async def _project_summary_metrics(
     metrics; ``Job.summary_metrics`` is a single-writer materialized read model
     populated here on stage_end. MLflow remains the long-term store but is no
     longer the authoritative source for the lolday UI summary card.
+    Phase 13b: adds per_class (from BinaryClassification.evaluate emit).
     """
     from app.models import JobEvent
 
     rows = (await session.execute(
         select(JobEvent.kind, JobEvent.payload, JobEvent.ts)
         .where(JobEvent.job_id == job_id)
-        .where(JobEvent.kind.in_(["metric", "confusion_matrix"]))
+        .where(JobEvent.kind.in_(["metric", "confusion_matrix", "per_class"]))
         .order_by(JobEvent.ts.asc())
     )).all()
 
     metrics: dict[str, float] = {}
     confusion_matrix: dict[str, Any] | None = None
+    per_class: dict[str, Any] | None = None
     for kind, payload, _ts in rows:
         if kind == "metric":
             try:
@@ -971,9 +973,17 @@ async def _project_summary_metrics(
                 }
             except KeyError:
                 continue
+        elif kind == "per_class":
+            payload_per_class = payload.get("per_class")
+            if isinstance(payload_per_class, dict):
+                per_class = payload_per_class
 
     job = await session.get(Job, job_id)
-    job.summary_metrics = {"metrics": metrics, "confusion_matrix": confusion_matrix}
+    job.summary_metrics = {
+        "metrics": metrics,
+        "confusion_matrix": confusion_matrix,
+        "per_class": per_class,
+    }
     await session.commit()
 
 
