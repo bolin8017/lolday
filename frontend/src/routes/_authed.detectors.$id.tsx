@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { LogTail } from "@/components/common/LogTail";
-import { JsonViewer } from "@/components/common/JsonViewer";
+import { JsonTreeView } from "@/components/common/JsonTreeView";
 import { formatRelative, formatDuration } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
 
@@ -202,7 +202,7 @@ function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) 
       </div>
     );
   }
-  return <JsonViewer value={manifest} />;
+  return <JsonTreeView value={manifest} collapsed={1} />;
 }
 
 function DetectorDeleteButton({ detector }: { detector: { id: string; name: string } }) {

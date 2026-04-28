@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MetricCards } from "@/components/charts/MetricCards";
 import { ConfusionMatrix } from "@/components/charts/ConfusionMatrix";
 import { ArtifactTree } from "@/components/common/ArtifactTree";
-import { JsonViewer } from "@/components/common/JsonViewer";
+import { JsonTreeView } from "@/components/common/JsonTreeView";
 
 export const handle = { breadcrumb: "Run" };
 
@@ -52,11 +52,11 @@ export default function RunDetailPage() {
       )}
       <Card>
         <CardHeader><CardTitle>Params</CardTitle></CardHeader>
-        <CardContent><JsonViewer value={run.params ?? {}} /></CardContent>
+        <CardContent><JsonTreeView value={run.params ?? {}} /></CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle>Tags</CardTitle></CardHeader>
-        <CardContent><JsonViewer value={run.tags ?? {}} /></CardContent>
+        <CardContent><JsonTreeView value={run.tags ?? {}} /></CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle>Artifacts</CardTitle></CardHeader>

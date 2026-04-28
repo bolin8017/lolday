@@ -10,7 +10,7 @@ import { ConfusionMatrix } from "@/components/charts/ConfusionMatrix";
 import { JobMetricChart } from "@/components/charts/JobMetricChart";
 import { ArtifactTree } from "@/components/common/ArtifactTree";
 import { LogTail } from "@/components/common/LogTail";
-import { JsonViewer } from "@/components/common/JsonViewer";
+import { JsonTreeView } from "@/components/common/JsonTreeView";
 import { formatDuration, formatRelative } from "@/lib/date";
 import { isTerminal, NON_TERMINAL_JOB_STATUSES } from "@/lib/status";
 import { useJobEvents } from "@/hooks/useJobEvents";
@@ -105,7 +105,7 @@ export default function JobDetailPage() {
           )}
           <Card>
             <CardHeader><CardTitle>Resolved config</CardTitle></CardHeader>
-            <CardContent><JsonViewer value={job.resolved_config} /></CardContent>
+            <CardContent><JsonTreeView value={job.resolved_config} collapsed={1} /></CardContent>
           </Card>
         </TabsContent>
 
