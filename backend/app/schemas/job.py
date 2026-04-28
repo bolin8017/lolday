@@ -66,7 +66,7 @@ class JobRead(JobSummary):
     predict_dataset_id: uuid.UUID | None
     source_model_version_id: uuid.UUID | None
     resolved_config: dict
-    user_params: dict | None  # phase 13b B3
+    user_params: dict | None = None  # phase 13b B3
     log_tail: str | None
     resource_profile: ResourceProfile
     mlflow_experiment_id: str | None
