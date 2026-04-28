@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,7 @@ import { Label } from "@/components/ui/label";
 
 interface ErrorBanner {
   code?: string;
-  message?: string;
+  message?: ReactNode;
 }
 
 interface Props {

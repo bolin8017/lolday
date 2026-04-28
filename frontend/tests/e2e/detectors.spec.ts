@@ -259,6 +259,8 @@ test.describe("Delete detector / version", () => {
     // Dialog stays open with error banner
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/cancel running jobs/i)).toBeVisible();
+    const seeRunningJobsLink = dialog.getByRole("link", { name: /see running jobs/i });
+    await expect(seeRunningJobsLink).toBeVisible();
     await expect(page).toHaveURL(`/detectors/${detectorId}`); // didn't navigate
   });
 });

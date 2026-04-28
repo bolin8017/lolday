@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useDeleteDetector, useDetectors, type Detector } from "@/api/queries/detectors";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
+import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
 import { DataTable } from "@/components/tables/DataTable";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +19,7 @@ export const handle = { breadcrumb: "Detectors" };
 
 function DetectorRowActions({ detector }: { detector: { id: string; name: string } }) {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const [error, setError] = useState<ReturnType<typeof detailToDeleteBanner> | null>(null);
   const deleteMut = useDeleteDetector();
 
   return (
@@ -60,7 +61,7 @@ function DetectorRowActions({ detector }: { detector: { id: string; name: string
             setOpen(false);
           } catch (e) {
             const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
-            setError(detail ?? { message: "Delete failed." });
+            setError(detailToDeleteBanner(detail));
           }
         }}
         pending={deleteMut.isPending}

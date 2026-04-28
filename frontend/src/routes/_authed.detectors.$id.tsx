@@ -2,6 +2,7 @@ import { useParams, Link, useNavigate } from "react-router";
 import { useState } from "react";
 import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild, useDetectorVersion, useDeleteDetector, useDeleteVersion } from "@/api/queries/detectors";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
+import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -198,7 +199,7 @@ function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) 
 
 function DetectorDeleteButton({ detector }: { detector: { id: string; name: string } }) {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const [error, setError] = useState<ReturnType<typeof detailToDeleteBanner> | null>(null);
   const deleteMut = useDeleteDetector();
   const nav = useNavigate();
 
@@ -229,7 +230,7 @@ function DetectorDeleteButton({ detector }: { detector: { id: string; name: stri
             nav("/detectors");
           } catch (e) {
             const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
-            setError(detail ?? { message: "Delete failed." });
+            setError(detailToDeleteBanner(detail));
           }
         }}
         pending={deleteMut.isPending}
@@ -247,7 +248,7 @@ function VersionDeleteButton({
   version: { tag: string };
 }) {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const [error, setError] = useState<ReturnType<typeof detailToDeleteBanner> | null>(null);
   const deleteMut = useDeleteVersion(detectorId);
 
   return (
@@ -278,7 +279,7 @@ function VersionDeleteButton({
             setOpen(false);
           } catch (e) {
             const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
-            setError(detail ?? { message: "Delete failed." });
+            setError(detailToDeleteBanner(detail));
           }
         }}
         pending={deleteMut.isPending}
