@@ -37,8 +37,8 @@ fi
 unset _var _url
 
 # Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
-BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase11e}
-FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase11e}
+BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase13a}
+FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase13a}
 
 # Pre-flight
 echo "[1/4] Pre-flight checks..."
