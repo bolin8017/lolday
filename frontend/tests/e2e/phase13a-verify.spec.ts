@@ -41,7 +41,7 @@ test.describe.serial("Phase 13a deploy verification", () => {
 
   test("A1: View manifest opens Sheet with manifest tree (active version)", async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "commit" });
     await page.getByRole("tab", { name: /versions/i }).click();
     await page.getByRole("button", { name: /view manifest/i }).first().click();
 
@@ -50,7 +50,6 @@ test.describe.serial("Phase 13a deploy verification", () => {
     // Manifest contains the detector name; assert it shows up in the tree.
     await expect(sheet.getByText(DETECTOR_NAME).first()).toBeVisible({ timeout: 5_000 });
 
-    await page.screenshot({ path: "/tmp/phase13a-A1-manifest.png", fullPage: true });
     // Close sheet via Escape to leave a clean state for next test.
     await page.keyboard.press("Escape");
   });
@@ -68,7 +67,7 @@ test.describe.serial("Phase 13a deploy verification", () => {
 
   test("A2: Build logs sheet opens with non-empty content", async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "commit" });
     await page.getByRole("tab", { name: /builds/i }).click();
 
     // Click the first Logs button (latest build). Best-effort on content:
@@ -86,16 +85,15 @@ test.describe.serial("Phase 13a deploy verification", () => {
     // Sheet header should contain "logs"
     await expect(sheet.getByText(/logs/i).first()).toBeVisible();
 
-    await page.screenshot({ path: "/tmp/phase13a-A2-build-logs.png", fullPage: true });
     await page.keyboard.press("Escape");
   });
 
   test("A3: Logout button visible on /jobs even when list is long", async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto("/jobs", { waitUntil: "domcontentloaded" });
+    await page.goto("/jobs", { waitUntil: "commit" });
     await expect(page.getByRole("heading", { name: /^jobs$/i })).toBeVisible({ timeout: 10_000 });
 
-    const logout = page.getByRole("button", { name: /logout/i });
+    const logout = page.getByRole("button", { name: /log\s*out/i });
     await expect(logout).toBeVisible({ timeout: 5_000 });
 
     // Verify logout button bottom edge fits inside viewport.
@@ -111,15 +109,14 @@ test.describe.serial("Phase 13a deploy verification", () => {
     );
     expect(bodyScrolls).toBe(false);
 
-    await page.screenshot({ path: "/tmp/phase13a-A3-jobs.png", fullPage: false });
   });
 
   test("A3: Logout button visible on /runs", async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto("/runs", { waitUntil: "domcontentloaded" });
+    await page.goto("/runs", { waitUntil: "commit" });
     await expect(page.getByRole("heading", { name: /experiments/i })).toBeVisible({ timeout: 10_000 });
 
-    const logout = page.getByRole("button", { name: /logout/i });
+    const logout = page.getByRole("button", { name: /log\s*out/i });
     await expect(logout).toBeVisible({ timeout: 5_000 });
 
     const box = await logout.boundingBox();
@@ -127,12 +124,11 @@ test.describe.serial("Phase 13a deploy verification", () => {
     const viewport = page.viewportSize();
     expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
 
-    await page.screenshot({ path: "/tmp/phase13a-A3-runs.png", fullPage: false });
   });
 
   test("A4: Delete detector dialog state machine (cancel without deleting)", async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "commit" });
 
     // Header Delete button (red, destructive variant).
     const headerDelete = page.getByRole("button", { name: /^Delete$/ }).first();
@@ -160,12 +156,11 @@ test.describe.serial("Phase 13a deploy verification", () => {
     // Sanity: detector still exists (URL stays).
     await expect(page).toHaveURL(new RegExp(`/detectors/${DETECTOR_ID}`));
 
-    await page.screenshot({ path: "/tmp/phase13a-A4-delete-detector-dialog.png", fullPage: false });
   });
 
   test("A4: Delete version dialog state machine (cancel without deleting)", async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "commit" });
     await page.getByRole("tab", { name: /versions/i }).click();
 
     // Per-version row Delete buttons. Pick the first row's Delete (newest version).
@@ -194,7 +189,6 @@ test.describe.serial("Phase 13a deploy verification", () => {
     // Version still in the table.
     await expect(versionRow).toBeVisible();
 
-    await page.screenshot({ path: "/tmp/phase13a-A4-delete-version-dialog.png", fullPage: false });
   });
 
   test("A4: in-flight 409 banner with link (skipped if no in-flight jobs)", async () => {

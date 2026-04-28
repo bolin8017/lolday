@@ -131,3 +131,61 @@ And the existing Playwright specs (`phase11d-chart-verify`, `phase11e-full-flow`
   - `backend/tests/test_role_enum_roundtrip.py` — small regression test (insert+read SERVICE_TOKEN role)
 - Deploy: rolling restart of backend after migration applies.
 - After deploy: re-run `pnpm playwright test phase13a-verify.spec.ts` to confirm.
+
+---
+
+## Resolution (2026-04-28) — adopted Option B
+
+After auditing the rest of the backend models we found that `role_enum` is
+the **only** ``SAEnum`` in the codebase **without** ``values_callable``:
+
+| File | Enum | ``values_callable``? |
+|------|------|----------------------|
+| ``dataset.py`` ``DatasetVisibility`` | ✅ |
+| ``model_registry.py`` ``ModelVersionStage`` | ✅ |
+| ``credential.py`` ``GitProvider`` | ✅ |
+| ``detector.py`` ``DetectorVersionStatus, DetectorBuildStatus`` | ✅ |
+| ``job.py`` ``JobType, JobStatus, ResourceProfile`` | ✅ |
+| **``user.py`` ``Role``** | ❌ |
+
+Phase 12.2's migration was written by someone who (correctly) assumed the
+codebase-wide convention applied to ``role_enum`` and added the new value
+as the lowercase ``service_token``. The mismatch between that assumption
+and ``user.py`` 's NAME-based ``SAEnum`` was the actual root cause.
+
+Option A (rename only the new value back to upper) would patch the symptom
+while leaving ``role_enum`` as a permanent codebase exception. The next
+person to add a role would fall into the same trap.
+
+We adopted **Option B**: align ``role_enum`` to the ``values_callable``
+convention. The migration ``a4b8e7c91d52_phase12_3_role_enum_lowercase``
+renames the three uppercase NAMEs (``ADMIN``, ``DEVELOPER``, ``USER``)
+to their lowercase VALUEs in PostgreSQL via ``ALTER TYPE ... RENAME VALUE``;
+``service_token`` was already lowercase so it needs no rename. The model
+``backend/app/models/user.py`` adds
+``values_callable=lambda x: [e.value for e in x]`` to the ``role`` column.
+After this pair, every enum in the codebase is value-stored.
+
+Verification (post-deploy 2026-04-28):
+
+* ``backend/tests/test_role_enum_roundtrip.py`` — 5 new tests covering
+  every Role member's ORM round-trip + the raw ``'service_token'``
+  read path (failed before fix with the prod traceback's ``LookupError``).
+* ``backend/tests`` — 432 total pass, no regressions.
+* PostgreSQL: ``SELECT enum_range(NULL::role_enum)`` =
+  ``{admin,developer,user,service_token}`` — fully lowercase.
+* All three existing user rows (admin / user / service_token) carry
+  lowercase values after ``ALTER TYPE RENAME VALUE`` (RENAME is in-place
+  on PG ≥ 10, no data ``UPDATE`` needed).
+* ``curl /api/v1/users/me`` with the CF Access service token returns 200
+  (was 500); response includes ``"role": "service_token"``.
+* ``frontend/tests/e2e/phase13a-verify.spec.ts`` — 6 active passes + 2
+  intentional skips. The spec also picked up unrelated bugs while running:
+  ``/logout/i`` regex didn't match the rendered ``"Log out"`` (with space);
+  ``waitUntil: "domcontentloaded"`` hung on the deployed CF Access path —
+  switched to ``"commit"``; ``page.screenshot`` (both ``fullPage`` settings)
+  hung when an open dialog/sheet covered the page — diagnostic shots removed.
+
+The original "Suggested PR scope" above is preserved as historical context.
+The actual PR scope is documented in the migration's docstring and this
+section.

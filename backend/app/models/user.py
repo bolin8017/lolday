@@ -30,7 +30,13 @@ SERVICE_TOKEN_DISPLAY_NAME = "Internal service token"
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
     role: Mapped[Role] = mapped_column(
-        SAEnum(Role, name="role_enum"), default=Role.USER, nullable=False
+        SAEnum(
+            Role,
+            name="role_enum",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=Role.USER,
+        nullable=False,
     )
     display_name: Mapped[str | None] = mapped_column(String(100))
     discord_user_id: Mapped[str | None] = mapped_column(String(60), nullable=True)
