@@ -157,7 +157,16 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
 async def _delete_harbor_images(
     detector_name: str, session: AsyncSession, detector_id: UUID
 ) -> None:
-    """Best-effort cleanup of Harbor artifacts for a deleted detector."""
+    """Best-effort cleanup of Harbor artifacts for a deleted detector.
+
+    Phase 13a A4: when invoked from `delete_detector`, versions are being
+    purged because the *user* deleted the detector — so we mark each
+    surviving version row as `DELETED`, not `RETENTION_PRUNED` (which is
+    reserved for the reconciler GC path). This preserves audit fidelity:
+    `RETENTION_PRUNED` means "platform GC", `DELETED` means "user
+    intent". The two enum values were introduced in 13a precisely to
+    distinguish these two causes.
+    """
     if not settings.HARBOR_ADMIN_PASSWORD:
         return  # Harbor not configured (test env); skip silently
     harbor = HarborClient(
@@ -171,11 +180,11 @@ async def _delete_harbor_images(
     for v in versions_res.scalars().all():
         try:
             await harbor.delete_artifact("detectors", detector_name, v.image_digest)
-            v.status = DetectorVersionStatus.RETENTION_PRUNED
+            v.status = DetectorVersionStatus.DELETED
         except Exception:
-            BACKEND_ERRORS.labels(stage="detector_retention_prune").inc()
+            BACKEND_ERRORS.labels(stage="detector_delete_harbor").inc()
             logger.exception(
-                "retention prune failed",
+                "harbor purge on detector delete failed",
                 extra={
                     "detector_version_id": str(v.id),
                     "detector_name": detector_name,

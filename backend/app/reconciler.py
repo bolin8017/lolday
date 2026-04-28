@@ -504,7 +504,18 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         # log_tail (only the failure path did). Symmetric with how
         # _handle_job_succeeded / _handle_job_failed both capture; users
         # legitimately want to see buildkit progress for green builds too.
-        b.log_tail = await _capture_log_tail(b)
+        # Wrapped in try/except: if K8s API is misbehaving (non-ApiException
+        # exception, e.g. unexpected None pod metadata) we must not block
+        # the build's terminal-state commit, otherwise the build would
+        # spin in SCANNING until BUILD_TIMEOUT_SECONDS marks it TIMEOUT.
+        try:
+            b.log_tail = await _capture_log_tail(b)
+        except Exception:
+            BACKEND_ERRORS.labels(stage="log_capture_build").inc()
+            logger.warning(
+                "log capture failed for build %s — continuing without log_tail",
+                b.id, exc_info=True,
+            )
         b.finished_at = datetime.now(timezone.utc)
         await session.commit()
         ctx = await _user_context(session, b.triggered_by_id)
@@ -527,7 +538,17 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
     reason = await _extract_failure_reason(b)
     b.status = DetectorBuildStatus.FAILED
     b.failure_reason = reason
-    b.log_tail = await _capture_log_tail(b)
+    # Phase 13a follow-up (PR review EH-1): protect log capture so a
+    # K8s-side blip doesn't keep the build oscillating; symmetric with
+    # _handle_succeeded.
+    try:
+        b.log_tail = await _capture_log_tail(b)
+    except Exception:
+        BACKEND_ERRORS.labels(stage="log_capture_build").inc()
+        logger.warning(
+            "log capture failed for build %s — continuing without log_tail",
+            b.id, exc_info=True,
+        )
     b.finished_at = datetime.now(timezone.utc)
     await session.commit()
     ctx = await _user_context(session, b.triggered_by_id)

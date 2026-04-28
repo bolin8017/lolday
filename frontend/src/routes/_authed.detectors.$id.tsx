@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useDetector, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild, useDetectorVersion, useDeleteDetector, useDeleteVersion } from "@/api/queries/detectors";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
+import { LoldayApiError } from "@/api/errors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -236,7 +237,10 @@ function DetectorDeleteButton({ detector }: { detector: { id: string; name: stri
             await deleteMut.mutateAsync(detector.id);
             nav("/detectors");
           } catch (e) {
-            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            // Phase 13a fix: read parseError's structuredDetail rather than
+            // an unsafe cast on raw e — the cast was returning undefined for
+            // 409 object-shaped detail and the in-flight banner never showed.
+            const detail = e instanceof LoldayApiError ? e.structuredDetail : undefined;
             setError(detailToDeleteBanner(detail));
           }
         }}
@@ -285,7 +289,10 @@ function VersionDeleteButton({
             await deleteMut.mutateAsync(version.git_tag);
             setOpen(false);
           } catch (e) {
-            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            // Phase 13a fix: read parseError's structuredDetail rather than
+            // an unsafe cast on raw e — the cast was returning undefined for
+            // 409 object-shaped detail and the in-flight banner never showed.
+            const detail = e instanceof LoldayApiError ? e.structuredDetail : undefined;
             setError(detailToDeleteBanner(detail));
           }
         }}

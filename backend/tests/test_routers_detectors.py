@@ -197,3 +197,40 @@ async def test_delete_detector_blocks_when_in_flight(
     )
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "detector_has_in_flight_jobs"
+
+
+@pytest.mark.asyncio
+async def test_delete_version_returns_204_when_harbor_purge_fails(
+    async_client, detector_factory, version_factory, auth_owner_headers,
+    monkeypatch,
+):
+    """Phase 13a follow-up (PR review TG-3): Harbor purge is best-effort.
+    If Harbor.delete_artifact raises, the soft-delete commit must already
+    have happened (status -> DELETED) and the request must still return
+    204. The reconciler retention pass will eventually clean stragglers.
+    """
+    detector = await detector_factory(name="rfdet")
+    version = await version_factory(
+        detector_id=detector.id, git_tag="v1.0.0", image_digest="sha256:abc",
+    )
+
+    class ExplodingHarbor:
+        def __init__(self, *a, **kw): pass
+        async def delete_artifact(self, project, repo, digest):
+            raise RuntimeError("harbor down (simulated)")
+
+    monkeypatch.setattr("app.routers.detectors.HarborClient", ExplodingHarbor)
+    monkeypatch.setattr("app.config.settings.HARBOR_ADMIN_PASSWORD", "x")
+
+    resp = await async_client.delete(
+        f"/api/v1/detectors/{detector.id}/versions/{version.git_tag}",
+        headers=auth_owner_headers,
+    )
+    # Best-effort: 204 even when Harbor fails.
+    assert resp.status_code == 204, resp.text
+
+    # Soft-delete already committed (no rollback on Harbor exception).
+    list_resp = await async_client.get(
+        f"/api/v1/detectors/{detector.id}/versions", headers=auth_owner_headers,
+    )
+    assert all(v["git_tag"] != "v1.0.0" for v in list_resp.json()["items"])

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useDeleteDetector, useDetectors, type Detector } from "@/api/queries/detectors";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
+import { LoldayApiError } from "@/api/errors";
 import { DataTable } from "@/components/tables/DataTable";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +18,14 @@ import { MoreHorizontal, Plus } from "lucide-react";
 
 export const handle = { breadcrumb: "Detectors" };
 
-function DetectorRowActions({ detector }: { detector: { id: string; name: string } }) {
+function DetectorRowActions({
+  detector,
+}: {
+  // Phase 13a fix (PR review I1): confirmText must be the slug `name` so
+  // typing it is feasible (display_name may have spaces, mixed case).
+  // Title can show the friendlier `display_name` for context.
+  detector: { id: string; name: string; display_name: string };
+}) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<ReturnType<typeof detailToDeleteBanner> | null>(null);
   const deleteMut = useDeleteDetector();
@@ -46,7 +54,7 @@ function DetectorRowActions({ detector }: { detector: { id: string; name: string
       <DeleteConfirmDialog
         open={open}
         onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
-        title={`Delete detector ${detector.name}?`}
+        title={`Delete detector ${detector.display_name}?`}
         description={
           <>
             This soft-deletes the detector. All versions and Harbor images
@@ -60,7 +68,7 @@ function DetectorRowActions({ detector }: { detector: { id: string; name: string
             await deleteMut.mutateAsync(detector.id);
             setOpen(false);
           } catch (e) {
-            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            const detail = e instanceof LoldayApiError ? e.structuredDetail : undefined;
             setError(detailToDeleteBanner(detail));
           }
         }}
@@ -82,7 +90,7 @@ const columns: ColumnDef<Detector>[] = [
   {
     id: "actions",
     header: "",
-    cell: ({ row }) => <DetectorRowActions detector={{ id: row.original.id, name: row.original.display_name }} />,
+    cell: ({ row }) => <DetectorRowActions detector={row.original} />,
   },
 ];
 
