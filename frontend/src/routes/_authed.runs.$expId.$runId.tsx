@@ -2,7 +2,7 @@ import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useRun } from "@/api/queries/runs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MetricCards } from "@/components/charts/MetricCards";
+import { MetricsTable } from "@/components/jobs/MetricsTable";
 import { ConfusionMatrix } from "@/components/charts/ConfusionMatrix";
 import { ArtifactTree } from "@/components/common/ArtifactTree";
 import { JsonTreeView } from "@/components/common/JsonTreeView";
@@ -42,7 +42,7 @@ export default function RunDetailPage() {
       <h1 className="text-2xl font-semibold">Run {runId.slice(0, 10)}</h1>
       <Card>
         <CardHeader><CardTitle>Metrics</CardTitle></CardHeader>
-        <CardContent><MetricCards metrics={run.metrics ?? {}} /></CardContent>
+        <CardContent><MetricsTable metrics={run.metrics ?? {}} /></CardContent>
       </Card>
       {cm && (
         <Card>
