@@ -15,11 +15,12 @@ from typing import Any
 import jwt as pyjwt
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
+from app.metrics import BACKEND_ERRORS
 from app.models import Role, User
 
 logger = logging.getLogger(__name__)
@@ -64,18 +65,64 @@ def _sso_sentinel_password() -> str:
     return f"!sso_only!{secrets.token_urlsafe(16)}"
 
 
+def _default_display_name_for(email: str) -> str:
+    """Auto-derive a display_name for a brand-new SSO row.
+
+    Service-token principals get a friendly fixed label — their email
+    local part is a 64-char hex stamp humans can't read in Discord
+    embeds or admin tables.
+    """
+    from app.models.user import SERVICE_TOKEN_DISPLAY_NAME, SERVICE_TOKEN_EMAIL_DOMAIN
+
+    if email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN):
+        return SERVICE_TOKEN_DISPLAY_NAME
+    return email.split("@", 1)[0]
+
+
 async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User:
+    from app.models.user import SERVICE_TOKEN_DISPLAY_NAME, SERVICE_TOKEN_EMAIL_DOMAIN
+
     existing = (
         await session.execute(select(User).where(User.email == email))
     ).scalar_one_or_none()
     if existing is not None:
+        # A service-token row created by older code carries the raw email
+        # local-part as display_name (a 64-char hex stamp). Rewrite to
+        # the friendly label on next visit — but only if the current
+        # value still matches the auto-derived form, so we never clobber
+        # a name an admin chose deliberately.
+        #
+        # The rename is purely cosmetic: a transient DB error here must
+        # not break the auth path. Failures are swallowed (rollback +
+        # metric); the next visit retries.
+        if (
+            email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN)
+            and existing.display_name == email.split("@", 1)[0]
+        ):
+            existing.display_name = SERVICE_TOKEN_DISPLAY_NAME
+            try:
+                await session.commit()
+                await session.refresh(existing)
+            except SQLAlchemyError:
+                BACKEND_ERRORS.labels(stage="display_name_rename").inc()
+                logger.warning(
+                    "service-token display_name rename failed for %s",
+                    email,
+                    exc_info=True,
+                )
+                await session.rollback()
         return existing
 
+    initial_role = (
+        Role.SERVICE_TOKEN
+        if email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN)
+        else Role.USER
+    )
     user = User(
         email=email,
         hashed_password=_sso_sentinel_password(),
-        role=Role.USER,
-        display_name=email.split("@", 1)[0],
+        role=initial_role,
+        display_name=_default_display_name_for(email),
         is_active=True,
         is_verified=True,
     )

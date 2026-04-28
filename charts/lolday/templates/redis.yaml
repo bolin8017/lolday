@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: redis:7-alpine
+          image: {{ .Values.redis.image | default "redis:7-alpine" }}
           ports:
             - containerPort: 6379
           command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]

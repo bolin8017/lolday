@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -51,20 +52,42 @@ IN_FLIGHT = {
 # ---- notify helpers ----------------------------------------------------------
 
 
-async def _user_context(session: AsyncSession, user_id) -> tuple[str, str | None]:
-    """Returns (name, discord_user_id).
+@dataclass(frozen=True)
+class NotifyContext:
+    """Discord-embed identity for a single notification.
 
-    Name falls back through display_name → email local-part → literal "user"
-    (the last case only triggers when the user row is missing entirely,
-    since email is required on User).
+    Returned from :func:`_user_context`; ``None`` from that helper means
+    "skip notify" (the user is a CF Access service-token principal whose
+    events would only dilute the user-event channel).
+    """
+
+    name: str
+    discord_id: str | None
+
+
+async def _user_context(
+    session: AsyncSession, user_id
+) -> NotifyContext | None:
+    """Resolve a notification identity, or ``None`` to signal "skip notify".
+
+    ``name`` falls back through display_name → email local-part → literal
+    "user" (the last case only triggers when the user row is missing
+    entirely, since email is required on User).
+
+    Service-token principals yield ``None`` so every notify_* callsite
+    can early-return. Service-token activity is automated and not
+    actionable by humans — its events would only dilute the user-event
+    Discord channel.
     """
     from app.models import User
 
     user = await session.get(User, user_id)
     if user is None:
-        return ("unknown", None)
+        return NotifyContext(name="unknown", discord_id=None)
+    if user.is_service_token:
+        return None
     name = user.display_name or (user.email.split("@")[0] if user.email else "user")
-    return (name, user.discord_user_id)
+    return NotifyContext(name=name, discord_id=user.discord_user_id)
 
 
 async def _detector_label(session: AsyncSession, detector_id) -> str:
@@ -104,7 +127,9 @@ async def _fire_job_failed_notify(
     """
     from app.models import DatasetConfig, DetectorVersion
 
-    user_name, discord_id = await _user_context(session, j.owner_id)
+    ctx = await _user_context(session, j.owner_id)
+    if ctx is None:
+        return
     dv = await session.get(DetectorVersion, j.detector_version_id)
     det_label = await _detector_label(session, dv.detector_id) if dv else "unknown"
     detector_label = f"{det_label} {dv.git_tag}" if dv else det_label
@@ -115,8 +140,8 @@ async def _fire_job_failed_notify(
         dataset_name = ds.name if ds else None
     asyncio.create_task(
         notify_job_failed(
-            user_name=user_name,
-            user_discord_id=discord_id,
+            user_name=ctx.name,
+            user_discord_id=ctx.discord_id,
             job_type=j.type.value,
             detector_label=detector_label,
             dataset_name=dataset_name,
@@ -128,6 +153,7 @@ async def _fire_job_failed_notify(
 
 # Loop tuning. Module-level so tests can monkeypatch to collapse iteration time.
 SYNC_EVERY_N_ITERATIONS = 6
+ORPHAN_SCAN_EVERY_N_ITERATIONS = 30  # ~5 min at the default 10s wait
 RECONCILER_WAIT_SECONDS = 10
 
 
@@ -142,18 +168,19 @@ async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
             b.failure_reason = "k8s_job_missing"
             b.finished_at = datetime.now(timezone.utc)
             await session.commit()
-            user_name, discord_id = await _user_context(session, b.triggered_by_id)
-            label = await _detector_label(session, b.detector_id)
-            asyncio.create_task(
-                notify_build_failed(
-                    user_name=user_name,
-                    user_discord_id=discord_id,
-                    detector_label=label,
-                    git_tag=b.git_tag,
-                    failure_reason="k8s_job_missing",
-                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
+            ctx = await _user_context(session, b.triggered_by_id)
+            if ctx is not None:
+                label = await _detector_label(session, b.detector_id)
+                asyncio.create_task(
+                    notify_build_failed(
+                        user_name=ctx.name,
+                        user_discord_id=ctx.discord_id,
+                        detector_label=label,
+                        git_tag=b.git_tag,
+                        failure_reason="k8s_job_missing",
+                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                    )
                 )
-            )
         return
 
     # Wall-clock timeout gates every post-build state. A build whose Job
@@ -253,18 +280,19 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         b.trivy_high = scan.high
         b.finished_at = datetime.now(timezone.utc)
         await session.commit()
-        user_name, discord_id = await _user_context(session, b.triggered_by_id)
-        label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(
-            notify_trivy_blocked(
-                user_name=user_name,
-                user_discord_id=discord_id,
-                detector_label=label,
-                git_tag=b.git_tag,
-                cve_summary=f"{scan.critical} critical, {scan.high} high",
-                build_url=_ui_url(f"/detectors/{b.detector_id}"),
+        ctx = await _user_context(session, b.triggered_by_id)
+        if ctx is not None:
+            label = await _detector_label(session, b.detector_id)
+            asyncio.create_task(
+                notify_trivy_blocked(
+                    user_name=ctx.name,
+                    user_discord_id=ctx.discord_id,
+                    detector_label=label,
+                    git_tag=b.git_tag,
+                    cve_summary=f"{scan.critical} critical, {scan.high} high",
+                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                )
             )
-        )
     else:
         # A DetectorVersion may already exist for this (detector_id, git_tag)
         # from a prior build of the same tag. Two legitimate replay paths:
@@ -307,18 +335,19 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 b.failure_reason = "harbor_labels_fetch_failed"
                 b.finished_at = datetime.now(timezone.utc)
                 await session.commit()
-                user_name, discord_id = await _user_context(session, b.triggered_by_id)
-                label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(
-                    notify_build_failed(
-                        user_name=user_name,
-                        user_discord_id=discord_id,
-                        detector_label=label,
-                        git_tag=b.git_tag,
-                        failure_reason="harbor_labels_fetch_failed",
-                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ctx = await _user_context(session, b.triggered_by_id)
+                if ctx is not None:
+                    label = await _detector_label(session, b.detector_id)
+                    asyncio.create_task(
+                        notify_build_failed(
+                            user_name=ctx.name,
+                            user_discord_id=ctx.discord_id,
+                            detector_label=label,
+                            git_tag=b.git_tag,
+                            failure_reason="harbor_labels_fetch_failed",
+                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                        )
                     )
-                )
                 await _cleanup_build_secret(b.id)
                 return
 
@@ -333,18 +362,19 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 b.failure_reason = "manifest_label_missing"
                 b.finished_at = datetime.now(timezone.utc)
                 await session.commit()
-                user_name, discord_id = await _user_context(session, b.triggered_by_id)
-                label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(
-                    notify_build_failed(
-                        user_name=user_name,
-                        user_discord_id=discord_id,
-                        detector_label=label,
-                        git_tag=b.git_tag,
-                        failure_reason="manifest_label_missing",
-                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ctx = await _user_context(session, b.triggered_by_id)
+                if ctx is not None:
+                    label = await _detector_label(session, b.detector_id)
+                    asyncio.create_task(
+                        notify_build_failed(
+                            user_name=ctx.name,
+                            user_discord_id=ctx.discord_id,
+                            detector_label=label,
+                            git_tag=b.git_tag,
+                            failure_reason="manifest_label_missing",
+                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                        )
                     )
-                )
                 await _cleanup_build_secret(b.id)
                 return
 
@@ -360,18 +390,19 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 b.failure_reason = "manifest_invalid"
                 b.finished_at = datetime.now(timezone.utc)
                 await session.commit()
-                user_name, discord_id = await _user_context(session, b.triggered_by_id)
-                label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(
-                    notify_build_failed(
-                        user_name=user_name,
-                        user_discord_id=discord_id,
-                        detector_label=label,
-                        git_tag=b.git_tag,
-                        failure_reason="manifest_invalid",
-                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ctx = await _user_context(session, b.triggered_by_id)
+                if ctx is not None:
+                    label = await _detector_label(session, b.detector_id)
+                    asyncio.create_task(
+                        notify_build_failed(
+                            user_name=ctx.name,
+                            user_discord_id=ctx.discord_id,
+                            detector_label=label,
+                            git_tag=b.git_tag,
+                            failure_reason="manifest_invalid",
+                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                        )
                     )
-                )
                 await _cleanup_build_secret(b.id)
                 return
 
@@ -396,18 +427,19 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 b.failure_reason = "git_sha_label_missing"
                 b.finished_at = datetime.now(timezone.utc)
                 await session.commit()
-                user_name, discord_id = await _user_context(session, b.triggered_by_id)
-                label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(
-                    notify_build_failed(
-                        user_name=user_name,
-                        user_discord_id=discord_id,
-                        detector_label=label,
-                        git_tag=b.git_tag,
-                        failure_reason="git_sha_label_missing",
-                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ctx = await _user_context(session, b.triggered_by_id)
+                if ctx is not None:
+                    label = await _detector_label(session, b.detector_id)
+                    asyncio.create_task(
+                        notify_build_failed(
+                            user_name=ctx.name,
+                            user_discord_id=ctx.discord_id,
+                            detector_label=label,
+                            git_tag=b.git_tag,
+                            failure_reason="git_sha_label_missing",
+                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                        )
                     )
-                )
                 await _cleanup_build_secret(b.id)
                 return
 
@@ -441,18 +473,19 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 )
                 b.finished_at = datetime.now(timezone.utc)
                 await session.commit()
-                user_name, discord_id = await _user_context(session, b.triggered_by_id)
-                label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(
-                    notify_build_failed(
-                        user_name=user_name,
-                        user_discord_id=discord_id,
-                        detector_label=label,
-                        git_tag=b.git_tag,
-                        failure_reason=b.failure_reason,
-                        build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                ctx = await _user_context(session, b.triggered_by_id)
+                if ctx is not None:
+                    label = await _detector_label(session, b.detector_id)
+                    asyncio.create_task(
+                        notify_build_failed(
+                            user_name=ctx.name,
+                            user_discord_id=ctx.discord_id,
+                            detector_label=label,
+                            git_tag=b.git_tag,
+                            failure_reason=b.failure_reason,
+                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                        )
                     )
-                )
                 await _cleanup_build_secret(b.id)
                 return
             commit_sha = existing_version.git_sha or ""
@@ -469,18 +502,19 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         b.trivy_high = scan.high
         b.finished_at = datetime.now(timezone.utc)
         await session.commit()
-        user_name, discord_id = await _user_context(session, b.triggered_by_id)
-        label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(
-            notify_build_completed(
-                user_name=user_name,
-                user_discord_id=discord_id,
-                detector_label=label,
-                git_tag=b.git_tag,
-                commit_sha=commit_sha,
-                build_url=_ui_url(f"/detectors/{b.detector_id}"),
+        ctx = await _user_context(session, b.triggered_by_id)
+        if ctx is not None:
+            label = await _detector_label(session, b.detector_id)
+            asyncio.create_task(
+                notify_build_completed(
+                    user_name=ctx.name,
+                    user_discord_id=ctx.discord_id,
+                    detector_label=label,
+                    git_tag=b.git_tag,
+                    commit_sha=commit_sha,
+                    build_url=_ui_url(f"/detectors/{b.detector_id}"),
+                )
             )
-        )
     await _cleanup_build_secret(b.id)
 
 
@@ -491,18 +525,19 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
     b.log_tail = await _capture_log_tail(b)
     b.finished_at = datetime.now(timezone.utc)
     await session.commit()
-    user_name, discord_id = await _user_context(session, b.triggered_by_id)
-    label = await _detector_label(session, b.detector_id)
-    asyncio.create_task(
-        notify_build_failed(
-            user_name=user_name,
-            user_discord_id=discord_id,
-            detector_label=label,
-            git_tag=b.git_tag,
-            failure_reason=reason,
-            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+    ctx = await _user_context(session, b.triggered_by_id)
+    if ctx is not None:
+        label = await _detector_label(session, b.detector_id)
+        asyncio.create_task(
+            notify_build_failed(
+                user_name=ctx.name,
+                user_discord_id=ctx.discord_id,
+                detector_label=label,
+                git_tag=b.git_tag,
+                failure_reason=reason,
+                build_url=_ui_url(f"/detectors/{b.detector_id}"),
+            )
         )
-    )
     await _cleanup_build_secret(b.id)
 
 
@@ -529,18 +564,19 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
     b.failure_reason = "build exceeded timeout"
     b.finished_at = datetime.now(timezone.utc)
     await session.commit()
-    user_name, discord_id = await _user_context(session, b.triggered_by_id)
-    label = await _detector_label(session, b.detector_id)
-    asyncio.create_task(
-        notify_build_failed(
-            user_name=user_name,
-            user_discord_id=discord_id,
-            detector_label=label,
-            git_tag=b.git_tag,
-            failure_reason="build exceeded timeout",
-            build_url=_ui_url(f"/detectors/{b.detector_id}"),
+    ctx = await _user_context(session, b.triggered_by_id)
+    if ctx is not None:
+        label = await _detector_label(session, b.detector_id)
+        asyncio.create_task(
+            notify_build_failed(
+                user_name=ctx.name,
+                user_discord_id=ctx.discord_id,
+                detector_label=label,
+                git_tag=b.git_tag,
+                failure_reason="build exceeded timeout",
+                build_url=_ui_url(f"/detectors/{b.detector_id}"),
+            )
         )
-    )
     await _cleanup_build_secret(b.id)
 
 
@@ -663,6 +699,14 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                     except Exception:
                         BACKEND_ERRORS.labels(stage="sync_model_versions").inc()
                         logger.exception("sync_model_versions failed")
+
+                # Orphan vcjob scan (~5 min at default N=30)
+                if iteration % ORPHAN_SCAN_EVERY_N_ITERATIONS == 0:
+                    try:
+                        await reconcile_orphan_vcjobs(session)
+                    except Exception:
+                        BACKEND_ERRORS.labels(stage="reconcile_orphan_vcjobs").inc()
+                        logger.exception("reconcile_orphan_vcjobs failed")
         except Exception:
             BACKEND_ERRORS.labels(stage="reconciler_iteration").inc()
             logger.exception("reconciler iteration failed")
@@ -888,51 +932,55 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
     # metric the user will see on /jobs/<id>.
     metrics_for_notify = (j.summary_metrics or {}).get("metrics", {}) or {}
 
-    # Notify user of completion.
-    user_name, discord_id = await _user_context(session, j.owner_id)
-    from app.models import DetectorVersion
+    # Notify user of completion (skipped for CF Access service tokens —
+    # see _user_context).
+    ctx = await _user_context(session, j.owner_id)
+    if ctx is not None:
+        from app.models import DetectorVersion
 
-    dv = await session.get(DetectorVersion, j.detector_version_id)
-    det_label = await _detector_label(session, dv.detector_id) if dv else "unknown"
-    detector_label = f"{det_label} {dv.git_tag}" if dv else det_label
-    dataset_name = None
-    if j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id:
-        from app.models import DatasetConfig
+        dv = await session.get(DetectorVersion, j.detector_version_id)
+        det_label = (
+            await _detector_label(session, dv.detector_id) if dv else "unknown"
+        )
+        detector_label = f"{det_label} {dv.git_tag}" if dv else det_label
+        dataset_name = None
+        if j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id:
+            from app.models import DatasetConfig
 
-        ds_id = j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id
-        ds = await session.get(DatasetConfig, ds_id)
-        dataset_name = ds.name if ds else None
-    duration = None
-    if j.started_at and j.finished_at:
-        sa = (
-            j.started_at
-            if j.started_at.tzinfo
-            else j.started_at.replace(tzinfo=timezone.utc)
+            ds_id = j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id
+            ds = await session.get(DatasetConfig, ds_id)
+            dataset_name = ds.name if ds else None
+        duration = None
+        if j.started_at and j.finished_at:
+            sa = (
+                j.started_at
+                if j.started_at.tzinfo
+                else j.started_at.replace(tzinfo=timezone.utc)
+            )
+            fa = (
+                j.finished_at
+                if j.finished_at.tzinfo
+                else j.finished_at.replace(tzinfo=timezone.utc)
+            )
+            duration = int((fa - sa).total_seconds())
+        mlflow_url = (
+            _ui_url(f"/runs/{j.mlflow_experiment_id}/{j.mlflow_run_id}")
+            if j.mlflow_experiment_id and j.mlflow_run_id
+            else None
         )
-        fa = (
-            j.finished_at
-            if j.finished_at.tzinfo
-            else j.finished_at.replace(tzinfo=timezone.utc)
+        asyncio.create_task(
+            notify_job_completed(
+                user_name=ctx.name,
+                user_discord_id=ctx.discord_id,
+                job_type=j.type.value,
+                detector_label=detector_label,
+                dataset_name=dataset_name,
+                duration_seconds=duration,
+                primary_metric=_primary_metric(metrics_for_notify),
+                job_url=_ui_url(f"/jobs/{j.id}"),
+                mlflow_url=mlflow_url,
+            )
         )
-        duration = int((fa - sa).total_seconds())
-    mlflow_url = (
-        _ui_url(f"/runs/{j.mlflow_experiment_id}/{j.mlflow_run_id}")
-        if j.mlflow_experiment_id and j.mlflow_run_id
-        else None
-    )
-    asyncio.create_task(
-        notify_job_completed(
-            user_name=user_name,
-            user_discord_id=discord_id,
-            job_type=j.type.value,
-            detector_label=detector_label,
-            dataset_name=dataset_name,
-            duration_seconds=duration,
-            primary_metric=_primary_metric(metrics_for_notify),
-            job_url=_ui_url(f"/jobs/{j.id}"),
-            mlflow_url=mlflow_url,
-        )
-    )
     await _cleanup_job_secret(j)
 
 
@@ -1057,6 +1105,129 @@ async def _cleanup_job_secret(j: Job) -> None:
                 j.id,
                 exc_info=True,
             )
+
+
+ORPHAN_GRACE_SECONDS = 300  # don't touch a vcjob younger than this — see below.
+
+
+async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
+    """Delete Volcano Jobs whose ``lolday.job-id`` label has no matching DB row.
+
+    A schema migration / DB rebuild can leave Volcano Jobs in K8s that the
+    backend no longer knows about. Their init container then dies on every
+    pod with "job not found", the pod stays Init:Error indefinitely, and
+    KubeContainerWaiting fires forever. This pass closes that loop.
+
+    Race-window guard: ``app.routers.jobs`` flushes the Job DB row, calls
+    ``volcano_v1alpha1().create_namespaced_custom_object()``, then commits.
+    A reconciler running with an independent session at PostgreSQL
+    READ COMMITTED would not see the uncommitted row and could delete
+    the freshly-created vcjob. Skipping vcjobs younger than
+    ``ORPHAN_GRACE_SECONDS`` is enough headroom for the API request to
+    finish committing, and the next pass picks up genuinely-orphaned ones.
+
+    Listing failures bubble up — the surrounding ``reconciler_loop`` already
+    logs + counts iteration failures consistently with reconcile_build /
+    reconcile_job / sync_model_versions.
+
+    Returns the number of orphans deleted, for metrics.
+    """
+    from app.services.job_spec import _job_token_secret_name
+
+    listing = volcano_v1alpha1().list_namespaced_custom_object(
+        group=VOLCANO_BATCH_GROUP,
+        version=VOLCANO_BATCH_VERSION,
+        namespace=settings.JOB_NAMESPACE,
+        plural=VOLCANO_JOB_PLURAL,
+    )
+
+    now = datetime.now(timezone.utc)
+    deleted = 0
+    for vjob in listing.get("items", []):
+        meta = vjob.get("metadata", {}) or {}
+        name = meta.get("name", "")
+        # Volcano stamps the same labels both at the job level and on the
+        # task pod template — read the top-level copy first (survives task
+        # restructuring), with the deeper path as a fallback for older
+        # vcjobs / chart variants that only set it on the pod template.
+        label = (meta.get("labels") or {}).get("lolday.job-id")
+        if not label:
+            tasks = vjob.get("spec", {}).get("tasks") or []
+            if tasks:
+                label = (
+                    (tasks[0].get("template") or {})
+                    .get("metadata", {})
+                    .get("labels", {})
+                    .get("lolday.job-id")
+                )
+        if not label:
+            continue
+        try:
+            job_uuid = uuid.UUID(label)
+        except ValueError:
+            BACKEND_ERRORS.labels(stage="orphan_vcjob_malformed_label").inc()
+            logger.warning("vcjob %s has malformed lolday.job-id %r", name, label)
+            continue
+
+        created_at_raw = meta.get("creationTimestamp")
+        if created_at_raw:
+            try:
+                created_at = datetime.fromisoformat(
+                    created_at_raw.replace("Z", "+00:00")
+                )
+            except ValueError:
+                created_at = None
+            if created_at and (now - created_at).total_seconds() < ORPHAN_GRACE_SECONDS:
+                continue
+
+        from app.models.job import Job  # avoid circular import at module load
+
+        exists = await session.scalar(select(Job.id).where(Job.id == job_uuid))
+        if exists is not None:
+            continue
+
+        vcjob_gone = False
+        try:
+            volcano_v1alpha1().delete_namespaced_custom_object(
+                group=VOLCANO_BATCH_GROUP,
+                version=VOLCANO_BATCH_VERSION,
+                namespace=settings.JOB_NAMESPACE,
+                plural=VOLCANO_JOB_PLURAL,
+                name=name,
+                propagation_policy="Background",
+            )
+        except ApiException as exc:
+            if exc.status == 404:
+                vcjob_gone = True
+            else:
+                BACKEND_ERRORS.labels(stage="orphan_vcjob_delete").inc()
+                logger.warning(
+                    "orphan vcjob %s delete returned %s", name, exc.status, exc_info=True
+                )
+                continue
+
+        # Reach the secret cleanup whether vcjob deleted just now or was
+        # already gone — the orphan secret outlives a partial delete.
+        try:
+            core_v1().delete_namespaced_secret(
+                name=_job_token_secret_name(job_uuid),
+                namespace=settings.JOB_NAMESPACE,
+            )
+        except ApiException as exc:
+            if exc.status != 404:
+                BACKEND_ERRORS.labels(stage="orphan_secret_delete").inc()
+                logger.warning(
+                    "orphan secret for vcjob %s delete returned %s",
+                    name,
+                    exc.status,
+                    exc_info=True,
+                )
+
+        if not vcjob_gone:
+            deleted += 1
+        logger.info("deleted orphan vcjob %s (job-id %s)", name, job_uuid)
+
+    return deleted
 
 
 async def sync_model_versions(session: AsyncSession) -> None:

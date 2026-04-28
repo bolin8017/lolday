@@ -4,18 +4,18 @@ dependencies:
   version: 1.18.3
 - name: kube-prometheus-stack
   repository: https://prometheus-community.github.io/helm-charts
-  version: 79.12.0
+  version: 84.3.0
 - name: loki
   repository: https://grafana.github.io/helm-charts
-  version: 6.0.0
+  version: 7.0.0
 - name: alloy
   repository: https://grafana.github.io/helm-charts
-  version: 1.7.0
+  version: 1.8.0
 - name: trivy-operator
   repository: https://aquasecurity.github.io/helm-charts
   version: 0.32.1
 - name: volcano
   repository: https://volcano-sh.github.io/helm-charts
   version: 1.14.1
-digest: sha256:a8ffd25af504dbfb3581c729985de3d2b70993237ba8fd43d9767ae8498848a2
-generated: "2026-04-22T09:41:13.129241469+08:00"
+digest: sha256:8b48724a7c98165dbcca9d7f5ff9eeb786195b0003adee83b7f618d94dc42d9c
+generated: "2026-04-28T09:15:01.593905018+08:00"
