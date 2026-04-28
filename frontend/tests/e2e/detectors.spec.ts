@@ -20,6 +20,14 @@
  *
  * Until that infrastructure exists the tests are skipped; the production
  * code change (ManifestView null fallback) is implemented unconditionally.
+ *
+ * TODO(fixture-design): When implementing seedLegacyVersion / seedActiveVersion,
+ * decide between two approaches and apply consistently across all e2e specs:
+ *   (a) Playwright fixture injection via test.extend (matches the writing-plans
+ *       template's example signature: `async ({ page, seedLegacyVersion }) => ...`).
+ *   (b) Module-level async helper functions (current stub pattern in this file).
+ * Other phase 13a/b specs (e.g., the upcoming detectors delete tests) should follow
+ * the same choice. See plan Task 1.2 + reviewer feedback on commit 5b6ed83.
  */
 import { test, expect, request } from "@playwright/test";
 import { login } from "./helpers";
@@ -72,6 +80,9 @@ test("View manifest button opens Sheet with fallback for legacy version", async 
   test.setTimeout(30_000);
   await login(page);
 
+  // TODO(fixture-cleanup): once fixtures are implemented, dispose this apiContext
+  // (e.g., via test.afterEach or fixture teardown) so HTTP sessions are released
+  // even on test failure.
   const apiContext = await request.newContext({ baseURL: API_BASE });
   const detector = await seedLegacyVersion(apiContext, { name: "legacy-det", tag: "v0.1.0" });
 
@@ -93,6 +104,9 @@ test("View manifest button opens Sheet with manifest tree for phase11e+ version"
   test.setTimeout(30_000);
   await login(page);
 
+  // TODO(fixture-cleanup): once fixtures are implemented, dispose this apiContext
+  // (e.g., via test.afterEach or fixture teardown) so HTTP sessions are released
+  // even on test failure.
   const apiContext = await request.newContext({ baseURL: API_BASE });
   const detector = await seedActiveVersion(apiContext, { name: "modern-det", tag: "v3.0.0" });
 
