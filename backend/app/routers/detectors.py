@@ -296,6 +296,20 @@ async def delete_detector(
     detector: Detector = Depends(require_detector_access(write=True)),
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
+    in_flight = await session.execute(
+        select(Job.id)
+        .join(DetectorVersion, Job.detector_version_id == DetectorVersion.id)
+        .where(
+            DetectorVersion.detector_id == detector.id,
+            Job.status.in_(NON_TERMINAL_STATUSES),
+        ).limit(1)
+    )
+    if in_flight.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail={
+            "code": "detector_has_in_flight_jobs",
+            "message": "Cancel running jobs for this detector before deleting it.",
+        })
+
     detector_name = detector.name
     detector_id = detector.id
     detector.deleted_at = datetime.now(timezone.utc)

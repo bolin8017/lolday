@@ -179,3 +179,21 @@ async def test_delete_version_does_not_break_historical_jobs(
     )
     assert job_resp.status_code == 200
     assert job_resp.json()["detector_version_id"] == str(version.id)
+
+
+@pytest.mark.asyncio
+async def test_delete_detector_blocks_when_in_flight(
+    async_client, detector_factory, version_factory, job_factory,
+    auth_owner_headers,
+):
+    """Existing DELETE /detectors/{id} now blocks if any of its versions
+    has a non-terminal job. Phase 13a A4."""
+    detector = await detector_factory(name="rfdet")
+    version = await version_factory(detector_id=detector.id, git_tag="v1.0.0")
+    await job_factory(detector_version_id=version.id, status="running")
+
+    resp = await async_client.delete(
+        f"/api/v1/detectors/{detector.id}", headers=auth_owner_headers,
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "detector_has_in_flight_jobs"
