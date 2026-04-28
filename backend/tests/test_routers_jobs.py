@@ -398,3 +398,38 @@ async def test_prediction_summary_endpoint_404_for_other_user(
         headers=auth_other_user_headers,
     )
     assert resp.status_code == 404, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Phase 13b B3 — submit_job round-trips raw user_params on JobRead
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_submit_job_records_user_params(
+    user_client, seed_detector_version, seed_dataset
+) -> None:
+    """Phase 13b B3: submit_job persists the raw request `params` dict on
+    `Job.user_params` so the resolved-config UI can highlight overrides
+    against the manifest defaults. Round-trip via GET /jobs/{id}."""
+    dv_id = await seed_detector_version()
+    train_ds = await seed_dataset(name="up-tr")
+    test_ds = await seed_dataset(name="up-te")
+    user_params = {"n_estimators": 200, "max_depth": 10}
+
+    submit = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": user_params,
+        },
+    )
+    assert submit.status_code == 202, submit.text
+    job_id = submit.json()["id"]
+
+    detail = await user_client.get(f"/api/v1/jobs/{job_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["user_params"] == user_params

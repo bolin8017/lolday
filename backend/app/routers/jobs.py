@@ -295,6 +295,7 @@ async def create_job(
         source_model_version_id=source_model.id if source_model else None,
         owner_id=user.id,
         resolved_config=resolved,
+        user_params=body.params,  # phase 13b B3
         mlflow_experiment_id=dv.mlflow_experiment_id,
         mlflow_run_id=run_id,
         idempotency_key=idem_key,
