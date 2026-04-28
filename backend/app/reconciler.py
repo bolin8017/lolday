@@ -128,6 +128,7 @@ async def _fire_job_failed_notify(
 
 # Loop tuning. Module-level so tests can monkeypatch to collapse iteration time.
 SYNC_EVERY_N_ITERATIONS = 6
+ORPHAN_SCAN_EVERY_N_ITERATIONS = 30  # Phase 12: ~5 min at 10s wait
 RECONCILER_WAIT_SECONDS = 10
 
 
@@ -663,6 +664,14 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                     except Exception:
                         BACKEND_ERRORS.labels(stage="sync_model_versions").inc()
                         logger.exception("sync_model_versions failed")
+
+                # Orphan vcjob scan (~5 min at default N=30)
+                if iteration % ORPHAN_SCAN_EVERY_N_ITERATIONS == 0:
+                    try:
+                        await reconcile_orphan_vcjobs(session)
+                    except Exception:
+                        BACKEND_ERRORS.labels(stage="reconcile_orphan_vcjobs").inc()
+                        logger.exception("reconcile_orphan_vcjobs failed")
         except Exception:
             BACKEND_ERRORS.labels(stage="reconciler_iteration").inc()
             logger.exception("reconciler iteration failed")
@@ -1057,6 +1066,95 @@ async def _cleanup_job_secret(j: Job) -> None:
                 j.id,
                 exc_info=True,
             )
+
+
+async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
+    """Delete Volcano Jobs whose ``lolday.job-id`` label has no matching DB row.
+
+    Phase 12: a schema migration / DB rebuild can leave Volcano Jobs in K8s
+    that the backend no longer knows about. The init container then dies on
+    every pod with "job not found", so the pod stays Init:Error indefinitely
+    and KubeContainerWaiting fires forever. This pass closes that loop.
+
+    Returns the number of orphans deleted, for metrics.
+    """
+    from app.services.job_spec import _job_token_secret_name
+
+    try:
+        listing = volcano_v1alpha1().list_namespaced_custom_object(
+            group=VOLCANO_BATCH_GROUP,
+            version=VOLCANO_BATCH_VERSION,
+            namespace=settings.JOB_NAMESPACE,
+            plural=VOLCANO_JOB_PLURAL,
+        )
+    except ApiException as exc:
+        BACKEND_ERRORS.labels(stage="orphan_vcjob_list").inc()
+        logger.warning("orphan vcjob list returned %s", exc.status, exc_info=True)
+        return 0
+
+    deleted = 0
+    for vjob in listing.get("items", []):
+        name = vjob.get("metadata", {}).get("name", "")
+        tasks = vjob.get("spec", {}).get("tasks", [])
+        label = None
+        if tasks:
+            label = (
+                tasks[0]
+                .get("template", {})
+                .get("metadata", {})
+                .get("labels", {})
+                .get("lolday.job-id")
+            )
+        if not label:
+            continue
+        try:
+            job_uuid = uuid.UUID(label)
+        except ValueError:
+            logger.warning("vcjob %s has malformed lolday.job-id %r", name, label)
+            continue
+
+        from app.models.job import Job  # avoid circular import at module load
+
+        exists = await session.scalar(select(Job.id).where(Job.id == job_uuid))
+        if exists is not None:
+            continue
+
+        try:
+            volcano_v1alpha1().delete_namespaced_custom_object(
+                group=VOLCANO_BATCH_GROUP,
+                version=VOLCANO_BATCH_VERSION,
+                namespace=settings.JOB_NAMESPACE,
+                plural=VOLCANO_JOB_PLURAL,
+                name=name,
+                propagation_policy="Background",
+            )
+        except ApiException as exc:
+            if exc.status != 404:
+                BACKEND_ERRORS.labels(stage="orphan_vcjob_delete").inc()
+                logger.warning(
+                    "orphan vcjob %s delete returned %s", name, exc.status, exc_info=True
+                )
+            continue
+
+        try:
+            core_v1().delete_namespaced_secret(
+                name=_job_token_secret_name(job_uuid),
+                namespace=settings.JOB_NAMESPACE,
+            )
+        except ApiException as exc:
+            if exc.status != 404:
+                BACKEND_ERRORS.labels(stage="orphan_secret_delete").inc()
+                logger.warning(
+                    "orphan secret for vcjob %s delete returned %s",
+                    name,
+                    exc.status,
+                    exc_info=True,
+                )
+
+        deleted += 1
+        logger.info("deleted orphan vcjob %s (job-id %s)", name, job_uuid)
+
+    return deleted
 
 
 async def sync_model_versions(session: AsyncSession) -> None:
