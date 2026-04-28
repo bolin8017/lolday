@@ -655,18 +655,17 @@ After deploy:
 ## Appendix A — In-flight job statuses
 
 ```python
-NON_TERMINAL_JOB_STATUSES = (
+# Backend uses the canonical frozenset NON_TERMINAL_STATUSES from app.models.job:
+NON_TERMINAL_STATUSES = frozenset({
     JobStatus.PENDING,    # not yet sent to k8s
     JobStatus.PREPARING,  # k8s pod scheduled, detector container not started
-    JobStatus.QUEUED,     # Volcano queue waiting for GPU
     JobStatus.RUNNING,    # detector container running
-)
-TERMINAL_JOB_STATUSES = (
-    JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED,
-)
+})
+# Terminal states (for completeness):
+# JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.TIMEOUT
 ```
 
-Cross-check with `frontend/src/lib/status.ts:NON_TERMINAL_JOB_STATUSES` — must match. Plan task: align if drift.
+Cross-check with `frontend/src/lib/status.ts:NON_TERMINAL_JOB_STATUSES` — naming differs (no `_JOB_` infix on the backend), but the values `{pending, preparing, running}` match. The naming mismatch is acknowledged tech debt; both sides agree on the three non-terminal states.
 
 ---
 
