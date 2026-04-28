@@ -159,6 +159,7 @@ async def test_reconcile_job_marks_succeeded_and_registers_model(
     assert j.summary_metrics == {
         "metrics": {"accuracy": 0.9, "f1": 0.85},
         "confusion_matrix": None,
+        "per_class": None,
     }
     assert j.finished_at is not None
 
