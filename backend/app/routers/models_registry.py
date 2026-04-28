@@ -31,6 +31,58 @@ def _mlflow() -> MlflowClient:
     return MlflowClient(settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS)
 
 
+@router.get("/versions/{version_id}", response_model=ModelVersionRead)
+async def get_model_version_by_id(
+    version_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+) -> ModelVersionRead:
+    """Look up a ModelVersion by its UUID primary key.
+
+    Used by Phase 13b SourceModelCard which receives ``source_model_version_id``
+    from JobRead and needs to render the corresponding model card.
+    """
+    mv = (
+        await session.execute(
+            select(ModelVersion).where(ModelVersion.id == version_id)
+        )
+    ).scalar_one_or_none()
+    if mv is None:
+        raise HTTPException(status_code=404, detail="model version not found")
+    return ModelVersionRead.model_validate(mv)
+
+
+@router.get("/versions", response_model=ModelVersionList)
+async def list_model_versions_by_filter(
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    source_job_id: uuid.UUID | None = Query(None),
+) -> ModelVersionList:
+    """List ModelVersions filtered by ``source_job_id``.
+
+    Used by Phase 13b TrainedModelCard to find the model produced by a given
+    train job. ``source_job_id`` is currently the only supported filter; calling
+    this endpoint without it returns 400.
+    """
+    if source_job_id is None:
+        raise HTTPException(
+            status_code=400, detail="source_job_id query parameter required"
+        )
+    items = (
+        await session.execute(
+            select(ModelVersion)
+            .where(ModelVersion.source_job_id == source_job_id)
+            .order_by(ModelVersion.mlflow_version.desc())
+        )
+    ).scalars().all()
+    return ModelVersionList(
+        items=[ModelVersionRead.model_validate(m) for m in items],
+        total=len(items),
+        page=1,
+        page_size=len(items) if items else 0,
+    )
+
+
 @router.get("", response_model=list[RegisteredModelSummary])
 async def list_registered_models(
     session: Annotated[AsyncSession, Depends(get_async_session)],
