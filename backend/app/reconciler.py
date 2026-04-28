@@ -1,17 +1,17 @@
 import asyncio
+import csv
 import io
 import logging
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 import httpx
-import pandas as pd
 from kubernetes.client import ApiException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.db import async_session_maker
@@ -1052,8 +1052,9 @@ async def _project_prediction_summary(session: AsyncSession, j: Job) -> None:
         return
 
     try:
-        df = pd.read_csv(io.StringIO(csv_text))
-    except Exception:  # noqa: BLE001 — defensive against malformed CSV
+        reader = csv.DictReader(io.StringIO(csv_text))
+        rows = list(reader)
+    except csv.Error:
         BACKEND_ERRORS.labels(stage="prediction_summary_csv_parse").inc()
         logger.exception(
             "prediction_summary csv parse failed",
@@ -1061,10 +1062,10 @@ async def _project_prediction_summary(session: AsyncSession, j: Job) -> None:
         )
         return
 
-    if "predicted_class" not in df.columns:
+    if not reader.fieldnames or "predicted_class" not in reader.fieldnames:
         return
-    distribution = df["predicted_class"].value_counts().to_dict()
-    total = int(len(df))
+    distribution = Counter(row["predicted_class"] for row in rows)
+    total = len(rows)
     duration_seconds = (
         (j.finished_at - j.started_at).total_seconds()
         if (j.started_at and j.finished_at)
@@ -1078,7 +1079,6 @@ async def _project_prediction_summary(session: AsyncSession, j: Job) -> None:
         "duration_seconds": duration_seconds,
     }
     j.summary_metrics = sm
-    flag_modified(j, "summary_metrics")
     await session.commit()
 
 
