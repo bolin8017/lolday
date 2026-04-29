@@ -39,5 +39,21 @@ bash scripts/teardown.sh
 
 ## Documentation
 
-- [Design Spec](docs/superpowers/specs/2026-03-30-lolday-platform-design.md)
-- [Phase 1 Plan](docs/superpowers/plans/2026-03-30-phase1-infrastructure.md)
+Start here for any new contributor / Claude Code session:
+
+- [System architecture](docs/architecture.md) — components, data flows, env vars, tech debt, gotchas
+- [Deploy runbook](docs/runbooks/deploy.md) — pre-requisites, K3s, GPU operator, Helm, verify, rollback
+- [Troubleshooting](docs/runbooks/troubleshooting.md) — symptom → action lookup
+- [Conventions](docs/conventions.md) — branch / commit / PR / phase / migration naming
+
+Phase planning & history:
+
+- [Phase specs](docs/superpowers/specs/) — per-phase design docs
+- [Phase plans](docs/superpowers/plans/) — per-phase implementation plans
+- [Phase history](docs/phase-history/) — past E2E checklists, retirement findings, debug write-ups
+- [Postmortems](docs/postmortems/)
+
+Originals (kept for traceability):
+
+- [Original platform design spec](docs/superpowers/specs/2026-03-30-lolday-platform-design.md)
+- [Phase 1 plan](docs/superpowers/plans/2026-03-30-phase1-infrastructure.md)
