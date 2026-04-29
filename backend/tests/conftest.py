@@ -45,7 +45,6 @@ async def _make_user(
             return existing
         user = User(
             email=email,
-            hashed_password="!testing-only!",
             role=role,
             display_name=email.split("@", 1)[0],
         )

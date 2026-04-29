@@ -2,8 +2,7 @@ import re
 import uuid
 from datetime import datetime
 
-from fastapi_users import schemas
-from pydantic import field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models import Role
 
@@ -25,12 +24,15 @@ def _validate_discord_user_id(v):
     return v
 
 
-class UserRead(schemas.BaseUser[uuid.UUID]):
-    # Override BaseUser.email (EmailStr) with plain str: Cloudflare Access
-    # service tokens synthesize emails like `service-<name>@cf-access.local`,
-    # and Pydantic's email-validator rejects `.local` (RFC 6761 reserved TLD).
-    # Email format is validated on user creation; the response shape doesn't
+class UserRead(BaseModel):
+    # email stays as plain ``str``: Cloudflare Access service tokens
+    # synthesize ``service-<name>@cf-access.local``, and Pydantic's
+    # ``EmailStr`` rejects ``.local`` (RFC 6761 reserved TLD). Email
+    # format is validated on user creation; the response shape doesn't
     # need to re-validate.
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
     email: str
     role: Role
     display_name: str | None = None
@@ -38,15 +40,16 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
     created_at: datetime | None = None
 
 
-class UserSelfUpdate(schemas.CreateUpdateDictModel):
-    """Body accepted by `PATCH /users/me` — only self-mutable fields.
+class UserSelfUpdate(BaseModel):
+    """Body accepted by ``PATCH /users/me`` — only self-mutable fields.
 
-    `extra='forbid'` means sending `role`, `is_superuser`, `email`, `password`,
-    etc. returns 422 rather than silently dropping them. This is the sole
-    line between a regular user and privilege escalation through `/users/me`;
-    see `tests/test_user_discord_id.py::test_patch_users_me_rejects_role_smuggling`.
+    ``extra="forbid"`` means sending ``role``, ``email``, etc. returns 422
+    rather than silently dropping them. This is the sole line between a
+    regular user and privilege escalation through ``/users/me``; see
+    ``tests/test_user_discord_id.py::test_patch_users_me_rejects_role_smuggling``.
     """
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str | None = None
     discord_user_id: str | None = None
 

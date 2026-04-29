@@ -30,12 +30,10 @@ def test_user_is_service_token_property():
     """Service-token rows must self-identify so policy code can skip them."""
     svc = User(
         email=SERVICE_TOKEN_EMAIL,
-        hashed_password="!",
         role=Role.SERVICE_TOKEN,
     )
     real = User(
         email="alice@example.com",
-        hashed_password="!",
         role=Role.USER,
     )
     assert svc.is_service_token is True
@@ -48,7 +46,6 @@ def test_user_is_service_token_ignores_email_when_role_is_user():
     email-suffix probing)."""
     spoof = User(
         email=SERVICE_TOKEN_EMAIL,
-        hashed_password="!",
         role=Role.USER,
     )
     assert spoof.is_service_token is False
@@ -59,7 +56,6 @@ async def test_user_context_returns_none_for_service_token(db_session):
     """`_user_context` is the chokepoint every notify_* path passes through."""
     svc = User(
         email=SERVICE_TOKEN_EMAIL,
-        hashed_password="!",
         role=Role.SERVICE_TOKEN,
     )
     db_session.add(svc)
@@ -85,7 +81,6 @@ async def test_fire_job_failed_notify_skips_service_token(db_session, seed_job):
     # Re-point owner to a freshly-created service-token user.
     svc = User(
         email=SERVICE_TOKEN_EMAIL,
-        hashed_password="!",
         role=Role.SERVICE_TOKEN,
     )
     db_session.add(svc)
@@ -141,7 +136,6 @@ async def test_existing_service_token_user_with_raw_name_is_renamed(db_session):
     raw_local = SERVICE_TOKEN_EMAIL.split("@", 1)[0]
     existing = User(
         email=SERVICE_TOKEN_EMAIL,
-        hashed_password="!sso!",
         display_name=raw_local,  # what the old code wrote
     )
     db_session.add(existing)
@@ -158,7 +152,6 @@ async def test_existing_service_token_user_with_custom_name_is_left_alone(db_ses
     custom = "Custom Bot Name"
     existing = User(
         email=SERVICE_TOKEN_EMAIL,
-        hashed_password="!sso!",
         display_name=custom,
     )
     db_session.add(existing)
@@ -224,7 +217,6 @@ async def test_reconcile_build_manifest_missing_skips_service_token(db_session):
 
     svc = User(
         email=SERVICE_TOKEN_EMAIL,
-        hashed_password="!",
         role=Role.SERVICE_TOKEN,
     )
     db_session.add(svc)

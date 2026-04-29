@@ -8,7 +8,6 @@ the contained claims as the user identity.
 from __future__ import annotations
 
 import logging
-import secrets
 from functools import lru_cache
 from typing import Any
 
@@ -57,12 +56,6 @@ def verify_cf_token(
     raise pyjwt.InvalidAudienceError(
         f"aud must equal {expected_aud!r} or [{expected_aud!r}], got {aud!r}"
     )
-
-
-def _sso_sentinel_password() -> str:
-    # SSO users never log in via password. Store a syntactically-invalid
-    # hash so any accidental verify() call fails closed.
-    return f"!sso_only!{secrets.token_urlsafe(16)}"
 
 
 def _default_display_name_for(email: str) -> str:
@@ -120,11 +113,8 @@ async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User
     )
     user = User(
         email=email,
-        hashed_password=_sso_sentinel_password(),
         role=initial_role,
         display_name=_default_display_name_for(email),
-        is_active=True,
-        is_verified=True,
     )
     session.add(user)
     # Commit (not flush) so the INSERT survives the request-scope session

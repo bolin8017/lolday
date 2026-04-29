@@ -32,7 +32,6 @@ async def _seed_job_for_owner(session: AsyncSession, auth_email: str) -> Job:
         user = User(
             id=uuid.uuid4(),
             email=auth_email,
-            hashed_password="x",
         )
         session.add(user)
         await session.flush()

@@ -38,7 +38,6 @@ async def _seed_job_for_owner(session: AsyncSession, email: str) -> Job:
         user = User(
             id=uuid.uuid4(),
             email=email,
-            hashed_password="x",
         )
         session.add(user)
         await session.flush()
@@ -161,7 +160,6 @@ async def test_ws_rejects_non_owner(db_session: AsyncSession) -> None:
             User(
                 id=uuid.uuid4(),
                 email="user2@example.dev",
-                hashed_password="x",
             )
         )
         await db_session.commit()

@@ -19,7 +19,6 @@ async def _seed_job(session: AsyncSession) -> Job:
     user = User(
         id=uuid.uuid4(),
         email=f"events-{uuid.uuid4().hex[:8]}@example.com",
-        hashed_password="x",
     )
     det = Detector(
         name=f"events-det-{uuid.uuid4().hex[:8]}",

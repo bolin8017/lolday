@@ -74,7 +74,6 @@ def test_role_orm_writes_lowercase_value_and_roundtrips(
             User(
                 id=user_id,
                 email=f"role-{role.name.lower()}@example.dev",
-                hashed_password="!testing-only!",
                 role=role,
                 display_name=role.name,
             )
@@ -84,7 +83,7 @@ def test_role_orm_writes_lowercase_value_and_roundtrips(
     with engine.connect() as conn:
         raw = conn.execute(
             sa.text('SELECT role FROM "user" WHERE id = :id'),
-            {"id": str(user_id)},
+            {"id": user_id.hex},
         ).scalar_one()
     assert raw == role.value, (
         f"DB stored {raw!r} for Role.{role.name}; expected the lowercase "
@@ -115,7 +114,6 @@ def test_role_user_default_stores_lowercase(tmp_path, monkeypatch):
             User(
                 id=user_id,
                 email="default-role@example.dev",
-                hashed_password="!testing-only!",
                 # role= intentionally omitted — exercises the column default.
                 display_name="default-role",
             )
@@ -125,7 +123,7 @@ def test_role_user_default_stores_lowercase(tmp_path, monkeypatch):
     with engine.connect() as conn:
         raw = conn.execute(
             sa.text('SELECT role FROM "user" WHERE id = :id'),
-            {"id": str(user_id)},
+            {"id": user_id.hex},
         ).scalar_one()
     assert raw == Role.USER.value, (
         f"DB stored {raw!r} for the column default; expected lowercase "
@@ -153,12 +151,11 @@ def test_service_token_lowercase_value_reads_via_orm(tmp_path, monkeypatch):
         conn.execute(
             sa.text(
                 'INSERT INTO "user" '
-                "(id, email, hashed_password, role, display_name, "
-                "is_active, is_verified, is_superuser) "
-                "VALUES (:id, :email, '!', :role, :dn, 1, 1, 0)"
+                "(id, email, role, display_name) "
+                "VALUES (:id, :email, :role, :dn)"
             ),
             {
-                "id": str(user_id),
+                "id": user_id.hex,
                 "email": "service-test@cf-access.local",
                 "role": "service_token",
                 "dn": "Internal service token",
