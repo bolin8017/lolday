@@ -17,7 +17,7 @@
 - 應用程式 runtime code（`backend/app/**/*.py`）中**零** `fastapi_users` import
 - `User` table 只保留 application-domain 欄位
 - `UserRead` API response 不再帶 `is_active` / `is_superuser` / `is_verified` 三個 noise key
-- `fastapi-users[sqlalchemy]` 整個 package 從環境消失，僅保留 6.8KB 的 `fastapi-users-db-sqlalchemy` 子套件作為 phase 7.5 baseline migration 的 transitive 依賴
+- `fastapi-users` 及 `fastapi-users-db-sqlalchemy` 整個系列 package 從環境完全消失（baseline migration 改用 `sa.Uuid()` 消除對第三方 GUID TypeDecorator 的唯一依賴）
 
 ---
 
@@ -31,7 +31,7 @@
    - `op.batch_alter_table` — Alembic 官方 SQLite 相容寫法
    - `extra="forbid"` — OWASP API Security #6 標準防 mass assignment
    - 收緊 dep spec 到實際使用的子套件 — Python packaging best practice
-3. **不編輯已套用的 migration**：原本提議改 `d3f179666394_phase7_5_baseline.py` 把 `fastapi_users_db_sqlalchemy.generics.GUID()` 換成 `sa.Uuid()`。最終捨棄 — 編輯已套用 migration 違反主流 immutability 原則。改用「收緊 dep spec」達成同樣目標。
+3. **編輯已套用 baseline migration**（schema-equivalent type swap）：原本提議改用「收緊 dep spec」（`fastapi-users[sqlalchemy]` → `fastapi-users-db-sqlalchemy`）避免編輯 baseline，但實作時發現 `fastapi-users-db-sqlalchemy 7.0.0` 把 `fastapi-users` 列為 upstream dep — 收緊 spec 不會把 `fastapi-users` 從 venv 移除。改回編輯 baseline：把 5 處 `fastapi_users_db_sqlalchemy.generics.GUID()` 換成 SQLAlchemy 2.0 native `sa.Uuid()`，並完全移除 `fastapi-users[sqlalchemy]` dep。Trade-off：編輯已套用 migration 偏離 immutability 慣例，但本次是 schema-equivalent type swap（PostgreSQL native UUID、SQLite CHAR(32) 兩端均相容），且 production 永不重跑 baseline，tests 用 fresh aiosqlite 每次重建 — 唯一的合理路徑來真正消除 fastapi-users 殘留。
 4. **API contract 變更明確列出**（§4.2）— 雖屬破壞性變更，但因三個 boolean 在生產上恆為固定值且無 client 元件讀取，外部行為無變化。
 
 ---
@@ -54,9 +54,10 @@
 
 - 任何 sub-chart / Helm values / Cloudflare Access app / cloudflared 設定
 - 任何 router business logic（除了 `cf_access.py` 移除 4 個 kwargs）
-- 編輯 phase 7.5 baseline migration 的內容
 - Squash migrations 重建 baseline
 - 其他 tech debt items（reconciler.py refactor、CI/CD、helper image versioning 等）
+
+> 注：phase 7.5 baseline migration 的 type swap（`GUID()` → `sa.Uuid()`）已**納入範圍**（見 §8）——原本列為範圍外，後來實作時發現是唯一能真正移除 fastapi-users 的路徑。
 
 ---
 
@@ -273,26 +274,19 @@ user = User(
 
 ---
 
-## 8. Dependency tightening
+## 8. Dependency removal
 
-`backend/pyproject.toml`：
+`backend/pyproject.toml` 完全移除 `fastapi-users[sqlalchemy]>=14.0.0` 一行（不換 dep）。
 
-```diff
-- "fastapi-users[sqlalchemy]>=14.0.0",
-+ # phase 7.5 baseline migration imports fastapi_users_db_sqlalchemy.generics.GUID;
-+ # tests re-run that migration on aiosqlite. Dep stays as a transitive baseline
-+ # requirement only — runtime app code has zero fastapi_users imports.
-+ "fastapi-users-db-sqlalchemy>=7,<8",
-```
-
-執行 `cd backend && uv lock` 重新生成 `uv.lock`。
-
-被移除的 package：
+被移除的 packages：
 
 | Package | 大小 | 原本提供 | 本次後 |
 |---|---|---|---|
-| `fastapi-users` 15.0.5 | 39KB whl | `schemas.BaseUser` / auth backends / UserManager / routers | **不再需要** |
-| `fastapi-users-db-sqlalchemy` 7.0.0 | 6.8KB whl | `generics.GUID` TypeDecorator | 維持（baseline migration 唯一用途） |
+| `fastapi-users` 15.0.5 | 39KB whl | `schemas.BaseUser` / auth backends / UserManager / routers | **完全移除** |
+| `fastapi-users-db-sqlalchemy` 7.0.0 | 6.8KB whl | `generics.GUID` TypeDecorator | **完全移除**（baseline migration 改用 `sa.Uuid()`） |
+| Transitive: `pwdlib`, `argon2-cffi`, `bcrypt`, `makefun` | – | password hashing for fastapi-users | **完全移除** |
+
+執行 `cd backend && uv lock` 重新生成 `uv.lock`。
 
 ---
 
@@ -540,8 +534,8 @@ helm lint charts/lolday
 | Pydantic v2 `BaseModel` + `ConfigDict(from_attributes=True)` | Pydantic v2 migration guide 標準 ORM-mode 寫法 |
 | `extra="forbid"` 防 smuggling | OWASP API Security #6（mass assignment）標準防禦 |
 | Migration drop column 用 `with op.batch_alter_table(...)` | Alembic 官方 SQLite 相容寫法 |
-| Dep 收緊到實際使用的子套件 | Python packaging best practice — pip / uv docs 一致建議「精準到實際使用的最小 dep」 |
-| 不編輯已套用的 migration | Alembic / Django 圈一致 immutability 慣例（squashmigrations 是大動作的特例，本次不適用） |
+| 完全移除 fastapi-users 系列 dep；baseline migration 用 SQLAlchemy 2.0 native `sa.Uuid()` 取代第三方 `GUID` TypeDecorator | SQLAlchemy 2.0 release notes 推薦 `sa.Uuid` 為 native primary type；schema-equivalent type swap 在編輯 applied migration 的 trade-off 下換取「fastapi-users 殘留完全消除」這個根本目標 |
+| 編輯 phase 7.5 baseline migration（schema-equivalent type swap） | 偏離主流 migration immutability 慣例，但本次是 schema-equivalent 改動（不影響 production 既有資料、不影響 fresh test DB），是真正消除 fastapi-users 殘留的唯一路徑。Trade-off 已於 §2 item 3 詳述 |
 
 ---
 
@@ -561,7 +555,7 @@ helm lint charts/lolday
 
 - `cd backend && uv run pytest` 全綠
 - `cd backend && uv run python -c "import fastapi_users"` 應失敗（ModuleNotFoundError）
-- `cd backend && uv run python -c "from fastapi_users_db_sqlalchemy.generics import GUID"` 應成功
+- `cd backend && uv run python -c "import fastapi_users_db_sqlalchemy"` 應失敗（ModuleNotFoundError）
 - `cd backend && rm -f test.db && uv run alembic upgrade head` 從 zero 到 head 無 error
 - `cd frontend && pnpm gen-api-types && pnpm typecheck && pnpm lint && pnpm test` 全綠
 - `helm lint charts/lolday` 無新增 error / warning

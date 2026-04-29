@@ -6,7 +6,6 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
-    "fastapi-users[sqlalchemy]>=14.0.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.30.0",
     "alembic>=1.15.0",
@@ -21,6 +20,7 @@ dependencies = [
     "cachetools>=7.0.5",
     "psycopg2-binary>=2.9.12",
     "jsonschema>=4.20,<5",
+    "pyjwt>=2.0.0",
 ]
 
 [dependency-groups]

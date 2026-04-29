@@ -4,7 +4,7 @@
 
 **Goal:** Remove the fastapi-users vestige from the backend (`User` model, schema, auth, DB columns, and dependency) while preserving all observable application behaviour.
 
-**Architecture:** Stop inheriting from `fastapi-users-db-sqlalchemy`'s `SQLAlchemyBaseUserTableUUID` and from `fastapi_users.schemas.BaseUser`; redefine `User` and `UserRead` from scratch using SQLAlchemy 2.0 / Pydantic v2 native primitives. Drop four columns (`hashed_password`, `is_active`, `is_superuser`, `is_verified`) via a new alembic migration, batch-mode for SQLite compatibility. Tighten the backend dep from `fastapi-users[sqlalchemy]` (39KB) down to `fastapi-users-db-sqlalchemy` (6.8KB) — the latter still feeds `generics.GUID()` to the phase 7.5 baseline migration.
+**Architecture:** Stop inheriting from `fastapi-users-db-sqlalchemy`'s `SQLAlchemyBaseUserTableUUID` and from `fastapi_users.schemas.BaseUser`; redefine `User` and `UserRead` from scratch using SQLAlchemy 2.0 / Pydantic v2 native primitives. Drop four columns (`hashed_password`, `is_active`, `is_superuser`, `is_verified`) via a new alembic migration, batch-mode for SQLite compatibility. Edit phase 7.5 baseline migration to replace `fastapi_users_db_sqlalchemy.generics.GUID()` with `sa.Uuid()` (schema-equivalent type swap), then remove `fastapi-users[sqlalchemy]` dep entirely — both `fastapi-users` and `fastapi-users-db-sqlalchemy` are gone from the venv. Note: `PyJWT` is added as an explicit direct dep (previously came in transitively via fastapi-users; `cf_access.py` uses it directly).
 
 **Tech Stack:** Python 3.12, FastAPI 0.115, SQLAlchemy 2.0 async, Pydantic v2, Alembic, uv, pytest, aiosqlite, openapi-typescript.
 
@@ -24,7 +24,8 @@
 | `backend/app/schemas/user.py` | Rewrite | `UserRead` / `UserSelfUpdate` as native Pydantic v2 BaseModels |
 | `backend/app/auth/cf_access.py` | Edit (small) | Drop 3 vestige kwargs from `User(...)` constructor; remove `_sso_sentinel_password()` helper + `import secrets` |
 | `backend/migrations/versions/<rev>_drop_fastapi_users_user_columns.py` | Create | Single migration: drop 4 columns via `op.batch_alter_table` |
-| `backend/pyproject.toml` | Edit (1 line) | Replace dep `fastapi-users[sqlalchemy]` → `fastapi-users-db-sqlalchemy` with comment |
+| `backend/migrations/versions/d3f179666394_phase7_5_baseline.py` | Edit (5 occurrences + 1 import + module docstring) | `sa.Uuid()` replaces `fastapi_users_db_sqlalchemy.generics.GUID()`; removes the only project use of the third-party type |
+| `backend/pyproject.toml` | Edit (1 line) | Remove `fastapi-users[sqlalchemy]>=14.0.0` entirely (no replacement); add `PyJWT>=2.0.0` (previously transitive via fastapi-users, now direct dep) |
 | `backend/uv.lock` | Regenerate | Result of `uv lock` |
 | `backend/tests/conftest.py` | Edit | `_make_user` signature drops `is_superuser`; `User(...)` drops 4 kwargs; `auth_client_admin` caller drops `is_superuser=True` |
 | `backend/tests/test_*.py` (10 files) | Edit | Drop 4 kwargs from User constructions and raw SQL |
@@ -671,40 +672,86 @@ EOF
 
 ---
 
-## Task 6: Tighten backend dep
+## Task 6: Remove fastapi-users dep entirely (edit baseline + drop pyproject entry)
 
 **Files:**
-- Modify: `backend/pyproject.toml`
+- Modify: `backend/migrations/versions/d3f179666394_phase7_5_baseline.py` (replace `fastapi_users_db_sqlalchemy.generics.GUID()` with `sa.Uuid()`; remove `import fastapi_users_db_sqlalchemy`)
+- Modify: `backend/pyproject.toml` (remove `fastapi-users[sqlalchemy]>=14.0.0` line entirely; add `PyJWT>=2.0.0` as explicit direct dep)
 - Regenerate: `backend/uv.lock`
 
-- [ ] **Step 6.1: Edit `backend/pyproject.toml`**
+> **Why this approach instead of dep tightening:** The original plan proposed tightening to `fastapi-users-db-sqlalchemy`, but `fastapi-users-db-sqlalchemy 7.0.0` lists `fastapi-users` as an upstream dep — the cosmetically-tighter spec still kept `fastapi-users` in the venv. Editing the baseline migration (schema-equivalent type swap) is the only path to truly remove the package.
 
-Find the line `"fastapi-users[sqlalchemy]>=14.0.0",` (around line 9) in the `dependencies = [...]` list. Replace it with:
+- [x] **Step 6.1: Reset Dispatch 3 commit (09aa170) to return to Dispatch 2 (1493080)**
 
-```toml
-    # phase 7.5 baseline migration imports fastapi_users_db_sqlalchemy.generics.GUID;
-    # tests re-run that migration on aiosqlite. Dep stays as a transitive baseline
-    # requirement only — runtime app code has zero fastapi_users imports.
-    "fastapi-users-db-sqlalchemy>=7,<8",
+```bash
+cd /home/bolin8017/Documents/repositories/lolday/.worktrees/drop-hashed-password
+git reset --hard 1493080
+git log --oneline -5
 ```
 
-- [ ] **Step 6.2: Regenerate the lockfile**
+Expected: HEAD is now at `1493080`.
+
+- [x] **Step 6.2: Edit baseline migration — remove import and replace GUID() with sa.Uuid()**
+
+In `backend/migrations/versions/d3f179666394_phase7_5_baseline.py`:
+
+1. Remove the `import fastapi_users_db_sqlalchemy` line entirely.
+2. Replace all 5 occurrences of `fastapi_users_db_sqlalchemy.generics.GUID()` with `sa.Uuid()` (use `replace_all=true`).
+3. Update the module docstring to add the type swap rationale (2026-04-29 note).
+
+Verify zero code-level references remain:
+
+```bash
+grep -n "^import fastapi_users\|^from fastapi_users\|fastapi_users_db_sqlalchemy\." \
+  backend/migrations/versions/d3f179666394_phase7_5_baseline.py
+```
+
+Expected: no output (docstring prose about the change is OK; code-level use is not).
+
+- [x] **Step 6.3: Remove fastapi-users dep and add PyJWT**
+
+Remove the line `"fastapi-users[sqlalchemy]>=14.0.0",` from `backend/pyproject.toml` entirely.
+
+Then add `PyJWT` as an explicit direct dep (previously came in transitively via fastapi-users; `backend/app/auth/cf_access.py` imports it directly):
+
+```bash
+cd backend && uv add "PyJWT>=2.0.0"
+```
+
+Verify the dep list is well-formed:
+
+```bash
+head -25 pyproject.toml
+```
+
+- [x] **Step 6.4: Regenerate lockfile**
 
 ```bash
 cd backend && uv lock
 ```
 
-Expected: `uv.lock` updates. The `fastapi-users` package (15.0.5) entry is removed; `fastapi-users-db-sqlalchemy` (7.x) entry stays.
-
-- [ ] **Step 6.3: Sync the dev environment**
-
-```bash
-cd backend && uv sync --dev
+Expected output includes lines like:
+```
+Removed fastapi-users v15.0.5
+Removed fastapi-users-db-sqlalchemy v7.0.0
+Removed argon2-cffi v25.1.0
+Removed argon2-cffi-bindings v25.1.0
+Removed bcrypt v5.0.0
+Removed makefun v1.16.0
+Removed pwdlib v0.3.0
 ```
 
-Expected: uv removes `fastapi-users` from the venv and keeps `fastapi-users-db-sqlalchemy`.
+Both `fastapi-users` and `fastapi-users-db-sqlalchemy` are gone.
 
-- [ ] **Step 6.4: Verify `fastapi_users` is gone, but `fastapi_users_db_sqlalchemy` remains**
+- [x] **Step 6.5: Sync the dev environment**
+
+```bash
+cd backend && uv sync --dev 2>&1 | tail -15
+```
+
+Expected: uv uninstalls 11 packages including the fastapi-users family.
+
+- [x] **Step 6.6: Verify both imports fail**
 
 ```bash
 cd backend && uv run python -c "import fastapi_users" 2>&1 | grep -q "No module" \
@@ -714,43 +761,37 @@ cd backend && uv run python -c "import fastapi_users" 2>&1 | grep -q "No module"
 Expected: `OK: fastapi_users gone`.
 
 ```bash
-cd backend && uv run python -c "from fastapi_users_db_sqlalchemy.generics import GUID; print('OK:', GUID)"
+cd backend && uv run python -c "import fastapi_users_db_sqlalchemy" 2>&1 | grep -q "No module" \
+  && echo "OK: fastapi_users_db_sqlalchemy gone" || echo "FAIL: still present"
 ```
 
-Expected: `OK: <class 'fastapi_users_db_sqlalchemy.generics.GUID'>`.
+Expected: `OK: fastapi_users_db_sqlalchemy gone`.
 
-- [ ] **Step 6.5: Re-run pytest**
+- [x] **Step 6.7: Verify alembic module load (baseline migration)**
+
+```bash
+cd backend && rm -f test.db && uv run alembic upgrade head 2>&1 | tail -10
+```
+
+If this exits with an `ImportError: fastapi_users_db_sqlalchemy` — the baseline edit is incomplete. If it fails with a Settings validation error (CF_ACCESS_TEAM_DOMAIN) — that's a pre-existing limitation unrelated to this change; the test fixtures manage their own engine context.
+
+- [x] **Step 6.8: Run pytest, verify 448 passing**
 
 ```bash
 cd backend && uv run pytest 2>&1 | tail -10
 ```
 
-Expected: all tests pass (same count as Step 5.2). If anything regresses, the most likely cause is a stray `from fastapi_users import ...` somewhere in `backend/` that the previous grep missed — re-grep including `tests/`:
+Expected: 448 passed. `test_role_enum_roundtrip.py` and `test_migrations_phase12.py` are canary tests for the baseline edit.
+
+- [x] **Step 6.9: Commit**
 
 ```bash
-cd backend && grep -rn "from fastapi_users\|import fastapi_users" --include="*.py" .
-```
-
-Note: `import fastapi_users_db_sqlalchemy` in `backend/migrations/versions/d3f179666394_phase7_5_baseline.py` is **expected** to remain — that's the baseline migration. Do not edit it.
-
-- [ ] **Step 6.6: Commit deps**
-
-```bash
-cd /home/bolin8017/Documents/repositories/lolday
+cd /home/bolin8017/Documents/repositories/lolday/.worktrees/drop-hashed-password
+git add backend/migrations/versions/d3f179666394_phase7_5_baseline.py
 git add backend/pyproject.toml backend/uv.lock
-git status  # verify only those two files staged
-git commit -m "$(cat <<'EOF'
-chore(deps): replace fastapi-users with fastapi-users-db-sqlalchemy
-
-Runtime app code no longer imports fastapi_users after the previous
-commit. Tighten the dep to the only sub-package still needed: the
-6.8KB fastapi-users-db-sqlalchemy, used by phase 7.5 baseline
-migration's generics.GUID() type. The 39KB fastapi-users package
-(routers / auth backends / UserManager / schemas) is gone.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
+git add docs/superpowers/specs/2026-04-29-drop-hashed-password-design.md
+git add docs/superpowers/plans/2026-04-29-drop-hashed-password.md
+git commit -m "chore(deps): remove fastapi-users entirely; baseline migration uses sa.Uuid"
 ```
 
 ---
@@ -871,7 +912,7 @@ Find item 7 in §9 ("Known tech debt"), currently:
 Replace with:
 
 ```markdown
-7. ~~**fastapi-users vestige**~~ — resolved 2026-04-29 in `chore/drop-hashed-password`: User model + schema no longer inherit from fastapi-users base classes; `hashed_password` was dropped along with three other unused booleans (`is_active` / `is_superuser` / `is_verified`). The dep was tightened from `fastapi-users[sqlalchemy]` to `fastapi-users-db-sqlalchemy` (the latter still feeds `generics.GUID()` to the phase 7.5 baseline migration).
+7. ~~**fastapi-users vestige**~~ — resolved 2026-04-29 in `chore/drop-hashed-password`: User model + schema no longer inherit from fastapi-users base classes; `hashed_password` was dropped along with three other unused booleans (`is_active` / `is_superuser` / `is_verified`). Both `fastapi-users` and `fastapi-users-db-sqlalchemy` are fully removed from the venv; the phase 7.5 baseline migration now uses SQLAlchemy 2.0 native `sa.Uuid()` directly.
 ```
 
 - [ ] **Step 8.2: Update `.claude/rules/backend.md` Auth design**
@@ -885,7 +926,7 @@ Find the first bullet in the "Auth design" section (around line 32):
 Replace with:
 
 ```markdown
-- Authentication is exclusively via `cf_access_user`. The `fastapi-users` package itself is not installed; only `fastapi-users-db-sqlalchemy` remains as a transitive dep for the phase 7.5 baseline migration's `generics.GUID` type. Do not add new auth backends, do not reintroduce `fastapi_users` imports.
+- Authentication is exclusively via `cf_access_user`. Neither `fastapi-users` nor `fastapi-users-db-sqlalchemy` is installed; the phase 7.5 baseline migration now uses SQLAlchemy 2.0 native `sa.Uuid()` directly. Do not add new auth backends, do not reintroduce `fastapi_users` imports.
 ```
 
 - [ ] **Step 8.3: Helm lint sanity**
@@ -959,11 +1000,12 @@ Expected: all three pass.
 
 ```bash
 cd backend && uv run python -c "import fastapi_users" 2>&1 | grep -q "No module" \
-  && echo "OK" || echo "FAIL"
-cd backend && uv run python -c "from fastapi_users_db_sqlalchemy.generics import GUID; print('OK')"
+  && echo "OK: fastapi_users gone" || echo "FAIL"
+cd backend && uv run python -c "import fastapi_users_db_sqlalchemy" 2>&1 | grep -q "No module" \
+  && echo "OK: fastapi_users_db_sqlalchemy gone" || echo "FAIL"
 ```
 
-Both expected: `OK`.
+Both expected to output `OK: ... gone`.
 
 - [ ] **Step 9.6: Acceptance — git log readability**
 
