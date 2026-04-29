@@ -5,18 +5,26 @@ paths:
 
 # Alembic migration rules
 
-## Filename convention
+## Filename convention (current)
 
+Use alembic's auto-generated filename: `<rev>_<short_desc>.py`. Do not rename the prefix.
+
+```bash
+cd backend
+uv run alembic revision --autogenerate -m "<short_desc>"
+# alembic produces e.g. 7c19f8a2b441_add_job_priority_column.py
 ```
-<rev>_phase<N>(_<minor>)_<short_desc>.py
-```
 
-Generate via `alembic revision -m "phaseN_X_<desc>"`, then **rename the prefix** so the phase tag appears in the filename. The 12-char `rev` stays as alembic produced it.
+`<short_desc>` is snake_case, present-tense imperative ("add ...", "drop ...", "rename ...", "backfill ...").
 
-## Existing phase mapping (do not rename)
+> 2026-04-29 update: the previous `<rev>_phase<N>_<desc>.py` rename rule is **retired**. New revisions stay as alembic produces them. See `docs/conventions.md` §4 §6 for why.
 
-| Filename | Phase | What it does |
-|----------|-------|--------------|
+## Historical phase-named migrations (do not rename)
+
+These migrations were created under the previous `phaseN_X_` rename rule. They stay as-is — historical names are part of the audit trail.
+
+| Filename | Phase (legacy) | What it does |
+|----------|----------------|--------------|
 | `d3f179666394_phase7_5_baseline.py` | 7.5 | First proper baseline; replaces `Base.metadata.create_all`. |
 | `8a1c2d4e5f60_phase8_gpu2_profile.py` | 8 | GPU profile additions. |
 | `b2e7c8a1f330_phase10_sso_admin_email.py` | 10 | Cloudflare SSO admin email. |
@@ -32,12 +40,12 @@ Generate via `alembic revision -m "phaseN_X_<desc>"`, then **rename the prefix**
 
 ```bash
 cd backend
-uv run alembic revision --autogenerate -m "phaseN_X_<desc>"
+uv run alembic revision --autogenerate -m "<short_desc>"
 # manually review the generated migration — autogenerate is unreliable
 uv run alembic upgrade head     # against a dev DB first
 ```
 
-After upgrade, run `cd backend && uv run pytest backend/tests/test_migrations_phase*.py` if your phase has migration tests.
+After upgrade, run `cd backend && uv run pytest backend/tests/test_migrations_*.py` if you wrote a migration test alongside.
 
 ## Never run `alembic downgrade` in production
 
