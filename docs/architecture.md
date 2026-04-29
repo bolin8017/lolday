@@ -198,9 +198,18 @@ If you see a default in `config.py` that uses `harbor.lolday.svc`, it's likely a
 
 ## 6. Build / Test / Release
 
-### No CI/CD
+### CI/CD overview
 
-There is no `.github/workflows/`. No automated build, test, lint, or release pipeline. All build and release happens locally then via `bash scripts/deploy.sh`. This is tech debt (see §9).
+Six GitHub Actions workflows under `.github/workflows/` enforce hygiene + tests on every PR and publish container images to GHCR on `main` / tag pushes:
+
+- `lint.yml` — `pre-commit run --all-files` (single source of truth).
+- `backend.yml` — `cd backend && uv run pytest`.
+- `frontend.yml` — `pnpm typecheck` + `pnpm test` (vitest). Playwright deferred (commented-out hook).
+- `helm.yml` — `helm dependency update` + `helm lint` + `helm template`.
+- `images.yml` — backend / frontend Dockerfile build → GHCR.
+- `helpers.yml` — build-helper / job-helper Dockerfile build → GHCR (mlflow-server / pytorch-cu12-base out of scope).
+
+CI is **verification + GHCR artefact only**. Production registry (`harbor.lolday.svc:80/lolday/*`) and `bash scripts/deploy.sh` remain operator-driven on server30. See `docs/conventions.md` §10 and `.claude/rules/github-actions.md`.
 
 ### Backend image — `backend/Dockerfile`
 
@@ -285,7 +294,7 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 ## 9. Known tech debt
 
 1. **`backend/app/reconciler.py` (57KB)** — single-file beast. Refactor only with a corresponding phase plan.
-2. **No CI/CD.** No GitHub Actions, no automated build/test, no release pipeline. `scripts/deploy.sh` is manual.
+2. ~~**No CI/CD.**~~ — resolved 2026-04-30 in `feat/github-actions-cicd`. Six GitHub Actions workflows under `.github/workflows/` enforce lint / tests / image build on every PR; GHCR receives `main` / tag pushes. Production deploy (`scripts/deploy.sh`) remains operator-driven by design. Spec: `docs/superpowers/specs/2026-04-30-github-actions-cicd-design.md`. Discipline rules: `.claude/rules/github-actions.md`. Conventions: `docs/conventions.md` §10.
 3. **Single `values.yaml`** (~27KB). No dev/prod overlay system.
 4. ~~**Helper images built by hand.**~~ — resolved 2026-04-29 in `feat/helper-image-versioning`: `scripts/build-helpers.sh` automates content-addressable build + push (subtree SHA tag), idempotent against Harbor. Spec: `docs/superpowers/specs/2026-04-29-helper-image-versioning-design.md`. Runbook: `docs/runbooks/release-helpers.md`.
 5. ~~**No pre-commit / husky / lint-staged / prettier / `.editorconfig`.**~~ — resolved 2026-04-29 in `chore/engineering-hygiene`: pre-commit framework wired up at repo root with hooks for ruff (lint+format), mypy, prettier, eslint, and `pre-commit-hooks` built-ins. `.editorconfig` added. See `docs/superpowers/specs/2026-04-29-engineering-hygiene-design.md`.
