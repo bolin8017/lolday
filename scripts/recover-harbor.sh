@@ -284,10 +284,23 @@ skip_if_missing() {
 }
 
 build_push      "$REPO/backend"                                   "lolday/lolday-backend:phase9.5"
-build_push      "$REPO/charts/lolday/helpers/build-helper"        "lolday/build-helper:v2"
-skip_if_missing "$REPO/charts/lolday/helpers/job-helper"          "lolday/job-helper:v2"
 skip_if_missing "$REPO/charts/lolday/helpers/mlflow-server"       "lolday/mlflow-server:v2.20.3"
 skip_if_missing "$REPO/frontend"                                  "lolday/lolday-frontend:phase5"
+
+# ---------------------------------------------------- 6. helper images
+# Helper image release is owned by scripts/build-helpers.sh (content-
+# addressable subtree SHAs + helpers.lock). If the lock is in place,
+# delegate; otherwise, instruct the operator to run it manually.
+LOCK="$REPO/charts/lolday/helpers.lock"
+if [ -f "$LOCK" ]; then
+  echo
+  echo "=== helper images: delegating to scripts/build-helpers.sh ==="
+  bash "$REPO/scripts/build-helpers.sh"
+else
+  echo
+  echo "WARN: $LOCK not found — helper images not pushed." >&2
+  echo "      Next step: bash $REPO/scripts/build-helpers.sh" >&2
+fi
 
 echo
 echo "=== done. kick backend + wait for pull: ==="

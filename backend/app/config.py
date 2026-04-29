@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     HARBOR_IMAGE_PREFIX: str = "harbor.harbor.svc:80"
     GITHUB_API_URL: str = "https://api.github.com"
     BUILD_NAMESPACE: str = "lolday"
-    BUILD_IMAGE_HELPER: str = "harbor.harbor.svc:80/lolday/build-helper:v3"
+    BUILD_IMAGE_HELPER: str = ""
     BUILD_IMAGE_BUILDKIT: str = "moby/buildkit:v0.29.0-rootless"
     BUILD_IMAGE_GIT: str = "alpine/git:2.45"
     BUILD_TIMEOUT_SECONDS: int = 1200
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Phase 4: Dataset & Jobs (MLflow)
     JOB_NAMESPACE: str = "lolday"
-    JOB_HELPER_IMAGE: str = "harbor.harbor.svc:80/lolday/job-helper:v4"
+    JOB_HELPER_IMAGE: str = ""
     JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600  # 6h
     JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800  # 30m
     JOB_ACTIVE_DEADLINE_PREDICT_SECONDS: int = 3600  # 1h
@@ -80,6 +80,26 @@ class Settings(BaseSettings):
                 "CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_APP_AUD must both be set "
                 "in production — an empty team domain makes the JWKS URL "
                 "resolve to https:/// and every request 401s"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_helper_images(self) -> "Settings":
+        """Fail-fast on production misconfiguration. Helper image refs are
+        produced by scripts/build-helpers.sh into charts/lolday/helpers.lock
+        and injected by scripts/deploy.sh — never hardcoded as defaults."""
+        if self.ENVIRONMENT != "production":
+            return self
+        missing = [
+            name
+            for name in ("BUILD_IMAGE_HELPER", "JOB_HELPER_IMAGE")
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise ValueError(
+                f"{', '.join(missing)} must be set in production. "
+                "Produce the values via scripts/build-helpers.sh and inject "
+                "them via scripts/deploy.sh."
             )
         return self
 

@@ -8,7 +8,7 @@ paths:
 
 ## Script categories (live inventory in `scripts/`)
 
-- **Install / deploy** — `install-tools.sh` (CLI tools to `~/.local/bin/`, no sudo), `setup-k3s.sh` (sudo-required, hand to operator), `deploy.sh` (Helm dep update + upgrade --install), `teardown.sh`.
+- **Install / deploy** — `install-tools.sh` (CLI tools to `~/.local/bin/`, no sudo), `setup-k3s.sh` (sudo-required, hand to operator), `deploy.sh` (Helm dep update + upgrade --install), `build-helpers.sh` (helper-image release: subtree SHA tag, idempotent push, writes `charts/lolday/helpers.lock`; runbook `docs/runbooks/release-helpers.md`), `check-helpers-lock.sh` (drift guard used by pre-commit + deploy), `teardown.sh`.
 - **Diagnostics** — `diag-backend-401.sh`, `diag-pv-data.sh`, `disk-diag.sh`, `find-lost-data.sh`.
 - **Recovery** — `recover-harbor.sh`, `harbor-inventory.sh`, `fix-lolday-project-public.sh`, `patch-k3s-registries.sh`.
 - **Data migration (Phase 8.2 / 9.6)** — `migrate-ephemeral-to-ssd.sh`, `migrate-all-root-pvcs.sh`, `cleanup-migrated-shelves.sh`.
@@ -91,3 +91,19 @@ pre-commit install                    # re-activate the git hook (idempotent)
 ## Phase pre-deploy checks
 
 `phase4-pre-deploy-check.sh` and `phase6-pre-deploy-check.sh` exist as templates. New phases that touch deploy should add an analogous pre-check (verify required env is set, required PVCs exist, required CRDs installed, etc.). Avoid one-off checklists in markdown — code is more reliable.
+
+## Helper image release 紀律
+
+`scripts/build-helpers.sh` is the only sanctioned way to push `build-helper` and `job-helper` images. Tags are content-addressable (12-char subtree SHA from `git rev-parse HEAD:<path>`) and pinned in `charts/lolday/helpers.lock`.
+
+### Forbidden
+
+- Hardcoding helper image refs in `backend/app/config.py`, `charts/lolday/values.yaml`, or anywhere else. The lock is the only source of truth.
+- Pushing a `-dirty-<ts>` tag from `--allow-dirty` to a production deploy. The lock never records dirty tags; using one in `helm upgrade --set ...` is a deliberate operator override and must be justified in the deploy log.
+
+### Rules
+
+- The dirty-tree refusal in `build-helpers.sh` is intentional. To iterate on uncommitted changes, pass `--allow-dirty` knowingly — the runbook covers the rule.
+- The pre-commit `helpers-lock-fresh` hook fails on drift. Override only with `LOLDAY_SKIP_HELPERS_LOCK_CHECK=1` and only when the build itself cannot run (no docker, no kubectl); otherwise fix the root cause by re-running `build-helpers.sh`.
+- `scripts/recover-harbor.sh` no longer rebuilds helper images directly. It tail-calls `build-helpers.sh` if the lock exists; otherwise it points the operator to run it manually.
+- Adding a new helper means: edit the `HELPERS=(...)` array in `build-helpers.sh`, edit the JSON keys in `helpers.lock` and the script's `write_lock` body, add the corresponding `--set` line in `deploy.sh`, and document in `docs/runbooks/release-helpers.md`.

@@ -61,3 +61,10 @@ repos:
         language: system
         entry: frontend/node_modules/.bin/eslint --config frontend/eslint.config.js --fix --no-warn-ignored
         files: ^frontend/.*\.(ts|tsx|js|cjs|mjs)$
+
+      - id: helpers-lock-fresh
+        name: helpers.lock matches helper subtrees
+        language: system
+        entry: scripts/check-helpers-lock.sh
+        pass_filenames: false
+        files: ^charts/lolday/helpers/(build-helper|job-helper)/|^charts/lolday/helpers\.lock$

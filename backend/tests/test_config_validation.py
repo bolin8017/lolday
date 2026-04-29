@@ -1,11 +1,17 @@
-"""Regression guards for Phase 10 SSO production-config validation.
+"""Regression guards for production-config Settings validators.
 
-The Settings model_validator fails boot if:
-- ENVIRONMENT=production + AUTH_DEV_MODE=true
-- ENVIRONMENT=production + empty CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_APP_AUD
+Two model_validators fail boot when ENVIRONMENT=production and the input is
+unsafe for production:
 
-These tests ensure a future refactor that relaxes the validator is caught
-immediately rather than shipping silent-401 or auth-bypass to prod.
+- ``validate_sso_config`` (Phase 10): rejects AUTH_DEV_MODE=true and empty
+  CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_APP_AUD; otherwise CF Access JWT
+  verification silently 401s every request.
+- ``validate_helper_images`` (helper-image-versioning, 2026-04-29): rejects
+  empty BUILD_IMAGE_HELPER / JOB_HELPER_IMAGE; without these the build
+  pipeline and vcjob spec render incomplete env to backend pods.
+
+These tests catch a future refactor that relaxes either validator before
+the misconfiguration ships to prod.
 """
 
 import pytest
@@ -61,3 +67,76 @@ def test_settings_accepts_auth_dev_mode_outside_production(monkeypatch):
     s = Settings()
     assert s.AUTH_DEV_MODE is True
     assert s.ENVIRONMENT == "development"
+
+
+def test_settings_rejects_empty_build_image_helper_in_production(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "bolin8017.cloudflareaccess.com")
+    monkeypatch.setenv("CF_ACCESS_APP_AUD", "x" * 64)
+    monkeypatch.setenv("BUILD_IMAGE_HELPER", "")
+    monkeypatch.setenv("JOB_HELPER_IMAGE", "harbor.lolday.svc:80/lolday/job-helper:abc")
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError, match="BUILD_IMAGE_HELPER must be set"):
+        Settings()
+
+
+def test_settings_rejects_empty_job_helper_image_in_production(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "bolin8017.cloudflareaccess.com")
+    monkeypatch.setenv("CF_ACCESS_APP_AUD", "x" * 64)
+    monkeypatch.setenv(
+        "BUILD_IMAGE_HELPER", "harbor.lolday.svc:80/lolday/build-helper:abc"
+    )
+    monkeypatch.setenv("JOB_HELPER_IMAGE", "")
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError, match="JOB_HELPER_IMAGE must be set"):
+        Settings()
+
+
+def test_settings_accepts_filled_helper_images_in_production(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "bolin8017.cloudflareaccess.com")
+    monkeypatch.setenv("CF_ACCESS_APP_AUD", "x" * 64)
+    monkeypatch.setenv(
+        "BUILD_IMAGE_HELPER", "harbor.lolday.svc:80/lolday/build-helper:abc"
+    )
+    monkeypatch.setenv("JOB_HELPER_IMAGE", "harbor.lolday.svc:80/lolday/job-helper:def")
+
+    from app.config import Settings
+
+    s = Settings()
+    assert s.BUILD_IMAGE_HELPER.endswith(":abc")
+    assert s.JOB_HELPER_IMAGE.endswith(":def")
+
+
+def test_settings_accepts_empty_helper_images_outside_production(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("BUILD_IMAGE_HELPER", "")
+    monkeypatch.setenv("JOB_HELPER_IMAGE", "")
+
+    from app.config import Settings
+
+    s = Settings()
+    assert s.BUILD_IMAGE_HELPER == ""
+    assert s.JOB_HELPER_IMAGE == ""
+
+
+def test_settings_rejects_both_empty_helper_images_in_production(monkeypatch):
+    """Both empty in production must list both names in the error — exercises
+    the ', '.join(missing) path that single-empty cases skip."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "bolin8017.cloudflareaccess.com")
+    monkeypatch.setenv("CF_ACCESS_APP_AUD", "x" * 64)
+    monkeypatch.setenv("BUILD_IMAGE_HELPER", "")
+    monkeypatch.setenv("JOB_HELPER_IMAGE", "")
+
+    from app.config import Settings
+
+    with pytest.raises(
+        ValidationError, match="BUILD_IMAGE_HELPER, JOB_HELPER_IMAGE must be set"
+    ):
+        Settings()

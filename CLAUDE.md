@@ -61,6 +61,7 @@ Lolday is a glue platform. For every component, **first look for an existing ope
 bash scripts/install-tools.sh           # CLI tools, no sudo → ~/.local/bin/
 sudo bash scripts/setup-k3s.sh          # K3s install — give to sudo-capable account
 bash scripts/deploy.sh                  # platform deploy, no sudo
+bash scripts/build-helpers.sh           # build + push helper images, refresh helpers.lock
 cd backend && uv run pytest             # backend tests
 cd frontend && pnpm test                # frontend unit (vitest)
 cd frontend && pnpm playwright test     # frontend E2E

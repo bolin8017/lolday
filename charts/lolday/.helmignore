@@ -18,3 +18,5 @@ helpers/job-helper/.venv
 helpers/build-helper/__pycache__
 helpers/job-helper/__pycache__
 *.pyc
+# Helper image lockfile — release metadata, not chart payload
+helpers.lock

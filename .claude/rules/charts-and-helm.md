@@ -41,17 +41,25 @@ paths:
 
 ## Helper images (`charts/lolday/helpers/`)
 
-Each helper has its own Dockerfile, built and pushed manually by the operator.
+Four helpers, two release flows.
+
+### Content-addressable (managed by `scripts/build-helpers.sh`)
 
 - `build-helper/` — Python tool. Includes `maldet_validator.py` which asserts a built detector matches the maldet spec. Has its own `pyproject.toml` + `uv.lock` + `test_maldet_validator.py`.
-- `job-helper/` — Python module + tests + `uv.lock`. This is the entrypoint inside vcjob containers.
-- `mlflow-server/` — Dockerfile only; produces a custom mlflow image.
-- `pytorch-cu12-base/` — Dockerfile only; GPU base image.
+- `job-helper/` — Python module + tests + `uv.lock`. The vcjob init / sidecar / model-fetcher container.
 
-Image tags are hardcoded in `backend/app/config.py`:
+Tags are 12-char subtree SHAs derived from `git rev-parse HEAD:charts/lolday/helpers/<name>`. They are pinned in `charts/lolday/helpers.lock` (JSON, git-tracked) and injected at deploy time via `scripts/deploy.sh --set backend.env.BUILD_IMAGE_HELPER=... --set backend.env.JOB_HELPER_IMAGE=...`.
 
-- `BUILD_IMAGE_HELPER` defaults to `harbor.harbor.svc:80/lolday/build-helper:v3`
-- `JOB_HELPER_IMAGE` defaults to `harbor.lolday.svc:80/lolday/job-helper:v4` (note: Harbor URL inconsistency — see `docs/architecture.md` §9)
+`backend/app/config.py` has empty defaults for both env vars and a `validate_helper_images` model_validator that fails boot in production when either is unset. The pre-commit hook `helpers-lock-fresh` blocks commits that leave the lock out of sync with the helper subtrees.
+
+Operator flow → `docs/runbooks/release-helpers.md`. Spec → `docs/superpowers/specs/2026-04-29-helper-image-versioning-design.md`.
+
+### Manually pinned (semantic tags)
+
+- `mlflow-server/` — Dockerfile only; produces the custom MLflow image. Tag = upstream MLflow version, e.g. `:v2.20.3`.
+- `pytorch-cu12-base/` — Dockerfile only; GPU base image. Tag = `<torch>-<cuda>` set, e.g. `:2.7.0-cu126`.
+
+These do not flow through `helpers.lock`; their tags carry external semantic meaning that subtree SHA strips. Bumping them is a manual edit to the relevant `values.yaml` line + a `docker build` + `docker push` from the operator's host.
 
 ## Dashboards (`charts/lolday/dashboards/`)
 
