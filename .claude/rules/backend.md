@@ -29,7 +29,7 @@ Both checks run inside the FastAPI lifespan. A misconfigured deploy crashes the 
 
 ## Auth design
 
-- fastapi-users is a vestigial dependency. The password-flow routers, transports, and UserManager were stripped in Phase 10. The `User` model still inherits `SQLAlchemyBaseUserTableUUID`, but `hashed_password` is unused (tracked as tech debt).
+- Authentication is exclusively via `cf_access_user`. Neither `fastapi-users` nor `fastapi-users-db-sqlalchemy` is installed — the phase 7.5 baseline migration was rewritten to use SQLAlchemy 2.0 native `sa.Uuid()` directly. Do not add new auth backends, do not reintroduce `fastapi_users` imports.
 - Every protected route uses `current_active_user` from `users.py`, which resolves to `cf_access_user`. Do not add new auth backends.
 - `Role.SERVICE_TOKEN: -1` in `deps.py:ROLE_HIERARCHY` is intentional. A machine principal must always be less privileged than any human role; if it falls through to a `require_role(...)` guard, it gets a clean 403 instead of a `KeyError` 500. Do not raise this to 0+.
 
