@@ -107,3 +107,7 @@ pre-commit install                    # re-activate the git hook (idempotent)
 - The pre-commit `helpers-lock-fresh` hook fails on drift. Override only with `LOLDAY_SKIP_HELPERS_LOCK_CHECK=1` and only when the build itself cannot run (no docker, no kubectl); otherwise fix the root cause by re-running `build-helpers.sh`.
 - `scripts/recover-harbor.sh` no longer rebuilds helper images directly. It tail-calls `build-helpers.sh` if the lock exists; otherwise it points the operator to run it manually.
 - Adding a new helper means: edit the `HELPERS=(...)` array in `build-helpers.sh`, edit the JSON keys in `helpers.lock` and the script's `write_lock` body, add the corresponding `--set` line in `deploy.sh`, and document in `docs/runbooks/release-helpers.md`.
+
+## CI
+
+Engineering-hygiene scripts (pre-commit, install-tools.sh) are mirrored on every PR by `.github/workflows/lint.yml`. Discipline rules in `.claude/rules/github-actions.md`.
