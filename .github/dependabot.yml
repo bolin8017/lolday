@@ -43,28 +43,34 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+      day: monday
 
   - package-ecosystem: docker
     directory: /frontend
     schedule:
       interval: weekly
+      day: monday
 
   - package-ecosystem: docker
     directory: /charts/lolday/helpers/build-helper
     schedule:
       interval: weekly
+      day: monday
 
   - package-ecosystem: docker
     directory: /charts/lolday/helpers/job-helper
     schedule:
       interval: weekly
+      day: monday
 
   - package-ecosystem: docker
     directory: /charts/lolday/helpers/mlflow-server
     schedule:
       interval: weekly
+      day: monday
 
   - package-ecosystem: docker
     directory: /charts/lolday/helpers/pytorch-cu12-base
     schedule:
       interval: weekly
+      day: monday

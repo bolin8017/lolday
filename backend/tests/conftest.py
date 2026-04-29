@@ -171,15 +171,15 @@ def _mock_k8s_load_config(monkeypatch):
 
     We replace `app.services.k8s.load_config` with a variant that swallows
     ConfigException so CI runners (no in-cluster config, no ~/.kube/config)
-    don't blow up.  On a local workstation with a real kubeconfig the wrapped
+    don't blow up. On a local workstation with a real kubeconfig the wrapped
     function still loads it; in CI it silently does nothing, and because
     `mock_k8s_batch` already stubs the downstream API objects (batch_v1,
     core_v1, volcano_v1alpha1) no real kubernetes traffic is attempted.
 
-    Note: we intentionally do NOT touch the lru_cache — if it is already warm
-    from a prior test the cached None result is fine.  If the cache is cold,
-    the wrapper below runs once and caches its result (None on success, or
-    None on ConfigException).
+    `monkeypatch.setattr` replaces the module attribute; the original
+    `@lru_cache(maxsize=1)` decoration on the production `load_config`
+    is irrelevant during the test because callers now reach the
+    replacement function instead.
     """
     import contextlib
 
