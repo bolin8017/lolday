@@ -83,30 +83,18 @@ The lock is committed to git, but its tagged images do not exist in a fresh Harb
 5. `bash scripts/build-helpers.sh` — pushes the helper images for the SHAs already pinned in the committed lock.
 6. `bash scripts/deploy.sh` — second round; the backend pod now boots clean.
 
-## CI integration sketch
+## CI integration
 
-Not implemented in this phase. The build script is pure-functional:
+`scripts/build-helpers.sh` is and remains the only sanctioned path that pushes helper images to **Harbor** (`harbor.lolday.svc:80`) and rewrites `charts/lolday/helpers.lock`. Operator runs it on server30 (or any host with reach to Harbor); commits the lock; deploys via `scripts/deploy.sh`.
 
-- Input: working tree git state.
-- Output: Harbor pushes (idempotent against existing SHAs) + `helpers.lock` rewrite.
+CI does NOT call `build-helpers.sh`. Harbor is internal by design (see `docs/architecture.md` §5.3) and CI cannot reach it. What `.github/workflows/helpers.yml` does instead:
 
-A future GitHub Actions / CI workflow can wrap it as:
+- On every PR that touches `charts/lolday/helpers/build-helper/**` or `charts/lolday/helpers/job-helper/**`: run `docker build` against the helper Dockerfile (no push) — verifies the image still builds cleanly.
+- On `push: main` of those paths: same build, then push to **GHCR** (`ghcr.io/bolin8017/lolday-{build,job}-helper`) as a verification artefact and Dependabot-friendly mirror.
 
-```yaml
-- run: bash scripts/build-helpers.sh
-- run: |
-    if ! git diff --exit-code charts/lolday/helpers.lock; then
-      gh pr edit "$PR_NUMBER" --body "$(cat <<EOF
-    Helper images rebuilt; lock updated. Reviewer: confirm and merge.
-    EOF
-    )"
-      git config user.email "ci@lolday"
-      git config user.name "lolday-ci"
-      git add charts/lolday/helpers.lock
-      git commit -m "chore(helpers): auto-rebuild helper image refs"
-      git push
-    fi
-```
+GHCR images are not used by production. They are a parallel CI artefact stream. A future server30-side cron mirroring GHCR → Harbor (e.g. `regctl image copy`) is a deferrable enhancement, not a CI dependency.
+
+`mlflow-server` and `pytorch-cu12-base` are intentionally **outside** `helpers.yml`'s `paths` filter — their tags carry external semantic meaning, body sizes are large, and update frequency is low. Operator continues to build/push them manually when an upstream bump warrants it. Dependabot still tracks their Dockerfile FROM lines so the bump PR surfaces.
 
 ## Failure modes
 
