@@ -825,8 +825,8 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
 # Phase 4: Job + Model Registry reconciliation
 # =============================================================================
 
-from app.models.job import NON_TERMINAL_STATUSES, Job, JobStatus, JobType  # noqa: E402
-from app.services.mlflow_client import MlflowClient  # noqa: E402
+from app.models.job import NON_TERMINAL_STATUSES, Job, JobStatus, JobType
+from app.services.mlflow_client import MlflowClient
 
 
 async def reconcile_job(session: AsyncSession, j: Job) -> None:

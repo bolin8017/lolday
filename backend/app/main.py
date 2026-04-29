@@ -138,7 +138,7 @@ Instrumentator().instrument(app).expose(
 # Per-user rate limits live in app/services/rate_limit.py.
 
 # User routes — /me served by our cf_access_user-backed router.
-from app.routers import users_me  # noqa: E402
+from app.routers import users_me
 
 app.include_router(
     users_me.router,

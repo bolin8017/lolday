@@ -58,8 +58,8 @@ class MlflowClient:
         code = body.get("error_code", "UNKNOWN")
         msg = body.get("message", "")
         e = MlflowError(f"{code}: {msg}")
-        e.code = code  # type: ignore[attr-defined]
-        e.http_status = status  # type: ignore[attr-defined]
+        e.code = code  # type: ignore[attr-defined]  # dynamic attribute for error context
+        e.http_status = status  # type: ignore[attr-defined]  # dynamic attribute for error context
         raise e
 
     # experiments
