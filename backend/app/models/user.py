@@ -1,6 +1,6 @@
-import enum
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import String, Uuid, func
@@ -11,7 +11,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class Role(str, enum.Enum):
+class Role(StrEnum):
     ADMIN = "admin"
     DEVELOPER = "developer"
     USER = "user"

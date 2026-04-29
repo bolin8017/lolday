@@ -7,12 +7,15 @@ import { useCancelJob } from "@/api/queries/jobs";
 import { useJobQueuePosition } from "@/api/queries/cluster";
 import { isTerminal } from "@/lib/status";
 import { formatDuration, formatRelative } from "@/lib/date";
+import type { components } from "@/api/schema.gen";
+
+type JobRead = components["schemas"]["JobRead"];
 
 export function JobDetailShell({
   job,
   children,
 }: {
-  job: any;
+  job: JobRead;
   children: ReactNode;
 }) {
   const cancel = useCancelJob();

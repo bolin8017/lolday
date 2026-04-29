@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -40,6 +41,7 @@ from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
     VOLCANO_JOB_PLURAL,
+    batch_v1,
     core_v1,
     volcano_v1alpha1,
 )
@@ -185,7 +187,7 @@ async def create_job(
     try:
         validate_user_params(params=body.params, schema=stage_spec.params_schema)
     except UserParamsRejected as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     # 5. Idempotency
     idem_key = compute_idempotency_key(
@@ -252,7 +254,7 @@ async def create_job(
         except DatasetIntegrityError as e:
             raise HTTPException(
                 status_code=422, detail=f"dataset_integrity_failed: {e}"
-            )
+            ) from e
 
     # 8. MLflow experiment + run
     client = _get_mlflow_client()
@@ -337,13 +339,13 @@ async def create_job(
             body=manifest,
         )
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             core_v1().delete_namespaced_secret(
                 name=secret["metadata"]["name"], namespace=settings.JOB_NAMESPACE
             )
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail="failed to create K8s Job")
+        raise HTTPException(
+            status_code=500, detail="failed to create K8s Job"
+        ) from None
 
     job.k8s_job_name = manifest["metadata"]["name"]
     job.status = JobStatus.PREPARING
@@ -618,10 +620,8 @@ async def _close_ws_session(holder) -> None:
     try:
         if hasattr(holder, "__anext__"):
             # Async-generator override: exhaust it so its `finally` runs.
-            try:
+            with contextlib.suppress(StopAsyncIteration):
                 await holder.__anext__()
-            except StopAsyncIteration:
-                pass
         elif hasattr(holder, "__aexit__"):
             await holder.__aexit__(None, None, None)
     except Exception:

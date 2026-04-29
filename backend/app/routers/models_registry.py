@@ -253,7 +253,7 @@ async def transition_model_version(
             is_owner=(mv.owner_id == user.id),
         )
     except InvalidTransitionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail=str(e)) from e
 
     from_stage = mv.current_stage
 
@@ -267,7 +267,9 @@ async def transition_model_version(
             archive_existing_versions=archive,
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"MLflow transition failed: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"MLflow transition failed: {e}"
+        ) from e
 
     mv.current_stage = body.to_stage
     mv.last_transitioned_at = datetime.now(UTC)

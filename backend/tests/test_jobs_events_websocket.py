@@ -163,12 +163,14 @@ async def test_ws_rejects_non_owner(db_session: AsyncSession) -> None:
 
     client = _make_test_client()
     try:
-        with pytest.raises(WebSocketDisconnect) as excinfo:
-            with client.websocket_connect(
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect(
                 f"/api/v1/jobs/{job.id}/events",
                 headers={"x-test-user-email": "user2@example.dev"},
-            ) as ws:
-                ws.receive_json()
+            ) as ws,
+        ):
+            ws.receive_json()
         assert excinfo.value.code == 4403
     finally:
         client.app.dependency_overrides.clear()
@@ -181,11 +183,13 @@ async def test_ws_rejects_unauthenticated(db_session: AsyncSession) -> None:
 
     client = _make_test_client()
     try:
-        with pytest.raises(WebSocketDisconnect) as excinfo:
-            with client.websocket_connect(
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect(
                 f"/api/v1/jobs/{job.id}/events",
-            ) as ws:
-                ws.receive_json()
+            ) as ws,
+        ):
+            ws.receive_json()
         assert excinfo.value.code == 4401
     finally:
         client.app.dependency_overrides.clear()
@@ -200,12 +204,14 @@ async def test_ws_unknown_job_closes_4404(db_session: AsyncSession) -> None:
 
     client = _make_test_client()
     try:
-        with pytest.raises(WebSocketDisconnect) as excinfo:
-            with client.websocket_connect(
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect(
                 f"/api/v1/jobs/{fake_job_id}/events",
                 headers={"x-test-user-email": "user1@example.dev"},
-            ) as ws:
-                ws.receive_json()
+            ) as ws,
+        ):
+            ws.receive_json()
         assert excinfo.value.code == 4404
     finally:
         client.app.dependency_overrides.clear()

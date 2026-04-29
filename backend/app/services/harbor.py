@@ -1,10 +1,10 @@
-import enum
 from dataclasses import dataclass
+from enum import StrEnum
 
 import httpx
 
 
-class ScanStatus(str, enum.Enum):
+class ScanStatus(StrEnum):
     PENDING = "Pending"
     RUNNING = "Running"
     SUCCESS = "Success"

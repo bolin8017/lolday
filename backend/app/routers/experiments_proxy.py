@@ -27,7 +27,7 @@ async def list_experiments(
     try:
         return await _client().search_experiments(max_results=max_results)
     except MlflowError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.get("/experiments/{experiment_id}/runs")
@@ -41,7 +41,7 @@ async def list_runs(
             experiment_ids=[experiment_id], max_results=max_results
         )
     except MlflowError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.get("/runs/{run_id}")
@@ -52,7 +52,7 @@ async def get_run(
     try:
         return await _client().get_run(run_id)
     except MlflowError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.get("/runs/{run_id}/artifacts")

@@ -165,10 +165,14 @@ def main() -> int:
     print("  curl -X POST http://localhost:8000/api/v1/datasets \\")
     print('    -H "Authorization: Bearer $TOKEN" \\')
     print('    -H "Content-Type: application/json" \\')
-    print(
-        '    -d "{\\"name\\":\\"elf-text256-train\\",\\"csv_content\\":\\"$(python3 -c \'import sys,json;print(json.dumps(open(sys.argv[1]).read())[1:-1])\' %s)\\"}"'
-        % train_csv
+    _cmd = (
+        '    -d "{\\"name\\":\\"elf-text256-train\\",'
+        '\\"csv_content\\":\\"$(python3 -c'
+        " 'import sys,json;print(json.dumps(open(sys.argv[1]).read())[1:-1])' "
+        + train_csv
+        + ')\\""'
     )
+    print(_cmd)
     return 0
 
 

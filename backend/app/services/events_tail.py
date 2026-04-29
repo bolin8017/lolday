@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from collections import defaultdict
@@ -60,10 +61,8 @@ class EventBroker:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
-                try:
+                with contextlib.suppress(asyncio.QueueEmpty):
                     q.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
                 q.put_nowait(event)
                 _log.warning(
                     "event_broker_dropped_oldest",

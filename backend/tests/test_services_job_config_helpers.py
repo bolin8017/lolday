@@ -65,15 +65,15 @@ def test_idempotency_key_differs_per_user() -> None:
 
 def test_idempotency_key_differs_per_params() -> None:
     """Same user, same datasets, but different params must hash differently."""
-    base = dict(
-        user_id="u1",
-        detector_version_id="dv1",
-        job_type="train",
-        train_ds="ds1",
-        test_ds=None,
-        predict_ds=None,
-        source_model=None,
-    )
+    base = {
+        "user_id": "u1",
+        "detector_version_id": "dv1",
+        "job_type": "train",
+        "train_ds": "ds1",
+        "test_ds": None,
+        "predict_ds": None,
+        "source_model": None,
+    }
     assert compute_idempotency_key(
         **base, params={"lr": 0.1}
     ) != compute_idempotency_key(**base, params={"lr": 0.2})

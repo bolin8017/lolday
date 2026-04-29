@@ -23,7 +23,7 @@ async def test_transition_to_production_auto_archives_existing(
     user_client, seed_model_version
 ):
     name, v1 = await seed_model_version()
-    name2, v2 = await seed_model_version(name=name)
+    _name2, v2 = await seed_model_version(name=name)
 
     r = await user_client.post(
         f"/api/v1/models/{name}/versions/{v1}/transition",

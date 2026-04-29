@@ -213,7 +213,7 @@ def mock_k8s_batch(monkeypatch):
 
         def list_namespaced_pod(self, namespace, **kw):
             class _R:
-                items = []
+                items: list = []  # noqa: RUF012  # stub inner class, ClassVar not needed
 
             return _R()
 

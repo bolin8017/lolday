@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import os
 import shutil
@@ -28,9 +29,6 @@ from app.models.detector import (
     DetectorVersion,
     DetectorVersionStatus,
 )
-from app.services.rate_limit import rate_limit_user
-
-logger = logging.getLogger(__name__)
 from app.schemas.detector import (
     AvailableTag,
     BuildCreate,
@@ -56,8 +54,11 @@ from app.services.git import (
 )
 from app.services.harbor import HarborClient
 from app.services.k8s import batch_v1, core_v1
+from app.services.rate_limit import rate_limit_user
 from app.services.validator import StaticValidationError, validate_repo_static
 from app.users import current_active_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -119,13 +120,13 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
         )
         try:
             _, err = await asyncio.wait_for(proc.communicate(), timeout=60)
-        except TimeoutError:
+        except TimeoutError as e:
             proc.kill()
             await proc.wait()
             raise HTTPException(
                 status_code=400,
                 detail={"code": "git_clone_timeout", "message": "clone exceeded 60s"},
-            )
+            ) from e
         if proc.returncode != 0:
             raise HTTPException(
                 status_code=400,
@@ -139,7 +140,7 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
         except StaticValidationError as e:
             raise HTTPException(
                 status_code=400, detail={"code": e.code, "message": e.message}
-            )
+            ) from e
         data = tomllib.loads(
             (Path(tmpdir) / "pyproject.toml").read_text(encoding="utf-8")
         )
@@ -203,7 +204,7 @@ async def register(
     except ValueError as e:
         raise HTTPException(
             status_code=422, detail={"code": "invalid_git_url", "message": str(e)}
-        )
+        ) from e
 
     dup = await session.execute(
         select(Detector).where(
@@ -237,7 +238,7 @@ async def register(
     session.add(d)
     try:
         await session.commit()
-    except IntegrityError:
+    except IntegrityError as e:
         await session.rollback()
         raise HTTPException(
             status_code=409,
@@ -245,7 +246,7 @@ async def register(
                 "code": "name_conflict",
                 "message": f"detector name '{name}' already exists",
             },
-        )
+        ) from e
     await session.refresh(d)
     return DetectorRead.model_validate(d)
 
@@ -514,11 +515,9 @@ async def _create_k8s_resources(
     try:
         await loop.run_in_executor(None, _create_job)
     except Exception:
-        # Rollback Secret on any error
-        try:
+        # Rollback Secret on any error — best-effort, don't mask original exception
+        with contextlib.suppress(Exception):
             await loop.run_in_executor(None, _delete_secret)
-        except Exception:
-            pass  # best-effort; don't mask original exception
         raise
     return job_name
 
@@ -552,7 +551,7 @@ async def create_build(
             DetectorBuild.status.in_(in_flight_statuses),
         )
     )
-    in_flight = user_in_flight.scalar()
+    in_flight = user_in_flight.scalar() or 0
     if in_flight >= settings.BUILD_CONCURRENCY_PER_USER:
         from app.schemas.errors import ConcurrencyLimitDetail
 
@@ -623,7 +622,7 @@ async def create_build(
                 "message": f"failed to launch build job: {type(exc).__name__}",
                 "build_id": str(build.id),
             },
-        )
+        ) from exc
 
     build.k8s_job_name = job_name
     build.status = DetectorBuildStatus.CLONING

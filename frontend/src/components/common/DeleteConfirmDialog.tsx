@@ -21,7 +21,7 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  description: React.ReactNode;
+  description: ReactNode;
   confirmText: string;
   onConfirm: () => void | Promise<void>;
   pending: boolean;

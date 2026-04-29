@@ -294,7 +294,8 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 8. **Helper image versions hardcoded** — `BUILD_IMAGE_HELPER=v3`, `JOB_HELPER_IMAGE=v4` in `config.py`. No versioning strategy.
 9. ~~**Secrets path inconsistency**~~ — resolved 2026-04-29: all script callers follow the canonical fallback pattern (`recover-harbor.sh` is the model). See `.claude/rules/scripts-and-ops.md`.
 10. ~~**Harbor URL inconsistency**~~ — resolved 2026-04-29: the two forms (`harbor.harbor.svc` for K8s in-cluster API, `harbor.lolday.svc` for image pulls via host-level setup) are intentional. See §5.3. The lone outlier in `config.py` defaults was fixed.
-11. **mypy strictness ratchet — known candidates for module-level overrides.** First-wave mypy is intentionally lenient (`strict = false`, only `warn_*` flags + `check_untyped_defs`). If a module has too many errors to resolve in this phase, the policy is to add a `[mypy-<module>] ignore_errors = true` entry to `mypy.ini` and track it here as debt. Known candidate: `backend/app/reconciler.py` (57KB, see #1) — the override will be added in this phase if Phase 3/4 mypy results require it, otherwise left for the future phase that refactors the module. Tracked from 2026-04-29 in `chore/engineering-hygiene`.
+11. **mypy module overrides (`[mypy-<module>] ignore_errors = true`)** — First-wave mypy is intentionally lenient (`strict = false`, only `warn_*` flags + `check_untyped_defs`). Modules below are overridden at module level; each entry must be removed when the corresponding phase refactors that file.
+    - **`app.reconciler`** — activated 2026-04-29 in Phase 4 of `chore/engineering-hygiene`. 20 `union-attr` / `arg-type` errors across the 57KB reconciler (all `Optional`-handling issues); root-cause fix deferred to the phase that refactors `reconciler.py` (see #1). Entry: `[mypy-app.reconciler] ignore_errors = true` in `mypy.ini`.
 
 ## 10. Common gotchas
 

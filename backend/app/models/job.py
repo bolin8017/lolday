@@ -1,6 +1,7 @@
-import enum
 import uuid
 from datetime import datetime
+from enum import StrEnum
+from types import MappingProxyType
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy import Enum as SAEnum
@@ -13,13 +14,13 @@ from app.models.user import Base
 _JSONB = JSONB().with_variant(JSON(), "sqlite")
 
 
-class JobType(str, enum.Enum):
+class JobType(StrEnum):
     TRAIN = "train"
     EVALUATE = "evaluate"
     PREDICT = "predict"
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(StrEnum):
     PENDING = "pending"
     PREPARING = "preparing"
     RUNNING = "running"
@@ -38,7 +39,7 @@ NON_TERMINAL_STATUSES = frozenset(
 )
 
 
-class ResourceProfile(str, enum.Enum):
+class ResourceProfile(StrEnum):
     STANDARD = "standard"
     GPU2 = "gpu2"
 
@@ -57,8 +58,6 @@ class ResourceProfile(str, enum.Enum):
 # Kept as a frozen module-level constant (via MappingProxyType) instead of
 # a plain dict so accidental `RESOURCE_PROFILE_GPU_COUNT[x] = 99` at
 # runtime raises TypeError. Verified total against the enum below.
-from types import MappingProxyType  # noqa: E402 — kept adjacent to the map
-
 _RESOURCE_PROFILE_GPU_COUNT: "MappingProxyType[ResourceProfile, int]" = (
     MappingProxyType(
         {

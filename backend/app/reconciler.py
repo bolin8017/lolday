@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import csv
 import io
 import logging
@@ -111,7 +112,7 @@ def _primary_metric(metrics: dict) -> tuple[str, float] | None:
     precision > recall; None if none are numeric."""
     for key in ("f1", "accuracy", "precision", "recall"):
         val = metrics.get(key)
-        if isinstance(val, (int, float)):
+        if isinstance(val, int | float):
             return (key, float(val))
     return None
 
@@ -139,7 +140,7 @@ async def _fire_job_failed_notify(
     if ds_id:
         ds = await session.get(DatasetConfig, ds_id)
         dataset_name = ds.name if ds else None
-    asyncio.create_task(
+    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
         notify_job_failed(
             user_name=ctx.name,
             user_discord_id=ctx.discord_id,
@@ -172,7 +173,7 @@ async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
             ctx = await _user_context(session, b.triggered_by_id)
             if ctx is not None:
                 label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(
+                asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                     notify_build_failed(
                         user_name=ctx.name,
                         user_discord_id=ctx.discord_id,
@@ -284,7 +285,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         ctx = await _user_context(session, b.triggered_by_id)
         if ctx is not None:
             label = await _detector_label(session, b.detector_id)
-            asyncio.create_task(
+            asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                 notify_trivy_blocked(
                     user_name=ctx.name,
                     user_discord_id=ctx.discord_id,
@@ -339,7 +340,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -366,7 +367,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -394,7 +395,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -431,7 +432,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -477,7 +478,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -523,7 +524,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         ctx = await _user_context(session, b.triggered_by_id)
         if ctx is not None:
             label = await _detector_label(session, b.detector_id)
-            asyncio.create_task(
+            asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                 notify_build_completed(
                     user_name=ctx.name,
                     user_discord_id=ctx.discord_id,
@@ -557,7 +558,7 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
     ctx = await _user_context(session, b.triggered_by_id)
     if ctx is not None:
         label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(
+        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
             notify_build_failed(
                 user_name=ctx.name,
                 user_discord_id=ctx.discord_id,
@@ -596,7 +597,7 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
     ctx = await _user_context(session, b.triggered_by_id)
     if ctx is not None:
         label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(
+        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
             notify_build_failed(
                 user_name=ctx.name,
                 user_discord_id=ctx.discord_id,
@@ -815,10 +816,8 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
         except Exception:
             BACKEND_ERRORS.labels(stage="reconciler_iteration").inc()
             logger.exception("reconciler iteration failed")
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop_event.wait(), timeout=RECONCILER_WAIT_SECONDS)
-        except TimeoutError:
-            pass
     logger.info("reconciler stopped")
 
 
@@ -1178,7 +1177,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
             if j.mlflow_experiment_id and j.mlflow_run_id
             else None
         )
-        asyncio.create_task(
+        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
             notify_job_completed(
                 user_name=ctx.name,
                 user_discord_id=ctx.discord_id,

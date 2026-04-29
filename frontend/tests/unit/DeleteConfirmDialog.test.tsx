@@ -1,14 +1,15 @@
+import { type ComponentProps } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 
 describe("DeleteConfirmDialog", () => {
   function setup(
-    overrides: Partial<React.ComponentProps<typeof DeleteConfirmDialog>> = {},
+    overrides: Partial<ComponentProps<typeof DeleteConfirmDialog>> = {},
   ) {
     const onConfirm = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();
-    const props: React.ComponentProps<typeof DeleteConfirmDialog> = {
+    const props: ComponentProps<typeof DeleteConfirmDialog> = {
       open: true,
       onOpenChange,
       title: "Delete detector elfrfdet?",

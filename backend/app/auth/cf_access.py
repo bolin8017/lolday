@@ -196,7 +196,7 @@ async def resolve_user_from_jwt(
             unverified = pyjwt.decode(token, options={"verify_signature": False})
             peek = {k: unverified.get(k) for k in ("aud", "iss", "email", "exp")}
         except Exception:
-            peek = "unparseable"
+            peek = "unparseable"  # type: ignore[assignment]  # fallback string for error logging
         logger.warning(
             "cf_access 401 %s: JWT invalid: %s. expected_aud=%s expected_iss=%s claims_peek=%s",
             log_context,
@@ -239,9 +239,7 @@ async def cf_access_user(
     if token is None and not settings.AUTH_DEV_MODE:
         # Preserve the pre-refactor warning line that enumerates cf-* headers
         # so operators can see whether the CF IAP actually attached the JWT.
-        cf_hdrs = sorted(
-            k for k in request.headers.keys() if k.lower().startswith("cf-")
-        )
+        cf_hdrs = sorted(k for k in request.headers if k.lower().startswith("cf-"))
         logger.warning(
             "cf_access_user 401 path=%s: missing Cf-Access-Jwt-Assertion. cf-* headers present: %s",
             request.url.path,

@@ -1,6 +1,6 @@
-import enum
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy import Enum as SAEnum
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.user import Base
 
 
-class ModelVersionStage(str, enum.Enum):
+class ModelVersionStage(StrEnum):
     """Mirrors MLflow stages; 'none' = unassigned."""
 
     NONE = "None"

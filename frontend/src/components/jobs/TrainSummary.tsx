@@ -5,12 +5,16 @@ import { ConfusionMatrix } from "@/components/charts/ConfusionMatrix";
 import { JobMetricChart } from "@/components/charts/JobMetricChart";
 import { TrainedModelCard } from "./TrainedModelCard";
 import { ResolvedConfigCard } from "./ResolvedConfigCard";
-import { useJobEvents } from "@/hooks/useJobEvents";
+import { useJobEvents, type MaldetEvent } from "@/hooks/useJobEvents";
 import { NON_TERMINAL_JOB_STATUSES } from "@/lib/status";
+import type { components } from "@/api/schema.gen";
 
-export function TrainSummary({ job }: { job: any }) {
+type JobRead = components["schemas"]["JobRead"];
+
+export function TrainSummary({ job }: { job: JobRead }) {
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;
   const metrics = (sm.metrics as Record<string, number>) ?? {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- per_class has ClassMetric shape at runtime; cast propagated via PerClassMetrics props
   const perClass = sm.per_class as Record<string, any> | undefined;
   const cm = sm.confusion_matrix as
     | { labels?: string[]; matrix?: number[][] }
@@ -21,10 +25,10 @@ export function TrainSummary({ job }: { job: any }) {
   );
   const { events, error: eventsError } = useJobEvents(job.id, isLive);
   const hasTimeSeries = events.some(
-    (e) =>
+    (e: MaldetEvent) =>
       e.kind === "metric" &&
-      typeof (e as any).step === "number" &&
-      (e as any).step >= 1,
+      typeof e.step === "number" &&
+      (e.step as number) >= 1,
   );
 
   return (

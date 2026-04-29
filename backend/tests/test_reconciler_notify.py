@@ -393,7 +393,7 @@ async def test_reconcile_job_k8s_missing_fires_notify_failed(
     class _Core:
         def list_namespaced_pod(self, **kw):
             class _R:
-                items = []
+                items: list = []  # noqa: RUF012  # stub class
 
             return _R()
 

@@ -81,7 +81,7 @@ async def test_reconcile_cve_blocked(db_session):
     with (
         patch("app.reconciler.batch_v1") as bv,
         patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1") as cv,
+        patch("app.reconciler.core_v1") as _cv,
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         from app.services.harbor import ScanResult, ScanStatus

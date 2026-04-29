@@ -36,7 +36,7 @@ def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
 
         class _St:
             phase = pod_phase
-            init_container_statuses = []
+            init_container_statuses: list = []  # noqa: RUF012  # stub class
             container_statuses = (
                 [
                     type(
@@ -72,7 +72,7 @@ def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
     class _CoreStub:
         def list_namespaced_pod(self, namespace, **kw):
             class _R:
-                items = [_Pod()]
+                items: list = [_Pod()]  # noqa: RUF012  # stub class
 
             return _R()
 
@@ -82,9 +82,11 @@ def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
         def delete_namespaced_secret(self, *a, **kw):
             pass
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            yield
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        yield
 
 
 @pytest.fixture

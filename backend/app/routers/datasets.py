@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.config import settings
 from app.db import get_async_session
@@ -62,7 +63,7 @@ async def create_dataset(
     try:
         parsed = parse_csv(body.csv_content)
     except DatasetValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     stmt = select(DatasetConfig).where(
         DatasetConfig.owner_id == user.id,
@@ -103,7 +104,7 @@ async def list_datasets(
     visibility: DatasetVisibility | None = None,
     search: str | None = None,
 ) -> DatasetConfigList:
-    filters = [DatasetConfig.deleted_at.is_(None)]
+    filters: list[ColumnElement[bool]] = [DatasetConfig.deleted_at.is_(None)]
 
     if user.role.value != "admin":
         filters.append(

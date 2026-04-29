@@ -1,6 +1,6 @@
-import enum
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import (
     DateTime,
@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.user import Base
 
 
-class GitProvider(str, enum.Enum):
+class GitProvider(StrEnum):
     GITHUB = "github"
     GITLAB = "gitlab"
 

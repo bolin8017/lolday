@@ -86,7 +86,7 @@ async def test_post_event_rejects_invalid_token(
 
 @pytest.mark.asyncio
 async def test_post_event_rejects_wrong_job_id(db_session, client: AsyncClient) -> None:
-    job, raw_token = await _seed_job_with_token(db_session)
+    _job, raw_token = await _seed_job_with_token(db_session)
     other_id = uuid.uuid4()
     resp = await client.post(
         f"/api/v1/internal/jobs/{other_id}/events",

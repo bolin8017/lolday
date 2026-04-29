@@ -34,5 +34,28 @@ export default [
       globals: { ...globals.node },
     },
   },
+  {
+    // Test files: allow _-prefixed unused variables (Playwright fixture convention)
+    // and React global (JSX runtime — no explicit import needed).
+    // Patterns cover both "pnpm exec eslint ." from frontend/ and
+    // the pre-commit invocation which passes absolute paths from repo root.
+    files: ["tests/**/*.{ts,tsx}", "**/tests/**/*.{ts,tsx}"],
+    languageOptions: {
+      globals: { React: "readonly" },
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
+    // playwright.config.d.ts is auto-generated; suppress empty-object-type there.
+    files: ["playwright.config.d.ts"],
+    rules: {
+      "@typescript-eslint/no-empty-object-type": "off",
+    },
+  },
   prettierConfig,
 ];

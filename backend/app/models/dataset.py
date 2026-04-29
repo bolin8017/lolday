@@ -1,6 +1,6 @@
-import enum
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy import Enum as SAEnum
@@ -13,7 +13,7 @@ from app.models.user import Base
 _JSONB = JSONB().with_variant(JSON(), "sqlite")
 
 
-class DatasetVisibility(str, enum.Enum):
+class DatasetVisibility(StrEnum):
     PUBLIC = "public"
     PRIVATE = "private"
 

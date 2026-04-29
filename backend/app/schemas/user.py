@@ -7,17 +7,17 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from app.models import Role
 
 # Discord snowflakes are 64-bit IDs serialised as decimal strings, today
-# 17–19 digits with legacy and future IDs bracketing 15–20.
+# 17-19 digits with legacy and future IDs bracketing 15-20.
 _DISCORD_ID_RE = re.compile(r"^\d{15,20}$")
 
 
 def _validate_discord_user_id(v):
-    """Allow None, coerce empty string → None, else require 15–20 digits."""
+    """Allow None, coerce empty string → None, else require 15-20 digits."""
     if v is None or v == "":
         return None
     if not _DISCORD_ID_RE.match(v):
         raise ValueError(
-            "discord_user_id must be 15–20 digits (copy from Discord "
+            "discord_user_id must be 15-20 digits (copy from Discord "
             "with Developer Mode enabled → right-click → Copy User ID)"
         )
     return v

@@ -39,28 +39,30 @@ def tail_and_post(
     events_path.touch(exist_ok=True)
 
     last_activity = time.monotonic()
-    with httpx.Client(timeout=10.0) as client:
-        with events_path.open("r", encoding="utf-8") as f:
-            while True:
-                line = f.readline()
-                if line:
-                    last_activity = time.monotonic()
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    _post_with_retry(client, endpoint_url, job_token, event)
+    with (
+        httpx.Client(timeout=10.0) as client,
+        events_path.open("r", encoding="utf-8") as f,
+    ):
+        while True:
+            line = f.readline()
+            if line:
+                last_activity = time.monotonic()
+                line = line.strip()
+                if not line:
                     continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                _post_with_retry(client, endpoint_url, job_token, event)
+                continue
 
-                if stop_on_eof:
-                    return
+            if stop_on_eof:
+                return
 
-                if time.monotonic() - last_activity > grace_seconds:
-                    return
-                time.sleep(poll_interval_s)
+            if time.monotonic() - last_activity > grace_seconds:
+                return
+            time.sleep(poll_interval_s)
 
 
 def _post_with_retry(
