@@ -59,9 +59,7 @@ class HarborClient:
             )
             create.raise_for_status()
 
-    async def ensure_robot_account(
-        self, name: str, projects: list[str]
-    ) -> dict:
+    async def ensure_robot_account(self, name: str, projects: list[str]) -> dict:
         """Idempotent robot account creation. Returns {'name': ..., 'secret': ...} on creation,
         or {'name': ...} if already exists (secret cannot be retrieved later)."""
         async with self._client() as c:
@@ -96,9 +94,7 @@ class HarborClient:
             create.raise_for_status()
             return create.json()
 
-    async def set_retention_policy(
-        self, project: str, keep_n_recent: int
-    ) -> None:
+    async def set_retention_policy(self, project: str, keep_n_recent: int) -> None:
         """Create or replace retention policy: keep N most recent tags."""
         async with self._client() as c:
             resp = await c.get(f"/api/v2.0/projects/{project}")
@@ -112,8 +108,22 @@ class HarborClient:
                     {
                         "disabled": False,
                         "action": "retain",
-                        "scope_selectors": {"repository": [{"kind": "doublestar", "decoration": "repoMatches", "pattern": "**"}]},
-                        "tag_selectors": [{"kind": "doublestar", "decoration": "matches", "pattern": "**"}],
+                        "scope_selectors": {
+                            "repository": [
+                                {
+                                    "kind": "doublestar",
+                                    "decoration": "repoMatches",
+                                    "pattern": "**",
+                                }
+                            ]
+                        },
+                        "tag_selectors": [
+                            {
+                                "kind": "doublestar",
+                                "decoration": "matches",
+                                "pattern": "**",
+                            }
+                        ],
                         "params": {"latestPushedK": keep_n_recent},
                         "template": "latestPushedK",
                     }
@@ -122,13 +132,17 @@ class HarborClient:
                 "scope": {"level": "project", "ref": project_id},
             }
             if retention_id:
-                put_resp = await c.put(f"/api/v2.0/retentions/{retention_id}", json=rule)
+                put_resp = await c.put(
+                    f"/api/v2.0/retentions/{retention_id}", json=rule
+                )
                 put_resp.raise_for_status()
             else:
                 post_resp = await c.post("/api/v2.0/retentions", json=rule)
                 post_resp.raise_for_status()
 
-    async def get_artifact_digest(self, project: str, repo: str, tag: str) -> str | None:
+    async def get_artifact_digest(
+        self, project: str, repo: str, tag: str
+    ) -> str | None:
         async with self._client() as c:
             resp = await c.get(
                 f"/api/v2.0/projects/{project}/repositories/{repo}/artifacts/{tag}"
@@ -141,8 +155,7 @@ class HarborClient:
     async def get_scan(self, project: str, repo: str, digest: str) -> ScanResult:
         async with self._client() as c:
             resp = await c.get(
-                f"/api/v2.0/projects/{project}/repositories/{repo}/"
-                f"artifacts/{digest}",
+                f"/api/v2.0/projects/{project}/repositories/{repo}/artifacts/{digest}",
                 params={"with_scan_overview": "true"},
             )
             resp.raise_for_status()
@@ -172,7 +185,9 @@ class HarborClient:
         Harbor exposes these via ``/api/v2.0/projects/.../artifacts/<digest>`` at
         ``extra_attrs.config.Labels``.
         """
-        url = f"/api/v2.0/projects/{project}/repositories/{repository}/artifacts/{digest}"
+        url = (
+            f"/api/v2.0/projects/{project}/repositories/{repository}/artifacts/{digest}"
+        )
         async with self._client() as c:
             resp = await c.get(url)
             resp.raise_for_status()

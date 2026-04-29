@@ -1,7 +1,6 @@
 """Init container: fetch resolved config + CSVs from backend, write to /mnt/config."""
 
 import asyncio
-import json
 import os
 import sys
 from pathlib import Path
@@ -28,21 +27,30 @@ async def main() -> None:
                 data = r.json()
                 break
             if r.status_code in (401, 403, 404):
-                print(f"fatal: backend returned {r.status_code}: {r.text}", file=sys.stderr)
+                print(
+                    f"fatal: backend returned {r.status_code}: {r.text}",
+                    file=sys.stderr,
+                )
                 sys.exit(2)
             last_err = RuntimeError(f"HTTP {r.status_code}: {r.text}")
         except httpx.HTTPError as e:
             last_err = e
-        await asyncio.sleep(2 ** attempt)
+        await asyncio.sleep(2**attempt)
     else:
-        print(f"fatal: backend unreachable after 5 attempts: {last_err!r}", file=sys.stderr)
+        print(
+            f"fatal: backend unreachable after 5 attempts: {last_err!r}",
+            file=sys.stderr,
+        )
         sys.exit(3)
 
     # Phase 11b switched to Hydra YAML config (was a JSON dict under data["config"]).
     # Backend's JobInternalConfig now returns {yaml, train_csv, test_csv, predict_csv}.
     yaml_text = data.get("yaml") or ""
     if not yaml_text:
-        print(f"fatal: backend returned empty yaml in JobInternalConfig: {sorted(data.keys())}", file=sys.stderr)
+        print(
+            f"fatal: backend returned empty yaml in JobInternalConfig: {sorted(data.keys())}",
+            file=sys.stderr,
+        )
         sys.exit(4)
     (config_dir / "config.yaml").write_text(yaml_text)
 

@@ -3,12 +3,11 @@
 import asyncio
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.models.detector import DetectorBuild, DetectorBuildStatus
 from app.models.job import Job, JobStatus, JobType
 from app.reconciler import (
@@ -71,7 +70,7 @@ async def test_handle_job_succeeded_calls_notify_completed(
         mlflow_experiment_id="42",
         mlflow_run_id="run-1",
         idempotency_key="abc",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         k8s_job_name="train-xxx",
     )
     db_session.add(job)
@@ -106,7 +105,7 @@ async def test_handle_job_failed_calls_notify_failed(
         mlflow_experiment_id="42",
         mlflow_run_id="run-f",
         idempotency_key="xyz",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         k8s_job_name="eval-yyy",
     )
     db_session.add(job)
@@ -138,7 +137,7 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
         detector_id=det.id,
         git_tag="v0.1.0",
         status=DetectorBuildStatus.BUILDING,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         triggered_by_id=seed_user.id,
         k8s_job_name="bld-a",
     )
@@ -146,14 +145,14 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
     await db_session.commit()
     await db_session.refresh(build)
 
-    from app.services.harbor import ScanResult, ScanStatus
-
     # Phase 11b Task 5b: reconcile_build now fetches OCI labels for the scanned
     # artifact so it can persist the maldet manifest onto DetectorVersion. The
     # stub needs to return a valid base64-JSON label or the build fails closed
     # before the completed-notify fires.
     import base64
     from pathlib import Path
+
+    from app.services.harbor import ScanResult, ScanStatus
 
     _fixture_manifest = (
         Path(__file__).parent / "fixtures" / "valid_maldet_manifest.json"
@@ -210,7 +209,7 @@ async def test_handle_build_succeeded_fires_trivy_blocked_on_critical_cve(
         detector_id=det.id,
         git_tag="v0.1.0",
         status=DetectorBuildStatus.BUILDING,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         triggered_by_id=seed_user.id,
         k8s_job_name="bld-b",
     )
@@ -258,7 +257,7 @@ async def test_handle_build_failed_fires_notify_build_failed(db_session, seed_us
         detector_id=det.id,
         git_tag="v0.1.0",
         status=DetectorBuildStatus.BUILDING,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         triggered_by_id=seed_user.id,
         k8s_job_name="bld-c",
     )
@@ -294,7 +293,7 @@ async def test_handle_build_timeout_fires_notify_failed(
         detector_id=det.id,
         git_tag="v1",
         status=DetectorBuildStatus.BUILDING,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         triggered_by_id=seed_user.id,
         k8s_job_name="bld-to",
     )
@@ -303,7 +302,9 @@ async def test_handle_build_timeout_fires_notify_failed(
     await db_session.refresh(build)
 
     # _handle_timeout tries to delete the k8s job — stub to ignore
-    from app.reconciler import _handle_timeout as _ht  # noqa: F401 (re-import after patch)
+    from app.reconciler import (
+        _handle_timeout as _ht,  # noqa: F401 (re-import after patch)
+    )
 
     with _patch_notify() as notify:
         await _handle_timeout(db_session, build)
@@ -330,7 +331,7 @@ async def test_reconcile_build_k8s_missing_fires_notify_failed(db_session, seed_
         detector_id=det.id,
         git_tag="v1",
         status=DetectorBuildStatus.BUILDING,
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         triggered_by_id=seed_user.id,
         k8s_job_name="bld-missing",
     )
@@ -375,7 +376,7 @@ async def test_reconcile_job_k8s_missing_fires_notify_failed(
         mlflow_experiment_id="42",
         mlflow_run_id="r",
         idempotency_key="k-miss",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
         k8s_job_name="job-missing",
     )
     db_session.add(job)

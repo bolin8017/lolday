@@ -42,6 +42,7 @@ def rate_limit_user(prefix: str, limit: int, window_seconds: int):
     async def _dep(user: User = Depends(current_active_user)) -> None:
         if not await check_rate(f"rl:{prefix}:{user.id}", limit, window_seconds):
             raise HTTPException(status_code=429, detail="rate limited")
+
     return _dep
 
 
@@ -55,4 +56,5 @@ def rate_limit_ip(prefix: str, limit: int, window_seconds: int):
         ip = request.client.host
         if not await check_rate(f"rl:{prefix}:{ip}", limit, window_seconds):
             raise HTTPException(status_code=429, detail="rate limited")
+
     return _dep

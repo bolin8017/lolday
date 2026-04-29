@@ -7,6 +7,7 @@ The Settings model_validator fails boot if:
 These tests ensure a future refactor that relaxes the validator is caught
 immediately rather than shipping silent-401 or auth-bypass to prod.
 """
+
 import pytest
 from pydantic import ValidationError
 

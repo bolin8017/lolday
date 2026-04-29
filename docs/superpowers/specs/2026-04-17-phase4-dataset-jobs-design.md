@@ -7,6 +7,7 @@ Phase 4 closes the loop from a built detector image (Phase 3) to actual **train 
 **Goal:** A developer / user selects a detector version + dataset config + hyperparameters, submits a job, and gets back reproducible artifacts (trained model / metrics / predictions) tracked in MLflow — without ever touching CLI or YAML.
 
 **Constraints:**
+
 - Must not break SSH on server30 (port 9453)
 - No custom code where an open-source tool exists
 - Training pod isolation must exceed Phase 3 build pod (malware samples are executable-by-nature, jobs must never have egress or K8s API access)
@@ -29,6 +30,7 @@ Phase 4 covers main spec §5 (Dataset Management) + §6 (Train/Eval/Predict Work
 8. **Experiment / run listing** — lolday endpoints that proxy MLflow listing API for UI use (frontend comes in Phase 5)
 
 **Out of scope (deferred):**
+
 - **Frontend forms** for hyperparameter input (Phase 5) — Phase 4 APIs accept raw JSON
 - **Email notifications** on job completion (Phase 6 — Phase 4 only writes audit logs + exposes hook points)
 - **Loki log aggregation** (Phase 6) — Phase 4 streams via K8s API + stores `log_tail` in DB, same pattern as Phase 3 builds
@@ -176,14 +178,14 @@ metadata:
   name: malware-samples
   labels: { app.kubernetes.io/name: malware-samples }
 spec:
-  capacity: { storage: 500Gi }                 # loose upper bound; hostPath ignores this
+  capacity: { storage: 500Gi } # loose upper bound; hostPath ignores this
   accessModes: [ReadOnlyMany]
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: ""                          # manual binding, no provisioner
+  storageClassName: "" # manual binding, no provisioner
   hostPath:
     path: /data/malware-samples
     type: Directory
-  nodeAffinity:                                 # pin to server30 (anticipates multi-node)
+  nodeAffinity: # pin to server30 (anticipates multi-node)
     required:
       nodeSelectorTerms:
         - matchExpressions:
@@ -205,6 +207,7 @@ spec:
 Analogous PV/PVC for `benign-samples`.
 
 **Mount in Pod:**
+
 ```yaml
 volumes:
   - name: malware-samples
@@ -216,12 +219,14 @@ volumeMounts:
 The Pod sees `/mnt/samples/malware/` structured identically to `/data/malware-samples/`. `config.data.dataset` in the rendered detector config points to `/mnt/samples` (parent of both subdirs).
 
 **noexec:** hostPath mount doesn't expose a `noexec` flag. Adequate mitigation for Phase 4:
+
 - Pod's `readOnlyRootFilesystem: true` prevents writing executables anywhere
 - Containers run `runAsNonRoot: true` with `capabilities.drop: [ALL]` — no `exec` escalation possible
 - NetworkPolicy deny-all-egress blocks any resulting process from reaching out
 - Detector code reads sample bytes as feature input only; nothing in the maldet spec or upxelfdet invokes them as processes
 
 Multi-node migration (future, one sudo session):
+
 1. `sudo apt install nfs-kernel-server` on server30
 2. Add `/data/malware-samples *(ro,no_subtree_check,sync)` to `/etc/exports`
 3. `sudo exportfs -ra`
@@ -234,6 +239,7 @@ Multi-node migration (future, one sudo session):
 A **dataset config** is a reusable, versioned CSV manifest that lists which samples participate in a training/test/predict set. The CSV is **inline** in PostgreSQL — not referenced externally — so config content is immutable-by-reference once a job consumes it.
 
 **CSV format requirements:**
+
 - UTF-8, RFC 4180
 - Required columns: `file_name`, `label`
 - Optional columns: `family`, `md5`, `CPU`, `first_seen`, `size`, `is_packed`, any additional metadata (pass-through)
@@ -241,6 +247,7 @@ A **dataset config** is a reusable, versioned CSV manifest that lists which samp
 - Platform validates each `file_name` exists in either `/mnt/samples/malware/{prefix}/{file_name}` or `/mnt/samples/benign/{prefix}/{file_name}` (checked at dataset config creation via backend-side lookup)
 
 **Inline storage rationale:**
+
 - Typical research subsets: 5k-50k samples → ~1-5 MB CSV (well under 10 MB cap)
 - The master 2.15M-row catalog (300+ MB) is a one-off source; users filter it externally (pandas/DuckDB) before upload — the catalog itself is not a dataset config
 - Keeps DB self-contained, simplifies backup, eliminates MinIO dependency for MVP
@@ -248,6 +255,7 @@ A **dataset config** is a reusable, versioned CSV manifest that lists which samp
 **Size cap: 10 MB** (configurable via `DATASET_CSV_MAX_BYTES` env). Exceeding this returns `413 Payload Too Large`. When a real need arises, add MinIO-backed storage as an optional path (YAGNI).
 
 **Integrity:**
+
 - On create: compute SHA256 over CSV bytes, store as `csv_checksum`
 - On each job dispatch: re-verify checksum (CSV rows in DB haven't been tampered with) — cheap because it's bytes already loaded
 - On each job dispatch: spot-check ≤ 100 random `file_name`s exist on disk (full scan is O(N) and too slow for 50k-row configs); incident-rate is low because hostPath is ro
@@ -307,6 +315,7 @@ finished_at                Timestamp nullable
 ```
 
 **Indexes:**
+
 - `(owner_id, submitted_at DESC)` — user's job history
 - `(status)` partial index `WHERE status IN ('pending','preparing','running')` — reconciler scan
 - `(detector_version_id)` — "runs on this version"
@@ -314,10 +323,10 @@ finished_at                Timestamp nullable
 **Job type → required refs matrix:**
 
 | type     | train_dataset | test_dataset | predict_dataset | source_model |
-|----------|:-------------:|:------------:|:---------------:|:------------:|
-| train    | ✅ required   | ✅ required  | —               | —            |
-| evaluate | —             | ✅ required  | —               | ✅ required  |
-| predict  | —             | —            | ✅ required     | ✅ required  |
+| -------- | :-----------: | :----------: | :-------------: | :----------: |
+| train    |  ✅ required  | ✅ required  |        —        |      —       |
+| evaluate |       —       | ✅ required  |        —        | ✅ required  |
+| predict  |       —       |      —       |   ✅ required   | ✅ required  |
 
 The `test_dataset` for training is used by detectors like upxelfdet that split data for internal validation during training (maldet spec does not require it, but most detectors do; jobs without it are allowed but platform defaults to copying train→test in the rendered config if omitted).
 
@@ -359,6 +368,7 @@ transitioned_at     Timestamp
 ### Extensions to Phase 3 `detector_version`
 
 Add:
+
 ```
 mlflow_experiment_id  String(50) nullable   -- 1 experiment per detector, created lazily
 ```
@@ -377,48 +387,48 @@ All prefixed `/api/v1`. Permissions use Phase 2's `require_role()` dep.
 
 ### Dataset Config
 
-| Method | Path                           | Auth        | Notes |
-|--------|--------------------------------|-------------|-------|
-| POST   | `/datasets`                    | User+       | body: `{name, description?, visibility?, csv_content}`; validates format, checksum, sample existence; returns 201 with parsed stats |
-| GET    | `/datasets`                    | User+       | paginated; filters: `?owner_id=`, `?visibility=`, `?search=` |
-| GET    | `/datasets/{id}`               | User+ (owner or visibility=public) | full metadata including `label_distribution`; excludes `csv_content` |
-| GET    | `/datasets/{id}/csv`           | User+ (owner or visibility=public) | raw CSV download with `Content-Disposition` |
-| PATCH  | `/datasets/{id}`               | Owner/Admin | `name`, `description`, `visibility` only; content is immutable |
-| POST   | `/datasets/{id}/clone`         | User+       | duplicate content, caller becomes owner, `-clone` suffix on name |
-| DELETE | `/datasets/{id}`               | Owner/Admin | soft delete; rejected if any non-terminal job references it |
+| Method | Path                   | Auth                               | Notes                                                                                                                               |
+| ------ | ---------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/datasets`            | User+                              | body: `{name, description?, visibility?, csv_content}`; validates format, checksum, sample existence; returns 201 with parsed stats |
+| GET    | `/datasets`            | User+                              | paginated; filters: `?owner_id=`, `?visibility=`, `?search=`                                                                        |
+| GET    | `/datasets/{id}`       | User+ (owner or visibility=public) | full metadata including `label_distribution`; excludes `csv_content`                                                                |
+| GET    | `/datasets/{id}/csv`   | User+ (owner or visibility=public) | raw CSV download with `Content-Disposition`                                                                                         |
+| PATCH  | `/datasets/{id}`       | Owner/Admin                        | `name`, `description`, `visibility` only; content is immutable                                                                      |
+| POST   | `/datasets/{id}/clone` | User+                              | duplicate content, caller becomes owner, `-clone` suffix on name                                                                    |
+| DELETE | `/datasets/{id}`       | Owner/Admin                        | soft delete; rejected if any non-terminal job references it                                                                         |
 
 ### Jobs
 
-| Method | Path                     | Auth        | Notes |
-|--------|--------------------------|-------------|-------|
-| POST   | `/jobs`                  | User+       | body: `{type, detector_version_id, train_dataset_id?, test_dataset_id?, predict_dataset_id?, source_model_version_id?, params}`; validates matrix + params against schema; returns 202 with job_id |
-| GET    | `/jobs`                  | User+       | paginated; filters: `?type=`, `?status=`, `?owner_id=`, `?detector_id=`, `?from=<ts>` |
-| GET    | `/jobs/{id}`             | User+ (owner or public model) | full detail: status, resolved_config, log_tail, mlflow_run_id, summary_metrics |
-| GET    | `/jobs/{id}/logs`        | User+ (as above) | live: proxy K8s API pod logs; after TTL (24h post-finalize): return `log_tail` + 410 |
-| POST   | `/jobs/{id}/cancel`      | Owner/Admin | deletes K8s Job; reconciler sets `cancelled` |
+| Method | Path                | Auth                          | Notes                                                                                                                                                                                              |
+| ------ | ------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/jobs`             | User+                         | body: `{type, detector_version_id, train_dataset_id?, test_dataset_id?, predict_dataset_id?, source_model_version_id?, params}`; validates matrix + params against schema; returns 202 with job_id |
+| GET    | `/jobs`             | User+                         | paginated; filters: `?type=`, `?status=`, `?owner_id=`, `?detector_id=`, `?from=<ts>`                                                                                                              |
+| GET    | `/jobs/{id}`        | User+ (owner or public model) | full detail: status, resolved_config, log_tail, mlflow_run_id, summary_metrics                                                                                                                     |
+| GET    | `/jobs/{id}/logs`   | User+ (as above)              | live: proxy K8s API pod logs; after TTL (24h post-finalize): return `log_tail` + 410                                                                                                               |
+| POST   | `/jobs/{id}/cancel` | Owner/Admin                   | deletes K8s Job; reconciler sets `cancelled`                                                                                                                                                       |
 
 ### MLflow Proxy (read-only)
 
 Thin passthrough endpoints that attach user auth + visibility filtering. Backend is the only thing with MLflow credentials; users never hit MLflow directly in Phase 4. (MLflow own UI can be exposed in Phase 6 via tunnel + Cloudflare Access.)
 
-| Method | Path                                  | Auth  | Delegates to MLflow |
-|--------|---------------------------------------|-------|---------------------|
-| GET    | `/experiments`                        | User+ | `GET /api/2.0/mlflow/experiments/search` |
-| GET    | `/experiments/{id}/runs`              | User+ | `POST /api/2.0/mlflow/runs/search` |
-| GET    | `/runs/{id}`                          | User+ | `GET /api/2.0/mlflow/runs/get` |
-| GET    | `/runs/{id}/artifacts`                | User+ | `GET /api/2.0/mlflow/artifacts/list` |
-| GET    | `/runs/{id}/artifacts/{path:path}`    | User+ | download from MLflow artifact root |
+| Method | Path                               | Auth  | Delegates to MLflow                      |
+| ------ | ---------------------------------- | ----- | ---------------------------------------- |
+| GET    | `/experiments`                     | User+ | `GET /api/2.0/mlflow/experiments/search` |
+| GET    | `/experiments/{id}/runs`           | User+ | `POST /api/2.0/mlflow/runs/search`       |
+| GET    | `/runs/{id}`                       | User+ | `GET /api/2.0/mlflow/runs/get`           |
+| GET    | `/runs/{id}/artifacts`             | User+ | `GET /api/2.0/mlflow/artifacts/list`     |
+| GET    | `/runs/{id}/artifacts/{path:path}` | User+ | download from MLflow artifact root       |
 
 ### Model Registry
 
-| Method | Path                                                 | Auth              | Notes |
-|--------|------------------------------------------------------|-------------------|-------|
-| GET    | `/models`                                            | User+             | paginated, filters: `?name=`, `?stage=` |
-| GET    | `/models/{name}`                                     | User+             | summary + latest per-stage versions |
-| GET    | `/models/{name}/versions`                            | User+             | all versions chronological |
-| GET    | `/models/{name}/versions/{v}`                        | User+             | version detail (run_id, metrics, tags) |
-| POST   | `/models/{name}/versions/{v}/transition`             | Developer (owner) or Admin | body: `{to_stage, comment?}`; writes `model_transition_log`; calls MLflow API |
-| DELETE | `/models/{name}/versions/{v}`                        | Owner / Admin     | only allowed on stage=`None` or `Archived` |
+| Method | Path                                     | Auth                       | Notes                                                                         |
+| ------ | ---------------------------------------- | -------------------------- | ----------------------------------------------------------------------------- |
+| GET    | `/models`                                | User+                      | paginated, filters: `?name=`, `?stage=`                                       |
+| GET    | `/models/{name}`                         | User+                      | summary + latest per-stage versions                                           |
+| GET    | `/models/{name}/versions`                | User+                      | all versions chronological                                                    |
+| GET    | `/models/{name}/versions/{v}`            | User+                      | version detail (run_id, metrics, tags)                                        |
+| POST   | `/models/{name}/versions/{v}/transition` | Developer (owner) or Admin | body: `{to_stage, comment?}`; writes `model_transition_log`; calls MLflow API |
+| DELETE | `/models/{name}/versions/{v}`            | Owner / Admin              | only allowed on stage=`None` or `Archived`                                    |
 
 ---
 
@@ -447,6 +457,7 @@ Thin passthrough endpoints that attach user auth + visibility filtering. Backend
 **Rendering `resolved_config`:**
 
 The backend builds the detector's `config.json` by:
+
 1. Start from detector_version's default config (derived from `config_schema`)
 2. Merge user-supplied `params` (shallow-merged, with $schema-validated types)
 3. Inject standardized paths:
@@ -514,25 +525,25 @@ async def _sync_model_versions():
 
 Structured failure codes (stored in `job.failure_reason`):
 
-| Code                          | Origin                                |
-|-------------------------------|---------------------------------------|
-| `dataset_integrity_failed`    | spot-check found missing sample       |
-| `dataset_checksum_mismatch`   | CSV content tampered post-create      |
-| `params_schema_invalid`       | jsonschema validation failed          |
-| `idempotency_duplicate`       | 5-min replay protection               |
-| `concurrency_limit`           | per-user 2 in-flight cap              |
-| `source_model_not_found`      | eval/predict references missing model |
-| `detector_exit_nonzero`       | CLI returned ≠ 0                      |
-| `detector_timeout`            | activeDeadlineSeconds exceeded        |
-| `detector_oom`                | Pod OOMKilled (exit 137)              |
-| `gpu_unavailable`             | no GPU satisfied request              |
-| `mlflow_unreachable`          | MLflow server down during run         |
-| `cancelled_by_user`           | POST /cancel                           |
-| `cancelled_by_admin`          | admin override                         |
+| Code                        | Origin                                |
+| --------------------------- | ------------------------------------- |
+| `dataset_integrity_failed`  | spot-check found missing sample       |
+| `dataset_checksum_mismatch` | CSV content tampered post-create      |
+| `params_schema_invalid`     | jsonschema validation failed          |
+| `idempotency_duplicate`     | 5-min replay protection               |
+| `concurrency_limit`         | per-user 2 in-flight cap              |
+| `source_model_not_found`    | eval/predict references missing model |
+| `detector_exit_nonzero`     | CLI returned ≠ 0                      |
+| `detector_timeout`          | activeDeadlineSeconds exceeded        |
+| `detector_oom`              | Pod OOMKilled (exit 137)              |
+| `gpu_unavailable`           | no GPU satisfied request              |
+| `mlflow_unreachable`        | MLflow server down during run         |
+| `cancelled_by_user`         | POST /cancel                          |
+| `cancelled_by_admin`        | admin override                        |
 
 ### Per-type `activeDeadlineSeconds`
 
-- train: 6 h (21600)  — typical upxelfdet SVM on 50k samples: 30 min; upper bound accommodates kernel trick variants
+- train: 6 h (21600) — typical upxelfdet SVM on 50k samples: 30 min; upper bound accommodates kernel trick variants
 - evaluate: 30 min (1800)
 - predict: 1 h (3600) — batches up to 100k samples
 
@@ -659,6 +670,7 @@ spec:
 ```
 
 **Notes:**
+
 - `output` emptyDir is the handoff surface between detector and MLflow. Because maldet's CLI will `mlflow.log_artifacts()` from within the container, Phase 4 does not need a post-hook to scrape output — it's already uploaded before the Pod exits. The emptyDir is discarded.
 - For resource-poor detectors (no GPU), a separate job template with `nvidia.com/gpu: 0` is supported via `resource_profile: cpu_only`. Phase 4 ships `standard` (1 GPU) only; `cpu_only` added when first non-GPU detector is registered (YAGNI).
 - `tmp` is memory-backed (1 Gi) to accommodate sklearn's `joblib`, HuggingFace `transformers` caches, etc., without touching rootfs.
@@ -666,6 +678,7 @@ spec:
 ### Job-scoped one-time token
 
 Analogous to Phase 3's `build_token`. Platform generates a UUID, stores hashed version in DB (column `job.token_hash`), injects raw token into `job-token-{job_id}` Secret. Secret is deleted in reconciler's finalize. Used by:
+
 - `config-writer` init container (calls back to backend for `resolved_config` via `/internal/jobs/{id}/config`)
 
 ### NetworkPolicy (kube-router L3/L4)
@@ -679,30 +692,34 @@ metadata: { name: lolday-job-egress, namespace: lolday }
 spec:
   podSelector: { matchLabels: { app.kubernetes.io/name: lolday-job } }
   policyTypes: [Ingress, Egress]
-  ingress: []                  # deny all ingress (jobs accept no connections)
+  ingress: [] # deny all ingress (jobs accept no connections)
   egress:
     # kube-dns
     - to:
-        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+        - namespaceSelector:
+            { matchLabels: { kubernetes.io/metadata.name: kube-system } }
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
     # MLflow (used by detector main container for tracking/artifact logging)
     - to:
-        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: lolday } }
+        - namespaceSelector:
+            { matchLabels: { kubernetes.io/metadata.name: lolday } }
           podSelector: { matchLabels: { app.kubernetes.io/component: mlflow } }
       ports:
         - { protocol: TCP, port: 5000 }
     # Backend (used by config-writer init container; see trade-off in A14)
     - to:
-        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: lolday } }
+        - namespaceSelector:
+            { matchLabels: { kubernetes.io/metadata.name: lolday } }
           podSelector: { matchLabels: { app.kubernetes.io/component: backend } }
       ports:
         - { protocol: TCP, port: 8000 }
 ```
 
 Nothing else is reachable: no Harbor, no K8s API, no public internet, no samples NFS server (local hostPath), no PyPI — the detector image has everything pre-installed from Phase 3 build. See A14 for the backend-egress trade-off.
-```
+
+````
 
 Main container attempts to reach backend:8000 would be *allowed* by this policy — accepted trade-off. Mitigation: backend's `/internal/jobs/{id}/config` endpoint requires the job token, and the token is only injected into the init container's env (not main). Main container cannot read init's env. A leaked token from init (e.g., via logs) would need further exploit; acceptable for Phase 4.
 
@@ -773,7 +790,7 @@ metadata: { name: mlflow, namespace: lolday }
 spec:
   selector: { app.kubernetes.io/component: mlflow }
   ports: [{ port: 5000, targetPort: 5000 }]
-```
+````
 
 ### PostgreSQL schema setup
 
@@ -785,7 +802,13 @@ kind: Job
 metadata:
   name: mlflow-db-init
   namespace: lolday
-  annotations: { helm.sh/hook: post-install,post-upgrade, helm.sh/hook-weight: "5", helm.sh/hook-delete-policy: hook-succeeded }
+  annotations:
+    {
+      helm.sh/hook: post-install,
+      post-upgrade,
+      helm.sh/hook-weight: "5",
+      helm.sh/hook-delete-policy: hook-succeeded,
+    }
 spec:
   template:
     spec:
@@ -807,18 +830,28 @@ spec:
               GRANT ALL PRIVILEGES ON DATABASE mlflow TO mlflow;
               SQL
           env:
-            - { name: PG_ADMIN_PASSWORD, valueFrom: { secretKeyRef: { name: lolday-postgresql, key: postgres-password } } }
-            - { name: PG_MLFLOW_PASSWORD, valueFrom: { secretKeyRef: { name: mlflow-db, key: password } } }
+            - {
+                name: PG_ADMIN_PASSWORD,
+                valueFrom:
+                  {
+                    secretKeyRef:
+                      { name: lolday-postgresql, key: postgres-password },
+                  },
+              }
+            - {
+                name: PG_MLFLOW_PASSWORD,
+                valueFrom: { secretKeyRef: { name: mlflow-db, key: password } },
+              }
 ```
 
 MLflow server auto-creates its own tables on first run.
 
 ### Access paths
 
-| Source | Path |
-|--------|------|
-| Backend → MLflow | `http://mlflow.lolday.svc:5000` (direct) |
-| Job pod → MLflow | `http://mlflow.lolday.svc:5000` (allowed by NetworkPolicy) |
+| Source                         | Path                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| Backend → MLflow               | `http://mlflow.lolday.svc:5000` (direct)                                              |
+| Job pod → MLflow               | `http://mlflow.lolday.svc:5000` (allowed by NetworkPolicy)                            |
 | Admin (dev laptop) → MLflow UI | `kubectl port-forward svc/mlflow 5000:5000` for Phase 4; Cloudflare Tunnel in Phase 6 |
 
 ### Artifact storage layout
@@ -977,6 +1010,7 @@ def predict(config=None, log_level="INFO", log_format="console"):
 `charts/lolday/helpers/job-helper/` — small platform-side image similar to Phase 3's `build-helper`, pushed to `harbor.harbor.svc:80/lolday/job-helper:v1`.
 
 Contents:
+
 - `job_helper/write_config.py` — fetches `/internal/jobs/{id}/config` with job token, writes `config.json` + dataset CSVs to `/mnt/config/`
 - `job_helper/fetch_model.py` — downloads artifacts from MLflow run's `model/` path to `/mnt/source-model/`
 - Base: `python:3.12-slim` + `httpx` + `mlflow` (only client, not server)
@@ -1008,6 +1042,7 @@ MLflow Model Registry is the source of truth. Lolday wraps it for RBAC + audit.
 ### Registration on train success
 
 When a train job succeeds:
+
 1. Reconciler's `_register_model_from_run` calls MLflow: `create_model_version(name=<detector.name>, source=runs:/<run>/model)`
 2. Initial stage is `None` (MLflow default)
 3. Sync creates local `model_version` row with `current_stage=None`, `detector_version_id`, `source_job_id`, `owner_id`
@@ -1038,18 +1073,18 @@ When a train job succeeds:
 
 ## Security Summary
 
-| Threat | Control |
-|--------|---------|
-| Malware sample executed inside job pod | `readOnlyRootFilesystem: true` + no-exec via `runAsNonRoot` + capabilities dropped — executing a file requires copying it to a writable path with exec bit, both disallowed |
-| Data exfiltration via training pod | Deny-all egress except DNS + MLflow + backend; no Harbor, no internet, no K8s API; SA token not mounted |
-| Malware corrupts adjacent jobs | Each job gets its own Pod; emptyDir volumes isolated; hostPath sample mounts are ReadOnly |
-| Malware tampers with MLflow | MLflow credentials limited per-run (run_id scoped); artifact writes go to run-specific subdir; no admin API exposed to job pods |
-| Job token leak | One-time token, hashed in DB, injected only into config-writer init container, Secret deleted on job finalize, 1-hour TTL at creation |
-| Dataset integrity bypass | SHA256 checksum re-verified at dispatch; spot-check sample existence; CSV content immutable (PATCH endpoint excludes csv_content) |
-| Promotion to Production by non-owner | `POST /models/.../transition` enforces owner-or-admin; audit log records actor |
-| Concurrency abuse (resource exhaustion) | Per-user 2 in-flight cap; global K8s scheduler naturally queues pending GPU-requesting pods |
-| SSH interruption | No CNI changes; no host-level changes during Phase 4 deploy; MLflow ClusterIP only; PV uses existing local-path provisioner |
-| Phase 3 build vs Phase 4 job interaction | Both share `lolday` namespace but different Role bindings not needed — backend SA already has scoped perms; jobs have no SA token; NetworkPolicies separate by label |
+| Threat                                   | Control                                                                                                                                                                     |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Malware sample executed inside job pod   | `readOnlyRootFilesystem: true` + no-exec via `runAsNonRoot` + capabilities dropped — executing a file requires copying it to a writable path with exec bit, both disallowed |
+| Data exfiltration via training pod       | Deny-all egress except DNS + MLflow + backend; no Harbor, no internet, no K8s API; SA token not mounted                                                                     |
+| Malware corrupts adjacent jobs           | Each job gets its own Pod; emptyDir volumes isolated; hostPath sample mounts are ReadOnly                                                                                   |
+| Malware tampers with MLflow              | MLflow credentials limited per-run (run_id scoped); artifact writes go to run-specific subdir; no admin API exposed to job pods                                             |
+| Job token leak                           | One-time token, hashed in DB, injected only into config-writer init container, Secret deleted on job finalize, 1-hour TTL at creation                                       |
+| Dataset integrity bypass                 | SHA256 checksum re-verified at dispatch; spot-check sample existence; CSV content immutable (PATCH endpoint excludes csv_content)                                           |
+| Promotion to Production by non-owner     | `POST /models/.../transition` enforces owner-or-admin; audit log records actor                                                                                              |
+| Concurrency abuse (resource exhaustion)  | Per-user 2 in-flight cap; global K8s scheduler naturally queues pending GPU-requesting pods                                                                                 |
+| SSH interruption                         | No CNI changes; no host-level changes during Phase 4 deploy; MLflow ClusterIP only; PV uses existing local-path provisioner                                                 |
+| Phase 3 build vs Phase 4 job interaction | Both share `lolday` namespace but different Role bindings not needed — backend SA already has scoped perms; jobs have no SA token; NetworkPolicies separate by label        |
 
 ### Audit log
 
@@ -1070,14 +1105,14 @@ AUDIT model.transition     user=<id> model=<name> version=<v> from=<s1> to=<s2>
 
 ### Unit (pytest, no K8s, no MLflow)
 
-| Module | Focus |
-|--------|-------|
-| `services/dataset.py` | CSV parse + checksum + label distribution; reject malformed; reject non-SHA256 names; reject oversized |
-| `services/job.py` | Config rendering: per-type path injection, schema validation, idempotency key |
-| `services/mlflow_client.py` | MLflow REST calls with `respx` mocks; retry on 503; error mapping |
-| `services/k8s.py` | Job spec generation: correct volumes/env/security for each type; GPU request inclusion |
-| `reconciler.py` | State transitions: preparing→running, success/failure/timeout; model-version sync |
-| `services/dataset_integrity.py` | Spot-check logic: skip missing ≤ threshold; fail on ≥ threshold |
+| Module                          | Focus                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `services/dataset.py`           | CSV parse + checksum + label distribution; reject malformed; reject non-SHA256 names; reject oversized |
+| `services/job.py`               | Config rendering: per-type path injection, schema validation, idempotency key                          |
+| `services/mlflow_client.py`     | MLflow REST calls with `respx` mocks; retry on 503; error mapping                                      |
+| `services/k8s.py`               | Job spec generation: correct volumes/env/security for each type; GPU request inclusion                 |
+| `reconciler.py`                 | State transitions: preparing→running, success/failure/timeout; model-version sync                      |
+| `services/dataset_integrity.py` | Spot-check logic: skip missing ≤ threshold; fail on ≥ threshold                                        |
 
 ### Integration (FastAPI TestClient + aiosqlite + mocked K8s + mocked MLflow)
 
@@ -1091,6 +1126,7 @@ AUDIT model.transition     user=<id> model=<name> version=<v> from=<s1> to=<s2>
 ### E2E (manual, on server30)
 
 Per-release checklist, committed as `docs/phase4-e2e-checklist.md`:
+
 1. Upload dataset config (subset of Malware202403_info.csv, e.g., 5k samples)
 2. Submit `train` job for upxelfdet v0.4.0 using that dataset
 3. Watch job transition: pending → preparing → running → succeeded
@@ -1140,7 +1176,7 @@ mlflow:
   image: ghcr.io/mlflow/mlflow:v2.20.3
   storage: 100Gi
   secrets:
-    dbPassword: ""       # --set
+    dbPassword: "" # --set
 
 samples:
   malware:
@@ -1164,7 +1200,7 @@ jobs:
 backend:
   env:
     MLFLOW_TRACKING_URI: http://mlflow.lolday.svc:5000
-    DATASET_CSV_MAX_BYTES: "10485760"      # 10 MiB
+    DATASET_CSV_MAX_BYTES: "10485760" # 10 MiB
 ```
 
 ### Deploy steps (extend `scripts/deploy.sh`)
@@ -1176,7 +1212,7 @@ Add after existing Phase 3 Harbor setup:
    - `sudo chown bolin8017:bolin8017 /data/malware-samples /data/benign-samples` (owner matches K3s runtime)
    - `sudo chmod 755 /data/*`
    - (Populate with samples externally)
-   - *Not in `deploy.sh`* — prompt user in README; this is pre-infrastructure
+   - _Not in `deploy.sh`_ — prompt user in README; this is pre-infrastructure
 
 2. **Build + push job-helper image:**
    - `docker build -t harbor.harbor.svc:80/lolday/job-helper:v1 charts/lolday/helpers/job-helper/`
@@ -1243,6 +1279,7 @@ Decisions made during Phase 4 design. Supersedes main spec where noted.
 **Amendment:** Phase 4 uses hostPath PV on server30. NFS CSI migration path documented but not executed.
 
 **Why:**
+
 - Single node; hostPath is faster (no network stack) and has zero new dependencies
 - NFS installation requires sudo (user doesn't have it routinely)
 - PV/PVC abstraction means switching to NFS is a 1-file change later
@@ -1280,14 +1317,14 @@ Decisions made during Phase 4 design. Supersedes main spec where noted.
 
 ## Phase Roadmap Touchpoints
 
-| Phase | Name | Status | Phase 4 impact |
-|-------|------|--------|----------------|
-| 1 | Infrastructure Foundation | ✅ Complete | No change |
-| 2 | Backend Core | ✅ Complete | No change (models.py / schemas.py already split) |
-| 3 | Detector Lifecycle | ✅ Complete | Reuses `detector_version` schema; adds `mlflow_experiment_id` column via migration |
-| 4 | Dataset & Jobs | **Current** | — |
-| 5 | Frontend | Pending | Renders `detector_version.config_schema` as forms; displays `job.status`, streams logs, links to MLflow UI; Model Registry UI over `/models` endpoints |
-| 6 | Operations | Pending | Cloudflared Tunnel exposes MLflow UI (behind Access); Resend email on job finish (hook already in reconciler); Loki replaces `log_tail` + K8s log proxy; R2 backup of MLflow PV + `mlflow` DB; optional NFS CSI migration; optional MinIO for oversized dataset CSVs |
+| Phase | Name                      | Status      | Phase 4 impact                                                                                                                                                                                                                                                       |
+| ----- | ------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Infrastructure Foundation | ✅ Complete | No change                                                                                                                                                                                                                                                            |
+| 2     | Backend Core              | ✅ Complete | No change (models.py / schemas.py already split)                                                                                                                                                                                                                     |
+| 3     | Detector Lifecycle        | ✅ Complete | Reuses `detector_version` schema; adds `mlflow_experiment_id` column via migration                                                                                                                                                                                   |
+| 4     | Dataset & Jobs            | **Current** | —                                                                                                                                                                                                                                                                    |
+| 5     | Frontend                  | Pending     | Renders `detector_version.config_schema` as forms; displays `job.status`, streams logs, links to MLflow UI; Model Registry UI over `/models` endpoints                                                                                                               |
+| 6     | Operations                | Pending     | Cloudflared Tunnel exposes MLflow UI (behind Access); Resend email on job finish (hook already in reconciler); Loki replaces `log_tail` + K8s log proxy; R2 backup of MLflow PV + `mlflow` DB; optional NFS CSI migration; optional MinIO for oversized dataset CSVs |
 
 ---
 

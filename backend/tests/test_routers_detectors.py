@@ -1,6 +1,6 @@
-import pytest
-import pytest_asyncio
 from uuid import UUID
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -11,13 +11,17 @@ async def test_get_version_legacy_null_manifest_returns_200(
 
     Schema must accept None; endpoint must return 200 with `manifest: null`.
     """
-    from app.routers import detectors as dr
     from app.models import Detector, DetectorVersion
     from app.models.detector import DetectorVersionStatus
+    from app.routers import detectors as dr
 
     # Fake the _clone_and_validate so detector registration works
     async def fake_meta(url, pat):
-        return {"name": "legacy-det", "description": "demo", "display_name": "legacy-det"}
+        return {
+            "name": "legacy-det",
+            "description": "demo",
+            "display_name": "legacy-det",
+        }
 
     monkeypatch.setattr(dr, "_clone_and_validate", fake_meta)
 
@@ -61,7 +65,10 @@ async def test_get_version_legacy_null_manifest_returns_200(
 
 @pytest.mark.asyncio
 async def test_delete_version_soft_deletes(
-    async_client, detector_factory, version_factory, auth_owner_headers,
+    async_client,
+    detector_factory,
+    version_factory,
+    auth_owner_headers,
     monkeypatch,
 ):
     """Happy path: soft-deletes the version and best-effort purges Harbor."""
@@ -75,7 +82,9 @@ async def test_delete_version_soft_deletes(
     harbor_calls = []
 
     class FakeHarbor:
-        def __init__(self, *a, **kw): pass
+        def __init__(self, *a, **kw):
+            pass
+
         async def delete_artifact(self, project, repo, digest):
             harbor_calls.append((project, repo, digest))
 
@@ -89,7 +98,8 @@ async def test_delete_version_soft_deletes(
     assert resp.status_code == 204
 
     list_resp = await async_client.get(
-        f"/api/v1/detectors/{detector.id}/versions", headers=auth_owner_headers,
+        f"/api/v1/detectors/{detector.id}/versions",
+        headers=auth_owner_headers,
     )
     assert all(v["git_tag"] != "v1.0.0" for v in list_resp.json()["items"])
     assert harbor_calls == [("detectors", "rfdet", "sha256:abc")]
@@ -97,7 +107,10 @@ async def test_delete_version_soft_deletes(
 
 @pytest.mark.asyncio
 async def test_delete_version_blocks_when_in_flight(
-    async_client, detector_factory, version_factory, job_factory,
+    async_client,
+    detector_factory,
+    version_factory,
+    job_factory,
     auth_owner_headers,
 ):
     """409 when any job using this version is non-terminal."""
@@ -115,7 +128,9 @@ async def test_delete_version_blocks_when_in_flight(
 
 @pytest.mark.asyncio
 async def test_delete_version_404_unknown_tag(
-    async_client, detector_factory, auth_owner_headers,
+    async_client,
+    detector_factory,
+    auth_owner_headers,
 ):
     detector = await detector_factory(name="rfdet")
     resp = await async_client.delete(
@@ -127,11 +142,16 @@ async def test_delete_version_404_unknown_tag(
 
 @pytest.mark.asyncio
 async def test_delete_version_409_already_deleted(
-    async_client, detector_factory, version_factory, auth_owner_headers,
+    async_client,
+    detector_factory,
+    version_factory,
+    auth_owner_headers,
 ):
     detector = await detector_factory(name="rfdet")
     await version_factory(
-        detector_id=detector.id, git_tag="v1.0.0", status="deleted",
+        detector_id=detector.id,
+        git_tag="v1.0.0",
+        status="deleted",
     )
     resp = await async_client.delete(
         f"/api/v1/detectors/{detector.id}/versions/v1.0.0",
@@ -143,7 +163,10 @@ async def test_delete_version_409_already_deleted(
 
 @pytest.mark.asyncio
 async def test_delete_version_403_non_owner(
-    async_client, detector_factory, version_factory, auth_other_user_headers,
+    async_client,
+    detector_factory,
+    version_factory,
+    auth_other_user_headers,
 ):
     detector = await detector_factory(name="rfdet")  # owned by `owner`
     await version_factory(detector_id=detector.id, git_tag="v1.0.0")
@@ -156,8 +179,12 @@ async def test_delete_version_403_non_owner(
 
 @pytest.mark.asyncio
 async def test_delete_version_does_not_break_historical_jobs(
-    async_client, detector_factory, version_factory, job_factory,
-    auth_owner_headers, monkeypatch,
+    async_client,
+    detector_factory,
+    version_factory,
+    job_factory,
+    auth_owner_headers,
+    monkeypatch,
 ):
     """After delete, GET /jobs/{historical_job_id} still succeeds and
     references the deleted version row."""
@@ -175,7 +202,8 @@ async def test_delete_version_does_not_break_historical_jobs(
     assert resp.status_code == 204
 
     job_resp = await async_client.get(
-        f"/api/v1/jobs/{job.id}", headers=auth_owner_headers,
+        f"/api/v1/jobs/{job.id}",
+        headers=auth_owner_headers,
     )
     assert job_resp.status_code == 200
     assert job_resp.json()["detector_version_id"] == str(version.id)
@@ -183,7 +211,10 @@ async def test_delete_version_does_not_break_historical_jobs(
 
 @pytest.mark.asyncio
 async def test_delete_detector_blocks_when_in_flight(
-    async_client, detector_factory, version_factory, job_factory,
+    async_client,
+    detector_factory,
+    version_factory,
+    job_factory,
     auth_owner_headers,
 ):
     """Existing DELETE /detectors/{id} now blocks if any of its versions
@@ -193,7 +224,8 @@ async def test_delete_detector_blocks_when_in_flight(
     await job_factory(detector_version_id=version.id, status="running")
 
     resp = await async_client.delete(
-        f"/api/v1/detectors/{detector.id}", headers=auth_owner_headers,
+        f"/api/v1/detectors/{detector.id}",
+        headers=auth_owner_headers,
     )
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "detector_has_in_flight_jobs"
@@ -201,7 +233,10 @@ async def test_delete_detector_blocks_when_in_flight(
 
 @pytest.mark.asyncio
 async def test_delete_version_returns_204_when_harbor_purge_fails(
-    async_client, detector_factory, version_factory, auth_owner_headers,
+    async_client,
+    detector_factory,
+    version_factory,
+    auth_owner_headers,
     monkeypatch,
 ):
     """Phase 13a follow-up (PR review TG-3): Harbor purge is best-effort.
@@ -211,11 +246,15 @@ async def test_delete_version_returns_204_when_harbor_purge_fails(
     """
     detector = await detector_factory(name="rfdet")
     version = await version_factory(
-        detector_id=detector.id, git_tag="v1.0.0", image_digest="sha256:abc",
+        detector_id=detector.id,
+        git_tag="v1.0.0",
+        image_digest="sha256:abc",
     )
 
     class ExplodingHarbor:
-        def __init__(self, *a, **kw): pass
+        def __init__(self, *a, **kw):
+            pass
+
         async def delete_artifact(self, project, repo, digest):
             raise RuntimeError("harbor down (simulated)")
 
@@ -231,6 +270,7 @@ async def test_delete_version_returns_204_when_harbor_purge_fails(
 
     # Soft-delete already committed (no rollback on Harbor exception).
     list_resp = await async_client.get(
-        f"/api/v1/detectors/{detector.id}/versions", headers=auth_owner_headers,
+        f"/api/v1/detectors/{detector.id}/versions",
+        headers=auth_owner_headers,
     )
     assert all(v["git_tag"] != "v1.0.0" for v in list_resp.json()["items"])

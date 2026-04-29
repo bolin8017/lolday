@@ -13,6 +13,7 @@
 **Server:** server30 (Ubuntu 24.04, K3s v1.34.6+k3s1, Phase 4+5 deployed — backend `phase5`, frontend `phase5`, MLflow, PostgreSQL, Harbor, Redis).
 
 **Constraints:**
+
 - `bolin8017` has no persistent `sudo` — one `sudo mkdir` for `/mnt/ssd500g/lolday-monitoring` has already been done during brainstorming.
 - CLI tools in `~/.local/bin/`; do NOT system-install anything without explicit approval.
 - SSH on port 9453 must never be disrupted. K3s must stay running after every step.
@@ -91,6 +92,7 @@ docs/
 **Goal:** Expose a Prometheus text endpoint at `/metrics` so kube-prometheus-stack can scrape backend. Test first.
 
 **Files:**
+
 - Create: `backend/tests/test_metrics.py`
 - Modify: `backend/pyproject.toml`
 - Modify: `backend/app/main.py` (add 3 lines immediately after `app = FastAPI(...)` is created; around line ~85)
@@ -231,6 +233,7 @@ EOF
 **Goal:** Publish the instrumented backend image to Harbor as `phase6`.
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml` (bump `backend.image` from `phase5` to `phase6`)
 
 - [ ] **Step 1: Log in to Harbor**
@@ -315,6 +318,7 @@ Note: the new image is not yet deployed — that happens in Task 13. This commit
 **Goal:** Create the `monitoring` namespace and a dedicated StorageClass `monitoring-local` backed by `/mnt/ssd500g/lolday-monitoring` so monitoring PVs do not fill the root filesystem.
 
 **Files:**
+
 - Create: `charts/lolday/templates/monitoring/namespace.yaml`
 - Create: `charts/lolday/templates/monitoring/storage-class.yaml`
 
@@ -390,6 +394,7 @@ git commit -m "feat(charts): add monitoring namespace and StorageClass (phase 6)
 **Goal:** Register `kube-prometheus-stack`, `loki`, and `promtail` as Helm sub-charts; fetch their archives.
 
 **Files:**
+
 - Modify: `charts/lolday/Chart.yaml`
 - Regenerated: `charts/lolday/Chart.lock`
 - Ensure: `charts/lolday/.helmignore` ignores vendored sub-chart archives (or keep them; see step 5)
@@ -489,6 +494,7 @@ git commit -m "feat(charts): add kube-prometheus-stack, loki, promtail dependenc
 **Goal:** Configure the monitoring sub-chart — Prometheus retention, storage, Grafana admin secret reference, Alertmanager with empty receivers, enable auto-discovery of all ServiceMonitors regardless of release label.
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml` (append a `monitoring` top-level block and a `kps` sub-chart block)
 
 - [ ] **Step 1: Append the top-level monitoring config to `values.yaml`**
@@ -496,7 +502,6 @@ git commit -m "feat(charts): add kube-prometheus-stack, loki, promtail dependenc
 At the end of `charts/lolday/values.yaml`, append:
 
 ```yaml
-
 # =============================================================================
 # Monitoring (Phase 6) — kube-prometheus-stack + loki + promtail
 # =============================================================================
@@ -513,7 +518,6 @@ monitoring:
 Continuing in `charts/lolday/values.yaml`, append:
 
 ```yaml
-
 # Sub-chart config consumed as values of the kube-prometheus-stack chart (alias: kps)
 kps:
   namespaceOverride: monitoring
@@ -524,7 +528,7 @@ kps:
   prometheus:
     prometheusSpec:
       retention: 15d
-      retentionSize: 18GiB            # leave ~10% head-room under 20 Gi PVC
+      retentionSize: 18GiB # leave ~10% head-room under 20 Gi PVC
       # Scrape every ServiceMonitor in the cluster (default scopes to the Helm release label)
       serviceMonitorSelectorNilUsesHelmValues: false
       podMonitorSelectorNilUsesHelmValues: false
@@ -540,7 +544,7 @@ kps:
                 storage: 20Gi
       resources:
         requests: { cpu: 500m, memory: 2Gi }
-        limits:   { cpu: 2,    memory: 8Gi }
+        limits: { cpu: 2, memory: 8Gi }
 
   alertmanager:
     alertmanagerSpec:
@@ -556,12 +560,12 @@ kps:
     # Wiring Resend/Discord is Phase 7.
     config:
       route:
-        receiver: 'null'
+        receiver: "null"
         group_wait: 10s
         group_interval: 5m
         repeat_interval: 12h
       receivers:
-        - name: 'null'
+        - name: "null"
 
   grafana:
     persistence:
@@ -583,7 +587,7 @@ kps:
         enabled: true
     resources:
       requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 1Gi }
+      limits: { cpu: 500m, memory: 1Gi }
 
   kubeStateMetrics: { enabled: true }
   nodeExporter:
@@ -592,11 +596,11 @@ kps:
   # Disable ServiceMonitors that try to scrape K3s-hidden components (apiserver, scheduler, controller-manager).
   # K3s runs these as embedded goroutines inside the server binary; their metrics are exposed on
   # 127.0.0.1:10259/10257 which Prometheus cannot reach. Disabling silences noisy "DOWN" alerts.
-  kubeApiServer:         { enabled: true }
+  kubeApiServer: { enabled: true }
   kubeControllerManager: { enabled: false }
-  kubeScheduler:         { enabled: false }
-  kubeProxy:             { enabled: false }
-  kubeEtcd:              { enabled: false }
+  kubeScheduler: { enabled: false }
+  kubeProxy: { enabled: false }
+  kubeEtcd: { enabled: false }
 ```
 
 - [ ] **Step 3: Dry-run render**
@@ -622,12 +626,12 @@ git commit -m "feat(charts): add kube-prometheus-stack values (phase 6)"
 **Goal:** Configure Loki single-binary mode and Promtail DaemonSet.
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml`
 
 - [ ] **Step 1: Append Loki and Promtail blocks to `values.yaml`**
 
 ```yaml
-
 # =============================================================================
 # Loki — log aggregation (single-binary mode)
 # =============================================================================
@@ -655,7 +659,7 @@ loki:
         admin: loki-admin
     auth_enabled: false
     limits_config:
-      retention_period: 168h          # 7 days
+      retention_period: 168h # 7 days
       reject_old_samples: true
       reject_old_samples_max_age: 168h
   singleBinary:
@@ -666,10 +670,10 @@ loki:
       size: 30Gi
     resources:
       requests: { cpu: 200m, memory: 512Mi }
-      limits:   { cpu: 1,    memory: 2Gi }
+      limits: { cpu: 1, memory: 2Gi }
   # Scalable-mode components off
-  read:    { replicas: 0 }
-  write:   { replicas: 0 }
+  read: { replicas: 0 }
+  write: { replicas: 0 }
   backend: { replicas: 0 }
   # No ingress — internal only
   gateway:
@@ -690,11 +694,12 @@ promtail:
       pipelineStages:
         - cri: {}
       extraRelabelConfigs:
-        - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+        - source_labels:
+            [__meta_kubernetes_pod_label_app_kubernetes_io_component]
           target_label: component
   resources:
-    requests: { cpu: 50m,  memory: 64Mi }
-    limits:   { cpu: 200m, memory: 256Mi }
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 256Mi }
   serviceMonitor:
     enabled: true
     namespace: monitoring
@@ -722,6 +727,7 @@ git commit -m "feat(charts): add loki + promtail values (phase 6)"
 **Goal:** Provide the `grafana-admin` Secret referenced by the `kps` chart so Grafana boots with a known password managed via `~/.lolday-secrets.env`.
 
 **Files:**
+
 - Create: `charts/lolday/templates/monitoring/grafana-admin-secret.yaml`
 
 - [ ] **Step 1: Create the Secret template**
@@ -753,7 +759,7 @@ monitoring:
   storage:
     nodePath: /mnt/ssd500g/lolday-monitoring
   grafana:
-    adminPassword: ""   # --set at deploy time, NEVER commit
+    adminPassword: "" # --set at deploy time, NEVER commit
 ```
 
 (Replace the earlier short `monitoring:` block with this one.)
@@ -788,6 +794,7 @@ git commit -m "feat(charts): grafana-admin Secret + adminPassword values placeho
 **Goal:** Deploy `postgres-exporter` as a standalone Deployment in the `lolday` namespace, create the `postgres_exporter` DB user with `pg_monitor` role (once, via a Helm Job), and expose port 9187 behind a Service.
 
 **Files:**
+
 - Create: `charts/lolday/templates/monitoring/postgres-exporter.yaml`
 - Create: `charts/lolday/templates/monitoring/postgres-exporter-initjob.yaml`
 - Modify: `charts/lolday/values.yaml` (add `monitoring.postgresExporter` block)
@@ -803,14 +810,14 @@ monitoring:
   storage:
     nodePath: /mnt/ssd500g/lolday-monitoring
   grafana:
-    adminPassword: ""   # --set at deploy time (from Task 7)
+    adminPassword: "" # --set at deploy time (from Task 7)
   postgresExporter:
     enabled: true
     image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0
-    password: ""        # --set at deploy time, NEVER commit
+    password: "" # --set at deploy time, NEVER commit
     resources:
-      requests: { cpu: 20m,  memory: 64Mi }
-      limits:   { cpu: 100m, memory: 128Mi }
+      requests: { cpu: 20m, memory: 64Mi }
+      limits: { cpu: 100m, memory: 128Mi }
 ```
 
 - [ ] **Step 2: Create `charts/lolday/templates/monitoring/postgres-exporter.yaml`**
@@ -990,6 +997,7 @@ git commit -m "feat(charts): postgres-exporter Deployment + init Job (phase 6)"
 **Goal:** Tell Prometheus (via kube-prometheus-stack CRDs) which Services to scrape inside the `lolday` and `kube-system` namespaces.
 
 **Files:**
+
 - Create: `charts/lolday/templates/monitoring/servicemonitor-backend.yaml`
 - Create: `charts/lolday/templates/monitoring/servicemonitor-traefik.yaml`
 - Create: `charts/lolday/templates/monitoring/servicemonitor-harbor.yaml`
@@ -1074,7 +1082,7 @@ harbor:
     serviceMonitor:
       enabled: true
       additionalLabels:
-        release: lolday            # matches kps Prometheus selector
+        release: lolday # matches kps Prometheus selector
       interval: 60s
 ```
 
@@ -1134,6 +1142,7 @@ git commit -m "feat(charts): ServiceMonitors for backend/traefik/postgres + enab
 **Goal:** Define four baseline alerts visible in Alertmanager UI even with empty receivers.
 
 **Files:**
+
 - Create: `charts/lolday/templates/monitoring/alertmanager-rules.yaml`
 
 - [ ] **Step 1: Create the PrometheusRule**
@@ -1222,6 +1231,7 @@ git commit -m "feat(charts): baseline Prometheus alert rules (phase 6)"
 **Goal:** Preload three community dashboards so Grafana boots with DCGM, Traefik, and PostgreSQL views ready.
 
 **Files:**
+
 - Create: `charts/lolday/templates/monitoring/grafana-dashboards.yaml`
 - Create (downloaded, checked in): `charts/lolday/dashboards/dcgm.json`, `traefik.json`, `postgresql.json`
 
@@ -1302,6 +1312,7 @@ git commit -m "feat(charts): provision Grafana dashboards for DCGM/Traefik/Postg
 **Goal:** A single script the admin runs before every Phase 6 deploy that validates all prerequisites. Extend `deploy.sh` to generate + pass the new secrets.
 
 **Files:**
+
 - Create: `scripts/phase6-pre-deploy-check.sh`
 - Modify: `scripts/deploy.sh`
 
@@ -1495,6 +1506,7 @@ kubectl -n monitoring get pods -w
 ```
 
 Watch until every pod shows `Running` and `1/1` or `2/2` Ready. Ctrl-C when all are ready. Expected pods:
+
 - `kps-kube-prometheus-stack-operator-*`
 - `prometheus-kps-kube-prometheus-stack-prometheus-0`
 - `alertmanager-kps-kube-prometheus-stack-alertmanager-0`
@@ -1516,6 +1528,7 @@ curl -sI http://localhost:3000/login | head -1
 Expected: `HTTP/1.1 200 OK`. Open a browser to `http://localhost:3000`, log in with `admin` / `$GRAFANA_ADMIN_PASSWORD`.
 
 Check:
+
 - Dashboard "Kubernetes / Compute Resources / Cluster" shows data
 - Dashboard "NVIDIA DCGM Exporter Dashboard" (from the ConfigMap) shows 2 GPUs
 - Dashboard "Traefik 3" shows request counters (may be empty if no traffic yet)
@@ -1642,6 +1655,7 @@ Zero Trust → Settings → Authentication → Login methods → Add new → Goo
 - [ ] **Step 5: Create Access Application**
 
 Zero Trust → Access → Applications → Add an application → Self-hosted. Fill:
+
 - Application name: `lolday`
 - Session Duration: `24h`
 - Application Domain: `lolday.connlabai.com`
@@ -1652,6 +1666,7 @@ Save & continue.
 - [ ] **Step 6: Create policy**
 
 Policy:
+
 - Policy name: `NTUST staff`
 - Action: `Allow`
 - Session duration: default
@@ -1685,6 +1700,7 @@ Everything in Task 14 lives in Cloudflare dashboard. No code commit. Update `~/.
 **Goal:** Even if `cloudflared` container is compromised, its outbound traffic is bounded to DNS, Traefik, and Cloudflare edge.
 
 **Files:**
+
 - Create: `charts/lolday/templates/netpol-cloudflared.yaml`
 
 - [ ] **Step 1: Create the NetworkPolicy**
@@ -1777,6 +1793,7 @@ git commit -m "feat(charts): NetworkPolicy restricting cloudflared egress"
 **Goal:** Switch `frontend.host` to `lolday.connlabai.com` so Traefik routes the Cloudflare-tunneled traffic.
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml`
 
 - [ ] **Step 1: Edit `values.yaml`**
@@ -1795,9 +1812,9 @@ to:
 ```yaml
 cloudflare:
   enabled: true
-  tunnelToken: ""       # --set at deploy time via $CF_TUNNEL_TOKEN
+  tunnelToken: "" # --set at deploy time via $CF_TUNNEL_TOKEN
   replicas: 2
-  image: cloudflare/cloudflared:2026.3.0    # pin explicit tag (no :latest)
+  image: cloudflare/cloudflared:2026.3.0 # pin explicit tag (no :latest)
 ```
 
 And change the frontend block:
@@ -1827,7 +1844,8 @@ image: cloudflare/cloudflared:latest
 to:
 
 ```yaml
-image: {{ .Values.cloudflare.image | default "cloudflare/cloudflared:2026.3.0" }}
+image:
+  { { .Values.cloudflare.image | default "cloudflare/cloudflared:2026.3.0" } }
 ```
 
 - [ ] **Step 3: Add Host header config in Tunnel dashboard (reminder, not code)**
@@ -1942,6 +1960,7 @@ Expected: 302 to Cloudflare Access. **Not** a JSON 401 from FastAPI.
 - [ ] **Step 6: NTUST SSO happy-path**
 
 In a browser:
+
 1. Open `https://lolday.connlabai.com`
 2. Sign in with a Google account ending in `@mail.ntust.edu.tw`
 3. See lolday login page
@@ -1953,6 +1972,7 @@ Record pass/fail.
 - [ ] **Step 7: Non-NTUST Google account denied**
 
 In a private browser session (or with a logout + alternate Google account):
+
 1. Open `https://lolday.connlabai.com`
 2. Sign in with a Google account that does NOT end in `@mail.ntust.edu.tw`
 3. Expect Cloudflare Access denial page: "You do not have permission to access this application."
@@ -1989,6 +2009,7 @@ git status
 **Goal:** Keep Phase 5 Playwright regression working after the host change. The Phase 5 config already uses an env-driven `BASE_URL` and a `--host-resolver-rules` mapping to `127.0.0.1`; only the hardcoded `DEPLOYED_HOST` constant needs updating.
 
 **Files:**
+
 - Modify: `frontend/playwright.config.ts`
 
 - [ ] **Step 1: Edit `frontend/playwright.config.ts`**
@@ -2103,6 +2124,7 @@ No commit for this task.
 **Goal:** Capture the single source of truth for "Phase 6 is done".
 
 **Files:**
+
 - Create: `docs/phase6-e2e-checklist.md`
 
 - [ ] **Step 1: Draft the checklist**
@@ -2170,8 +2192,8 @@ Run: `bash scripts/phase6-pre-deploy-check.sh && bash scripts/deploy.sh`
 
 ## Sign-off
 
-- [ ] Date: _____
-- [ ] Verifier: _____
+- [ ] Date: **\_**
+- [ ] Verifier: **\_**
 ```
 
 - [ ] **Step 2: Commit**
@@ -2241,6 +2263,7 @@ git push origin main
 - [ ] **Step 4: Update the auto-memory note**
 
 Update `~/.claude/projects/-home-bolin8017-Documents-repositories-lolday/memory/project_lolday_overview.md`:
+
 - Mark Phase 6 as done with date and commit hash
 - Add Phase 6 specific notes (what's in monitoring, Tunnel config, new external URL)
 - Bump "current status" line

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +28,7 @@ def _parse_ts(raw: str | None) -> datetime | None:
 async def persist_event(
     session: AsyncSession, *, job_id: uuid.UUID, event: dict[str, Any]
 ) -> JobEvent:
-    ts = _parse_ts(event.get("ts")) or datetime.now(timezone.utc)
+    ts = _parse_ts(event.get("ts")) or datetime.now(UTC)
     kind = event.get("kind") or "unknown"
     payload = {k: v for k, v in event.items() if k not in ("ts", "kind")}
     row = JobEvent(job_id=job_id, ts=ts, kind=kind, payload=payload)

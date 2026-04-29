@@ -10,7 +10,8 @@ export type JobStatus = components["schemas"]["JobStatus"];
 
 export const jobsKeys = {
   all: ["jobs"] as const,
-  list: (params: Record<string, unknown>) => [...jobsKeys.all, "list", params] as const,
+  list: (params: Record<string, unknown>) =>
+    [...jobsKeys.all, "list", params] as const,
   detail: (id: string) => [...jobsKeys.all, "detail", id] as const,
   logs: (id: string) => [...jobsKeys.all, "logs", id] as const,
 };
@@ -22,7 +23,9 @@ export function useJobs(params: { type?: JobType; status?: JobStatus } = {}) {
   return useQuery({
     queryKey: jobsKeys.list(params),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/jobs", { params: { query: params } });
+      const { data, error } = await client.GET("/api/v1/jobs", {
+        params: { query: params },
+      });
       if (error) throw error;
       return data;
     },
@@ -41,7 +44,8 @@ export function useJob(id: string) {
       if (error) throw error;
       return data as Job;
     },
-    refetchInterval: (q) => (isActive((q.state.data as Job | undefined)?.status) ? 2000 : false),
+    refetchInterval: (q) =>
+      isActive((q.state.data as Job | undefined)?.status) ? 2000 : false,
   });
 }
 
@@ -49,7 +53,9 @@ export function useJobLogs(id: string, jobStatus: string | undefined) {
   return useQuery({
     queryKey: jobsKeys.logs(id),
     queryFn: async () => {
-      const resp = await fetch(`/api/v1/jobs/${id}/logs`, { credentials: "include" });
+      const resp = await fetch(`/api/v1/jobs/${id}/logs`, {
+        credentials: "include",
+      });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       return resp.text();
     },
@@ -74,9 +80,12 @@ export function useCancelJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data, error } = await client.POST("/api/v1/jobs/{job_id}/cancel", {
-        params: { path: { job_id: id } },
-      });
+      const { data, error } = await client.POST(
+        "/api/v1/jobs/{job_id}/cancel",
+        {
+          params: { path: { job_id: id } },
+        },
+      );
       if (error) throw error;
       return data;
     },

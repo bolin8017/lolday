@@ -2,9 +2,8 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,11 +29,13 @@ class JobStatus(str, enum.Enum):
     TIMEOUT = "timeout"
 
 
-NON_TERMINAL_STATUSES = frozenset({
-    JobStatus.PENDING,
-    JobStatus.PREPARING,
-    JobStatus.RUNNING,
-})
+NON_TERMINAL_STATUSES = frozenset(
+    {
+        JobStatus.PENDING,
+        JobStatus.PREPARING,
+        JobStatus.RUNNING,
+    }
+)
 
 
 class ResourceProfile(str, enum.Enum):
@@ -58,10 +59,14 @@ class ResourceProfile(str, enum.Enum):
 # runtime raises TypeError. Verified total against the enum below.
 from types import MappingProxyType  # noqa: E402 — kept adjacent to the map
 
-_RESOURCE_PROFILE_GPU_COUNT: "MappingProxyType[ResourceProfile, int]" = MappingProxyType({
-    ResourceProfile.STANDARD: 0,
-    ResourceProfile.GPU2: 2,
-})
+_RESOURCE_PROFILE_GPU_COUNT: "MappingProxyType[ResourceProfile, int]" = (
+    MappingProxyType(
+        {
+            ResourceProfile.STANDARD: 0,
+            ResourceProfile.GPU2: 2,
+        }
+    )
+)
 assert set(_RESOURCE_PROFILE_GPU_COUNT.keys()) == set(ResourceProfile), (
     "RESOURCE_PROFILE map not total over ResourceProfile — adding an enum "
     "value without updating the map would silently break scheduling."
@@ -76,13 +81,19 @@ class Job(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     type: Mapped[JobType] = mapped_column(
-        SAEnum(JobType, name="job_type_enum",
-               values_callable=lambda x: [e.value for e in x]),
+        SAEnum(
+            JobType,
+            name="job_type_enum",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     status: Mapped[JobStatus] = mapped_column(
-        SAEnum(JobStatus, name="job_status_enum",
-               values_callable=lambda x: [e.value for e in x]),
+        SAEnum(
+            JobStatus,
+            name="job_status_enum",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=JobStatus.PENDING,
         nullable=False,
     )
@@ -101,9 +112,7 @@ class Job(Base):
     source_model_version_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("model_version.id"), nullable=True
     )
-    owner_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("user.id"), nullable=False
-    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"), nullable=False)
     resolved_config: Mapped[dict] = mapped_column(_JSONB, nullable=False)
     # Phase 13b B3: raw user-submitted params (before defaults merge), used
     # by the resolved-config UI to highlight what the user actually changed.
@@ -115,16 +124,25 @@ class Job(Base):
     log_tail: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_metrics: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
     resource_profile: Mapped[ResourceProfile] = mapped_column(
-        SAEnum(ResourceProfile, name="resource_profile_enum",
-               values_callable=lambda x: [e.value for e in x]),
+        SAEnum(
+            ResourceProfile,
+            name="resource_profile_enum",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=ResourceProfile.STANDARD,
         nullable=False,
     )
     idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
     token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index("ix_job_owner_submitted", "owner_id", "submitted_at"),

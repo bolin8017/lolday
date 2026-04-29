@@ -5,12 +5,11 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.models import Detector, DetectorVersion, Job, User
 from app.models.job import JobStatus
 from app.services.job_tokens import generate_token, hash_token
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def _seed_job_with_token(
@@ -63,15 +62,19 @@ async def test_post_event_persists_and_accepts(db_session, client: AsyncClient) 
     )
     assert resp.status_code == 202
     # Verify row persisted
+    from app.models import JobEvent
     from sqlalchemy import select
 
-    from app.models import JobEvent
-    rows = (await db_session.scalars(select(JobEvent).where(JobEvent.job_id == job.id))).all()
+    rows = (
+        await db_session.scalars(select(JobEvent).where(JobEvent.job_id == job.id))
+    ).all()
     assert len(list(rows)) == 1
 
 
 @pytest.mark.asyncio
-async def test_post_event_rejects_invalid_token(db_session, client: AsyncClient) -> None:
+async def test_post_event_rejects_invalid_token(
+    db_session, client: AsyncClient
+) -> None:
     job, _ = await _seed_job_with_token(db_session)
     resp = await client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
@@ -97,6 +100,7 @@ async def test_post_event_rejects_wrong_job_id(db_session, client: AsyncClient) 
 @pytest.mark.asyncio
 async def test_post_event_publishes_to_broker(db_session, client: AsyncClient) -> None:
     import asyncio
+
     from app.services.events_tail import event_broker
 
     job, raw_token = await _seed_job_with_token(db_session)
@@ -104,7 +108,12 @@ async def test_post_event_publishes_to_broker(db_session, client: AsyncClient) -
     try:
         await client.post(
             f"/api/v1/internal/jobs/{job.id}/events",
-            json={"ts": "2026-04-24T00:00:00Z", "kind": "metric", "name": "loss", "value": 0.1},
+            json={
+                "ts": "2026-04-24T00:00:00Z",
+                "kind": "metric",
+                "name": "loss",
+                "value": 0.1,
+            },
             headers={"Authorization": f"Bearer {raw_token}"},
         )
         event = await asyncio.wait_for(q.get(), timeout=1.0)
@@ -115,18 +124,19 @@ async def test_post_event_publishes_to_broker(db_session, client: AsyncClient) -
 
 
 @pytest.mark.asyncio
-async def test_post_event_rejects_terminal_job(
-    db_session, client: AsyncClient
-) -> None:
+async def test_post_event_rejects_terminal_job(db_session, client: AsyncClient) -> None:
     """A sidecar race with the reconciler can POST an event AFTER the job is
     already flipped to SUCCEEDED/FAILED. We return 409 to bound the amount of
     state written to the terminal row."""
-    job, raw_token = await _seed_job_with_token(
-        db_session, status=JobStatus.SUCCEEDED
-    )
+    job, raw_token = await _seed_job_with_token(db_session, status=JobStatus.SUCCEEDED)
     resp = await client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
-        json={"ts": "2026-04-24T00:00:00Z", "kind": "metric", "name": "loss", "value": 0.9},
+        json={
+            "ts": "2026-04-24T00:00:00Z",
+            "kind": "metric",
+            "name": "loss",
+            "value": 0.9,
+        },
         headers={"Authorization": f"Bearer {raw_token}"},
     )
     assert resp.status_code == 409

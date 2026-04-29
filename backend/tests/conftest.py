@@ -1,8 +1,6 @@
 import os
 
-os.environ.setdefault(
-    "FERNET_KEY", "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
-)
+os.environ.setdefault("FERNET_KEY", "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=")
 os.environ.setdefault("RECONCILER_ENABLED", "false")
 os.environ.setdefault("SAMPLES_LOCAL_ROOT", "/nonexistent-samples-root-for-tests")
 # Phase 10.2: opt out of production SSO validation — tests use dependency_override
@@ -11,12 +9,11 @@ os.environ.setdefault("ENVIRONMENT", "test")
 
 import pytest
 import pytest_asyncio
+from app.db import get_async_session
+from app.models import Base, Role, User
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from app.db import get_async_session
-from app.models import Base, Role, User
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 test_engine = create_async_engine(TEST_DATABASE_URL)
@@ -62,11 +59,10 @@ def _install_header_based_auth_override() -> None:
     parses identity out of a JWT; in tests each client just sets a test header
     pointing at a pre-seeded user row.
     """
-    from fastapi import Depends, HTTPException, Request
-    from sqlalchemy.ext.asyncio import AsyncSession
-
     from app.auth.cf_access import cf_access_user
     from app.main import app
+    from fastapi import Depends, HTTPException, Request
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     async def _fake_auth(
         request: Request,
@@ -168,6 +164,7 @@ async def db_session():
 def fake_redis_for_rate_limit(monkeypatch):
     """Autouse fakeredis so rate_limit service uses an in-memory store per test."""
     from fakeredis.aioredis import FakeRedis
+
     fake = FakeRedis(decode_responses=True)
     monkeypatch.setattr("app.services.rate_limit._redis", fake)
     yield
@@ -176,31 +173,53 @@ def fake_redis_for_rate_limit(monkeypatch):
 @pytest.fixture(autouse=True)
 def mock_k8s_batch(monkeypatch):
     """Autouse: replace kubernetes BatchV1Api + CoreV1Api create/delete with in-memory stubs."""
+
     class _StubBatch:
         def __init__(self):
             self.jobs = {}
+
         def create_namespaced_job(self, namespace, body, **kw):
-            name = body["metadata"]["name"] if isinstance(body, dict) else body.metadata.name
+            name = (
+                body["metadata"]["name"]
+                if isinstance(body, dict)
+                else body.metadata.name
+            )
             self.jobs[name] = body
             return body
+
         def delete_namespaced_job(self, name, namespace, **kw):
             self.jobs.pop(name, None)
+
         def read_namespaced_job(self, name, namespace, **kw):
             from kubernetes.client.exceptions import ApiException
+
             if name not in self.jobs:
                 raise ApiException(status=404)
-            class _S: status = type("S", (), {"succeeded": None, "failed": None})()
+
+            class _S:
+                status = type("S", (), {"succeeded": None, "failed": None})()
+
             return _S()
+
     stub = _StubBatch()
     monkeypatch.setattr("app.services.k8s.batch_v1", lambda: stub)
 
     class _StubCore:
-        def create_namespaced_secret(self, namespace, body, **kw): return body
-        def delete_namespaced_secret(self, name, namespace, **kw): pass
+        def create_namespaced_secret(self, namespace, body, **kw):
+            return body
+
+        def delete_namespaced_secret(self, name, namespace, **kw):
+            pass
+
         def list_namespaced_pod(self, namespace, **kw):
-            class _R: items = []
+            class _R:
+                items = []
+
             return _R()
-        def read_namespaced_pod_log(self, **kw): return ""
+
+        def read_namespaced_pod_log(self, **kw):
+            return ""
+
     monkeypatch.setattr("app.services.k8s.core_v1", lambda: _StubCore())
 
     # Phase 7.3 routed training jobs through Volcano CRDs via
@@ -212,25 +231,38 @@ def mock_k8s_batch(monkeypatch):
     class _StubVolcano:
         def __init__(self):
             self.objects = {}
-        def create_namespaced_custom_object(self, group, version, namespace, plural, body, **kw):
-            name = (body.get("metadata") or {}).get("name") if isinstance(body, dict) else body.metadata.name
+
+        def create_namespaced_custom_object(
+            self, group, version, namespace, plural, body, **kw
+        ):
+            name = (
+                (body.get("metadata") or {}).get("name")
+                if isinstance(body, dict)
+                else body.metadata.name
+            )
             self.objects[name] = body
             return body
+
         def get_namespaced_custom_object(self, *a, **kw):
             from kubernetes.client.exceptions import ApiException
+
             raise ApiException(status=404)
+
         def delete_namespaced_custom_object(self, *a, **kw):
             return {}
+
         def list_namespaced_custom_object(self, *a, **kw):
             return {"items": list(self.objects.values())}
+
     monkeypatch.setattr("app.services.k8s.volcano_v1alpha1", lambda: _StubVolcano())
 
 
 @pytest.fixture(autouse=True)
 def mock_mlflow(request, monkeypatch):
     if "no_mock_mlflow" in request.keywords:
-        import app.services.mlflow_client as mc
         import app.routers.experiments_proxy as ep_mod
+        import app.services.mlflow_client as mc
+
         ep_mod.MlflowClient = mc.MlflowClient
         yield
         return
@@ -248,13 +280,24 @@ def mock_mlflow(request, monkeypatch):
             return f"run-{_Stub.run_counter}"
 
         async def get_run(self, run_id):
-            return {"info": {"status": "FINISHED", "run_id": run_id, "experiment_id": "exp-1"},
-                    "data": {"metrics": {"accuracy": 0.9}, "tags": {}, "params": {}}}
+            return {
+                "info": {
+                    "status": "FINISHED",
+                    "run_id": run_id,
+                    "experiment_id": "exp-1",
+                },
+                "data": {"metrics": {"accuracy": 0.9}, "tags": {}, "params": {}},
+            }
 
-        async def update_run(self, run_id, **kw): pass
-        async def set_run_tag(self, *a, **kw): pass
+        async def update_run(self, run_id, **kw):
+            pass
 
-        async def transition_model_version_stage(self, name, version, stage, archive_existing_versions=False):
+        async def set_run_tag(self, *a, **kw):
+            pass
+
+        async def transition_model_version_stage(
+            self, name, version, stage, archive_existing_versions=False
+        ):
             return {"name": name, "version": str(version), "current_stage": stage}
 
         async def delete_model_version(self, name, version):
@@ -275,13 +318,15 @@ def mock_mlflow(request, monkeypatch):
         async def search_experiments(self, max_results=100):
             return []
 
-        async def search_runs(self, experiment_ids, filter_string=None, max_results=100):
+        async def search_runs(
+            self, experiment_ids, filter_string=None, max_results=100
+        ):
             return []
 
-    import app.services.mlflow_client as mc
+    import app.routers.experiments_proxy as ep_mod
     import app.routers.jobs as jobs_mod
     import app.routers.models_registry as mr_mod
-    import app.routers.experiments_proxy as ep_mod
+    import app.services.mlflow_client as mc
 
     real_mlflow_cls = mc.MlflowClient
 
@@ -298,8 +343,9 @@ def mock_mlflow(request, monkeypatch):
 @pytest_asyncio.fixture
 async def seed_user(user_client):
     """Return the User ORM object for the user behind user_client."""
-    from sqlalchemy import select
     from app.models import User
+    from sqlalchemy import select
+
     async with test_session_maker() as session:
         result = await session.execute(
             select(User).where(User.email == "user1@example.dev")
@@ -309,7 +355,11 @@ async def seed_user(user_client):
 
 _MINIMAL_MANIFEST = {
     "detector": {"name": "upxelfdet", "version": "0.4.0", "framework": "sklearn"},
-    "input": {"binary_format": "elf", "required_sections": [], "dataset_contract": "sample_csv"},
+    "input": {
+        "binary_format": "elf",
+        "required_sections": [],
+        "dataset_contract": "sample_csv",
+    },
     "output": {
         "task": "binary_classification",
         "classes": ["Malware", "Benign"],
@@ -359,11 +409,14 @@ _MINIMAL_MANIFEST = {
 @pytest_asyncio.fixture
 async def seed_detector_version(db_session, seed_user):
     """Return a callable that inserts a minimal DetectorVersion row."""
+
     async def _seed(name: str = "upxelfdet", git_tag: str = "v0.4.0"):
         from app.models import Detector, DetectorVersion
         from app.models.detector import DetectorVersionStatus
+
         det = Detector(
-            name=name, display_name=name,
+            name=name,
+            display_name=name,
             git_url=f"https://github.com/test/{name}.git",
             owner_id=seed_user.id,
         )
@@ -381,13 +434,18 @@ async def seed_detector_version(db_session, seed_user):
         db_session.add(dv)
         await db_session.commit()
         return str(dv.id)
+
     return _seed
 
 
 @pytest_asyncio.fixture
 async def seed_dataset(user_client):
     from pathlib import Path
-    FIXTURE_CSV = (Path(__file__).parent / "fixtures" / "sample_dataset.csv").read_text()
+
+    FIXTURE_CSV = (
+        Path(__file__).parent / "fixtures" / "sample_dataset.csv"
+    ).read_text()
+
     async def _seed(name: str = "ds"):
         r = await user_client.post(
             "/api/v1/datasets",
@@ -395,6 +453,7 @@ async def seed_dataset(user_client):
         )
         assert r.status_code == 201, r.text
         return r.json()["id"]
+
     return _seed
 
 
@@ -417,23 +476,23 @@ async def seed_detector(auth_client_developer, monkeypatch):
 
 
 @pytest_asyncio.fixture
-async def seed_model_version(db_session, seed_user, seed_detector_version, seed_dataset):
+async def seed_model_version(
+    db_session, seed_user, seed_detector_version, seed_dataset
+):
     """Insert a ModelVersion row tied to a fresh detector_version + fake source job.
 
     Also promotes the seed_user to DEVELOPER so transition tests can run.
     """
     from uuid import UUID, uuid4
 
-    from sqlalchemy import update as sa_update
     from app.models import Job, ModelVersion, Role, User
     from app.models.job import JobStatus, JobType
     from app.models.model_registry import ModelVersionStage
+    from sqlalchemy import update as sa_update
 
     async with test_session_maker() as _s:
         await _s.execute(
-            sa_update(User)
-            .where(User.id == seed_user.id)
-            .values(role=Role.DEVELOPER)
+            sa_update(User).where(User.id == seed_user.id).values(role=Role.DEVELOPER)
         )
         await _s.commit()
 
@@ -456,7 +515,8 @@ async def seed_model_version(db_session, seed_user, seed_detector_version, seed_
         db_session.add(job)
         await db_session.flush()
 
-        from sqlalchemy import select, func
+        from sqlalchemy import func, select
+
         row = await db_session.execute(
             select(func.coalesce(func.max(ModelVersion.mlflow_version), 0)).where(
                 ModelVersion.mlflow_name == name
@@ -477,12 +537,14 @@ async def seed_model_version(db_session, seed_user, seed_detector_version, seed_
         await db_session.commit()
         await db_session.refresh(mv)
         return name, next_version
+
     return _seed
 
 
 # ---------------------------------------------------------------------------
 # Phase 13a A4 factory fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest_asyncio.fixture
 async def async_client(client):
@@ -541,6 +603,7 @@ async def detector_factory(async_client, auth_owner_headers, monkeypatch):
             pass
 
         import uuid as _uuid
+
         d = _Det()
         payload = resp.json()
         d.id = _uuid.UUID(payload["id"])
@@ -600,10 +663,10 @@ async def job_factory(db_session):
         job.id  # UUID
     """
     import uuid as _uuid
-    from sqlalchemy import select as sa_select
 
     from app.models import Job, User
     from app.models.job import JobStatus, JobType
+    from sqlalchemy import select as sa_select
 
     async def _create(
         detector_version_id,

@@ -14,20 +14,18 @@ Test mocking mirrors the existing ``test_reconciler.py`` pattern:
 from __future__ import annotations
 
 import base64
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
-
 from app.models.detector import (
     Detector,
     DetectorBuild,
     DetectorBuildStatus,
     DetectorVersion,
 )
+from sqlalchemy import select
 
 FIX = Path(__file__).parent / "fixtures" / "valid_maldet_manifest.json"
 
@@ -125,9 +123,9 @@ async def test_reconcile_fails_when_manifest_label_missing(db_session):
     ``io.maldet.manifest`` label → build FAILED with
     ``failure_reason="manifest_label_missing"`` and NO DetectorVersion row.
     """
+    from app.metrics import BACKEND_ERRORS
     from app.reconciler import reconcile_build
     from app.services.harbor import ScanResult, ScanStatus
-    from app.metrics import BACKEND_ERRORS
 
     detector = Detector(
         name="nolabel",
@@ -199,9 +197,9 @@ async def test_reconcile_fails_when_revision_label_missing(db_session):
     DetectorVersion would be persisted with empty ``git_sha``, breaking
     audit trails for the canonical post-Phase-11c flow.
     """
+    from app.metrics import BACKEND_ERRORS
     from app.reconciler import reconcile_build
     from app.services.harbor import ScanResult, ScanStatus
-    from app.metrics import BACKEND_ERRORS
 
     detector = Detector(
         name="norev",
@@ -271,9 +269,9 @@ async def test_reconcile_fails_when_manifest_label_malformed(db_session):
     """Fail-closed: ``io.maldet.manifest`` present but not valid base64 →
     ``ManifestDecodeError`` → build FAILED with
     ``failure_reason="manifest_invalid"`` and NO DetectorVersion row."""
+    from app.metrics import BACKEND_ERRORS
     from app.reconciler import reconcile_build
     from app.services.harbor import ScanResult, ScanStatus
-    from app.metrics import BACKEND_ERRORS
 
     detector = Detector(
         name="badmfst",

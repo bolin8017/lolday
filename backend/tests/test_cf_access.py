@@ -4,6 +4,7 @@ Tests the pure verification function (no network, no FastAPI context).
 Uses an ephemeral RSA keypair generated per-test so we never need real
 Cloudflare keys.
 """
+
 import time
 from typing import Any
 
@@ -156,9 +157,8 @@ def test_verify_cf_token_rejects_expired_token(rsa_keypair):
 def test_verify_cf_token_rejects_token_signed_by_different_key(rsa_keypair):
     """Pins that verify_cf_token really passes the key through — a future
     refactor that accidentally disables signature verification would regress."""
-    from cryptography.hazmat.primitives.asymmetric import rsa as rsa_mod
-
     from app.auth.cf_access import verify_cf_token
+    from cryptography.hazmat.primitives.asymmetric import rsa as rsa_mod
 
     attacker_priv = rsa_mod.generate_private_key(public_exponent=65537, key_size=2048)
     token = _sign(attacker_priv, _valid_claims())
@@ -175,10 +175,9 @@ def test_verify_cf_token_rejects_token_signed_by_different_key(rsa_keypair):
 async def test_get_or_create_user_creates_new_row_with_defaults(db_session):
     """First visit by a new email auto-provisions a User with role=USER
     and display_name derived from email local-part."""
-    from sqlalchemy import select
-
     from app.auth.cf_access import get_or_create_user_by_email
     from app.models import Role, User
+    from sqlalchemy import select
 
     user = await get_or_create_user_by_email(db_session, "newbie@example.com")
 
@@ -197,10 +196,10 @@ async def test_get_or_create_user_persists_across_sessions(db_session):
     in the same session (passing naive same-session tests) but vanish when
     the request-scoped session closed in production, because `async with
     async_session_maker() as s:` does NOT auto-commit on context exit."""
-    from sqlalchemy import select
-
     from app.auth.cf_access import get_or_create_user_by_email
     from app.models import User
+    from sqlalchemy import select
+
     from tests.conftest import test_session_maker
 
     await get_or_create_user_by_email(db_session, "persists@example.com")
@@ -208,17 +207,18 @@ async def test_get_or_create_user_persists_across_sessions(db_session):
 
     async with test_session_maker() as fresh:
         row = (
-            await fresh.execute(select(User).where(User.email == "persists@example.com"))
+            await fresh.execute(
+                select(User).where(User.email == "persists@example.com")
+            )
         ).scalar_one_or_none()
     assert row is not None, "row lost on session close — get_or_create forgot to commit"
 
 
 async def test_get_or_create_user_returns_existing_row(db_session):
     """Subsequent visits re-use the existing User row without creating duplicates."""
-    from sqlalchemy import func, select
-
     from app.auth.cf_access import get_or_create_user_by_email
     from app.models import User
+    from sqlalchemy import func, select
 
     a = await get_or_create_user_by_email(db_session, "returning@example.com")
     b = await get_or_create_user_by_email(db_session, "returning@example.com")
@@ -226,7 +226,9 @@ async def test_get_or_create_user_returns_existing_row(db_session):
     assert a.id == b.id
     count = (
         await db_session.execute(
-            select(func.count()).select_from(User).where(User.email == "returning@example.com")
+            select(func.count())
+            .select_from(User)
+            .where(User.email == "returning@example.com")
         )
     ).scalar_one()
     assert count == 1
@@ -267,7 +269,9 @@ async def test_cf_access_user_returns_user_for_valid_jwt(
 
     monkeypatch.setattr(cf, "_get_jwks_client", lambda: _FakeJWKS())
 
-    token = _sign(rsa_keypair, _valid_claims() | {"iss": "https://test.cloudflareaccess.com"})
+    token = _sign(
+        rsa_keypair, _valid_claims() | {"iss": "https://test.cloudflareaccess.com"}
+    )
     req = _make_request(headers=[(b"cf-access-jwt-assertion", token.encode())])
 
     user = await cf.cf_access_user(request=req, session=db_session)
@@ -277,10 +281,9 @@ async def test_cf_access_user_returns_user_for_valid_jwt(
 
 
 async def test_cf_access_user_raises_401_when_header_missing(db_session, monkeypatch):
-    from fastapi import HTTPException
-
     from app.auth.cf_access import cf_access_user
     from app.config import settings
+    from fastapi import HTTPException
 
     monkeypatch.setattr(settings, "AUTH_DEV_MODE", False)
     req = _make_request()

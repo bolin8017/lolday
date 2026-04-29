@@ -7,6 +7,7 @@ FastAPI backend with PostgreSQL, Redis, JWT authentication, and role-based acces
 **Goal:** Users can register, log in, manage their profile, and admins can manage all users via REST API.
 
 **Constraints:**
+
 - All auth/user-management via FastAPI Users (no custom auth code)
 - Async everywhere: asyncpg, async SQLAlchemy, async Redis
 - All config from environment variables (Pydantic Settings)
@@ -16,20 +17,20 @@ FastAPI backend with PostgreSQL, Redis, JWT authentication, and role-based acces
 
 ## Tech Stack
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| fastapi | latest | Web framework |
-| uvicorn[standard] | latest | ASGI server |
-| fastapi-users[sqlalchemy] | latest | Auth + user management (JWT, bcrypt, CRUD) |
-| sqlalchemy[asyncio] | latest | ORM (async) |
-| asyncpg | latest | PostgreSQL async driver |
-| alembic | latest | Database migrations |
-| pydantic-settings | latest | Environment-based configuration |
-| redis[hiredis] | latest | Async Redis client (token blacklist, rate limit) |
-| slowapi | latest | Rate limiting middleware |
-| httpx | latest | Test client |
-| pytest + pytest-asyncio | latest | Testing |
-| aiosqlite | latest | SQLite async driver (testing only) |
+| Package                   | Version | Purpose                                          |
+| ------------------------- | ------- | ------------------------------------------------ |
+| fastapi                   | latest  | Web framework                                    |
+| uvicorn[standard]         | latest  | ASGI server                                      |
+| fastapi-users[sqlalchemy] | latest  | Auth + user management (JWT, bcrypt, CRUD)       |
+| sqlalchemy[asyncio]       | latest  | ORM (async)                                      |
+| asyncpg                   | latest  | PostgreSQL async driver                          |
+| alembic                   | latest  | Database migrations                              |
+| pydantic-settings         | latest  | Environment-based configuration                  |
+| redis[hiredis]            | latest  | Async Redis client (token blacklist, rate limit) |
+| slowapi                   | latest  | Rate limiting middleware                         |
+| httpx                     | latest  | Test client                                      |
+| pytest + pytest-asyncio   | latest  | Testing                                          |
+| aiosqlite                 | latest  | SQLite async driver (testing only)               |
 
 ---
 
@@ -60,6 +61,7 @@ backend/
 ```
 
 Growth path for future phases:
+
 - Phase 3: add `models/detector.py`, `routers/detectors.py`
 - Phase 4: add `models/job.py`, `models/dataset.py`, `routers/jobs.py`, `routers/datasets.py`
 
@@ -75,11 +77,11 @@ FastAPI Users provides: `id` (UUID), `email`, `hashed_password`, `is_active`, `i
 
 Custom fields added:
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| role | Enum(admin, developer, user) | user | RBAC role |
-| display_name | String(100), nullable | null | Display name |
-| created_at | Timestamp | now() | Registration time |
+| Field        | Type                         | Default | Description       |
+| ------------ | ---------------------------- | ------- | ----------------- |
+| role         | Enum(admin, developer, user) | user    | RBAC role         |
+| display_name | String(100), nullable        | null    | Display name      |
+| created_at   | Timestamp                    | now()   | Registration time |
 
 ```python
 class Role(str, enum.Enum):
@@ -105,37 +107,37 @@ All endpoints prefixed with `/api/v1`.
 
 ### Auth (FastAPI Users built-in)
 
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| POST | /auth/register | Register new user | Public |
-| POST | /auth/login | Login, returns JWT | Public |
-| POST | /auth/logout | Logout, blacklist token | Authenticated |
-| POST | /auth/forgot-password | Request password reset | Public |
-| POST | /auth/reset-password | Reset password with token | Token |
-| POST | /auth/request-verify-token | Request email verification | Authenticated |
-| POST | /auth/verify | Verify email with token | Token |
+| Method | Path                       | Description                | Auth          |
+| ------ | -------------------------- | -------------------------- | ------------- |
+| POST   | /auth/register             | Register new user          | Public        |
+| POST   | /auth/login                | Login, returns JWT         | Public        |
+| POST   | /auth/logout               | Logout, blacklist token    | Authenticated |
+| POST   | /auth/forgot-password      | Request password reset     | Public        |
+| POST   | /auth/reset-password       | Reset password with token  | Token         |
+| POST   | /auth/request-verify-token | Request email verification | Authenticated |
+| POST   | /auth/verify               | Verify email with token    | Token         |
 
 ### Users (FastAPI Users built-in)
 
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| GET | /users/me | Get own profile | Authenticated |
-| PATCH | /users/me | Update own profile | Authenticated |
-| GET | /users/{id} | Get user by ID | Admin |
-| PATCH | /users/{id} | Update user (incl. role) | Admin |
-| DELETE | /users/{id} | Delete user | Admin |
+| Method | Path        | Description              | Auth          |
+| ------ | ----------- | ------------------------ | ------------- |
+| GET    | /users/me   | Get own profile          | Authenticated |
+| PATCH  | /users/me   | Update own profile       | Authenticated |
+| GET    | /users/{id} | Get user by ID           | Admin         |
+| PATCH  | /users/{id} | Update user (incl. role) | Admin         |
+| DELETE | /users/{id} | Delete user              | Admin         |
 
 ### Admin (custom)
 
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| GET | /admin/users | List all users (paginated) | Admin |
+| Method | Path         | Description                | Auth  |
+| ------ | ------------ | -------------------------- | ----- |
+| GET    | /admin/users | List all users (paginated) | Admin |
 
 ### System
 
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| GET | /health | Health check (DB + Redis) | Public |
+| Method | Path    | Description               | Auth   |
+| ------ | ------- | ------------------------- | ------ |
+| GET    | /health | Health check (DB + Redis) | Public |
 
 ### OpenAPI Docs
 
@@ -181,11 +183,11 @@ Role hierarchy: Admin has all permissions. Developer has Developer + User permis
 
 Added to `charts/lolday/templates/`:
 
-| File | Resources |
-|------|-----------|
+| File              | Resources                            |
+| ----------------- | ------------------------------------ |
 | `postgresql.yaml` | StatefulSet + PVC + Service + Secret |
-| `redis.yaml` | Deployment + Service |
-| `backend.yaml` | Deployment + Service + ConfigMap |
+| `redis.yaml`      | Deployment + Service                 |
+| `backend.yaml`    | Deployment + Service + ConfigMap     |
 
 ### PostgreSQL
 
@@ -227,7 +229,7 @@ postgresql:
   auth:
     database: lolday
     username: lolday
-    password: ""          # --set at deploy time, NEVER commit
+    password: "" # --set at deploy time, NEVER commit
 
 redis:
   enabled: true
@@ -277,11 +279,11 @@ On first startup (app lifespan), if no users exist, create a seed admin:
 
 ## Phase Roadmap
 
-| Phase | Name | Status |
-|-------|------|--------|
-| 1 | Infrastructure Foundation | Complete |
-| 2 | Backend Core | Current |
-| 3 | Detector Lifecycle | Pending design |
-| 4 | Dataset & Jobs | Pending design |
-| 5 | Frontend | Pending design |
-| 6 | Operations | Pending design |
+| Phase | Name                      | Status         |
+| ----- | ------------------------- | -------------- |
+| 1     | Infrastructure Foundation | Complete       |
+| 2     | Backend Core              | Current        |
+| 3     | Detector Lifecycle        | Pending design |
+| 4     | Dataset & Jobs            | Pending design |
+| 5     | Frontend                  | Pending design |
+| 6     | Operations                | Pending design |

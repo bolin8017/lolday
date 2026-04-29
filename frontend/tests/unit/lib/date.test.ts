@@ -8,15 +8,21 @@ describe("formatDuration", () => {
   });
 
   it("formats seconds under a minute", () => {
-    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:00:45Z")).toBe("45s");
+    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:00:45Z")).toBe(
+      "45s",
+    );
   });
 
   it("formats minutes + seconds", () => {
-    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:02:03Z")).toBe("2m 3s");
+    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:02:03Z")).toBe(
+      "2m 3s",
+    );
   });
 
   it("formats hours + minutes", () => {
-    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T01:30:00Z")).toBe("1h 30m");
+    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T01:30:00Z")).toBe(
+      "1h 30m",
+    );
   });
 });
 

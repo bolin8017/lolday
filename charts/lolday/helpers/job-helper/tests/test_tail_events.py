@@ -8,7 +8,6 @@ from pathlib import Path
 import httpx
 import respx
 from httpx import Response
-
 from job_helper.tail_events import _post_with_retry, tail_and_post
 
 
@@ -16,11 +15,24 @@ from job_helper.tail_events import _post_with_retry, tail_and_post
 def test_tail_existing_events(tmp_path: Path) -> None:
     out = tmp_path / "events.jsonl"
     out.write_text(
-        json.dumps({"ts": "2026-04-24T00:00:00Z", "kind": "stage_begin", "stage": "train"}) + "\n"
-        + json.dumps({"ts": "2026-04-24T00:01:00Z", "kind": "stage_end", "stage": "train", "status": "success"}) + "\n"
+        json.dumps(
+            {"ts": "2026-04-24T00:00:00Z", "kind": "stage_begin", "stage": "train"}
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "ts": "2026-04-24T00:01:00Z",
+                "kind": "stage_end",
+                "stage": "train",
+                "status": "success",
+            }
+        )
+        + "\n"
     )
 
-    route = respx.post("http://backend/internal/jobs/x/events").mock(return_value=Response(202))
+    route = respx.post("http://backend/internal/jobs/x/events").mock(
+        return_value=Response(202)
+    )
 
     tail_and_post(
         events_path=out,
@@ -38,9 +50,21 @@ def test_tail_existing_events(tmp_path: Path) -> None:
 @respx.mock
 def test_auth_header_carries_token(tmp_path: Path) -> None:
     out = tmp_path / "events.jsonl"
-    out.write_text(json.dumps({"ts": "2026-04-24T00:00:00Z", "kind": "metric", "name": "loss", "value": 0.1}) + "\n")
+    out.write_text(
+        json.dumps(
+            {
+                "ts": "2026-04-24T00:00:00Z",
+                "kind": "metric",
+                "name": "loss",
+                "value": 0.1,
+            }
+        )
+        + "\n"
+    )
 
-    route = respx.post("http://backend/internal/jobs/x/events").mock(return_value=Response(202))
+    route = respx.post("http://backend/internal/jobs/x/events").mock(
+        return_value=Response(202)
+    )
 
     tail_and_post(
         events_path=out,
@@ -56,7 +80,17 @@ def test_auth_header_carries_token(tmp_path: Path) -> None:
 @respx.mock
 def test_retry_on_transient_failure(tmp_path: Path) -> None:
     out = tmp_path / "events.jsonl"
-    out.write_text(json.dumps({"ts": "2026-04-24T00:00:00Z", "kind": "metric", "name": "loss", "value": 0.1}) + "\n")
+    out.write_text(
+        json.dumps(
+            {
+                "ts": "2026-04-24T00:00:00Z",
+                "kind": "metric",
+                "name": "loss",
+                "value": 0.1,
+            }
+        )
+        + "\n"
+    )
 
     respx.post("http://backend/internal/jobs/x/events").mock(
         side_effect=[Response(503), Response(503), Response(202)]
@@ -76,10 +110,15 @@ def test_malformed_lines_skipped(tmp_path: Path) -> None:
     out = tmp_path / "events.jsonl"
     out.write_text(
         "not json\n"
-        + json.dumps({"ts": "2026-04-24T00:00:00Z", "kind": "stage_begin", "stage": "train"}) + "\n"
+        + json.dumps(
+            {"ts": "2026-04-24T00:00:00Z", "kind": "stage_begin", "stage": "train"}
+        )
+        + "\n"
     )
 
-    route = respx.post("http://backend/internal/jobs/x/events").mock(return_value=Response(202))
+    route = respx.post("http://backend/internal/jobs/x/events").mock(
+        return_value=Response(202)
+    )
 
     tail_and_post(
         events_path=out,

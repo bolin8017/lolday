@@ -13,6 +13,7 @@
 **Server:** server30 (Ubuntu 24.04, K3s v1.34.6, 2× RTX 2080 Ti)
 
 **Constraints:**
+
 - `bolin8017` has no persistent sudo. Docker commands run as user (Docker group).
 - CLI tools in `~/.local/bin/`.
 - SSH (port 9453) must never be disrupted.
@@ -59,6 +60,7 @@ charts/lolday/templates/
 ### Task 1: Project Scaffolding
 
 **Files:**
+
 - Create: `backend/pyproject.toml`
 - Create: `backend/app/__init__.py`
 - Create: `backend/app/config.py`
@@ -102,7 +104,7 @@ dev-dependencies = [
 asyncio_mode = "auto"
 ```
 
-- [ ] **Step 3: Create app/__init__.py and tests/__init__.py**
+- [ ] **Step 3: Create app/**init**.py and tests/**init**.py**
 
 Both files are empty (make directories Python packages).
 
@@ -147,6 +149,7 @@ git commit -m "feat(backend): scaffold project with dependencies"
 ### Task 2: Database Layer & Models
 
 **Files:**
+
 - Create: `backend/app/db.py`
 - Create: `backend/app/models.py`
 - Create: `backend/app/schemas.py`
@@ -245,6 +248,7 @@ git commit -m "feat(backend): add database layer, User model, and schemas"
 ### Task 3: FastAPI Users Auth Setup
 
 **Files:**
+
 - Create: `backend/app/users.py`
 - Create: `backend/app/deps.py`
 
@@ -351,11 +355,12 @@ git commit -m "feat(backend): configure FastAPI Users auth and RBAC deps"
 ### Task 4: FastAPI Application & Routers
 
 **Files:**
+
 - Create: `backend/app/main.py`
 - Create: `backend/app/routers/__init__.py`
 - Create: `backend/app/routers/admin.py`
 
-- [ ] **Step 1: Create app/routers/__init__.py**
+- [ ] **Step 1: Create app/routers/**init**.py**
 
 Empty file.
 
@@ -507,6 +512,7 @@ git commit -m "feat(backend): add FastAPI app with auth routes, admin, and healt
 ### Task 5: Tests
 
 **Files:**
+
 - Create: `backend/tests/conftest.py`
 - Create: `backend/tests/test_auth.py`
 - Create: `backend/tests/test_admin.py`
@@ -715,6 +721,7 @@ git commit -m "test(backend): add auth and admin endpoint tests"
 ### Task 6: Alembic Migrations
 
 **Files:**
+
 - Create: `backend/alembic.ini`
 - Create: `backend/alembic/env.py`
 
@@ -731,10 +738,13 @@ This creates `alembic.ini` and `alembic/env.py`. We will overwrite `env.py` with
 Set `sqlalchemy.url` to empty (we load from config):
 
 Change line:
+
 ```
 sqlalchemy.url = driver://user:pass@localhost/dbname
 ```
+
 to:
+
 ```
 sqlalchemy.url =
 ```
@@ -809,6 +819,7 @@ git commit -m "feat(backend): add Alembic async migration setup"
 ### Task 7: Dockerfile
 
 **Files:**
+
 - Create: `backend/Dockerfile`
 
 - [ ] **Step 1: Create Dockerfile**
@@ -863,6 +874,7 @@ git commit -m "feat(backend): add Dockerfile"
 ### Task 8: Helm Chart Updates
 
 **Files:**
+
 - Create: `charts/lolday/templates/postgresql.yaml`
 - Create: `charts/lolday/templates/redis.yaml`
 - Create: `charts/lolday/templates/backend.yaml`
@@ -1126,10 +1138,10 @@ backend:
   enabled: true
   image: registry.lolday.svc.cluster.local:5000/lolday-backend:latest
   replicas: 1
-  jwtSecret: ""         # --set at deploy time, NEVER commit
+  jwtSecret: "" # --set at deploy time, NEVER commit
   firstAdmin:
-    email: ""           # --set at deploy time
-    password: ""        # --set at deploy time
+    email: "" # --set at deploy time
+    password: "" # --set at deploy time
   env:
     DOCS_ENABLED: "true"
 
@@ -1143,7 +1155,7 @@ postgresql:
   auth:
     database: lolday
     username: lolday
-    password: ""        # --set at deploy time, NEVER commit
+    password: "" # --set at deploy time, NEVER commit
 
 # =============================================================================
 # Redis
@@ -1227,6 +1239,7 @@ kubectl -n lolday get pods
 ```
 
 Expected:
+
 ```
 NAME                        READY   STATUS    RESTARTS   AGE
 backend-xxx                 1/1     Running   0          ...

@@ -93,6 +93,7 @@
 ## Task 1.1: Backend — extend `_project_summary_metrics` for `per_class` event
 
 **Files:**
+
 - Modify: `backend/app/reconciler.py`
 - Modify: `backend/tests/test_reconciler_summary_projection.py` (extend; create if absent)
 
@@ -215,6 +216,7 @@ EOF
 ## Task 1.2: Backend — `_project_prediction_summary` for predict jobs
 
 **Files:**
+
 - Modify: `backend/app/reconciler.py`
 - Create: `backend/tests/test_reconciler_prediction_summary.py`
 
@@ -410,6 +412,7 @@ EOF
 ## Task 1.3: Backend — `GET /jobs/{id}/prediction-summary` fallback endpoint
 
 **Files:**
+
 - Modify: `backend/app/routers/jobs.py`
 - Modify: `backend/tests/test_routers_jobs.py`
 
@@ -532,6 +535,7 @@ EOF
 ## Task 2.1: Migration — `Job.user_params` column
 
 **Files:**
+
 - Modify: `backend/app/models/job.py`
 - Create: `backend/migrations/versions/<hash>_phase13b_user_params.py`
 
@@ -616,6 +620,7 @@ EOF
 ## Task 2.2: Backend — `submit_job` writes `user_params`; `JobRead` exposes it
 
 **Files:**
+
 - Modify: `backend/app/schemas/job.py`
 - Modify: `backend/app/routers/jobs.py`
 - Modify: `backend/tests/test_routers_jobs.py`
@@ -725,6 +730,7 @@ EOF
 ## Task 3.1: Backend — `experiments?include=stats` aggregate endpoint
 
 **Files:**
+
 - Modify: `backend/app/routers/experiments_proxy.py`
 - Create: `backend/tests/test_routers_experiments_aggregate.py`
 
@@ -897,6 +903,7 @@ EOF
 ## Task 4.1: Frontend — install `react-json-view`
 
 **Files:**
+
 - Modify: `frontend/package.json`
 - Modify: `frontend/pnpm-lock.yaml`
 
@@ -926,6 +933,7 @@ git commit -m "chore(frontend): add react-json-view dependency (phase 13b B3)"
 ## Task 4.2: Frontend — `<JsonTreeView>` component
 
 **Files:**
+
 - Create: `frontend/src/components/common/JsonTreeView.tsx`
 
 - [ ] **Step 1: Create component**
@@ -982,6 +990,7 @@ git commit -m "feat(common): JsonTreeView (replaces JsonViewer) (phase 13b B3)"
 ## Task 4.3: Frontend — replace `<JsonViewer>` usages with `<JsonTreeView>`
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.detectors.$id.tsx` (`<ManifestView>`)
 - Modify: `frontend/src/routes/_authed.runs.$expId.$runId.tsx` (params + tags)
 - Delete: `frontend/src/components/common/JsonViewer.tsx` (after replacements)
@@ -1037,6 +1046,7 @@ git commit -m "refactor(common): replace JsonViewer with JsonTreeView everywhere
 ## Task 5.1: Frontend — `<MetricsTable>` (replaces whitelist `<MetricCards>`)
 
 **Files:**
+
 - Create: `frontend/src/components/jobs/MetricsTable.tsx`
 - Create: `frontend/tests/unit/MetricsTable.test.tsx`
 
@@ -1052,11 +1062,18 @@ import { MetricsTable } from "@/components/jobs/MetricsTable";
 describe("MetricsTable", () => {
   it("shows all metrics with pre-ordered standard keys first", () => {
     render(
-      <MetricsTable metrics={{ accuracy: 0.9, roc_auc: 0.95, custom_metric: 0.5, f1: 0.8 }} />
+      <MetricsTable
+        metrics={{ accuracy: 0.9, roc_auc: 0.95, custom_metric: 0.5, f1: 0.8 }}
+      />,
     );
     const cards = screen.getAllByTestId("metric-card");
     const labels = cards.map((c) => c.getAttribute("data-name"));
-    expect(labels.slice(0, 4)).toEqual(["accuracy", "f1", "roc_auc", "custom_metric"]);
+    expect(labels.slice(0, 4)).toEqual([
+      "accuracy",
+      "f1",
+      "roc_auc",
+      "custom_metric",
+    ]);
     // accuracy / f1 first (standard order), then alphabetical: custom_metric, roc_auc
     // ... but we wanted accuracy, f1, then "rest" alphabetical
   });
@@ -1084,16 +1101,28 @@ Note the standard ordering: `accuracy`, `precision`, `recall`, `f1`, then alphab
 it("shows accuracy/precision/recall/f1 first, then alphabetical", () => {
   render(
     <MetricsTable
-      metrics={{ accuracy: 0.9, roc_auc: 0.95, custom_metric: 0.5, f1: 0.8, precision: 0.85 }}
-    />
+      metrics={{
+        accuracy: 0.9,
+        roc_auc: 0.95,
+        custom_metric: 0.5,
+        f1: 0.8,
+        precision: 0.85,
+      }}
+    />,
   );
   const cards = screen.getAllByTestId("metric-card");
   const labels = cards.map((c) => c.getAttribute("data-name"));
-  expect(labels).toEqual(["accuracy", "precision", "f1", "custom_metric", "roc_auc"]);
+  expect(labels).toEqual([
+    "accuracy",
+    "precision",
+    "f1",
+    "custom_metric",
+    "roc_auc",
+  ]);
 });
 ```
 
-(Since `recall` is not in the test input, it's skipped; ordering is `accuracy, precision, recall, f1` for the *standard* group, then alphabetical for the rest.)
+(Since `recall` is not in the test input, it's skipped; ordering is `accuracy, precision, recall, f1` for the _standard_ group, then alphabetical for the rest.)
 
 - [ ] **Step 2: Run tests (red)**
 
@@ -1124,19 +1153,23 @@ const HUMAN_LABELS: Record<string, string> = {
 
 function humanize(key: string): string {
   if (HUMAN_LABELS[key]) return HUMAN_LABELS[key];
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function MetricsTable({ metrics }: { metrics: Record<string, number> }) {
-  const entries = Object.entries(metrics).filter(([, v]) => typeof v === "number");
+  const entries = Object.entries(metrics).filter(
+    ([, v]) => typeof v === "number",
+  );
   if (entries.length === 0) {
-    return <p className="text-sm text-muted-foreground">No metrics recorded for this job.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        No metrics recorded for this job.
+      </p>
+    );
   }
-  const standard = STANDARD_ORDER
-    .filter((k) => k in metrics)
-    .map((k) => [k, metrics[k]] as const);
+  const standard = STANDARD_ORDER.filter((k) => k in metrics).map(
+    (k) => [k, metrics[k]] as const,
+  );
   const rest = entries
     .filter(([k]) => !(STANDARD_ORDER as readonly string[]).includes(k))
     .sort(([a], [b]) => a.localeCompare(b));
@@ -1147,8 +1180,12 @@ export function MetricsTable({ metrics }: { metrics: Record<string, number> }) {
       {ordered.map(([k, v]) => (
         <Card key={k} data-testid="metric-card" data-name={k}>
           <CardContent className="p-4">
-            <div className="text-xs uppercase text-muted-foreground">{humanize(k)}</div>
-            <div className="text-2xl font-semibold">{(v as number).toFixed(4)}</div>
+            <div className="text-xs uppercase text-muted-foreground">
+              {humanize(k)}
+            </div>
+            <div className="text-2xl font-semibold">
+              {(v as number).toFixed(4)}
+            </div>
           </CardContent>
         </Card>
       ))}
@@ -1184,13 +1221,19 @@ EOF
 ## Task 5.2: Frontend — `<PerClassMetrics>` component
 
 **Files:**
+
 - Create: `frontend/src/components/jobs/PerClassMetrics.tsx`
 
 - [ ] **Step 1: Implement**
 
 ```tsx
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 
 interface ClassMetric {
@@ -1224,9 +1267,17 @@ export function PerClassMetrics({ perClass, positiveClass }: Props) {
       </TableHeader>
       <TableBody>
         {rows.map(([cls, m]) => (
-          <TableRow key={cls} className={cls === positiveClass ? "font-medium" : ""}>
-            <TableCell>{cls}{cls === positiveClass ? " (positive)" : ""}</TableCell>
-            <TableCell className="text-right">{m.precision.toFixed(4)}</TableCell>
+          <TableRow
+            key={cls}
+            className={cls === positiveClass ? "font-medium" : ""}
+          >
+            <TableCell>
+              {cls}
+              {cls === positiveClass ? " (positive)" : ""}
+            </TableCell>
+            <TableCell className="text-right">
+              {m.precision.toFixed(4)}
+            </TableCell>
             <TableCell className="text-right">{m.recall.toFixed(4)}</TableCell>
             <TableCell className="text-right">{m.f1.toFixed(4)}</TableCell>
             <TableCell className="text-right">{m.support}</TableCell>
@@ -1262,6 +1313,7 @@ git commit -m "feat(jobs): PerClassMetrics table (phase 13b B1)"
 ## Task 5.3: Frontend — model query hooks (`useModelVersion`, `useModelVersionForJob`)
 
 **Files:**
+
 - Modify: `frontend/src/api/queries/models.ts`
 
 - [ ] **Step 1: Add hooks**
@@ -1318,6 +1370,7 @@ git commit -m "feat(models): add useModelVersion and useModelVersionForJob hooks
 ## Task 5.4: Frontend — `<SourceModelCard>` and `<TrainedModelCard>`
 
 **Files:**
+
 - Create: `frontend/src/components/jobs/SourceModelCard.tsx`
 - Create: `frontend/src/components/jobs/TrainedModelCard.tsx`
 
@@ -1328,14 +1381,20 @@ import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useModelVersion } from "@/api/queries/models";
 
-export function SourceModelCard({ sourceModelVersionId }: { sourceModelVersionId: string }) {
+export function SourceModelCard({
+  sourceModelVersionId,
+}: {
+  sourceModelVersionId: string;
+}) {
   const { data, isLoading, error } = useModelVersion(sourceModelVersionId);
 
   if (isLoading) return <Loading title="Source model" />;
   if (error || !data) {
     return (
       <Card>
-        <CardHeader><CardTitle>Source model</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Source model</CardTitle>
+        </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           Failed to load source model.
         </CardContent>
@@ -1350,22 +1409,30 @@ export function SourceModelCard({ sourceModelVersionId }: { sourceModelVersionId
   };
   return (
     <Card>
-      <CardHeader><CardTitle>Source model</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Source model</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-1 text-sm">
         <div>
           <span className="text-muted-foreground">Model:</span>{" "}
-          <Link to={`/models/${mv.mlflow_name}`} className="text-primary hover:underline">
+          <Link
+            to={`/models/${mv.mlflow_name}`}
+            className="text-primary hover:underline"
+          >
             {mv.mlflow_name}
           </Link>
         </div>
         <div>
-          <span className="text-muted-foreground">Version:</span> v{mv.mlflow_version}{" "}
-          ({mv.current_stage})
+          <span className="text-muted-foreground">Version:</span> v
+          {mv.mlflow_version} ({mv.current_stage})
         </div>
         {mv.source_job_id && (
           <div>
             <span className="text-muted-foreground">Trained by:</span>{" "}
-            <Link to={`/jobs/${mv.source_job_id}`} className="text-primary hover:underline">
+            <Link
+              to={`/jobs/${mv.source_job_id}`}
+              className="text-primary hover:underline"
+            >
               job {mv.source_job_id.slice(0, 8)}
             </Link>
           </div>
@@ -1378,8 +1445,12 @@ export function SourceModelCard({ sourceModelVersionId }: { sourceModelVersionId
 function Loading({ title }: { title: string }) {
   return (
     <Card>
-      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
-      <CardContent className="text-sm text-muted-foreground">Loading…</CardContent>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">
+        Loading…
+      </CardContent>
     </Card>
   );
 }
@@ -1397,34 +1468,50 @@ export function TrainedModelCard({ jobId }: { jobId: string }) {
   if (isLoading) {
     return (
       <Card>
-        <CardHeader><CardTitle>Trained model</CardTitle></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">Loading…</CardContent>
+        <CardHeader>
+          <CardTitle>Trained model</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Loading…
+        </CardContent>
       </Card>
     );
   }
   if (!data) {
     return (
       <Card>
-        <CardHeader><CardTitle>Trained model</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Trained model</CardTitle>
+        </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           Model not yet registered (or registration failed — see backend logs).
         </CardContent>
       </Card>
     );
   }
-  const mv = data as { mlflow_name: string; mlflow_version: number; current_stage: string };
+  const mv = data as {
+    mlflow_name: string;
+    mlflow_version: number;
+    current_stage: string;
+  };
   return (
     <Card>
-      <CardHeader><CardTitle>Trained model</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Trained model</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-1 text-sm">
         <div>
           <span className="text-muted-foreground">Registered as:</span>{" "}
-          <Link to={`/models/${mv.mlflow_name}`} className="text-primary hover:underline">
+          <Link
+            to={`/models/${mv.mlflow_name}`}
+            className="text-primary hover:underline"
+          >
             {mv.mlflow_name} v{mv.mlflow_version}
           </Link>
         </div>
         <div>
-          <span className="text-muted-foreground">Stage:</span> {mv.current_stage}
+          <span className="text-muted-foreground">Stage:</span>{" "}
+          {mv.current_stage}
         </div>
       </CardContent>
     </Card>
@@ -1444,6 +1531,7 @@ git commit -m "feat(jobs): SourceModelCard + TrainedModelCard (phase 13b B1)"
 ## Task 5.5: Frontend — `<PredictionSummaryCard>`
 
 **Files:**
+
 - Create: `frontend/src/components/jobs/PredictionSummaryCard.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1457,11 +1545,17 @@ interface PredictionSummary {
   duration_seconds: number | null;
 }
 
-export function PredictionSummaryCard({ summary }: { summary: PredictionSummary | null }) {
+export function PredictionSummaryCard({
+  summary,
+}: {
+  summary: PredictionSummary | null;
+}) {
   if (!summary) {
     return (
       <Card>
-        <CardHeader><CardTitle>Predictions</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Predictions</CardTitle>
+        </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           Prediction summary not available (legacy job or predict failed).
         </CardContent>
@@ -1473,27 +1567,40 @@ export function PredictionSummaryCard({ summary }: { summary: PredictionSummary 
 
   return (
     <Card>
-      <CardHeader><CardTitle>Predictions</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Predictions</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="flex items-baseline gap-4">
           <div>
             <div className="text-xs text-muted-foreground">Total samples</div>
-            <div className="text-2xl font-semibold">{total.toLocaleString()}</div>
+            <div className="text-2xl font-semibold">
+              {total.toLocaleString()}
+            </div>
           </div>
           {duration_seconds != null && (
             <div>
               <div className="text-xs text-muted-foreground">Duration</div>
-              <div className="text-2xl font-semibold">{duration_seconds.toFixed(1)}s</div>
+              <div className="text-2xl font-semibold">
+                {duration_seconds.toFixed(1)}s
+              </div>
             </div>
           )}
         </div>
 
         <div>
-          <div className="mb-1 text-xs text-muted-foreground">Predicted class distribution</div>
+          <div className="mb-1 text-xs text-muted-foreground">
+            Predicted class distribution
+          </div>
           <div className="flex h-5 overflow-hidden rounded-md border">
             {entries.map(([cls, count], idx) => {
               const pct = (count / total) * 100;
-              const colors = ["bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
+              const colors = [
+                "bg-blue-500",
+                "bg-emerald-500",
+                "bg-amber-500",
+                "bg-rose-500",
+              ];
               const color = colors[idx % colors.length];
               return (
                 <div
@@ -1535,6 +1642,7 @@ git commit -m "feat(jobs): PredictionSummaryCard with distribution bar + table (
 ## Task 5.6: Frontend — `<ResolvedConfigCard>` and `<UserParamsTable>`
 
 **Files:**
+
 - Create: `frontend/src/components/jobs/ResolvedConfigCard.tsx`
 - Create: `frontend/src/components/jobs/UserParamsTable.tsx`
 - Create: `frontend/tests/unit/ResolvedConfigCard.test.tsx`
@@ -1543,7 +1651,12 @@ git commit -m "feat(jobs): PredictionSummaryCard with distribution bar + table (
 
 ```tsx
 import {
-  Table, TableBody, TableCell, TableRow, TableHead, TableHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+  TableHead,
+  TableHeader,
 } from "@/components/ui/table";
 
 interface Props {
@@ -1554,7 +1667,11 @@ interface Props {
 export function UserParamsTable({ userParams, defaults }: Props) {
   const keys = Object.keys(userParams).sort();
   if (keys.length === 0) {
-    return <p className="text-sm text-muted-foreground">No hyperparameters submitted (used detector defaults).</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        No hyperparameters submitted (used detector defaults).
+      </p>
+    );
   }
   return (
     <Table>
@@ -1569,11 +1686,15 @@ export function UserParamsTable({ userParams, defaults }: Props) {
         {keys.map((k) => {
           const userVal = userParams[k];
           const defaultVal = defaults?.[k];
-          const isDefault = defaults != null && JSON.stringify(userVal) === JSON.stringify(defaultVal);
+          const isDefault =
+            defaults != null &&
+            JSON.stringify(userVal) === JSON.stringify(defaultVal);
           return (
             <TableRow key={k}>
               <TableCell className="font-mono">{k}</TableCell>
-              <TableCell className={isDefault ? "text-muted-foreground" : "font-medium"}>
+              <TableCell
+                className={isDefault ? "text-muted-foreground" : "font-medium"}
+              >
                 {JSON.stringify(userVal)}
                 {isDefault && <span className="ml-2 text-xs">(default)</span>}
               </TableCell>
@@ -1606,18 +1727,27 @@ interface Props {
   detectorDefaults?: Record<string, unknown> | null;
 }
 
-export function ResolvedConfigCard({ resolvedConfig, userParams, detectorDefaults }: Props) {
+export function ResolvedConfigCard({
+  resolvedConfig,
+  userParams,
+  detectorDefaults,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   const lineCount = JSON.stringify(resolvedConfig, null, 2).split("\n").length;
 
   return (
     <Card>
-      <CardHeader><CardTitle>Resolved config</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Resolved config</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-4">
         <div>
           <h3 className="mb-2 text-sm font-medium">Your hyperparameters</h3>
           {userParams !== null ? (
-            <UserParamsTable userParams={userParams} defaults={detectorDefaults ?? null} />
+            <UserParamsTable
+              userParams={userParams}
+              defaults={detectorDefaults ?? null}
+            />
           ) : (
             <p className="text-sm text-muted-foreground">
               Legacy job — user-supplied params not recorded.
@@ -1631,8 +1761,13 @@ export function ResolvedConfigCard({ resolvedConfig, userParams, detectorDefault
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
             onClick={() => setExpanded((x) => !x)}
           >
-            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            {expanded ? "Hide" : "Show"} full resolved config ({lineCount} lines)
+            {expanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            {expanded ? "Hide" : "Show"} full resolved config ({lineCount}{" "}
+            lines)
           </button>
           {expanded && (
             <div className="mt-2">
@@ -1656,7 +1791,10 @@ import { describe, it, expect } from "vitest";
 import { ResolvedConfigCard } from "@/components/jobs/ResolvedConfigCard";
 
 describe("ResolvedConfigCard", () => {
-  const resolvedConfig = { paths: { train: "/x" }, params: { n_estimators: 200 } };
+  const resolvedConfig = {
+    paths: { train: "/x" },
+    params: { n_estimators: 200 },
+  };
 
   it("shows user params table when userParams provided", () => {
     render(
@@ -1671,12 +1809,16 @@ describe("ResolvedConfigCard", () => {
   });
 
   it("shows legacy fallback when userParams is null", () => {
-    render(<ResolvedConfigCard resolvedConfig={resolvedConfig} userParams={null} />);
+    render(
+      <ResolvedConfigCard resolvedConfig={resolvedConfig} userParams={null} />,
+    );
     expect(screen.getByText(/legacy job/i)).toBeInTheDocument();
   });
 
   it("toggles full resolved config visibility", () => {
-    render(<ResolvedConfigCard resolvedConfig={resolvedConfig} userParams={{}} />);
+    render(
+      <ResolvedConfigCard resolvedConfig={resolvedConfig} userParams={{}} />,
+    );
     expect(screen.queryByText('"paths"')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText(/show full/i));
     // react-json-view renders 'paths' as text
@@ -1705,6 +1847,7 @@ git commit -m "feat(jobs): ResolvedConfigCard + UserParamsTable (phase 13b B3)"
 ## Task 5.7: Frontend — `<JobDetailShell>` + `<TrainSummary>` / `<EvaluateSummary>` / `<PredictSummary>`
 
 **Files:**
+
 - Create: `frontend/src/components/jobs/JobDetailShell.tsx`
 - Create: `frontend/src/components/jobs/TrainSummary.tsx`
 - Create: `frontend/src/components/jobs/EvaluateSummary.tsx`
@@ -1739,24 +1882,47 @@ export function JobDetailShell({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">{job.type} — {job.id.slice(0, 8)}</h1>
+          <h1 className="text-2xl font-semibold">
+            {job.type} — {job.id.slice(0, 8)}
+          </h1>
           <StatusBadge status={job.status} />
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => nav(`/jobs/new?from=${job.id}`)}>Clone</Button>
+          <Button
+            variant="ghost"
+            onClick={() => nav(`/jobs/new?from=${job.id}`)}
+          >
+            Clone
+          </Button>
           {!isTerminal(job.status) && (
-            <Button variant="destructive" onClick={() => cancel.mutate(job.id)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => cancel.mutate(job.id)}>
+              Cancel
+            </Button>
           )}
         </div>
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Metadata</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Metadata</CardTitle>
+        </CardHeader>
         <CardContent className="grid grid-cols-2 gap-2 text-sm">
-          <div><span className="text-muted-foreground">Submitted:</span> {formatRelative(job.submitted_at)}</div>
-          <div><span className="text-muted-foreground">Duration:</span> {formatDuration(job.started_at, job.finished_at)}</div>
-          <div><span className="text-muted-foreground">MLflow run:</span> <code>{job.mlflow_run_id ?? "—"}</code></div>
-          <div><span className="text-muted-foreground">Failure reason:</span> {job.failure_reason ?? "—"}</div>
+          <div>
+            <span className="text-muted-foreground">Submitted:</span>{" "}
+            {formatRelative(job.submitted_at)}
+          </div>
+          <div>
+            <span className="text-muted-foreground">Duration:</span>{" "}
+            {formatDuration(job.started_at, job.finished_at)}
+          </div>
+          <div>
+            <span className="text-muted-foreground">MLflow run:</span>{" "}
+            <code>{job.mlflow_run_id ?? "—"}</code>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Failure reason:</span>{" "}
+            {job.failure_reason ?? "—"}
+          </div>
           {isPending && queuePos?.position != null && (
             <div className="col-span-2">
               <span className="text-muted-foreground">Queue position:</span>{" "}
@@ -1789,37 +1955,60 @@ export function TrainSummary({ job }: { job: any }) {
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;
   const metrics = (sm.metrics as Record<string, number>) ?? {};
   const perClass = sm.per_class as Record<string, any> | undefined;
-  const cm = sm.confusion_matrix as { labels?: string[]; matrix?: number[][] } | undefined;
+  const cm = sm.confusion_matrix as
+    | { labels?: string[]; matrix?: number[][] }
+    | undefined;
 
-  const isLive = (NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status);
+  const isLive = (NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(
+    job.status,
+  );
   const { events, error: eventsError } = useJobEvents(job.id, isLive);
   const hasTimeSeries = events.some(
-    (e) => e.kind === "metric" && typeof (e as any).step === "number" && (e as any).step >= 1,
+    (e) =>
+      e.kind === "metric" &&
+      typeof (e as any).step === "number" &&
+      (e as any).step >= 1,
   );
 
   return (
     <>
       <Card>
-        <CardHeader><CardTitle>Final metrics</CardTitle></CardHeader>
-        <CardContent><MetricsTable metrics={metrics} /></CardContent>
+        <CardHeader>
+          <CardTitle>Final metrics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MetricsTable metrics={metrics} />
+        </CardContent>
       </Card>
       {perClass && (
         <Card>
-          <CardHeader><CardTitle>Per-class metrics</CardTitle></CardHeader>
-          <CardContent><PerClassMetrics perClass={perClass} /></CardContent>
+          <CardHeader>
+            <CardTitle>Per-class metrics</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PerClassMetrics perClass={perClass} />
+          </CardContent>
         </Card>
       )}
       {cm?.labels && cm.matrix && (
         <Card>
-          <CardHeader><CardTitle>Confusion matrix</CardTitle></CardHeader>
-          <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
+          <CardHeader>
+            <CardTitle>Confusion matrix</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ConfusionMatrix labels={cm.labels} matrix={cm.matrix} />
+          </CardContent>
         </Card>
       )}
       {(hasTimeSeries || eventsError) && (
         <Card>
-          <CardHeader><CardTitle>Live metrics</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Live metrics</CardTitle>
+          </CardHeader>
           <CardContent>
-            {eventsError && <p className="text-sm text-destructive">{eventsError}</p>}
+            {eventsError && (
+              <p className="text-sm text-destructive">{eventsError}</p>
+            )}
             {hasTimeSeries && <JobMetricChart events={events} />}
           </CardContent>
         </Card>
@@ -1848,7 +2037,9 @@ export function EvaluateSummary({ job }: { job: any }) {
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;
   const metrics = (sm.metrics as Record<string, number>) ?? {};
   const perClass = sm.per_class as Record<string, any> | undefined;
-  const cm = sm.confusion_matrix as { labels?: string[]; matrix?: number[][] } | undefined;
+  const cm = sm.confusion_matrix as
+    | { labels?: string[]; matrix?: number[][] }
+    | undefined;
 
   return (
     <>
@@ -1856,19 +2047,31 @@ export function EvaluateSummary({ job }: { job: any }) {
         <SourceModelCard sourceModelVersionId={job.source_model_version_id} />
       )}
       <Card>
-        <CardHeader><CardTitle>Evaluation metrics</CardTitle></CardHeader>
-        <CardContent><MetricsTable metrics={metrics} /></CardContent>
+        <CardHeader>
+          <CardTitle>Evaluation metrics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MetricsTable metrics={metrics} />
+        </CardContent>
       </Card>
       {perClass && (
         <Card>
-          <CardHeader><CardTitle>Per-class metrics</CardTitle></CardHeader>
-          <CardContent><PerClassMetrics perClass={perClass} /></CardContent>
+          <CardHeader>
+            <CardTitle>Per-class metrics</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PerClassMetrics perClass={perClass} />
+          </CardContent>
         </Card>
       )}
       {cm?.labels && cm.matrix && (
         <Card>
-          <CardHeader><CardTitle>Confusion matrix</CardTitle></CardHeader>
-          <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
+          <CardHeader>
+            <CardTitle>Confusion matrix</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ConfusionMatrix labels={cm.labels} matrix={cm.matrix} />
+          </CardContent>
         </Card>
       )}
       <ResolvedConfigCard
@@ -1902,7 +2105,9 @@ export function PredictSummary({ job }: { job: any }) {
       <PredictionSummaryCard summary={ps ?? null} />
       {job.mlflow_run_id && (
         <Card>
-          <CardHeader><CardTitle>Output</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Output</CardTitle>
+          </CardHeader>
           <CardContent>
             <Button asChild variant="outline">
               <a
@@ -1950,6 +2155,7 @@ EOF
 ## Task 5.8: Frontend — rewrite `_authed.jobs.$id.tsx` to dispatch by job type
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.jobs.$id.tsx`
 - Delete: `frontend/src/components/charts/MetricCards.tsx`
 
@@ -1982,18 +2188,24 @@ export default function JobDetailPage() {
         <TabsList>
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
-          <TabsTrigger value="artifacts" disabled={!job.mlflow_run_id}>Artifacts</TabsTrigger>
+          <TabsTrigger value="artifacts" disabled={!job.mlflow_run_id}>
+            Artifacts
+          </TabsTrigger>
           {job.mlflow_run_id && (
             <TabsTrigger value="mlflow" asChild>
-              <Link to={`/runs/${job.mlflow_experiment_id}/${job.mlflow_run_id}`}>Open run ↗</Link>
+              <Link
+                to={`/runs/${job.mlflow_experiment_id}/${job.mlflow_run_id}`}
+              >
+                Open run ↗
+              </Link>
             </TabsTrigger>
           )}
         </TabsList>
 
         <TabsContent value="summary" className="space-y-4">
-          {job.type === "train"    && <TrainSummary job={job} />}
+          {job.type === "train" && <TrainSummary job={job} />}
           {job.type === "evaluate" && <EvaluateSummary job={job} />}
-          {job.type === "predict"  && <PredictSummary job={job} />}
+          {job.type === "predict" && <PredictSummary job={job} />}
         </TabsContent>
 
         <TabsContent value="logs">
@@ -2001,8 +2213,13 @@ export default function JobDetailPage() {
         </TabsContent>
 
         <TabsContent value="artifacts">
-          {job.mlflow_run_id ? <ArtifactTree runId={job.mlflow_run_id} /> :
-            <p className="text-muted-foreground">No MLflow run recorded for this job.</p>}
+          {job.mlflow_run_id ? (
+            <ArtifactTree runId={job.mlflow_run_id} />
+          ) : (
+            <p className="text-muted-foreground">
+              No MLflow run recorded for this job.
+            </p>
+          )}
         </TabsContent>
       </Tabs>
     </JobDetailShell>
@@ -2058,6 +2275,7 @@ EOF
 ## Task 6.1: Frontend — `RjsfConfigForm.logic.ts` (deriveUiSchema + fillDefaults)
 
 **Files:**
+
 - Create: `frontend/src/components/forms/RjsfConfigForm.logic.ts`
 - Create: `frontend/tests/unit/RjsfConfigForm.logic.test.ts`
 
@@ -2067,7 +2285,10 @@ Create `frontend/tests/unit/RjsfConfigForm.logic.test.ts`:
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { deriveUiSchemaFromSchema, fillDefaults } from "@/components/forms/RjsfConfigForm.logic";
+import {
+  deriveUiSchemaFromSchema,
+  fillDefaults,
+} from "@/components/forms/RjsfConfigForm.logic";
 
 describe("deriveUiSchemaFromSchema", () => {
   it("ui:help from description", () => {
@@ -2135,7 +2356,12 @@ describe("fillDefaults", () => {
   it("respects null default for nullable union", () => {
     const schema = {
       type: "object",
-      properties: { max_depth: { anyOf: [{ type: "integer" }, { type: "null" }], default: null } },
+      properties: {
+        max_depth: {
+          anyOf: [{ type: "integer" }, { type: "null" }],
+          default: null,
+        },
+      },
     };
     expect(fillDefaults(schema as any, {})).toEqual({ max_depth: null });
   });
@@ -2220,6 +2446,7 @@ git commit -m "feat(forms): deriveUiSchemaFromSchema + fillDefaults (phase 13b B
 ## Task 6.2: Frontend — rewrite `RjsfConfigForm.tsx`
 
 **Files:**
+
 - Modify: `frontend/src/components/forms/RjsfConfigForm.tsx`
 - Create: `frontend/tests/unit/RjsfConfigForm.test.tsx`
 
@@ -2234,7 +2461,9 @@ describe("RjsfConfigForm", () => {
   it("renders description as ui:help", () => {
     const schema = {
       type: "object",
-      properties: { n: { type: "integer", description: "Number of trees", default: 100 } },
+      properties: {
+        n: { type: "integer", description: "Number of trees", default: 100 },
+      },
     };
     render(<RjsfConfigForm schema={schema} value={{}} onChange={() => {}} />);
     expect(screen.getByText(/Number of trees/i)).toBeInTheDocument();
@@ -2256,7 +2485,9 @@ describe("RjsfConfigForm", () => {
       properties: { n: { type: "integer", default: 100 } },
     };
     const onChange = vi.fn();
-    render(<RjsfConfigForm schema={schema} value={{ n: 200 }} onChange={onChange} />);
+    render(
+      <RjsfConfigForm schema={schema} value={{ n: 200 }} onChange={onChange} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /reset to defaults/i }));
     expect(onChange).toHaveBeenLastCalledWith({ n: 100 });
   });
@@ -2292,7 +2523,9 @@ function normalizeSchema(node: unknown): unknown {
   }
   if (typeof out.$ref === "string") {
     const { $ref, ...rest } = out;
-    const hasSiblings = Object.keys(rest).some((k) => !NON_WRAPPING_SIBLINGS.has(k));
+    const hasSiblings = Object.keys(rest).some(
+      (k) => !NON_WRAPPING_SIBLINGS.has(k),
+    );
     if (hasSiblings) {
       return { allOf: [{ $ref }], ...rest };
     }
@@ -2301,8 +2534,14 @@ function normalizeSchema(node: unknown): unknown {
 }
 
 export function RjsfConfigForm({ schema, value, onChange }: Props) {
-  const normalizedSchema = useMemo(() => normalizeSchema(schema) as RJSFSchema, [schema]);
-  const uiSchema = useMemo(() => deriveUiSchemaFromSchema(normalizedSchema), [normalizedSchema]);
+  const normalizedSchema = useMemo(
+    () => normalizeSchema(schema) as RJSFSchema,
+    [schema],
+  );
+  const uiSchema = useMemo(
+    () => deriveUiSchemaFromSchema(normalizedSchema),
+    [normalizedSchema],
+  );
 
   // Phase 13b B2: pre-populate defaults whenever schema changes.
   useEffect(() => {
@@ -2363,6 +2602,7 @@ EOF
 ## Task 6.3: Frontend — `<StageExplainer>` + i18n keys + JobSubmitForm wire-up
 
 **Files:**
+
 - Create: `frontend/src/components/forms/StageExplainer.tsx`
 - Modify: `frontend/src/components/forms/JobSubmitForm.tsx`
 - Modify: `frontend/src/i18n/zh-TW.json`, `frontend/src/i18n/en.json`
@@ -2435,7 +2675,9 @@ export function StageExplainer({ type }: { type: JobType }) {
     <Card>
       <CardContent className="space-y-2 py-4 text-sm">
         <p className="font-medium">{t(`stage.${type}.title`)}</p>
-        <p className="text-muted-foreground">{t(`stage.${type}.description`)}</p>
+        <p className="text-muted-foreground">
+          {t(`stage.${type}.description`)}
+        </p>
         <div className="flex flex-wrap gap-2 pt-2">
           {REQUIRED_FIELDS[type].map((f) => (
             <Badge key={`req-${f}`} variant="default">
@@ -2462,7 +2704,7 @@ In `frontend/src/components/forms/JobSubmitForm.tsx`, after the "Job type" Card 
 import { StageExplainer } from "./StageExplainer";
 
 // ... in the JSX, after Job type Card:
-<StageExplainer type={type} />
+<StageExplainer type={type} />;
 ```
 
 - [ ] **Step 4: TypeScript check + manual smoke**
@@ -2486,6 +2728,7 @@ git commit -m "feat(forms): StageExplainer + zh-TW/en i18n + JobSubmitForm integ
 ## Task 7.1: Frontend — `<CollapsibleCard>`, `<OpenInMlflowButton>`, `<OpenInLoldayJobButton>`
 
 **Files:**
+
 - Create: `frontend/src/components/common/CollapsibleCard.tsx`
 - Create: `frontend/src/components/common/OpenInMlflowButton.tsx`
 - Create: `frontend/src/components/common/OpenInLoldayJobButton.tsx`
@@ -2514,7 +2757,11 @@ export function CollapsibleCard({
         onClick={() => setOpen((x) => !x)}
       >
         <CardTitle className="flex items-center gap-2">
-          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          {open ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
           {title}
         </CardTitle>
       </CardHeader>
@@ -2536,7 +2783,11 @@ interface Props {
   size?: "default" | "sm";
 }
 
-export function OpenInMlflowButton({ experimentId, runId, size = "sm" }: Props) {
+export function OpenInMlflowButton({
+  experimentId,
+  runId,
+  size = "sm",
+}: Props) {
   let href = "/mlflow/";
   if (experimentId && runId) {
     href = `/mlflow/#/experiments/${experimentId}/runs/${runId}`;
@@ -2581,6 +2832,7 @@ git commit -m "feat(common): CollapsibleCard + OpenInMlflowButton + OpenInLolday
 ## Task 7.2: Frontend — `<ExperimentCard>` + rewrite `/runs` index
 
 **Files:**
+
 - Create: `frontend/src/components/runs/ExperimentCard.tsx`
 - Modify: `frontend/src/api/queries/runs.ts` (add `useExperimentsWithStats`)
 - Modify: `frontend/src/routes/_authed.runs._index.tsx`
@@ -2631,11 +2883,13 @@ export function ExperimentCard({ exp }: { exp: Exp }) {
     <Card className="transition hover:border-primary">
       <CardContent className="space-y-2 p-4">
         <Link to={`/runs/${exp.experiment_id}`} className="block">
-          <div className="text-xs text-muted-foreground">#{exp.experiment_id}</div>
+          <div className="text-xs text-muted-foreground">
+            #{exp.experiment_id}
+          </div>
           <div className="text-lg font-medium">{exp.name}</div>
           <div className="text-sm text-muted-foreground">
-            {exp.run_count ?? "—"} runs ·{" "}
-            Best F1: {exp.best_f1 != null ? exp.best_f1.toFixed(4) : "—"} ·{" "}
+            {exp.run_count ?? "—"} runs · Best F1:{" "}
+            {exp.best_f1 != null ? exp.best_f1.toFixed(4) : "—"} ·{" "}
             {exp.latest_start_time != null
               ? formatRelative(new Date(exp.latest_start_time).toISOString())
               : "no runs"}
@@ -2665,7 +2919,9 @@ export default function ExperimentsListPage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Experiments</h1>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {(data ?? []).map((exp) => <ExperimentCard key={exp.experiment_id} exp={exp} />)}
+        {(data ?? []).map((exp) => (
+          <ExperimentCard key={exp.experiment_id} exp={exp} />
+        ))}
       </div>
     </div>
   );
@@ -2684,6 +2940,7 @@ git commit -m "feat(runs): ExperimentCard with stats + Open in MLflow (phase 13b
 ## Task 7.3: Frontend — `<RunsColumnPicker>` and `<RunsStatusFilter>`
 
 **Files:**
+
 - Create: `frontend/src/components/runs/RunsColumnPicker.tsx`
 - Create: `frontend/src/components/runs/RunsStatusFilter.tsx`
 - Create: `frontend/tests/unit/RunsColumnPicker.test.tsx`
@@ -2720,7 +2977,10 @@ export function RunsColumnPicker({
 }: Props) {
   // Persist to localStorage per experiment.
   useEffect(() => {
-    localStorage.setItem(`runs.columns.${experimentId}`, JSON.stringify(selected));
+    localStorage.setItem(
+      `runs.columns.${experimentId}`,
+      JSON.stringify(selected),
+    );
   }, [experimentId, selected]);
 
   function toggle(key: string) {
@@ -2769,7 +3029,10 @@ export function RunsColumnPicker({
   );
 }
 
-export function loadColumnsFromStorage(experimentId: string, fallback: string[]): string[] {
+export function loadColumnsFromStorage(
+  experimentId: string,
+  fallback: string[],
+): string[] {
   try {
     const raw = localStorage.getItem(`runs.columns.${experimentId}`);
     if (!raw) return fallback;
@@ -2783,7 +3046,13 @@ export function loadColumnsFromStorage(experimentId: string, fallback: string[])
 - [ ] **Step 2: RunsStatusFilter**
 
 ```tsx
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const STATUSES = ["all", "FINISHED", "RUNNING", "FAILED", "SCHEDULED"] as const;
 type Status = (typeof STATUSES)[number];
@@ -2796,10 +3065,14 @@ interface Props {
 export function RunsStatusFilter({ value, onChange }: Props) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as Status)}>
-      <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+      <SelectTrigger className="w-36">
+        <SelectValue />
+      </SelectTrigger>
       <SelectContent>
         {STATUSES.map((s) => (
-          <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s}</SelectItem>
+          <SelectItem key={s} value={s}>
+            {s === "all" ? "All statuses" : s}
+          </SelectItem>
         ))}
       </SelectContent>
     </Select>
@@ -2814,7 +3087,10 @@ export type { Status as RunsStatus };
 ```tsx
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { RunsColumnPicker, loadColumnsFromStorage } from "@/components/runs/RunsColumnPicker";
+import {
+  RunsColumnPicker,
+  loadColumnsFromStorage,
+} from "@/components/runs/RunsColumnPicker";
 
 describe("RunsColumnPicker", () => {
   beforeEach(() => localStorage.clear());
@@ -2845,7 +3121,9 @@ describe("RunsColumnPicker", () => {
         onChange={() => {}}
       />,
     );
-    expect(localStorage.getItem("runs.columns.1")).toBe(JSON.stringify(["metrics.accuracy"]));
+    expect(localStorage.getItem("runs.columns.1")).toBe(
+      JSON.stringify(["metrics.accuracy"]),
+    );
   });
 
   it("loadColumnsFromStorage returns fallback when missing", () => {
@@ -2879,6 +3157,7 @@ git commit -m "feat(runs): RunsColumnPicker + RunsStatusFilter with localStorage
 ## Task 7.4: Frontend — rewrite `/runs/:expId` runs list
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.runs.$expId.tsx`
 
 - [ ] **Step 1: Rewrite**
@@ -2889,8 +3168,14 @@ import { useState, useMemo, useEffect } from "react";
 import { useExperimentRuns } from "@/api/queries/runs";
 import { DataTable } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { RunsColumnPicker, loadColumnsFromStorage } from "@/components/runs/RunsColumnPicker";
-import { RunsStatusFilter, type RunsStatus } from "@/components/runs/RunsStatusFilter";
+import {
+  RunsColumnPicker,
+  loadColumnsFromStorage,
+} from "@/components/runs/RunsColumnPicker";
+import {
+  RunsStatusFilter,
+  type RunsStatus,
+} from "@/components/runs/RunsStatusFilter";
 import { OpenInMlflowButton } from "@/components/common/OpenInMlflowButton";
 import { formatDuration } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -2941,9 +3226,10 @@ export default function RunsListPage() {
   }, [expId, status]);
 
   // Filter rows by status
-  const filteredRows = status === "all"
-    ? rows
-    : rows.filter((r) => r.status.toUpperCase() === status);
+  const filteredRows =
+    status === "all"
+      ? rows
+      : rows.filter((r) => r.status.toUpperCase() === status);
 
   // Build columns
   const columns: ColumnDef<Row>[] = [
@@ -2951,7 +3237,10 @@ export default function RunsListPage() {
       accessorKey: "run_id",
       header: "Run",
       cell: ({ row }) => (
-        <Link to={`/runs/${expId}/${row.original.run_id}`} className="font-mono text-sm hover:underline">
+        <Link
+          to={`/runs/${expId}/${row.original.run_id}`}
+          className="font-mono text-sm hover:underline"
+        >
           {row.original.run_id.slice(0, 10)}
         </Link>
       ),
@@ -2960,7 +3249,9 @@ export default function RunsListPage() {
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => <StatusBadge status={row.original.status.toLowerCase()} />,
+      cell: ({ row }) => (
+        <StatusBadge status={row.original.status.toLowerCase()} />
+      ),
     },
     {
       id: "duration",
@@ -2979,7 +3270,9 @@ export default function RunsListPage() {
         id: key,
         header: name,
         cell: ({ row }) => {
-          const bag = (row.original as any)[kind] as Record<string, unknown> | undefined;
+          const bag = (row.original as any)[kind] as
+            | Record<string, unknown>
+            | undefined;
           const v = bag?.[name];
           if (typeof v === "number") return v.toFixed(4);
           if (v == null) return "—";
@@ -2992,10 +3285,15 @@ export default function RunsListPage() {
       header: "Job",
       cell: ({ row }) => {
         const jobId =
-          row.original.tags?.["lolday.job_id"] ?? row.original.tags?.lolday_job_id;
+          row.original.tags?.["lolday.job_id"] ??
+          row.original.tags?.lolday_job_id;
         return jobId ? (
-          <Link to={`/jobs/${jobId}`} className="text-primary hover:underline">↗</Link>
-        ) : "—";
+          <Link to={`/jobs/${jobId}`} className="text-primary hover:underline">
+            ↗
+          </Link>
+        ) : (
+          "—"
+        );
       },
     },
   ];
@@ -3018,7 +3316,11 @@ export default function RunsListPage() {
           <OpenInMlflowButton experimentId={expId} />
         </div>
       </div>
-      <DataTable data={filteredRows} columns={columns} emptyMessage="No runs match the filter." />
+      <DataTable
+        data={filteredRows}
+        columns={columns}
+        emptyMessage="No runs match the filter."
+      />
     </div>
   );
 }
@@ -3045,6 +3347,7 @@ git commit -m "feat(runs): runs list with column picker, status filter, Open in 
 ## Task 7.5: Frontend — rewrite `/runs/:expId/:runId` run detail
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.runs.$expId.$runId.tsx`
 
 - [ ] **Step 1: Rewrite**
@@ -3112,14 +3415,22 @@ export default function RunDetailPage() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Metrics</CardTitle></CardHeader>
-        <CardContent><MetricsTable metrics={run.metrics ?? {}} /></CardContent>
+        <CardHeader>
+          <CardTitle>Metrics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MetricsTable metrics={run.metrics ?? {}} />
+        </CardContent>
       </Card>
 
       {cm && (
         <Card>
-          <CardHeader><CardTitle>Confusion matrix</CardTitle></CardHeader>
-          <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
+          <CardHeader>
+            <CardTitle>Confusion matrix</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ConfusionMatrix labels={cm.labels} matrix={cm.matrix} />
+          </CardContent>
         </Card>
       )}
 
@@ -3132,8 +3443,12 @@ export default function RunDetailPage() {
       </CollapsibleCard>
 
       <Card>
-        <CardHeader><CardTitle>Artifacts</CardTitle></CardHeader>
-        <CardContent><ArtifactTree runId={runId} /></CardContent>
+        <CardHeader>
+          <CardTitle>Artifacts</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ArtifactTree runId={runId} />
+        </CardContent>
       </Card>
     </div>
   );
@@ -3158,6 +3473,7 @@ git commit -m "feat(runs): rewrite run detail with tree views, MetricsTable, Ope
 ## Task 8.1: Chart — `/mlflow/` IngressRoute + Middleware
 
 **Files:**
+
 - Modify: `charts/lolday/templates/ingress.yaml`
 
 - [ ] **Step 1: Update ingress.yaml**
@@ -3167,7 +3483,7 @@ apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: lolday
-  namespace: {{ .Release.Namespace }}
+  namespace: { { .Release.Namespace } }
 spec:
   entryPoints: [web]
   routes:
@@ -3192,7 +3508,7 @@ spec:
       services:
         - kind: Service
           name: mlflow
-          port: {{ .Values.mlflow.service.port }}
+          port: { { .Values.mlflow.service.port } }
 
     # Non-GET on /mlflow → 405 via a tiny denier service. The denier is a
     # 1-replica nginx Pod returning 405 for all requests; cheap and
@@ -3217,7 +3533,7 @@ apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: mlflow-strip-prefix
-  namespace: {{ .Release.Namespace }}
+  namespace: { { .Release.Namespace } }
 spec:
   stripPrefix:
     prefixes:
@@ -3317,6 +3633,7 @@ EOF
 ## Task 8.2: Chart — MLflow `--static-prefix=/mlflow`
 
 **Files:**
+
 - Modify: `charts/lolday/templates/mlflow.yaml`
 
 - [ ] **Step 1: Add the flag**
@@ -3331,7 +3648,7 @@ args:
   - --default-artifact-root=mlflow-artifacts:/
   - --artifacts-destination=/mlflow-artifacts
   - --serve-artifacts
-  - --static-prefix=/mlflow      # phase 13b B5: rewrite asset URLs for reverse-proxy
+  - --static-prefix=/mlflow # phase 13b B5: rewrite asset URLs for reverse-proxy
 ```
 
 - [ ] **Step 2: Helm lint**
@@ -3388,6 +3705,7 @@ Open `https://$LOLDAY_HOST/mlflow/` in browser → expect MLflow UI rendering. C
 ## Task 9.1: E2E tests — Job Detail per type
 
 **Files:**
+
 - Modify: `frontend/tests/e2e/jobs.spec.ts`
 
 - [ ] **Step 1: Tests**
@@ -3397,28 +3715,54 @@ test.describe("Job Detail Summary tab — per type", () => {
   test("train job shows TrainSummary cards", async ({ page, seedTrainJob }) => {
     const job = await seedTrainJob({ withMetrics: true });
     await page.goto(`/jobs/${job.id}`);
-    await expect(page.getByRole("heading", { name: /Final metrics/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Confusion matrix/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Trained model/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Final metrics/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Confusion matrix/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Trained model/i }),
+    ).toBeVisible();
   });
 
-  test("evaluate job shows EvaluateSummary cards", async ({ page, seedEvaluateJob }) => {
-    const job = await seedEvaluateJob({ withMetrics: true, withPerClass: true });
+  test("evaluate job shows EvaluateSummary cards", async ({
+    page,
+    seedEvaluateJob,
+  }) => {
+    const job = await seedEvaluateJob({
+      withMetrics: true,
+      withPerClass: true,
+    });
     await page.goto(`/jobs/${job.id}`);
-    await expect(page.getByRole("heading", { name: /Source model/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Evaluation metrics/i })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /Per-class metrics/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Source model/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Evaluation metrics/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Per-class metrics/i }),
+    ).toBeVisible();
   });
 
-  test("predict job shows PredictSummary cards with download", async ({ page, seedPredictJob }) => {
+  test("predict job shows PredictSummary cards with download", async ({
+    page,
+    seedPredictJob,
+  }) => {
     const job = await seedPredictJob({ withPredictions: true });
     await page.goto(`/jobs/${job.id}`);
-    await expect(page.getByRole("heading", { name: /Predictions/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: /Download predictions.csv/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Predictions/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /Download predictions.csv/i }),
+    ).toBeVisible();
   });
 
   test("ResolvedConfigCard shows user params separate from full config", async ({
-    page, seedTrainJob,
+    page,
+    seedTrainJob,
   }) => {
     const job = await seedTrainJob({ userParams: { n_estimators: 200 } });
     await page.goto(`/jobs/${job.id}`);
@@ -3451,6 +3795,7 @@ git commit -m "test(e2e): per-type Job Detail Summary tab + ResolvedConfigCard (
 ## Task 9.2: E2E tests — Submit form Hyperparameters
 
 **Files:**
+
 - Modify: `frontend/tests/e2e/jobs.spec.ts` (or new submit.spec.ts)
 
 - [ ] **Step 1: Tests**
@@ -3499,6 +3844,7 @@ git commit -m "test(e2e): submit form Hyperparameters (phase 13b B2)"
 ## Task 9.3: E2E tests — Runs three-tier + MLflow link
 
 **Files:**
+
 - Create: `frontend/tests/e2e/runs.spec.ts`
 - Create: `frontend/tests/e2e/mlflow.spec.ts`
 
@@ -3526,7 +3872,10 @@ test.describe("Runs three-tier UX", () => {
     await expect(page.getByRole("columnheader", { name: "f1" })).toBeVisible();
   });
 
-  test("Run detail Open job navigates to lolday job", async ({ page, seedRunWithJobTag }) => {
+  test("Run detail Open job navigates to lolday job", async ({
+    page,
+    seedRunWithJobTag,
+  }) => {
     const { expId, runId, jobId } = await seedRunWithJobTag();
     await page.goto(`/runs/${expId}/${runId}`);
     await page.getByRole("link", { name: /Open job/i }).click();
@@ -3556,7 +3905,9 @@ test.describe("MLflow UI exposure", () => {
   });
 
   test("MLflow POST is blocked with 405", async ({ request }) => {
-    const resp = await request.post("/mlflow/api/2.0/mlflow/runs/create", { data: {} });
+    const resp = await request.post("/mlflow/api/2.0/mlflow/runs/create", {
+      data: {},
+    });
     expect(resp.status()).toBe(405);
   });
 });
@@ -3575,6 +3926,7 @@ git commit -m "test(e2e): Runs three-tier UX + MLflow exposure (phase 13b B4, B5
 ## Task 10.1: Build + push backend phase13b image
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml`
 
 - [ ] **Step 1: Build + push**
@@ -3604,6 +3956,7 @@ git commit -m "chore(deploy): bump backend default tag to phase13b"
 ## Task 10.2: Build + push frontend phase13b image
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml`
 
 - [ ] **Step 1: Build + push**
@@ -3671,37 +4024,37 @@ If maldet `per_class` event PR has not yet landed, `<PerClassMetrics>` will be h
 
 ### Spec coverage check
 
-| Spec section | Plan task |
-|---|---|
-| §1 B1 dispatcher | 5.7, 5.8 |
-| §1 B1 TrainSummary / EvaluateSummary / PredictSummary | 5.7 |
-| §1 B1 MetricsTable | 5.1 |
-| §1 B1 PerClassMetrics | 5.2 |
-| §1 B1 SourceModelCard / TrainedModelCard | 5.3, 5.4 |
-| §1 B1 PredictionSummaryCard | 5.5 |
-| §1 B1 backend per_class projection | 1.1 |
-| §1 B1 backend prediction summary projection | 1.2 |
-| §1 B1 backend prediction-summary fallback endpoint | 1.3 |
-| §2 B2 deriveUiSchema + fillDefaults | 6.1 |
-| §2 B2 RjsfConfigForm rewrite | 6.2 |
-| §2 B2 StageExplainer + i18n | 6.3 |
-| §3 B3 react-json-view | 4.1 |
-| §3 B3 JsonTreeView | 4.2 |
-| §3 B3 replace JsonViewer | 4.3 |
-| §3 B3 ResolvedConfigCard + UserParamsTable | 5.6 |
-| §3 B3 backend Job.user_params | 2.1 |
-| §3 B3 backend submit_job writes user_params | 2.2 |
-| §4 B4 backend experiments aggregate + cache | 3.1 |
-| §4 B4 ExperimentsListPage + ExperimentCard | 7.2 |
-| §4 B4 RunsColumnPicker + StatusFilter | 7.3 |
-| §4 B4 RunsList rewrite | 7.4 |
-| §4 B4 RunDetail rewrite | 7.5 |
-| §4 B4 OpenInMlflow / OpenInLoldayJob / CollapsibleCard | 7.1 |
-| §5 B5 IngressRoute + middleware + denier | 8.1 |
-| §5 B5 mlflow --static-prefix | 8.2 |
-| §5 B5 deploy + verify | 8.3 |
-| Migration & Deploy | 10.1, 10.2, 10.3 |
-| Testing strategy → E2E | 9.1, 9.2, 9.3 |
+| Spec section                                           | Plan task        |
+| ------------------------------------------------------ | ---------------- |
+| §1 B1 dispatcher                                       | 5.7, 5.8         |
+| §1 B1 TrainSummary / EvaluateSummary / PredictSummary  | 5.7              |
+| §1 B1 MetricsTable                                     | 5.1              |
+| §1 B1 PerClassMetrics                                  | 5.2              |
+| §1 B1 SourceModelCard / TrainedModelCard               | 5.3, 5.4         |
+| §1 B1 PredictionSummaryCard                            | 5.5              |
+| §1 B1 backend per_class projection                     | 1.1              |
+| §1 B1 backend prediction summary projection            | 1.2              |
+| §1 B1 backend prediction-summary fallback endpoint     | 1.3              |
+| §2 B2 deriveUiSchema + fillDefaults                    | 6.1              |
+| §2 B2 RjsfConfigForm rewrite                           | 6.2              |
+| §2 B2 StageExplainer + i18n                            | 6.3              |
+| §3 B3 react-json-view                                  | 4.1              |
+| §3 B3 JsonTreeView                                     | 4.2              |
+| §3 B3 replace JsonViewer                               | 4.3              |
+| §3 B3 ResolvedConfigCard + UserParamsTable             | 5.6              |
+| §3 B3 backend Job.user_params                          | 2.1              |
+| §3 B3 backend submit_job writes user_params            | 2.2              |
+| §4 B4 backend experiments aggregate + cache            | 3.1              |
+| §4 B4 ExperimentsListPage + ExperimentCard             | 7.2              |
+| §4 B4 RunsColumnPicker + StatusFilter                  | 7.3              |
+| §4 B4 RunsList rewrite                                 | 7.4              |
+| §4 B4 RunDetail rewrite                                | 7.5              |
+| §4 B4 OpenInMlflow / OpenInLoldayJob / CollapsibleCard | 7.1              |
+| §5 B5 IngressRoute + middleware + denier               | 8.1              |
+| §5 B5 mlflow --static-prefix                           | 8.2              |
+| §5 B5 deploy + verify                                  | 8.3              |
+| Migration & Deploy                                     | 10.1, 10.2, 10.3 |
+| Testing strategy → E2E                                 | 9.1, 9.2, 9.3    |
 
 All sections accounted for. Per-class is split between backend projection (1.1) and frontend display (5.2 / 5.7) — both wired.
 

@@ -41,7 +41,12 @@ RUN_FINISHED = {
         },
         "data": {
             "metrics": [
-                {"key": "accuracy", "value": 0.93, "timestamp": 1713351000000, "step": 0},
+                {
+                    "key": "accuracy",
+                    "value": 0.93,
+                    "timestamp": 1713351000000,
+                    "step": 0,
+                },
                 {"key": "f1", "value": 0.91, "timestamp": 1713351000000, "step": 0},
             ],
             "params": [
@@ -81,7 +86,11 @@ REGISTERED_MODELS_SEARCH = {
             "creation_timestamp": 1713350000000,
             "last_updated_timestamp": 1713352000000,
             "latest_versions": [
-                {"version": "1", "current_stage": "Production", "run_id": "abc123def456"}
+                {
+                    "version": "1",
+                    "current_stage": "Production",
+                    "run_id": "abc123def456",
+                }
             ],
         }
     ]
@@ -89,6 +98,11 @@ REGISTERED_MODELS_SEARCH = {
 
 MODEL_VERSIONS_SEARCH = {
     "model_versions": [
-        {"name": "upxelfdet", "version": "1", "current_stage": "Production", "run_id": "abc123def456"},
+        {
+            "name": "upxelfdet",
+            "version": "1",
+            "current_stage": "Production",
+            "run_id": "abc123def456",
+        },
     ]
 }

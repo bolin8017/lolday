@@ -52,7 +52,7 @@ async function seedLegacyVersion(
   // endpoint exists (see module-level comment above).
   throw new Error(
     "seedLegacyVersion is not yet implemented — needs a backend seed API. " +
-    "Set MANIFEST_E2E=1 only after implementing the fixture.",
+      "Set MANIFEST_E2E=1 only after implementing the fixture.",
   );
 }
 
@@ -68,7 +68,7 @@ async function seedActiveVersion(
   // endpoint exists (see module-level comment above).
   throw new Error(
     "seedActiveVersion is not yet implemented — needs a backend seed API. " +
-    "Set MANIFEST_E2E=1 only after implementing the fixture.",
+      "Set MANIFEST_E2E=1 only after implementing the fixture.",
   );
 }
 
@@ -84,8 +84,8 @@ async function seedDetector(
   // endpoint exists (see module-level comment above).
   throw new Error(
     "seedDetector is not yet implemented — needs a backend seed API. " +
-    "Set MANIFEST_E2E=1 only after implementing the fixture. " +
-    "POST /api/v1/detectors with { name, ... } then return { id, name }.",
+      "Set MANIFEST_E2E=1 only after implementing the fixture. " +
+      "POST /api/v1/detectors with { name, ... } then return { id, name }.",
   );
 }
 
@@ -101,9 +101,9 @@ async function seedDetectorWithVersion(
   // endpoint exists (see module-level comment above).
   throw new Error(
     "seedDetectorWithVersion is not yet implemented — needs a backend seed API. " +
-    "Set MANIFEST_E2E=1 only after implementing the fixture. " +
-    "POST /api/v1/detectors and POST /api/v1/detectors/{id}/versions, " +
-    "then return { detectorId, tag }.",
+      "Set MANIFEST_E2E=1 only after implementing the fixture. " +
+      "POST /api/v1/detectors and POST /api/v1/detectors/{id}/versions, " +
+      "then return { detectorId, tag }.",
   );
 }
 
@@ -120,9 +120,9 @@ async function seedDetectorWithRunningJob(
   // endpoint exists (see module-level comment above).
   throw new Error(
     "seedDetectorWithRunningJob is not yet implemented — needs a backend seed API. " +
-    "Set MANIFEST_E2E=1 only after implementing the fixture. " +
-    "POST /api/v1/detectors, then POST /api/v1/detectors/{id}/jobs with status=RUNNING, " +
-    "then return { detectorId, name }.",
+      "Set MANIFEST_E2E=1 only after implementing the fixture. " +
+      "POST /api/v1/detectors, then POST /api/v1/detectors/{id}/jobs with status=RUNNING, " +
+      "then return { detectorId, name }.",
   );
 }
 
@@ -130,7 +130,9 @@ async function seedDetectorWithRunningJob(
 // Tests
 // ---------------------------------------------------------------------------
 
-test("View manifest button opens Sheet with fallback for legacy version", async ({ page }) => {
+test("View manifest button opens Sheet with fallback for legacy version", async ({
+  page,
+}) => {
   test.skip(!ENABLED, "set MANIFEST_E2E=1 to enable (requires seed API)");
   test.setTimeout(30_000);
   await login(page);
@@ -139,11 +141,17 @@ test("View manifest button opens Sheet with fallback for legacy version", async 
   // (e.g., via test.afterEach or fixture teardown) so HTTP sessions are released
   // even on test failure.
   const apiContext = await request.newContext({ baseURL: API_BASE });
-  const detector = await seedLegacyVersion(apiContext, { name: "legacy-det", tag: "v0.1.0" });
+  const detector = await seedLegacyVersion(apiContext, {
+    name: "legacy-det",
+    tag: "v0.1.0",
+  });
 
   await page.goto(`/detectors/${detector.id}`);
   await page.getByRole("tab", { name: /versions/i }).click();
-  await page.getByRole("button", { name: /view manifest/i }).first().click();
+  await page
+    .getByRole("button", { name: /view manifest/i })
+    .first()
+    .click();
 
   // Sheet should be visible
   const sheet = page.getByRole("dialog");
@@ -154,7 +162,9 @@ test("View manifest button opens Sheet with fallback for legacy version", async 
   await expect(sheet.getByText(/rebuild this version/i)).toBeVisible();
 });
 
-test("View manifest button opens Sheet with manifest tree for phase11e+ version", async ({ page }) => {
+test("View manifest button opens Sheet with manifest tree for phase11e+ version", async ({
+  page,
+}) => {
   test.skip(!ENABLED, "set MANIFEST_E2E=1 to enable (requires seed API)");
   test.setTimeout(30_000);
   await login(page);
@@ -163,11 +173,17 @@ test("View manifest button opens Sheet with manifest tree for phase11e+ version"
   // (e.g., via test.afterEach or fixture teardown) so HTTP sessions are released
   // even on test failure.
   const apiContext = await request.newContext({ baseURL: API_BASE });
-  const detector = await seedActiveVersion(apiContext, { name: "modern-det", tag: "v3.0.0" });
+  const detector = await seedActiveVersion(apiContext, {
+    name: "modern-det",
+    tag: "v3.0.0",
+  });
 
   await page.goto(`/detectors/${detector.id}`);
   await page.getByRole("tab", { name: /versions/i }).click();
-  await page.getByRole("button", { name: /view manifest/i }).first().click();
+  await page
+    .getByRole("button", { name: /view manifest/i })
+    .first()
+    .click();
 
   const sheet = page.getByRole("dialog");
   await expect(sheet).toBeVisible();
@@ -192,7 +208,10 @@ test.describe("Delete detector / version", () => {
     const { id, name } = await seedDetector(apiContext, { name: "to-delete" });
 
     await page.goto(`/detectors/${id}`);
-    await page.getByRole("button", { name: /^Delete$/ }).first().click();
+    await page
+      .getByRole("button", { name: /^Delete$/ })
+      .first()
+      .click();
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
@@ -250,7 +269,10 @@ test.describe("Delete detector / version", () => {
     });
 
     await page.goto(`/detectors/${detectorId}`);
-    await page.getByRole("button", { name: /^Delete$/ }).first().click();
+    await page
+      .getByRole("button", { name: /^Delete$/ })
+      .first()
+      .click();
 
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("textbox").fill(name);
@@ -259,7 +281,9 @@ test.describe("Delete detector / version", () => {
     // Dialog stays open with error banner
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/cancel running jobs/i)).toBeVisible();
-    const seeRunningJobsLink = dialog.getByRole("link", { name: /see running jobs/i });
+    const seeRunningJobsLink = dialog.getByRole("link", {
+      name: /see running jobs/i,
+    });
     await expect(seeRunningJobsLink).toBeVisible();
     await expect(page).toHaveURL(`/detectors/${detectorId}`); // didn't navigate
   });

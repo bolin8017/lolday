@@ -4,6 +4,7 @@ Exposed via the default REGISTRY, which prometheus-fastapi-instrumentator scrape
 for `/metrics`. Keep this module free of runtime imports other than prometheus_client
 so any other module can import it without triggering circular-import edges.
 """
+
 from prometheus_client import Counter, Gauge
 
 BACKEND_ERRORS = Counter(

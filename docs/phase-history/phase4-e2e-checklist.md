@@ -86,9 +86,10 @@ kubectl -n lolday port-forward svc/mlflow 5000:5000 &
 ```
 
 Expected: experiment `detector:<upxelfdet-id>:v0.5.0` has 1 FINISHED run, with:
-  - flat params (model.type, vectorize.method, etc.)
-  - metrics (if autolog caught sklearn's SVM fit)
-  - artifacts: `config.json`, `model/` with pickled model files
+
+- flat params (model.type, vectorize.method, etc.)
+- metrics (if autolog caught sklearn's SVM fit)
+- artifacts: `config.json`, `model/` with pickled model files
 
 - [ ] Verify model_version row created:
 

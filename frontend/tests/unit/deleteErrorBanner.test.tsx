@@ -9,7 +9,9 @@ function renderBanner(node: React.ReactNode) {
 
 describe("detailToDeleteBanner", () => {
   it("returns generic 'Delete failed.' for undefined detail", () => {
-    expect(detailToDeleteBanner(undefined)).toEqual({ message: "Delete failed." });
+    expect(detailToDeleteBanner(undefined)).toEqual({
+      message: "Delete failed.",
+    });
   });
 
   it("passes through unknown codes unchanged", () => {
@@ -39,12 +41,16 @@ describe("detailToDeleteBanner", () => {
     expect(banner.code).toBe("detector_has_in_flight_jobs");
     renderBanner(banner.message as React.ReactElement);
     expect(screen.getByText(/Cancel running jobs/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /See running jobs/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /See running jobs/i }),
+    ).toBeInTheDocument();
   });
 
   it("uses fallback message text when detail.message is missing on in-flight code", () => {
     const banner = detailToDeleteBanner({ code: "version_has_in_flight_jobs" });
     renderBanner(banner.message as React.ReactElement);
-    expect(screen.getByText(/Cancel running jobs first\./i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Cancel running jobs first\./i),
+    ).toBeInTheDocument();
   });
 });

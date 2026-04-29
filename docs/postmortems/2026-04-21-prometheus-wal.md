@@ -17,7 +17,7 @@ level=ERROR msg="Scrape commit failed" ... err="write to WAL: log samples: creat
 Rule evaluation health went to `err` and stayed there. Because rule
 evaluation is what produces `up{...}` fixtures for `KubeAPIDown` /
 `KubeletDown` alerts (both use `absent(up{...})`), those alerts fired
-and showed up in `#lolday-alerts-critical`. The *actual* cluster was
+and showed up in `#lolday-alerts-critical`. The _actual_ cluster was
 fine — apiserver and kubelet were healthy throughout.
 
 Prometheus continued running for another ~18 hours in this broken state,
@@ -42,6 +42,7 @@ so writes went to `(deleted)`:
 ```
 
 Exact trigger uncertain — possible candidates:
+
 - A failed helm upgrade (rev 49, `2026-04-21 11:57 UTC`) that partially
   reconciled StatefulSets
 - local-path-provisioner cleanup race
@@ -68,11 +69,11 @@ with an empty TSDB. Alerts cleared within 2 minutes.
 Phase 9 ships three independent layers:
 
 1. **Dead Man's Switch** (`charts/lolday/templates/monitoring/deadmans-switch.yaml`
-   + `charts/lolday/files/deadmans_switch/check.py`): a CronJob that
-   every 5 minutes asks Alertmanager for a fresh `Watchdog.updatedAt`.
-   If the alert is missing or stale, it POSTs directly to the Discord
-   critical webhook, bypassing Prometheus and Alertmanager entirely.
-   This would have caught this incident within 15 minutes.
+   - `charts/lolday/files/deadmans_switch/check.py`): a CronJob that
+     every 5 minutes asks Alertmanager for a fresh `Watchdog.updatedAt`.
+     If the alert is missing or stale, it POSTs directly to the Discord
+     critical webhook, bypassing Prometheus and Alertmanager entirely.
+     This would have caught this incident within 15 minutes.
 
 2. **Storage consolidation onto `/mnt/ssd500g/`**: samples PV moved off
    the root LV; new PVCs default to the NVMe. Reduces the chance of

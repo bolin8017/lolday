@@ -12,10 +12,8 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
-from maldet.manifest import DetectorManifest
-
 from app.routers.jobs import _strategy_from_manifest
-
+from maldet.manifest import DetectorManifest
 
 # ---------------------------------------------------------------------------
 # Unit tests for _strategy_from_manifest
@@ -153,6 +151,7 @@ async def test_submit_job_rejects_unknown_distributed_strategy_400(
     submit endpoint must surface a 400 with the strategy name rather than
     crashing into the Volcano launch path."""
     from uuid import uuid4
+
     from app.models import Detector, DetectorVersion
     from app.models.detector import DetectorVersionStatus
 
@@ -211,6 +210,7 @@ async def test_submit_job_rejects_legacy_detector_without_manifest_400(
     The submit endpoint must surface a clear 400 telling the user to rebuild
     against maldet v1.0+, not silently fall through to the renderer."""
     from uuid import uuid4
+
     from app.models import Detector, DetectorVersion
     from app.models.detector import DetectorVersionStatus
 
@@ -259,6 +259,7 @@ async def test_submit_job_rejects_corrupt_manifest_400(
     DetectorManifest must surface as 400 with "stored manifest invalid"
     rather than a 500."""
     from uuid import uuid4
+
     from app.models import Detector, DetectorVersion
     from app.models.detector import DetectorVersionStatus
 
@@ -306,7 +307,10 @@ async def test_submit_job_rejects_corrupt_manifest_400(
 
 @pytest.mark.asyncio
 async def test_prediction_summary_endpoint_returns_cached(
-    async_client, detector_factory, version_factory, job_factory,
+    async_client,
+    detector_factory,
+    version_factory,
+    job_factory,
     auth_owner_headers,
 ) -> None:
     """Happy path: predict job with cached summary returns 200 + body."""
@@ -334,7 +338,10 @@ async def test_prediction_summary_endpoint_returns_cached(
 
 @pytest.mark.asyncio
 async def test_prediction_summary_endpoint_404_when_unavailable(
-    async_client, detector_factory, version_factory, job_factory,
+    async_client,
+    detector_factory,
+    version_factory,
+    job_factory,
     auth_owner_headers,
 ) -> None:
     """Predict job without cached summary → 404 with code summary_unavailable."""
@@ -357,7 +364,10 @@ async def test_prediction_summary_endpoint_404_when_unavailable(
 
 @pytest.mark.asyncio
 async def test_prediction_summary_endpoint_400_for_non_predict(
-    async_client, detector_factory, version_factory, job_factory,
+    async_client,
+    detector_factory,
+    version_factory,
+    job_factory,
     auth_owner_headers,
 ) -> None:
     """Train job → 400 with code not_predict_job, even with summary_metrics set."""
@@ -380,7 +390,10 @@ async def test_prediction_summary_endpoint_400_for_non_predict(
 
 @pytest.mark.asyncio
 async def test_prediction_summary_endpoint_404_for_other_user(
-    async_client, detector_factory, version_factory, job_factory,
+    async_client,
+    detector_factory,
+    version_factory,
+    job_factory,
     auth_other_user_headers,
 ) -> None:
     """Non-owner non-admin → 404 (does not leak existence)."""

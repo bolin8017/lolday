@@ -17,12 +17,11 @@ import uuid
 from typing import Any
 
 import pytest
+from app.db import get_async_session
+from app.models import Detector, DetectorVersion, Job, User
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.websockets import WebSocketDisconnect
-
-from app.db import get_async_session
-from app.models import Detector, DetectorVersion, Job, User
 
 
 async def _seed_job_for_owner(session: AsyncSession, email: str) -> Job:
@@ -76,12 +75,12 @@ def _make_test_client() -> TestClient:
     """Install the same auth + session overrides `user_client` uses, then
     return a sync TestClient. Mirrors `conftest._install_header_based_auth_override`
     but manually because that helper is wired to the async-client fixture."""
+    from app.auth.cf_access import cf_access_user
+    from app.main import app
     from fastapi import Depends, HTTPException, Request
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession as _AS
 
-    from app.auth.cf_access import cf_access_user
-    from app.main import app
     from tests.conftest import test_session_maker
 
     async def session_override():
@@ -151,9 +150,7 @@ async def test_ws_rejects_non_owner(db_session: AsyncSession) -> None:
     from sqlalchemy import select
 
     existing = (
-        await db_session.execute(
-            select(User).where(User.email == "user2@example.dev")
-        )
+        await db_session.execute(select(User).where(User.email == "user2@example.dev"))
     ).scalar_one_or_none()
     if existing is None:
         db_session.add(

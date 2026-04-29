@@ -22,39 +22,60 @@ test.use({
   launchOptions: { args: [] },
 });
 
-test("phase 11e — RJSF renders for v3.0.0 detector on /jobs/new", async ({ page }) => {
+test("phase 11e — RJSF renders for v3.0.0 detector on /jobs/new", async ({
+  page,
+}) => {
   test.skip(!ENABLED, "set PHASE11E_VERIFY=1 to enable");
   test.setTimeout(120_000);
 
   await page.goto("/jobs/new", { waitUntil: "domcontentloaded" });
 
   // Pick detector + version. Selectors match shadcn/ui Combobox structure.
-  await page.getByText(/^Detector$/).locator("..").getByRole("combobox").click();
+  await page
+    .getByText(/^Detector$/)
+    .locator("..")
+    .getByRole("combobox")
+    .click();
   await page.getByRole("option", { name: new RegExp(DETECTOR_NAME) }).click();
-  await page.getByText(/^Version$/).locator("..").getByRole("combobox").click();
+  await page
+    .getByText(/^Version$/)
+    .locator("..")
+    .getByRole("combobox")
+    .click();
   await page.getByRole("option", { name: new RegExp(DETECTOR_TAG) }).click();
 
   // Confirm RJSF rendered: look for a known field name from elfrfdet TrainConfig
   // (n_estimators) or elfcnndet TrainConfig (epochs).
-  await expect(page.getByLabel(/n_estimators|epochs/i)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByLabel(/n_estimators|epochs/i)).toBeVisible({
+    timeout: 10_000,
+  });
 
   // Smoke only — not actually submitting (would consume cluster resources).
   await page.screenshot({ path: "/tmp/phase11e-rjsf.png" });
 });
 
-test("phase 11e — list page renders Final metrics tile column", async ({ page }) => {
+test("phase 11e — list page renders Final metrics tile column", async ({
+  page,
+}) => {
   test.skip(!ENABLED, "set PHASE11E_VERIFY=1 to enable");
 
   await page.goto("/jobs", { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("Final metrics")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("Final metrics")).toBeVisible({
+    timeout: 10_000,
+  });
 });
 
-test("phase 11e — detector page View manifest sheet opens with json", async ({ page }) => {
+test("phase 11e — detector page View manifest sheet opens with json", async ({
+  page,
+}) => {
   test.skip(!ENABLED, "set PHASE11E_VERIFY=1 to enable");
 
   await page.goto("/detectors", { waitUntil: "domcontentloaded" });
   // Click the row matching our detector name
-  await page.getByRole("link", { name: new RegExp(DETECTOR_NAME, "i") }).first().click();
+  await page
+    .getByRole("link", { name: new RegExp(DETECTOR_NAME, "i") })
+    .first()
+    .click();
   await page.waitForURL(/\/detectors\/[0-9a-f-]+/);
   // Switch to Versions tab
   await page.getByRole("tab", { name: /versions/i }).click();
@@ -62,5 +83,7 @@ test("phase 11e — detector page View manifest sheet opens with json", async ({
   const row = page.getByRole("row", { name: new RegExp(DETECTOR_TAG) });
   await row.getByRole("button", { name: /view manifest/i }).click();
   // The Sheet should show the manifest JSON — match on a known key
-  await expect(page.getByText(/"params_schema"/)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/"params_schema"/)).toBeVisible({
+    timeout: 10_000,
+  });
 });

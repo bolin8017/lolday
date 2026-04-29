@@ -21,7 +21,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 VALID_LABELS = {"Malware", "Benign"}
 

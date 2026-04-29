@@ -16,7 +16,11 @@ export default [
       parserOptions: { ecmaFeatures: { jsx: true } },
       globals: { ...globals.browser, ...globals.node },
     },
-    plugins: { "@typescript-eslint": tseslint, react, "react-hooks": reactHooks },
+    plugins: {
+      "@typescript-eslint": tseslint,
+      react,
+      "react-hooks": reactHooks,
+    },
     rules: {
       ...tseslint.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,

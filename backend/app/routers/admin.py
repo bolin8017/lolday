@@ -31,6 +31,7 @@ class AdminUserUpdate(BaseModel):
     """Mutable fields an admin may change on another user. `extra='forbid'`
     so a caller cannot smuggle `is_superuser`/`email`/etc. through the body.
     All fields optional so PATCH bodies only send what changes."""
+
     model_config = {"extra": "forbid"}
     role: Role | None = None
 
@@ -59,11 +60,7 @@ async def update_user(
         return target
 
     new_role = changes.get("role")
-    if (
-        target.role == Role.ADMIN
-        and new_role is not None
-        and new_role != Role.ADMIN
-    ):
+    if target.role == Role.ADMIN and new_role is not None and new_role != Role.ADMIN:
         other_admins = (
             await session.execute(
                 select(func.count())
@@ -86,6 +83,9 @@ async def update_user(
     if new_role is not None and new_role != old_role:
         logger.info(
             "admin role change: actor=%s target=%s old=%s new=%s",
-            admin.email, target.email, old_role.value, target.role.value,
+            admin.email,
+            target.email,
+            old_role.value,
+            target.role.value,
         )
     return target

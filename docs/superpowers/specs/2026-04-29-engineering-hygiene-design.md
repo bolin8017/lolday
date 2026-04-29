@@ -48,15 +48,15 @@ Breaking changes are explicitly authorized:
 
 ### Tool selection and what each replaces
 
-| Domain | Adopted | Replaces / role |
-|--------|---------|-----------------|
-| Pre-commit framework | `pre-commit.com` | De-facto standard for cross-language monorepos; not npm-only |
-| Python lint | `ruff` (lint) | flake8 / pylint / isort / pyupgrade |
-| Python format | `ruff format` | black (Astral's official black-compat replacement, 30–100× faster) |
-| Python type check | `mypy` | (new) — chosen over pyright for richer pyproject / pre-commit integration and broader plugin ecosystem |
-| Frontend format | `Prettier 3.x` | (new) |
-| Frontend lint | existing ESLint flat config | unchanged; gains `eslint-config-prettier` to disable formatting rules |
-| Cross-language indent / EOL | `.editorconfig` | (new) |
+| Domain                      | Adopted                     | Replaces / role                                                                                        |
+| --------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Pre-commit framework        | `pre-commit.com`            | De-facto standard for cross-language monorepos; not npm-only                                           |
+| Python lint                 | `ruff` (lint)               | flake8 / pylint / isort / pyupgrade                                                                    |
+| Python format               | `ruff format`               | black (Astral's official black-compat replacement, 30–100× faster)                                     |
+| Python type check           | `mypy`                      | (new) — chosen over pyright for richer pyproject / pre-commit integration and broader plugin ecosystem |
+| Frontend format             | `Prettier 3.x`              | (new)                                                                                                  |
+| Frontend lint               | existing ESLint flat config | unchanged; gains `eslint-config-prettier` to disable formatting rules                                  |
+| Cross-language indent / EOL | `.editorconfig`             | (new)                                                                                                  |
 
 **Forbidden going forward** (do not reintroduce): black, flake8, pylint, isort, autopep8, yapf, husky, lint-staged, stylelint, commitlint, prettier-eslint.
 
@@ -64,14 +64,14 @@ Breaking changes are explicitly authorized:
 
 All hooks run on `pre-commit` stage (no `pre-push` split). Empirically the full suite finishes in under 10 seconds on a 125-file backend; splitting stages introduces cognitive overhead without benefit. Re-evaluate if mypy ever exceeds 5s warm.
 
-| Hook | Source | Files | Purpose |
-|------|--------|-------|---------|
-| `trailing-whitespace`, `end-of-file-fixer`, `check-yaml`, `check-toml`, `check-json`, `check-merge-conflict`, `check-case-conflict`, `mixed-line-ending`, `check-added-large-files` | `pre-commit/pre-commit-hooks` | repo-wide (yaml excludes `charts/lolday/templates/`) | Hygiene basics |
-| `ruff check --fix` | `astral-sh/ruff-pre-commit` (hermetic) | `*.py` | Lint + auto-fix |
-| `ruff format` | `astral-sh/ruff-pre-commit` (hermetic) | `*.py` | Format |
-| `mypy` | local hook (`uv run --project backend mypy`) | `backend/app/` | Type check |
-| `prettier --write` | local hook (`pnpm --dir frontend prettier`) | `*.{ts,tsx,js,jsx,css,json,md,yaml,yml}` minus `.prettierignore` | Format |
-| `eslint --fix --no-warn-ignored` | local hook (`pnpm --dir frontend eslint`) | `frontend/**/*.{ts,tsx,js}` | Lint + auto-fix |
+| Hook                                                                                                                                                                                | Source                                       | Files                                                            | Purpose         |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------- | --------------- |
+| `trailing-whitespace`, `end-of-file-fixer`, `check-yaml`, `check-toml`, `check-json`, `check-merge-conflict`, `check-case-conflict`, `mixed-line-ending`, `check-added-large-files` | `pre-commit/pre-commit-hooks`                | repo-wide (yaml excludes `charts/lolday/templates/`)             | Hygiene basics  |
+| `ruff check --fix`                                                                                                                                                                  | `astral-sh/ruff-pre-commit` (hermetic)       | `*.py`                                                           | Lint + auto-fix |
+| `ruff format`                                                                                                                                                                       | `astral-sh/ruff-pre-commit` (hermetic)       | `*.py`                                                           | Format          |
+| `mypy`                                                                                                                                                                              | local hook (`uv run --project backend mypy`) | `backend/app/`                                                   | Type check      |
+| `prettier --write`                                                                                                                                                                  | local hook (`pnpm --dir frontend prettier`)  | `*.{ts,tsx,js,jsx,css,json,md,yaml,yml}` minus `.prettierignore` | Format          |
+| `eslint --fix --no-warn-ignored`                                                                                                                                                    | local hook (`pnpm --dir frontend eslint`)    | `frontend/**/*.{ts,tsx,js}`                                      | Lint + auto-fix |
 
 Hermetic vs local rationale:
 
@@ -239,11 +239,11 @@ Recognised by VSCode (built-in) and JetBrains IDEs out of the box.
 
 The auto-fix pass is the highest-risk step (touches every file). Strategy: split into three reviewable commits.
 
-| Commit | Title | Contents | Reviewer focus |
-|--------|-------|----------|----------------|
-| **C1** | `chore: introduce engineering hygiene tooling` | All new config files, `backend/pyproject.toml` dev dep change, `frontend/package.json` + `eslint.config.js` mods, `scripts/install-tools.sh` augmentation. **Zero source-code changes.** | Config correctness |
-| **C2** | `style: apply ruff and prettier auto-fix` | `ruff check --fix` + `ruff format` + `prettier --write` + `eslint --fix` outputs. **Zero logic changes.** | Diff is purely whitespace / quotes / import order / quote style |
-| **C3** | `fix: resolve lint errors not auto-fixable` | Manual fixes for ruff / eslint / mypy errors that auto-fix did not handle. Skipped if no errors remain. | Behaviour-preserving manual edits |
+| Commit | Title                                          | Contents                                                                                                                                                                                 | Reviewer focus                                                  |
+| ------ | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **C1** | `chore: introduce engineering hygiene tooling` | All new config files, `backend/pyproject.toml` dev dep change, `frontend/package.json` + `eslint.config.js` mods, `scripts/install-tools.sh` augmentation. **Zero source-code changes.** | Config correctness                                              |
+| **C2** | `style: apply ruff and prettier auto-fix`      | `ruff check --fix` + `ruff format` + `prettier --write` + `eslint --fix` outputs. **Zero logic changes.**                                                                                | Diff is purely whitespace / quotes / import order / quote style |
+| **C3** | `fix: resolve lint errors not auto-fixable`    | Manual fixes for ruff / eslint / mypy errors that auto-fix did not handle. Skipped if no errors remain.                                                                                  | Behaviour-preserving manual edits                               |
 
 ### Pre-flight diff preview
 
@@ -279,13 +279,13 @@ If review of C2 reveals an undesired transformation:
 
 ### Installation path (no sudo, user-level only)
 
-| Tool | Install command | Location |
-|------|-----------------|----------|
-| `pre-commit` | `uv tool install pre-commit` | `~/.local/bin/pre-commit` |
-| `ruff` | pre-commit-managed (hermetic) | `~/.cache/pre-commit/repos/...` |
-| `mypy` | `uv add --group dev mypy` | `backend/.venv` |
-| `prettier`, `eslint-config-prettier` | `pnpm add -D` | `frontend/node_modules` |
-| Hook activation | `pre-commit install` (writes `.git/hooks/pre-commit`) | repo-local |
+| Tool                                 | Install command                                       | Location                        |
+| ------------------------------------ | ----------------------------------------------------- | ------------------------------- |
+| `pre-commit`                         | `uv tool install pre-commit`                          | `~/.local/bin/pre-commit`       |
+| `ruff`                               | pre-commit-managed (hermetic)                         | `~/.cache/pre-commit/repos/...` |
+| `mypy`                               | `uv add --group dev mypy`                             | `backend/.venv`                 |
+| `prettier`, `eslint-config-prettier` | `pnpm add -D`                                         | `frontend/node_modules`         |
+| Hook activation                      | `pre-commit install` (writes `.git/hooks/pre-commit`) | repo-local                      |
 
 `uv tool install pre-commit` replaces the older `pipx install pre-commit` recommendation; uv tool is the new mainstream Python-CLI user-level installer and the project already standardises on uv.
 
@@ -396,16 +396,16 @@ New "Engineering hygiene 紀律" section:
 
 ### Risk register
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| Helm template broken by Prettier | High if `.prettierignore` misses it | Deploy fails | `.prettierignore` excludes `charts/lolday/templates/`; post-C2 validation runs `helm lint charts/lolday` |
-| Ruff format destroys intentional alignment | Low–medium | Code readability regression | C2 diff is reviewed before apply; surgical `# fmt: off` blocks are permitted |
-| First-wave mypy errors block C3 | Medium | C3 PR drags | Per-module `ignore_errors` per the §First Auto-Fix Pass policy; recorded as new debt |
-| `pydantic.mypy` plugin conflicts with SQLAlchemy 2.0 | Low | mypy fails to start | Pydantic v2 + SA 2.0 is the mainstream stack and known compatible; fallback is to drop the plugin and lower strictness one notch |
-| Pre-commit cold cache makes first commit slow (~30s) | High (one-time) | Onboarding friction | After install, run `pre-commit run --all-files` to pre-warm cache |
-| `schema.gen.ts` rewritten by Prettier | Low | Regen-diff noise | Excluded in `.prettierignore` |
-| `eslint-config-prettier` flat-config integration error | Medium | ESLint won't run | Follow Prettier docs flat-config example exactly: append config object as last array element |
-| `uv tool install pre-commit` on offline machine | Low | install-tools fails | server30 is online; offline dev can use `uv tool install --offline` from local cache |
+| Risk                                                   | Likelihood                          | Impact                      | Mitigation                                                                                                                       |
+| ------------------------------------------------------ | ----------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Helm template broken by Prettier                       | High if `.prettierignore` misses it | Deploy fails                | `.prettierignore` excludes `charts/lolday/templates/`; post-C2 validation runs `helm lint charts/lolday`                         |
+| Ruff format destroys intentional alignment             | Low–medium                          | Code readability regression | C2 diff is reviewed before apply; surgical `# fmt: off` blocks are permitted                                                     |
+| First-wave mypy errors block C3                        | Medium                              | C3 PR drags                 | Per-module `ignore_errors` per the §First Auto-Fix Pass policy; recorded as new debt                                             |
+| `pydantic.mypy` plugin conflicts with SQLAlchemy 2.0   | Low                                 | mypy fails to start         | Pydantic v2 + SA 2.0 is the mainstream stack and known compatible; fallback is to drop the plugin and lower strictness one notch |
+| Pre-commit cold cache makes first commit slow (~30s)   | High (one-time)                     | Onboarding friction         | After install, run `pre-commit run --all-files` to pre-warm cache                                                                |
+| `schema.gen.ts` rewritten by Prettier                  | Low                                 | Regen-diff noise            | Excluded in `.prettierignore`                                                                                                    |
+| `eslint-config-prettier` flat-config integration error | Medium                              | ESLint won't run            | Follow Prettier docs flat-config example exactly: append config object as last array element                                     |
+| `uv tool install pre-commit` on offline machine        | Low                                 | install-tools fails         | server30 is online; offline dev can use `uv tool install --offline` from local cache                                             |
 
 ### Edge cases
 

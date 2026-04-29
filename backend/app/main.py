@@ -3,14 +3,23 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy import func, select
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
-from app.db import async_session_maker, engine
-from app.models import Role, User
+from app.db import engine
 from app.reconciler import reconciler_loop
-from app.routers import admin, builds, cluster, credentials, datasets, detectors, experiments_proxy, internal, jobs, models_registry
+from app.routers import (
+    admin,
+    builds,
+    cluster,
+    credentials,
+    datasets,
+    detectors,
+    experiments_proxy,
+    internal,
+    jobs,
+    models_registry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +32,17 @@ async def _assert_schema_at_head() -> None:
     k8s keeps the previous replica serving traffic.
     """
     import pathlib
-    from sqlalchemy import text
-    from sqlalchemy.exc import OperationalError, ProgrammingError
+
     from alembic.config import Config
     from alembic.script import ScriptDirectory
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError, ProgrammingError
 
     try:
         async with engine.begin() as conn:
-            current = (await conn.execute(
-                text("SELECT version_num FROM alembic_version")
-            )).scalar_one_or_none()
+            current = (
+                await conn.execute(text("SELECT version_num FROM alembic_version"))
+            ).scalar_one_or_none()
     except (ProgrammingError, OperationalError):
         # Table doesn't exist — not an alembic-managed DB. Tests hit this
         # path (SQLite + conftest's create_all) and skip the check.
@@ -45,7 +55,9 @@ async def _assert_schema_at_head() -> None:
     if not ini_path.exists():
         # Image didn't ship migrations (unlikely after Phase 7.5 Dockerfile);
         # don't crash — just warn.
-        logger.warning("alembic.ini not found at %s — skipping schema head check", ini_path)
+        logger.warning(
+            "alembic.ini not found at %s — skipping schema head check", ini_path
+        )
         return
     cfg = Config(str(ini_path))
     cfg.set_main_option("script_location", str(ini_path.parent / "migrations"))
@@ -85,9 +97,11 @@ async def lifespan(app: FastAPI):
     # Harbor post-install init: idempotent, safe to retry on every startup
     try:
         from app.services.harbor_init import init_harbor
+
         await init_harbor()
     except Exception:
         from app.metrics import BACKEND_ERRORS
+
         BACKEND_ERRORS.labels(stage="harbor_init").inc()
         logger.exception("harbor init failed — continuing, build pipeline may not work")
 
@@ -115,7 +129,9 @@ app = FastAPI(
 # should CrashLoopBackOff so LoldayCoreServiceDown fires — silently losing
 # scrape targets is worse than a loud restart.
 Instrumentator().instrument(app).expose(
-    app, endpoint="/metrics", include_in_schema=False,
+    app,
+    endpoint="/metrics",
+    include_in_schema=False,
 )
 
 # Primary auth is Cloudflare Access SSO (see app/auth/cf_access.py).
@@ -123,6 +139,7 @@ Instrumentator().instrument(app).expose(
 
 # User routes — /me served by our cf_access_user-backed router.
 from app.routers import users_me  # noqa: E402
+
 app.include_router(
     users_me.router,
     prefix="/api/v1/users",

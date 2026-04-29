@@ -10,7 +10,8 @@
 import { test, expect } from "@playwright/test";
 
 const ENABLED = process.env.PHASE11D_VERIFY === "1";
-const JOB_ID = process.env.PHASE11D_JOB_ID ?? "b4430357-00a8-439c-881e-a45f470363ee";
+const JOB_ID =
+  process.env.PHASE11D_JOB_ID ?? "b4430357-00a8-439c-881e-a45f470363ee";
 
 test.use({
   baseURL: "https://lolday.connlabai.com",
@@ -40,5 +41,8 @@ test("phase 11d live-metric chart renders historical events for completed job", 
   const trainLossLegend = page.getByText("train_loss");
   await expect(trainLossLegend).toBeVisible({ timeout: 5_000 });
 
-  await page.screenshot({ path: "/tmp/phase11d-chart-verify.png", fullPage: true });
+  await page.screenshot({
+    path: "/tmp/phase11d-chart-verify.png",
+    fullPage: true,
+  });
 });

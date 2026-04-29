@@ -14,17 +14,18 @@
 
 ## Phasing summary
 
-| Phase | Output | Commit |
-|-------|--------|--------|
-| 1 | Tooling foundation: deps, config files, doc updates. **Zero source changes.** | C1: `chore: introduce engineering hygiene tooling` |
-| 2 | Generate `.engineering-hygiene-preview.diff`, hand to operator for review | (no commit; gated by operator approval) |
-| 3 | Apply auto-fixes after operator approval | C2: `style: apply ruff and prettier auto-fix` |
-| 4 | Manual fixes for non-auto-fixable lint errors. **Conditional** — skipped if 0 errors remain | C3: `fix: resolve lint errors not auto-fixable` |
-| 5 | Final acceptance verification against spec §Acceptance Criteria | (no commit) |
+| Phase | Output                                                                                      | Commit                                             |
+| ----- | ------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| 1     | Tooling foundation: deps, config files, doc updates. **Zero source changes.**               | C1: `chore: introduce engineering hygiene tooling` |
+| 2     | Generate `.engineering-hygiene-preview.diff`, hand to operator for review                   | (no commit; gated by operator approval)            |
+| 3     | Apply auto-fixes after operator approval                                                    | C2: `style: apply ruff and prettier auto-fix`      |
+| 4     | Manual fixes for non-auto-fixable lint errors. **Conditional** — skipped if 0 errors remain | C3: `fix: resolve lint errors not auto-fixable`    |
+| 5     | Final acceptance verification against spec §Acceptance Criteria                             | (no commit)                                        |
 
 ## File structure
 
 **Create (Phase 1):**
+
 - `/.editorconfig`
 - `/.pre-commit-config.yaml`
 - `/.prettierrc.json`
@@ -33,6 +34,7 @@
 - `/mypy.ini`
 
 **Modify (Phase 1):**
+
 - `/backend/pyproject.toml` — add mypy to `[dependency-groups].dev` (via `uv add --group dev mypy`; do NOT hand-edit per `.claude/rules/backend.md`)
 - `/frontend/package.json` — add prettier + eslint-config-prettier to devDeps (via `pnpm add -D ...`); add `format`, `format:check` scripts (manual edit)
 - `/frontend/eslint.config.js` — append `eslint-config-prettier/flat` config
@@ -55,6 +57,7 @@
 ### Task 1.1: Add mypy to backend dev deps
 
 **Files:**
+
 - Modify: `backend/pyproject.toml`, `backend/uv.lock`
 
 - [ ] **Step 1: Run uv to add mypy**
@@ -78,6 +81,7 @@ Expected: prints `mypy X.Y.Z (compiled: yes)` with no error.
 ### Task 1.2: Add prettier + eslint-config-prettier to frontend dev deps
 
 **Files:**
+
 - Modify: `frontend/package.json`, `frontend/pnpm-lock.yaml`
 
 - [ ] **Step 1: Add via pnpm**
@@ -100,6 +104,7 @@ Expected: prints `3.X.Y`.
 ### Task 1.3: Create `.editorconfig`
 
 **Files:**
+
 - Create: `.editorconfig`
 
 - [ ] **Step 1: Write the file**
@@ -137,6 +142,7 @@ Expected: prints `# .editorconfig — see https://editorconfig.org`.
 ### Task 1.4: Create `ruff.toml`
 
 **Files:**
+
 - Create: `ruff.toml`
 
 - [ ] **Step 1: Write the file**
@@ -193,6 +199,7 @@ Record the count to compare against Phase 3 / Phase 4. Failing now is **expected
 ### Task 1.5: Create `mypy.ini`
 
 **Files:**
+
 - Create: `mypy.ini`
 
 - [ ] **Step 1: Write the file**
@@ -247,6 +254,7 @@ Record the error count to feed Phase 4 decision (≤20 = manual fix in C3, >20 =
 ### Task 1.6: Create `.prettierrc.json`
 
 **Files:**
+
 - Create: `.prettierrc.json`
 
 - [ ] **Step 1: Write the file**
@@ -273,6 +281,7 @@ Expected: prints `.prettierrc.json` (relative to repo root).
 ### Task 1.7: Create `.prettierignore`
 
 **Files:**
+
 - Create: `.prettierignore`
 
 - [ ] **Step 1: Write the file**
@@ -314,6 +323,7 @@ Expected: no output / "All matched files are ignored." (file is ignored).
 ### Task 1.8: Update `frontend/eslint.config.js` to add `eslint-config-prettier/flat`
 
 **Files:**
+
 - Modify: `frontend/eslint.config.js`
 
 - [ ] **Step 1: Edit the file**
@@ -321,6 +331,7 @@ Expected: no output / "All matched files are ignored." (file is ignored).
 Use Edit to insert the import and append the config to the array.
 
 Find:
+
 ```js
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
@@ -329,6 +340,7 @@ export default [
 ```
 
 Replace with:
+
 ```js
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
@@ -338,6 +350,7 @@ export default [
 ```
 
 Find (the closing `];` of the `export default [...]` array):
+
 ```js
     languageOptions: {
       globals: { ...globals.node },
@@ -347,6 +360,7 @@ Find (the closing `];` of the `export default [...]` array):
 ```
 
 Replace with:
+
 ```js
     languageOptions: {
       globals: { ...globals.node },
@@ -368,17 +382,20 @@ Expected: `OK`. (`--print-config` resolves the full config; if the import path i
 ### Task 1.9: Add `format` and `format:check` scripts to `frontend/package.json`
 
 **Files:**
+
 - Modify: `frontend/package.json`
 
 - [ ] **Step 1: Edit the file**
 
 Find:
+
 ```json
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
 ```
 
 Replace with:
+
 ```json
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -398,6 +415,7 @@ Expected: lines `  format` and `  format:check` appear.
 ### Task 1.10: Create `.pre-commit-config.yaml`
 
 **Files:**
+
 - Create: `.pre-commit-config.yaml`
 
 - [ ] **Step 1: Write the file**
@@ -485,21 +503,25 @@ This bumps `rev:` lines to current. Review the resulting diff in `.pre-commit-co
 ### Task 1.11: Update `scripts/install-tools.sh` to install + activate pre-commit
 
 **Files:**
+
 - Modify: `scripts/install-tools.sh`
 
 - [ ] **Step 1: Update tool count and append section**
 
 Find:
+
 ```bash
 echo "[3/3] k9s..."
 ```
 
 Replace with:
+
 ```bash
 echo "[3/4] k9s..."
 ```
 
 Find (last echo block before `=== Done ===`):
+
 ```bash
   K9S_VERSION="v0.50.18"
   curl -sL "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz" | \
@@ -512,6 +534,7 @@ echo "=== Done ==="
 ```
 
 Replace with:
+
 ```bash
   K9S_VERSION="v0.50.18"
   curl -sL "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz" | \
@@ -566,11 +589,13 @@ Expected: `#!/usr/bin/env bash` (or similar pre-commit-managed shebang).
 ### Task 1.12: Update `.gitignore` to exclude diff preview artefact
 
 **Files:**
+
 - Modify: `.gitignore`
 
 - [ ] **Step 1: Edit the file**
 
 Find:
+
 ```
 # Git worktrees
 .worktrees/
@@ -578,6 +603,7 @@ test.db
 ```
 
 Replace with:
+
 ```
 # Git worktrees
 .worktrees/
@@ -590,11 +616,13 @@ test.db
 ### Task 1.13: Update `.claude/rules/backend.md` — add lint discipline section
 
 **Files:**
+
 - Modify: `.claude/rules/backend.md`
 
 - [ ] **Step 1: Edit the file**
 
 Find (immediately before `## Don't add`):
+
 ```md
 - Do not write retry logic yourself — use `httpx` + `tenacity` (or whatever is already in `pyproject.toml`).
 
@@ -602,7 +630,8 @@ Find (immediately before `## Don't add`):
 ```
 
 Replace with:
-```md
+
+````md
 - Do not write retry logic yourself — use `httpx` + `tenacity` (or whatever is already in `pyproject.toml`).
 
 ## Lint / Format / Type-check 紀律
@@ -616,6 +645,7 @@ uv run ruff check .
 uv run ruff format .
 uv run mypy
 ```
+````
 
 ### Forbidden additions
 
@@ -629,7 +659,8 @@ uv run mypy
 - mypy strictness is incrementally enabled: each `[mypy-<module>] ignore_errors = true` in `mypy.ini` is a tracked debt entry in `docs/architecture.md` §9. When a phase touches such a module, remove the override and fix types as part of that phase.
 
 ## Don't add
-```
+
+````
 
 ### Task 1.14: Update `.claude/rules/frontend.md` — add format discipline section
 
@@ -641,10 +672,11 @@ uv run mypy
 Find (the `## Tests` section heading):
 ```md
 ## Tests
-```
+````
 
 Replace with:
-```md
+
+````md
 ## Format 紀律
 
 Tooling: **Prettier** owns formatting; **ESLint** owns lint. They do not overlap (`eslint-config-prettier/flat` is appended to `eslint.config.js` to disable formatting rules in ESLint).
@@ -659,6 +691,7 @@ pnpm format:check    # check (exits 1 if dirty)
 pnpm lint            # ESLint
 pnpm typecheck       # tsc --noEmit
 ```
+````
 
 ### Forbidden additions
 
@@ -671,7 +704,8 @@ pnpm typecheck       # tsc --noEmit
 - The CSP `'self'` hard rule is unchanged.
 
 ## Tests
-```
+
+````
 
 ### Task 1.15: Update `.claude/rules/scripts-and-ops.md` — add hygiene section
 
@@ -683,10 +717,11 @@ pnpm typecheck       # tsc --noEmit
 Find (the `## Phase pre-deploy checks` section heading):
 ```md
 ## Phase pre-deploy checks
-```
+````
 
 Replace with:
-```md
+
+````md
 ## Engineering hygiene 紀律
 
 Repo-wide formatting / linting / type-check is governed by `pre-commit`. Config is at repo root (`.pre-commit-config.yaml`); install + activation happens in `scripts/install-tools.sh`.
@@ -699,6 +734,7 @@ pre-commit run <hook-id> --all-files  # run a single hook (e.g. ruff, prettier, 
 pre-commit autoupdate                 # bump hook revs (optional, ~quarterly)
 pre-commit install                    # re-activate the git hook (idempotent)
 ```
+````
 
 ### Forbidden
 
@@ -707,7 +743,8 @@ pre-commit install                    # re-activate the git hook (idempotent)
 - New `.py` scripts must conform to the root `ruff.toml`. Shell scripts are not linted by ruff (non-Python); shellcheck is out of scope for this phase.
 
 ## Phase pre-deploy checks
-```
+
+````
 
 ### Task 1.16: Update root `CLAUDE.md` — Quickstart + new hard rule
 
@@ -719,22 +756,25 @@ pre-commit install                    # re-activate the git hook (idempotent)
 Find:
 ```md
 helm lint charts/lolday                 # helm sanity
-```
+````
 
 Replace with:
+
 ```md
-helm lint charts/lolday                 # helm sanity
-pre-commit run --all-files              # lint+format whole repo (also auto-runs on git commit)
+helm lint charts/lolday # helm sanity
+pre-commit run --all-files # lint+format whole repo (also auto-runs on git commit)
 ```
 
 - [ ] **Step 2: Add a new hard rule**
 
 Find:
+
 ```md
 ### Prefer open-source packages over custom code
 ```
 
 Replace with:
+
 ```md
 ### Lint / format 不繞過
 
@@ -750,16 +790,19 @@ Replace with:
 ### Task 1.17: Update `docs/architecture.md` §9 — resolve #5 + #6, add new debt
 
 **Files:**
+
 - Modify: `docs/architecture.md`
 
 - [ ] **Step 1: Strikethrough #5**
 
 Find:
+
 ```md
 5. **No pre-commit / husky / lint-staged / prettier / `.editorconfig`.** No automated formatting discipline.
 ```
 
 Replace with:
+
 ```md
 5. ~~**No pre-commit / husky / lint-staged / prettier / `.editorconfig`.**~~ — resolved 2026-04-29 in `chore/engineering-hygiene`: pre-commit framework wired up at repo root with hooks for ruff (lint+format), mypy, prettier, eslint, and `pre-commit-hooks` built-ins. `.editorconfig` added. See `docs/superpowers/specs/2026-04-29-engineering-hygiene-design.md`.
 ```
@@ -767,11 +810,13 @@ Replace with:
 - [ ] **Step 2: Strikethrough #6**
 
 Find:
+
 ```md
 6. **No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.** Caches exist but settings are default.
 ```
 
 Replace with:
+
 ```md
 6. ~~**No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.**~~ — resolved 2026-04-29 in `chore/engineering-hygiene`: config moved to repo-root `ruff.toml` and `mypy.ini` (mainstream pattern for monorepos with multiple Python project boundaries). `backend/pyproject.toml` deliberately does not host `[tool.ruff]` / `[tool.mypy]` to avoid shadowing the root config.
 ```
@@ -779,11 +824,13 @@ Replace with:
 - [ ] **Step 3: Append new debt entry**
 
 Find:
+
 ```md
 10. ~~**Harbor URL inconsistency**~~ — resolved 2026-04-29: the two forms (`harbor.harbor.svc` for K8s in-cluster API, `harbor.lolday.svc` for image pulls via host-level setup) are intentional. See §5.3. The lone outlier in `config.py` defaults was fixed.
 ```
 
 Replace with:
+
 ```md
 10. ~~**Harbor URL inconsistency**~~ — resolved 2026-04-29: the two forms (`harbor.harbor.svc` for K8s in-cluster API, `harbor.lolday.svc` for image pulls via host-level setup) are intentional. See §5.3. The lone outlier in `config.py` defaults was fixed.
 11. **mypy module-level overrides pending cleanup.** Large modules (notably `backend/app/reconciler.py`, 57KB) currently have `[mypy-<module>] ignore_errors = true` in `mypy.ini` to keep the first-wave adoption tractable. Each future phase that touches such a module should remove the override and fix types as part of that phase. Tracked from 2026-04-29 in `chore/engineering-hygiene`.
@@ -1102,12 +1149,12 @@ Expected: top two commits are `style: apply ruff and prettier auto-fix` and `cho
 
 Count and classify the entries in `/tmp/remaining-errors.txt`:
 
-| Category | How to handle | Going to commit |
-|----------|---------------|-----------------|
-| Ruff non-auto-fixable in app code | Manual fix per error | C3 |
-| ESLint non-auto-fixable | Manual fix | C3 |
-| mypy errors in non-reconciler module | Manual fix if ≤ 20 total; else add `[mypy-<module>] ignore_errors = true` to `mypy.ini` | C3 |
-| mypy errors in `backend.app.reconciler` | Add `[mypy-backend.app.reconciler] ignore_errors = true` to `mypy.ini` (do not refactor reconciler in this phase) | C3 |
+| Category                                | How to handle                                                                                                     | Going to commit |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------- |
+| Ruff non-auto-fixable in app code       | Manual fix per error                                                                                              | C3              |
+| ESLint non-auto-fixable                 | Manual fix                                                                                                        | C3              |
+| mypy errors in non-reconciler module    | Manual fix if ≤ 20 total; else add `[mypy-<module>] ignore_errors = true` to `mypy.ini`                           | C3              |
+| mypy errors in `backend.app.reconciler` | Add `[mypy-backend.app.reconciler] ignore_errors = true` to `mypy.ini` (do not refactor reconciler in this phase) | C3              |
 
 If total remaining errors == 0 and `mypy.ini` already has all needed overrides: **skip all of Phase 4 and jump to Phase 5**.
 
@@ -1162,12 +1209,14 @@ Repeat Steps 1–5 per error.
 For example, if `backend/app/reconciler.py` produces dozens of errors:
 
 Find:
+
 ```ini
 [mypy-backend.app.migrations.*]
 ignore_errors = true
 ```
 
 Replace with:
+
 ```ini
 [mypy-backend.app.migrations.*]
 ignore_errors = true
@@ -1405,6 +1454,7 @@ Return the PR URL.
 ## Self-review (executed inline; no follow-up needed)
 
 **Spec coverage check:**
+
 - §Scope.In-scope #1 (pre-commit) → Tasks 1.10, 1.11, 1.18 ✓
 - §Scope.In-scope #2 (Backend lint+format / ruff) → Tasks 1.4, 3.1, 4.2 ✓
 - §Scope.In-scope #3 (Backend type / mypy) → Tasks 1.1, 1.5, 4.3 ✓

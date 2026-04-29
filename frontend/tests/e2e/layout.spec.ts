@@ -79,7 +79,9 @@ async function seedManyRuns(
 // ---------------------------------------------------------------------------
 
 test.describe("App-shell layout — sidebar bottom block always visible", () => {
-  test("logout button visible on /jobs even with long list", async ({ page }) => {
+  test("logout button visible on /jobs even with long list", async ({
+    page,
+  }) => {
     test.skip(!ENABLED, "set LAYOUT_E2E=1 to enable (requires seed API)");
     test.setTimeout(30_000);
 

@@ -4,6 +4,7 @@ After the Cloudflare Access SSO switch, the admin gate is role=ADMIN and
 authentication bypass in tests is via dependency_override rather than the
 old password-bearer flow.
 """
+
 import pytest
 from httpx import AsyncClient
 
@@ -33,8 +34,7 @@ async def test_service_token_cannot_access_admin(
     """
     resp = await auth_client_service_token.get("/api/v1/admin/users")
     assert resp.status_code == 403, (
-        f"expected 403 (Insufficient permissions), got "
-        f"{resp.status_code}: {resp.text}"
+        f"expected 403 (Insufficient permissions), got {resp.status_code}: {resp.text}"
     )
 
 
@@ -48,8 +48,9 @@ async def test_unauthenticated_cannot_list_users(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_admin_can_promote_user_to_developer(auth_client_admin: AsyncClient):
     # Seed a plain USER to promote
-    from tests.conftest import _make_user
     from app.models import Role
+
+    from tests.conftest import _make_user
 
     target = await _make_user("target@example.dev", role=Role.USER)
     resp = await auth_client_admin.patch(
@@ -62,8 +63,9 @@ async def test_admin_can_promote_user_to_developer(auth_client_admin: AsyncClien
 
 @pytest.mark.asyncio
 async def test_non_admin_cannot_change_role(auth_client_user: AsyncClient):
-    from tests.conftest import _make_user
     from app.models import Role
+
+    from tests.conftest import _make_user
 
     target = await _make_user("target2@example.dev", role=Role.USER)
     resp = await auth_client_user.patch(
@@ -95,8 +97,9 @@ async def test_admin_can_demote_self_when_another_admin_exists(
 ):
     """Self-demote is legal as long as another admin remains — the invariant
     is 'zero admins is forbidden', not 'self-demote is forbidden'."""
-    from tests.conftest import _make_user
     from app.models import Role
+
+    from tests.conftest import _make_user
 
     await _make_user("coadmin@example.dev", role=Role.ADMIN)
     me = await auth_client_admin.get("/api/v1/users/me")
@@ -115,8 +118,9 @@ async def test_second_admin_can_demote_peer_admin(
 ):
     """Ensures the guard is specifically last-admin, not 'admins cannot demote
     other admins'. (Regression guard against overzealous future refactors.)"""
-    from tests.conftest import _make_user
     from app.models import Role
+
+    from tests.conftest import _make_user
 
     peer = await _make_user("peer@example.dev", role=Role.ADMIN)
     resp = await auth_client_admin.patch(
@@ -141,8 +145,9 @@ async def test_admin_patch_rejects_unknown_field(auth_client_admin: AsyncClient)
     """AdminUserUpdate uses extra='forbid' — sending fields other than the
     declared ones must 422. Future-proof against a regression that relaxes
     the model to default `ignore` (which would silently drop, not reject)."""
-    from tests.conftest import _make_user
     from app.models import Role
+
+    from tests.conftest import _make_user
 
     target = await _make_user("forbid@example.dev", role=Role.USER)
     resp = await auth_client_admin.patch(

@@ -20,7 +20,9 @@ function useConfusionMatrix(runId: string) {
         );
         if (!resp.ok) return null;
         return (await resp.json()) as { labels: string[]; matrix: number[][] };
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     },
     retry: false,
     enabled: Boolean(runId),
@@ -33,34 +35,59 @@ export default function RunDetailPage() {
   const { data: cm } = useConfusionMatrix(runId);
   if (!data) return <p className="text-muted-foreground">Loading…</p>;
   const run = data as unknown as {
-    run_id: string; status: string; start_time?: number; end_time?: number;
-    metrics?: Record<string, number>; params?: Record<string, unknown>; tags?: Record<string, string>;
+    run_id: string;
+    status: string;
+    start_time?: number;
+    end_time?: number;
+    metrics?: Record<string, number>;
+    params?: Record<string, unknown>;
+    tags?: Record<string, string>;
   };
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Run {runId.slice(0, 10)}</h1>
       <Card>
-        <CardHeader><CardTitle>Metrics</CardTitle></CardHeader>
-        <CardContent><MetricsTable metrics={run.metrics ?? {}} /></CardContent>
+        <CardHeader>
+          <CardTitle>Metrics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MetricsTable metrics={run.metrics ?? {}} />
+        </CardContent>
       </Card>
       {cm && (
         <Card>
-          <CardHeader><CardTitle>Confusion matrix</CardTitle></CardHeader>
-          <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
+          <CardHeader>
+            <CardTitle>Confusion matrix</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ConfusionMatrix labels={cm.labels} matrix={cm.matrix} />
+          </CardContent>
         </Card>
       )}
       <Card>
-        <CardHeader><CardTitle>Params</CardTitle></CardHeader>
-        <CardContent><JsonTreeView value={run.params ?? {}} /></CardContent>
+        <CardHeader>
+          <CardTitle>Params</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <JsonTreeView value={run.params ?? {}} />
+        </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>Tags</CardTitle></CardHeader>
-        <CardContent><JsonTreeView value={run.tags ?? {}} /></CardContent>
+        <CardHeader>
+          <CardTitle>Tags</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <JsonTreeView value={run.tags ?? {}} />
+        </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>Artifacts</CardTitle></CardHeader>
-        <CardContent><ArtifactTree runId={runId} /></CardContent>
+        <CardHeader>
+          <CardTitle>Artifacts</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ArtifactTree runId={runId} />
+        </CardContent>
       </Card>
     </div>
   );

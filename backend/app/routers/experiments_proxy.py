@@ -5,16 +5,18 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.config import settings
-from app.users import current_active_user
 from app.models import User
 from app.services.mlflow_client import MlflowClient, MlflowError
+from app.users import current_active_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 def _client() -> MlflowClient:
-    return MlflowClient(settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS)
+    return MlflowClient(
+        settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
+    )
 
 
 @router.get("/experiments")
@@ -84,7 +86,7 @@ async def download_artifact(
             status_code=502,
             detail=f"unexpected artifact_uri scheme: {artifact_uri!r}",
         )
-    relative = artifact_uri[len(prefix):].rstrip("/")
+    relative = artifact_uri[len(prefix) :].rstrip("/")
     url = f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow-artifacts/artifacts/{relative}/{path}"
     async with httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS) as c:
         r = await c.get(url)

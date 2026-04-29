@@ -11,19 +11,17 @@ URL driver rewriting: URLs using the async driver prefix
 (plain `postgresql://`, SQLite, etc.) is passed through unmodified —
 SQLAlchemy's default dispatch handles them.
 """
+
 from logging.config import fileConfig
 
-from sqlalchemy import create_engine
-from sqlalchemy import pool
-
+import app.models  # noqa: F401 — side-effect registers all ORM models on Base
 from alembic import context
 
 # Import settings and models before the Alembic context is used so
 # target_metadata is populated before any operation triggers autogenerate.
 from app.config import settings
-import app.models  # noqa: F401 — side-effect registers all ORM models on Base
 from app.models import Base
-
+from sqlalchemy import create_engine, pool
 
 config = context.config
 

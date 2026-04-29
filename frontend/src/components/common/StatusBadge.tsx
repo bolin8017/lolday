@@ -15,5 +15,7 @@ export function StatusBadge({ status }: { status: string }) {
   const { t, i18n } = useTranslation();
   const key = `status.${status}`;
   const label = i18n.exists(key) ? t(key) : status;
-  return <Badge className={cn(TONE_CLASSES[statusTone(status)])}>{label}</Badge>;
+  return (
+    <Badge className={cn(TONE_CLASSES[statusTone(status)])}>{label}</Badge>
+  );
 }

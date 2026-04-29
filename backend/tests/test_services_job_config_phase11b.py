@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import yaml
-
 from app.services.job_config import JobConfigRenderer
 
 

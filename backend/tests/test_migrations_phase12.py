@@ -8,16 +8,14 @@ Both migrations claim idempotency — re-running them must be a no-op
 on already-migrated rows and never clobber an admin-customised
 display_name.
 """
+
 import pathlib
 import uuid
 
-import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
-
 from app.config import settings
-
 
 _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 _FRIENDLY = "Internal service token"
@@ -77,20 +75,37 @@ def test_phase12_1_renames_only_raw_displayname(tmp_path, monkeypatch):
         "c7e3a9b1d042",
         rows=[
             # service-token row with raw auto-derived display_name → renamed
-            {"id": uuid.uuid4().hex, "email": _EMAIL, "pw": "!", "role": "user", "dn": _RAW},
+            {
+                "id": uuid.uuid4().hex,
+                "email": _EMAIL,
+                "pw": "!",
+                "role": "user",
+                "dn": _RAW,
+            },
             # service-token row with custom display_name → preserved
-            {"id": uuid.uuid4().hex, "email": "service-other.access@cf-access.local",
-             "pw": "!", "role": "user", "dn": "Custom Bot"},
+            {
+                "id": uuid.uuid4().hex,
+                "email": "service-other.access@cf-access.local",
+                "pw": "!",
+                "role": "user",
+                "dn": "Custom Bot",
+            },
             # plain user → never touched
-            {"id": uuid.uuid4().hex, "email": "alice@example.com",
-             "pw": "!", "role": "user", "dn": "alice"},
+            {
+                "id": uuid.uuid4().hex,
+                "email": "alice@example.com",
+                "pw": "!",
+                "role": "user",
+                "dn": "alice",
+            },
         ],
     )
 
     assert _read_user(engine, _EMAIL).display_name == _FRIENDLY
-    assert _read_user(
-        engine, "service-other.access@cf-access.local"
-    ).display_name == "Custom Bot"
+    assert (
+        _read_user(engine, "service-other.access@cf-access.local").display_name
+        == "Custom Bot"
+    )
     assert _read_user(engine, "alice@example.com").display_name == "alice"
 
 
@@ -119,12 +134,13 @@ def test_phase12_1_is_idempotent(tmp_path, monkeypatch):
     with engine.begin() as conn:
         # Direct invocation simulating two consecutive ``op.upgrade()``
         # calls. The second pass must NOT find any candidate row.
-        from alembic.runtime.migration import MigrationContext
         from alembic.operations import Operations
+        from alembic.runtime.migration import MigrationContext
 
         ctx = MigrationContext.configure(connection=conn)
         op_proxy = Operations(ctx)
         import alembic.op
+
         alembic.op._proxy = op_proxy
         try:
             mod.upgrade()
@@ -144,10 +160,20 @@ def test_phase12_2_backfills_role_only_for_service_tokens(tmp_path, monkeypatch)
         url,
         "f9a2c4e8b01a",
         rows=[
-            {"id": uuid.uuid4().hex, "email": _EMAIL,
-             "pw": "!", "role": "admin", "dn": _FRIENDLY},
-            {"id": uuid.uuid4().hex, "email": "alice@example.com",
-             "pw": "!", "role": "user", "dn": "alice"},
+            {
+                "id": uuid.uuid4().hex,
+                "email": _EMAIL,
+                "pw": "!",
+                "role": "admin",
+                "dn": _FRIENDLY,
+            },
+            {
+                "id": uuid.uuid4().hex,
+                "email": "alice@example.com",
+                "pw": "!",
+                "role": "user",
+                "dn": "alice",
+            },
         ],
     )
     assert _read_user(engine, _EMAIL).role == "service_token"

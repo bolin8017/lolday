@@ -12,6 +12,7 @@
 一次重整所有給「未來 Claude session + 新工程師」讀的文件，讓開新 session 時能在 < 5 分鐘建立完整 mental model，且不再有需要 user 主動補充的盲點。
 
 **範圍內**
+
 - `CLAUDE.md`、`.claude/rules/*.md`、`docs/architecture.md`、`docs/conventions.md`、`docs/runbooks/*.md`
 - `docs/` 散落 Phase 文件搬到 `docs/phase-history/`、合併 `docs/ops/` 進 runbooks
 - `~/.claude/projects/.../memory/MEMORY.md` 重建 + 移除 CLAUDE.md 對 stale auto memory 的引用
@@ -20,6 +21,7 @@
 - branch / commit 慣例改為主流（GitHub Flow + Conventional Commits）
 
 **範圍外（後續 phase）**
+
 - 修 `~/.lolday-secrets.env` vs repo-root 路徑 inconsistency（4 個 script）
 - 修 `config.py` 內 Harbor URL 三種寫法
 - 刪 frontend 重複 config 檔（playwright/vite/vitest/tailwind 的 `.ts`/`.js`/`.d.ts`）
@@ -94,6 +96,7 @@ lolday/
 @README.md
 
 ## How to navigate this codebase
+
 - 系統架構 / 模組責任 / 外部服務 / env vars / 技術債 → docs/architecture.md
 - 部署 / 維運 → docs/runbooks/deploy.md, troubleshooting.md
 - 命名 / 分支 / commit 慣例 → docs/conventions.md
@@ -105,18 +108,23 @@ lolday/
 ## Hard rules（每個 session 都必須記得）
 
 ### SSH safety on server30
+
 （保留現有條目，不改）
 
 ### Sudo policy
+
 （保留現有條目，不改）
 
 ### Avoid China-origin software
+
 （保留現有條目，不改）
 
 ### Prefer open-source over custom code
+
 （保留現有條目，不改）
 
 ## Quickstart commands
+
 bash scripts/install-tools.sh
 sudo bash scripts/setup-k3s.sh
 bash scripts/deploy.sh
@@ -125,16 +133,18 @@ cd frontend && pnpm test && pnpm playwright test
 helm lint charts/lolday
 
 ## Project layout（一行一個）
-- backend/                  FastAPI + uv          → .claude/rules/backend.md
-- frontend/                 Vite + React + TS     → .claude/rules/frontend.md
-- charts/lolday/            Helm umbrella chart   → .claude/rules/charts-and-helm.md
-- scripts/                  install/deploy/diag   → .claude/rules/scripts-and-ops.md
-- backend/migrations/       Alembic              → .claude/rules/alembic-migrations.md
-- docs/superpowers/         Phase specs / plans
-- docs/                     architecture / conventions / runbooks / phase-history
+
+- backend/ FastAPI + uv → .claude/rules/backend.md
+- frontend/ Vite + React + TS → .claude/rules/frontend.md
+- charts/lolday/ Helm umbrella chart → .claude/rules/charts-and-helm.md
+- scripts/ install/deploy/diag → .claude/rules/scripts-and-ops.md
+- backend/migrations/ Alembic → .claude/rules/alembic-migrations.md
+- docs/superpowers/ Phase specs / plans
+- docs/ architecture / conventions / runbooks / phase-history
 ```
 
 **從現有 CLAUDE.md 移除的內容**
+
 - 「For accumulated project facts ... see auto memory at ...」整段（line 87–88，stale 引用）
 - 詳細 Build / test 指令（保留 6 條 quickstart，其餘進 architecture.md §6）
 - Project layout 詳細註腳（搬入 .claude/rules/<area>.md）
@@ -148,6 +158,7 @@ helm lint charts/lolday
 ### 5.1 `backend.md`（paths: `backend/**/*.py`、`backend/pyproject.toml`、`backend/alembic.ini`）
 
 主要章節：
+
 - **App 結構**：main.py 入口、routers / services / models / schemas / auth / deps.py / users.py
 - **啟動 fail-fast 行為**（重要 onboarding 陷阱）：
   - `_assert_schema_at_head()` — alembic 沒到 head boot 失敗
@@ -176,7 +187,7 @@ helm lint charts/lolday
 
 - Umbrella chart 結構 + sub-charts（harbor / kps / loki / alloy / trivy-operator / volcano）
 - Helper images：build-helper（含 maldet_validator.py）/ job-helper（Python module + tests）/ mlflow-server / pytorch-cu12-base
-- 重要 templates：backend / frontend / postgresql / redis / mlflow / registry / cloudflared / alembic-upgrade-hook / netpol-* / volcano-queue
+- 重要 templates：backend / frontend / postgresql / redis / mlflow / registry / cloudflared / alembic-upgrade-hook / netpol-\* / volcano-queue
 - monitoring/ subfolder 完整列表：alertmanager-config-discord / alertmanager-rules / deadmans-switch（CronJob，獨立 Discord webhook） / grafana-admin-secret / grafana-dashboards / postgres-exporter (init+main) / servicemonitor-{backend,dcgm,postgres,traefik,trivy,volcano}
 - Workflow：helm lint → helm template diff → helm dependency update（不要 commit `*.tgz`）
 - 修改 NetworkPolicy 前看 SSH safety hard rule
@@ -218,7 +229,7 @@ helm lint charts/lolday
    - 通知：Discord events webhook（`services/discord.py` + `notify.py`）+ deadmans-switch 獨立 webhook
 4. **資料流**（60 行）：4.1 建 detector / 4.2 跑 job / 4.3 SSO / 4.4 監控+log / **4.5 通知**（fire-and-forget + Prom counter）
 5. **Env vars 與設定來源**（40 行）：
-   - Runtime（K8s 內）：列 `backend/app/config.py` 主要 group（DB/Redis/Harbor/Build/Job/MLflow/Discord/CF Access/AUTH_DEV_*/ENVIRONMENT/LOLDAY_UI_BASE_URL）
+   - Runtime（K8s 內）：列 `backend/app/config.py` 主要 group（DB/Redis/Harbor/Build/Job/MLflow/Discord/CF Access/AUTH*DEV*\*/ENVIRONMENT/LOLDAY_UI_BASE_URL）
    - Operator-local env files（repo root，gitignored）：`.lolday-secrets.env`、`.lolday-cf-svctoken.env`、`.lolday-cloudflare-access-backups/`
    - 已知 inconsistency：Harbor URL 三種寫法（待後續 phase 修）
 6. **Build / Test / Release**（40 行）— 沒有 GitHub Actions（tech debt）；backend/frontend Dockerfile；helper images 手動 build push；deploy.sh + alembic-upgrade-hook
@@ -277,6 +288,7 @@ helm lint charts/lolday
 ### 8.1 `deploy.md`（合併 phase3-deploy-runbook + ops/host-prep）
 
 章節：
+
 1. Pre-requisites — host 設定、NVIDIA driver、temp sudo、**建立 `.lolday-secrets.env` 與 `.lolday-cf-svctoken.env`（從 `.example` copy）**
 2. K3s 安裝 — `sudo bash scripts/setup-k3s.sh`
 3. GPU operator 安裝 — README 既有命令
@@ -289,6 +301,7 @@ helm lint charts/lolday
 ### 8.2 `troubleshooting.md`
 
 症狀 → 對應 script / 手動步驟 對照表：
+
 - backend 401 / 無法登入 → diag-backend-401.sh + 檢查 cf_access env
 - backend 啟動 schema mismatch → 看 alembic-upgrade-hook log
 - harbor 重裝後 image pull 失敗 → recover-harbor.sh + fix-lolday-project-public.sh
@@ -324,13 +337,16 @@ rmdir docs/ops
 ## 10. Auto memory cleanup
 
 **現況**
+
 - `~/.claude/projects/-home-bolin8017-Documents-repositories-lolday/memory/MEMORY.md` 是空檔
 - `CLAUDE.md` line 11 與 line 87–88 引用了**不存在**的 `project_cilium_ssh_incident.md` 與 6 個其他主題
 
 **計畫**
+
 1. CLAUDE.md line 11 把「See the Cilium incident post-mortem in auto memory ...」改寫成「2026-03-31 因 Cilium 斷過 SSH — 詳 docs/postmortems/2026-03-31-cilium-ssh-incident.md」
 2. CLAUDE.md line 87–88 整段移除（散落事實改放 `docs/architecture.md` §8 / §10）
 3. 新建 `MEMORY.md` 起始內容：
+
    ```markdown
    # Auto memory — Lolday
 
@@ -339,6 +355,7 @@ rmdir docs/ops
 
    - （目前無 entries）
    ```
+
 4. 不主動把過去 phase 的事實塞入 auto memory — 那些屬 user 寫的範疇
 
 ---
@@ -348,6 +365,7 @@ rmdir docs/ops
 ### 11.1 `.lolday-secrets.env.example`（committed）
 
 從 grep 取得目前實際使用的 key（值留空 + 註解每個來源）：
+
 ```bash
 # Lolday operator-local secrets — copy to .lolday-secrets.env (gitignored, chmod 600)
 # Loaded by: scripts/deploy.sh, recover-harbor.sh, harbor-inventory.sh,

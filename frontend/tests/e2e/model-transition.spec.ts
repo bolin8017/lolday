@@ -6,18 +6,26 @@ test("promote a model version to Production", async ({ page }) => {
   await login(page);
   await page.goto("/models");
   // Click the first model row (upxelfdet)
-  const firstModel = page.locator('table tbody tr').first().getByRole("link").first();
+  const firstModel = page
+    .locator("table tbody tr")
+    .first()
+    .getByRole("link")
+    .first();
   await expect(firstModel).toBeVisible();
   await firstModel.click();
   await page.waitForURL(/\/models\//);
 
   // Click the first Transition button (topmost version row)
-  const transitionBtn = page.getByRole("button", { name: /^Transition$/ }).first();
+  const transitionBtn = page
+    .getByRole("button", { name: /^Transition$/ })
+    .first();
   await transitionBtn.click();
 
   // Dialog opens — the target Select defaults to Production. Just confirm.
   await page.getByRole("button", { name: /^Confirm$/ }).click();
 
   // Dialog closes; page should still have at least one Production badge after refetch.
-  await expect(page.locator('text="Production"').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('text="Production"').first()).toBeVisible({
+    timeout: 15_000,
+  });
 });

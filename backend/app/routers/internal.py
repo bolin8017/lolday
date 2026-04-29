@@ -36,7 +36,11 @@ async def internal_get_job_config(
     if job.predict_dataset_id:
         ds = await session.get(DatasetConfig, job.predict_dataset_id)
         predict_csv = ds.csv_content if ds else None
-    yaml_text = job.resolved_config.get("yaml", "") if isinstance(job.resolved_config, dict) else ""
+    yaml_text = (
+        job.resolved_config.get("yaml", "")
+        if isinstance(job.resolved_config, dict)
+        else ""
+    )
     return JobInternalConfig(
         yaml=yaml_text,
         train_csv=train_csv,
@@ -60,9 +64,7 @@ async def ingest_event(
     await persist_event(session, job_id=job.id, event=event)
     try:
         await event_broker.publish(job.id, event)
-    except Exception:  # noqa: BLE001 — isolate broker failure from sidecar protocol
+    except Exception:
         BACKEND_ERRORS.labels(stage="event_broker_publish").inc()
-        logger.exception(
-            "event_broker.publish failed", extra={"job_id": str(job.id)}
-        )
+        logger.exception("event_broker.publish failed", extra={"job_id": str(job.id)})
     return {"accepted": True}

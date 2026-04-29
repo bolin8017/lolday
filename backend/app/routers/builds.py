@@ -22,7 +22,6 @@ from app.models.user import User
 from app.schemas.detector import BuildRead
 from app.users import current_active_user
 
-
 router = APIRouter()
 
 

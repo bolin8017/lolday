@@ -128,7 +128,9 @@ export function DatasetUploadForm() {
           </TabsContent>
         </Tabs>
         {errors.csv_content && (
-          <p className="text-xs text-destructive">{errors.csv_content.message}</p>
+          <p className="text-xs text-destructive">
+            {errors.csv_content.message}
+          </p>
         )}
         {parseError && (
           <Alert variant="destructive">

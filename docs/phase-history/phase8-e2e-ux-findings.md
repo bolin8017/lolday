@@ -22,17 +22,17 @@ Severity: **S1** = blocking, **S2** = rough, **S3** = nit.
 
 ## Summary table
 
-| # | Finding | Sev | Fixed here | Follow-up |
-|---|---------|-----|-----------|-----------|
-| 1 | `GET /api/v1/builds/<id>` does not exist — path is nested under detector | S3 | **✅ flat alias** | — |
-| 2 | Harbor Trivy scan never auto-triggers; builds sit at `scanning` forever | S1 | **✅ reconciler auto-triggers** | — |
-| 3 | Build validator `/tmp` EmptyDir 512Mi → any torch detector evicted | S1 | **✅ validator redesign (AST + --no-deps)** | — |
-| 4 | Validator RSS 2Gi → OOM on torch install | S1 | **✅ same as #3** | — |
-| 5 | Kaniko container RSS 4Gi → DL snapshot OOMs | S1 | **✅ 20Gi** | Switch to BuildKit long-term |
-| 6 | Kaniko triggers **node-level ephemeral-storage eviction** building DL detectors | S1 | **✅ ephemeral-storage req/limit + 1h TTL for failed builds** | — |
-| 7 | 19 % of samples have no `.text` section / fail to parse | S2 | **✅ elfrfdet+elfcnndet catch ELFError** | Revisit dataset curation (statically linked Go / heavily stripped ELFs) |
-| 8 | Build concurrency-limit 429 does not state the limit | S3 | **✅ includes `limit` + `in_flight`** | — |
-| 9 | DL detector image has 1 Critical + 9 High CVE from torch transitive deps | N/A | — (expected) | Detector author picks a CVE-clean CUDA base image |
+| #   | Finding                                                                         | Sev | Fixed here                                                    | Follow-up                                                               |
+| --- | ------------------------------------------------------------------------------- | --- | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| 1   | `GET /api/v1/builds/<id>` does not exist — path is nested under detector        | S3  | **✅ flat alias**                                             | —                                                                       |
+| 2   | Harbor Trivy scan never auto-triggers; builds sit at `scanning` forever         | S1  | **✅ reconciler auto-triggers**                               | —                                                                       |
+| 3   | Build validator `/tmp` EmptyDir 512Mi → any torch detector evicted              | S1  | **✅ validator redesign (AST + --no-deps)**                   | —                                                                       |
+| 4   | Validator RSS 2Gi → OOM on torch install                                        | S1  | **✅ same as #3**                                             | —                                                                       |
+| 5   | Kaniko container RSS 4Gi → DL snapshot OOMs                                     | S1  | **✅ 20Gi**                                                   | Switch to BuildKit long-term                                            |
+| 6   | Kaniko triggers **node-level ephemeral-storage eviction** building DL detectors | S1  | **✅ ephemeral-storage req/limit + 1h TTL for failed builds** | —                                                                       |
+| 7   | 19 % of samples have no `.text` section / fail to parse                         | S2  | **✅ elfrfdet+elfcnndet catch ELFError**                      | Revisit dataset curation (statically linked Go / heavily stripped ELFs) |
+| 8   | Build concurrency-limit 429 does not state the limit                            | S3  | **✅ includes `limit` + `in_flight`**                         | —                                                                       |
+| 9   | DL detector image has 1 Critical + 9 High CVE from torch transitive deps        | N/A | — (expected)                                                  | Detector author picks a CVE-clean CUDA base image                       |
 
 ---
 
@@ -97,11 +97,13 @@ sklearn-class deps.
 ## Fixed in this PR
 
 Platform (`backend/app/services/build.py`):
+
 - Validate `/tmp` EmptyDir: 512Mi → 12Gi
 - Validate RSS limit: 2Gi → 8Gi
 - Kaniko RSS limit: 4Gi → 20Gi
 
 Detector (`bolin8017/elfrfdet`, `bolin8017/elfcnndet`):
+
 - v0.1.1 tag on both — catches the full `ELFError` hierarchy so a
   single malformed sample can't crash the feature pass. (pyelftools'
   `get_section_by_name` parses the section-header string table

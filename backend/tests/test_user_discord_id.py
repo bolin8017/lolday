@@ -1,8 +1,8 @@
 """Tests for User.discord_user_id column + UserSelfUpdate schema exposure."""
 
 import pytest
-
 from app.models import Role
+
 from tests.conftest import _as_user, _make_user
 
 
@@ -89,14 +89,18 @@ async def test_user_can_clear_discord_id_by_setting_null(user_client):
 
 @pytest.mark.asyncio
 async def test_update_rejects_non_digit_discord_id(user_client):
-    r = await user_client.patch("/api/v1/users/me", json={"discord_user_id": "not-a-number"})
+    r = await user_client.patch(
+        "/api/v1/users/me", json={"discord_user_id": "not-a-number"}
+    )
     assert r.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_update_rejects_too_short_discord_id(user_client):
     # 14 digits — Discord IDs are 15-20.
-    r = await user_client.patch("/api/v1/users/me", json={"discord_user_id": "12345678901234"})
+    r = await user_client.patch(
+        "/api/v1/users/me", json={"discord_user_id": "12345678901234"}
+    )
     assert r.status_code == 422
 
 
@@ -110,7 +114,9 @@ async def test_update_rejects_too_long_discord_id(user_client):
 @pytest.mark.asyncio
 async def test_update_empty_string_coerced_to_null(user_client):
     """Frontend form submits '' when user clears the field — treat as null."""
-    await user_client.patch("/api/v1/users/me", json={"discord_user_id": "987654321098765432"})
+    await user_client.patch(
+        "/api/v1/users/me", json={"discord_user_id": "987654321098765432"}
+    )
     r = await user_client.patch("/api/v1/users/me", json={"discord_user_id": ""})
     assert r.status_code == 200
     assert r.json()["discord_user_id"] is None

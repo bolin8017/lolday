@@ -49,12 +49,14 @@ Each helper has its own Dockerfile, built and pushed manually by the operator.
 - `pytorch-cu12-base/` — Dockerfile only; GPU base image.
 
 Image tags are hardcoded in `backend/app/config.py`:
+
 - `BUILD_IMAGE_HELPER` defaults to `harbor.harbor.svc:80/lolday/build-helper:v3`
 - `JOB_HELPER_IMAGE` defaults to `harbor.lolday.svc:80/lolday/job-helper:v4` (note: Harbor URL inconsistency — see `docs/architecture.md` §9)
 
 ## Dashboards (`charts/lolday/dashboards/`)
 
 JSON dashboards mounted by `monitoring/grafana-dashboards.yaml`:
+
 - `dcgm.json` — GPU metrics
 - `postgresql.json` — DB metrics
 - `reconciler-errors.json` — `BACKEND_ERRORS{stage=...}` breakdown

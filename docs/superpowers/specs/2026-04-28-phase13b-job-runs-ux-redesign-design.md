@@ -2,11 +2,11 @@
 
 ## Overview
 
-Phase 13a fixes the visible bugs blocking daily workflow. Phase 13b is the UX redesign: the parts that *work* but are hard to read or use.
+Phase 13a fixes the visible bugs blocking daily workflow. Phase 13b is the UX redesign: the parts that _work_ but are hard to read or use.
 
 Three problem clusters, all surfaced from real user feedback:
 
-1. **Job Detail Summary tab is one-size-fits-none.** Train, evaluate, and predict jobs share a single Summary layout: a `Metrics` card with a hard-coded whitelist (`accuracy`, `precision`, `recall`, `f1`, `f1_score`), a `Confusion matrix` card, a `Live metrics` chart, and a `Resolved config` block. Predict jobs always show "No metrics recorded yet" (predict has no metrics by definition); evaluate jobs hide `roc_auc` and per-class breakdowns; train jobs lack a clear link to the trained model. Each stage has a different *thing the user came here to look at* — but the layout doesn't reflect that.
+1. **Job Detail Summary tab is one-size-fits-none.** Train, evaluate, and predict jobs share a single Summary layout: a `Metrics` card with a hard-coded whitelist (`accuracy`, `precision`, `recall`, `f1`, `f1_score`), a `Confusion matrix` card, a `Live metrics` chart, and a `Resolved config` block. Predict jobs always show "No metrics recorded yet" (predict has no metrics by definition); evaluate jobs hide `roc_auc` and per-class breakdowns; train jobs lack a clear link to the trained model. Each stage has a different _thing the user came here to look at_ — but the layout doesn't reflect that.
 2. **Submit form Hyperparameters block reads as opaque.** `RjsfConfigForm` renders fields directly from the JSON Schema with no `uiSchema`, so:
    - Pydantic `Field(description=...)` annotations exist in the detector but never appear on screen.
    - Default values are not pre-populated; users see blank fields and don't realize defaults will be applied if left empty.
@@ -45,13 +45,13 @@ Phase 13b addresses all four clusters with one cohesive UX redesign: per-type Jo
 
 ### Cross-cutting changes
 
-| Concern | Component / file | Why |
-|---|---|---|
-| Drop `<JsonViewer>` everywhere | `frontend/src/components/common/JsonViewer.tsx` deleted; replaced by `<JsonTreeView>` | Used in 3 places (manifest, resolved config, run params/tags) — all want tree view. |
-| Add `react-json-view` dependency | `frontend/package.json` | Industry-standard JSON tree component (W&B, Streamlit, Insomnia use it). MIT licensed, no China-origin concerns. |
-| Job model gains `user_params` | `backend/app/models/job.py` + migration | Needed to render "your params vs defaults" distinction in resolved config viewer. |
-| `summary_metrics` JSON gains two new fields | `backend/app/reconciler.py` | `per_class` (evaluate) and `prediction_summary` (predict) — projected by reconciler at terminal transition. |
-| MLflow exposed at `/mlflow/` | `charts/lolday/templates/ingress.yaml` + `mlflow.yaml` | Lets B4's "↗ Open in MLflow" buttons work. |
+| Concern                                     | Component / file                                                                      | Why                                                                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Drop `<JsonViewer>` everywhere              | `frontend/src/components/common/JsonViewer.tsx` deleted; replaced by `<JsonTreeView>` | Used in 3 places (manifest, resolved config, run params/tags) — all want tree view.                              |
+| Add `react-json-view` dependency            | `frontend/package.json`                                                               | Industry-standard JSON tree component (W&B, Streamlit, Insomnia use it). MIT licensed, no China-origin concerns. |
+| Job model gains `user_params`               | `backend/app/models/job.py` + migration                                               | Needed to render "your params vs defaults" distinction in resolved config viewer.                                |
+| `summary_metrics` JSON gains two new fields | `backend/app/reconciler.py`                                                           | `per_class` (evaluate) and `prediction_summary` (predict) — projected by reconciler at terminal transition.      |
+| MLflow exposed at `/mlflow/`                | `charts/lolday/templates/ingress.yaml` + `mlflow.yaml`                                | Lets B4's "↗ Open in MLflow" buttons work.                                                                       |
 
 ### Component dependency graph
 
@@ -108,18 +108,24 @@ export default function JobDetailPage() {
         <TabsList>
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
-          <TabsTrigger value="artifacts" disabled={!job.mlflow_run_id}>Artifacts</TabsTrigger>
+          <TabsTrigger value="artifacts" disabled={!job.mlflow_run_id}>
+            Artifacts
+          </TabsTrigger>
           {job.mlflow_run_id && (
             <TabsTrigger value="mlflow" asChild>
-              <Link to={`/runs/${job.mlflow_experiment_id}/${job.mlflow_run_id}`}>Open run ↗</Link>
+              <Link
+                to={`/runs/${job.mlflow_experiment_id}/${job.mlflow_run_id}`}
+              >
+                Open run ↗
+              </Link>
             </TabsTrigger>
           )}
         </TabsList>
 
         <TabsContent value="summary" className="space-y-4">
-          {job.type === "train"    && <TrainSummary job={job} />}
+          {job.type === "train" && <TrainSummary job={job} />}
           {job.type === "evaluate" && <EvaluateSummary job={job} />}
-          {job.type === "predict"  && <PredictSummary job={job} />}
+          {job.type === "predict" && <PredictSummary job={job} />}
         </TabsContent>
 
         <TabsContent value="logs">
@@ -127,8 +133,11 @@ export default function JobDetailPage() {
         </TabsContent>
 
         <TabsContent value="artifacts">
-          {job.mlflow_run_id ? <ArtifactTree runId={job.mlflow_run_id} /> :
-            <p className="text-muted-foreground">No MLflow run recorded.</p>}
+          {job.mlflow_run_id ? (
+            <ArtifactTree runId={job.mlflow_run_id} />
+          ) : (
+            <p className="text-muted-foreground">No MLflow run recorded.</p>
+          )}
         </TabsContent>
       </Tabs>
     </JobDetailShell>
@@ -180,7 +189,12 @@ Replaces the whitelist-filtering `<MetricCards>`:
 #### `<PerClassMetrics per_class: Record<string, ClassMetric>, positive_class: string>`
 
 ```ts
-interface ClassMetric { precision: number; recall: number; f1: number; support: number }
+interface ClassMetric {
+  precision: number;
+  recall: number;
+  f1: number;
+  support: number;
+}
 ```
 
 Render as a simple table with class name as row, metric as column, support count rightmost. Highlight the `positive_class` row.
@@ -201,7 +215,7 @@ Render as a simple table with class name as row, metric as column, support count
 ```ts
 interface PredictionSummary {
   total: number;
-  distribution: Record<string, number>;  // class name → count
+  distribution: Record<string, number>; // class name → count
   duration_seconds: number;
 }
 ```
@@ -440,13 +454,19 @@ export function StageExplainer({ type }: { type: JobType }) {
     <Card>
       <CardContent className="space-y-2 py-4 text-sm">
         <p className="font-medium">{t(`stage.${type}.title`)}</p>
-        <p className="text-muted-foreground">{t(`stage.${type}.description`)}</p>
+        <p className="text-muted-foreground">
+          {t(`stage.${type}.description`)}
+        </p>
         <div className="flex flex-wrap gap-2 pt-2">
           {REQUIRED_FIELDS[type].map((f) => (
-            <Badge key={f} variant="default">{t(`stage.field.${f}`)} (required)</Badge>
+            <Badge key={f} variant="default">
+              {t(`stage.field.${f}`)} (required)
+            </Badge>
           ))}
           {OPTIONAL_FIELDS[type].map((f) => (
-            <Badge key={f} variant="outline">{t(`stage.field.${f}`)} (optional)</Badge>
+            <Badge key={f} variant="outline">
+              {t(`stage.field.${f}`)} (optional)
+            </Badge>
           ))}
         </div>
       </CardContent>
@@ -525,7 +545,7 @@ import ReactJsonView from "react-json-view";
 
 interface Props {
   value: unknown;
-  collapsed?: number | boolean;   // depth at which to collapse, or fully collapse
+  collapsed?: number | boolean; // depth at which to collapse, or fully collapse
   copyable?: boolean;
 }
 
@@ -539,8 +559,12 @@ export function JsonTreeView({ value, collapsed = 1, copyable = true }: Props) {
         displayDataTypes={false}
         displayObjectSize={false}
         enableClipboard={copyable}
-        theme="rjv-default"  // light theme, paired with our card bg
-        style={{ padding: "0.75rem", fontSize: "0.8rem", fontFamily: "ui-monospace, monospace" }}
+        theme="rjv-default" // light theme, paired with our card bg
+        style={{
+          padding: "0.75rem",
+          fontSize: "0.8rem",
+          fontFamily: "ui-monospace, monospace",
+        }}
       />
     </div>
   );
@@ -548,6 +572,7 @@ export function JsonTreeView({ value, collapsed = 1, copyable = true }: Props) {
 ```
 
 Used in 3 places:
+
 - `<ResolvedConfigCard>` (job detail).
 - Detector manifest `<ManifestView>` (replaces `<JsonViewer value={manifest} />`).
 - `<RunDetail>` for params and tags (replaces `<JsonViewer value={run.params} />`).
@@ -559,20 +584,29 @@ Used in 3 places:
 ```tsx
 interface Props {
   resolvedConfig: Record<string, unknown>;
-  userParams: Record<string, unknown> | null;   // null for legacy jobs
-  detectorDefaults: Record<string, unknown> | null;  // optional, for default-vs-overridden indicator
+  userParams: Record<string, unknown> | null; // null for legacy jobs
+  detectorDefaults: Record<string, unknown> | null; // optional, for default-vs-overridden indicator
 }
 
-export function ResolvedConfigCard({ resolvedConfig, userParams, detectorDefaults }: Props) {
+export function ResolvedConfigCard({
+  resolvedConfig,
+  userParams,
+  detectorDefaults,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   const lineCount = JSON.stringify(resolvedConfig, null, 2).split("\n").length;
 
   return (
     <Card>
-      <CardHeader><CardTitle>Resolved config</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle>Resolved config</CardTitle>
+      </CardHeader>
       <CardContent className="space-y-4">
         {userParams !== null ? (
-          <UserParamsTable userParams={userParams} defaults={detectorDefaults} />
+          <UserParamsTable
+            userParams={userParams}
+            defaults={detectorDefaults}
+          />
         ) : (
           <p className="text-sm text-muted-foreground">
             Legacy job — user-supplied params not recorded.
@@ -582,7 +616,8 @@ export function ResolvedConfigCard({ resolvedConfig, userParams, detectorDefault
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
           onClick={() => setExpanded((x) => !x)}
         >
-          {expanded ? "▼" : "▶"} {expanded ? "Hide" : "Show"} full resolved config ({lineCount} lines)
+          {expanded ? "▼" : "▶"} {expanded ? "Hide" : "Show"} full resolved
+          config ({lineCount} lines)
         </button>
         {expanded && <JsonTreeView value={resolvedConfig} collapsed={1} />}
       </CardContent>
@@ -674,7 +709,9 @@ export default function ExperimentsListPage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Experiments</h1>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {(data ?? []).map((exp) => <ExperimentCard key={exp.experiment_id} exp={exp} />)}
+        {(data ?? []).map((exp) => (
+          <ExperimentCard key={exp.experiment_id} exp={exp} />
+        ))}
       </div>
     </div>
   );
@@ -782,13 +819,21 @@ export default function RunDetailPage() {
         </div>
       </div>
       <Card>
-        <CardHeader><CardTitle>Metrics</CardTitle></CardHeader>
-        <CardContent><MetricsTable metrics={run.metrics ?? {}} /></CardContent>
+        <CardHeader>
+          <CardTitle>Metrics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MetricsTable metrics={run.metrics ?? {}} />
+        </CardContent>
       </Card>
       {cm && (
         <Card>
-          <CardHeader><CardTitle>Confusion matrix</CardTitle></CardHeader>
-          <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
+          <CardHeader>
+            <CardTitle>Confusion matrix</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ConfusionMatrix labels={cm.labels} matrix={cm.matrix} />
+          </CardContent>
         </Card>
       )}
       <CollapsibleCard title="Parameters">
@@ -798,8 +843,12 @@ export default function RunDetailPage() {
         <JsonTreeView value={run.tags ?? {}} />
       </CollapsibleCard>
       <Card>
-        <CardHeader><CardTitle>Artifacts</CardTitle></CardHeader>
-        <CardContent><ArtifactTree runId={runId} /></CardContent>
+        <CardHeader>
+          <CardTitle>Artifacts</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ArtifactTree runId={runId} />
+        </CardContent>
       </Card>
     </div>
   );
@@ -810,14 +859,14 @@ export default function RunDetailPage() {
 
 ### 4.4 New components
 
-| Component | File | Purpose |
-|---|---|---|
-| `<ExperimentCard>` | `frontend/src/components/runs/ExperimentCard.tsx` | Cards on `/runs` |
-| `<RunsColumnPicker>` | `frontend/src/components/runs/RunsColumnPicker.tsx` | Toggle metrics/params columns |
-| `<RunsStatusFilter>` | `frontend/src/components/runs/RunsStatusFilter.tsx` | Status dropdown |
-| `<OpenInMlflowButton>` | `frontend/src/components/common/OpenInMlflowButton.tsx` | Generic deep-link |
-| `<OpenInLoldayJobButton>` | `frontend/src/components/common/OpenInLoldayJobButton.tsx` | Run → job link |
-| `<CollapsibleCard>` | `frontend/src/components/common/CollapsibleCard.tsx` | Card with collapse toggle (used for Params, Tags) |
+| Component                 | File                                                       | Purpose                                           |
+| ------------------------- | ---------------------------------------------------------- | ------------------------------------------------- |
+| `<ExperimentCard>`        | `frontend/src/components/runs/ExperimentCard.tsx`          | Cards on `/runs`                                  |
+| `<RunsColumnPicker>`      | `frontend/src/components/runs/RunsColumnPicker.tsx`        | Toggle metrics/params columns                     |
+| `<RunsStatusFilter>`      | `frontend/src/components/runs/RunsStatusFilter.tsx`        | Status dropdown                                   |
+| `<OpenInMlflowButton>`    | `frontend/src/components/common/OpenInMlflowButton.tsx`    | Generic deep-link                                 |
+| `<OpenInLoldayJobButton>` | `frontend/src/components/common/OpenInLoldayJobButton.tsx` | Run → job link                                    |
+| `<CollapsibleCard>`       | `frontend/src/components/common/CollapsibleCard.tsx`       | Card with collapse toggle (used for Params, Tags) |
 
 ### 4.5 Tests
 
@@ -861,7 +910,7 @@ apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: lolday
-  namespace: {{ .Release.Namespace }}
+  namespace: { { .Release.Namespace } }
 spec:
   entryPoints: [web]
   routes:
@@ -885,7 +934,7 @@ spec:
       services:
         - kind: Service
           name: mlflow
-          port: {{ .Values.mlflow.service.port }}
+          port: { { .Values.mlflow.service.port } }
 
     # MLflow non-GET — block with 405
     - kind: Rule
@@ -895,7 +944,7 @@ spec:
         - name: mlflow-deny-write
       services:
         - kind: Service
-          name: backend  # required field; service is unreachable due to middleware
+          name: backend # required field; service is unreachable due to middleware
           port: 8000
 
     # Frontend catch-all
@@ -911,7 +960,7 @@ apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: mlflow-strip-prefix
-  namespace: {{ .Release.Namespace }}
+  namespace: { { .Release.Namespace } }
 spec:
   stripPrefix:
     prefixes:
@@ -921,10 +970,10 @@ apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: mlflow-deny-write
-  namespace: {{ .Release.Namespace }}
+  namespace: { { .Release.Namespace } }
 spec:
   errors:
-    status: ["200"]    # always-true match
+    status: ["200"] # always-true match
     service:
       name: traefik-default-error
       port: 80
@@ -945,7 +994,7 @@ args:
   - --default-artifact-root=mlflow-artifacts:/
   - --artifacts-destination=/mlflow-artifacts
   - --serve-artifacts
-  - --static-prefix=/mlflow      # new
+  - --static-prefix=/mlflow # new
 ```
 
 This makes MLflow rewrite all asset URLs in HTML to `/mlflow/static-files/...`, matching what the Traefik `stripPrefix` middleware will preserve from the client request.
@@ -1005,19 +1054,19 @@ Same pattern. New predict jobs get cached `prediction_summary` in `summary_metri
 
 ### Unit / integration
 
-| Layer | Test |
-|---|---|
-| Backend | `_project_summary_metrics` extended for `per_class` event |
-| Backend | `_project_prediction_summary` reads CSV, computes distribution, caches |
-| Backend | `submit_job` writes `user_params` |
-| Backend | `experiments?include=stats` endpoint, with cache |
-| Frontend | `deriveUiSchemaFromSchema`, `fillDefaults` |
-| Frontend | `<MetricsTable>` shows all keys (no whitelist) |
+| Layer    | Test                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------- |
+| Backend  | `_project_summary_metrics` extended for `per_class` event                                 |
+| Backend  | `_project_prediction_summary` reads CSV, computes distribution, caches                    |
+| Backend  | `submit_job` writes `user_params`                                                         |
+| Backend  | `experiments?include=stats` endpoint, with cache                                          |
+| Frontend | `deriveUiSchemaFromSchema`, `fillDefaults`                                                |
+| Frontend | `<MetricsTable>` shows all keys (no whitelist)                                            |
 | Frontend | `<TrainSummary>` / `<EvaluateSummary>` / `<PredictSummary>` render correct cards per type |
-| Frontend | `<ResolvedConfigCard>` user-params table + collapsed full config |
-| Frontend | `<JsonTreeView>` renders tree, copy works |
-| Frontend | `<RunsColumnPicker>` localStorage persistence |
-| Frontend | `<ExperimentCard>` shows run_count / best_f1 |
+| Frontend | `<ResolvedConfigCard>` user-params table + collapsed full config                          |
+| Frontend | `<JsonTreeView>` renders tree, copy works                                                 |
+| Frontend | `<RunsColumnPicker>` localStorage persistence                                             |
+| Frontend | `<ExperimentCard>` shows run_count / best_f1                                              |
 
 ### E2E (playwright)
 
@@ -1082,9 +1131,9 @@ Same pattern. New predict jobs get cached `prediction_summary` in `summary_metri
 
 ## Appendix B — `<JsonTreeView>` usage map
 
-| Caller | `value` | `collapsed` | Where |
-|---|---|---|---|
-| `<ManifestView>` | manifest dict | 1 | Detector versions tab |
-| `<ResolvedConfigCard>` | `job.resolved_config` | 1 | Job detail Summary tab |
-| `<CollapsibleCard>` for Params | `run.params` | (controlled by parent) | Run detail |
-| `<CollapsibleCard>` for Tags | `run.tags` | (controlled) | Run detail |
+| Caller                         | `value`               | `collapsed`            | Where                  |
+| ------------------------------ | --------------------- | ---------------------- | ---------------------- |
+| `<ManifestView>`               | manifest dict         | 1                      | Detector versions tab  |
+| `<ResolvedConfigCard>`         | `job.resolved_config` | 1                      | Job detail Summary tab |
+| `<CollapsibleCard>` for Params | `run.params`          | (controlled by parent) | Run detail             |
+| `<CollapsibleCard>` for Tags   | `run.tags`            | (controlled)           | Run detail             |

@@ -11,16 +11,15 @@ parity is the high-value contract: "every ORM column has a DB column, and
 vice versa". Types are enforced implicitly by integration tests that insert
 real data through the ORM.
 """
+
 import pathlib
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
-
 from app.config import settings
 from app.models import Base
-
+from sqlalchemy import create_engine, inspect
 
 _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 
@@ -46,8 +45,12 @@ def test_alembic_head_table_set_matches_base_metadata(parity_db):
     orm_tables = set(Base.metadata.tables.keys())
     missing_in_db = orm_tables - db_tables
     extra_in_db = db_tables - orm_tables
-    assert not missing_in_db, f"Base.metadata tables not created by alembic: {missing_in_db}"
-    assert not extra_in_db, f"alembic created tables not in Base.metadata: {extra_in_db}"
+    assert not missing_in_db, (
+        f"Base.metadata tables not created by alembic: {missing_in_db}"
+    )
+    assert not extra_in_db, (
+        f"alembic created tables not in Base.metadata: {extra_in_db}"
+    )
 
 
 def test_alembic_head_column_names_match_base_metadata(parity_db):

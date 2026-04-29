@@ -10,6 +10,7 @@
 `<type>/<short-kebab-desc>`
 
 Examples:
+
 - `feat/job-detail-tabs`
 - `fix/role-enum-lowercase`
 - `chore/bump-deps`
@@ -23,11 +24,13 @@ Allowed types: `feat | fix | chore | docs | refactor | test | perf | build | ci`
 Format: `<type>(<scope>): <subject>`
 
 Examples:
+
 - `feat(jobs): add detail summary tab`
 - `fix(auth): align role_enum to values_callable`
 - `chore(charts): bump kube-prometheus-stack to 84.4.0`
 
 Rules:
+
 - `scope` is a module name (`jobs`, `auth`, `reconciler`, `harbor`, `charts`, `frontend`, `backend`, `migrations`, `rules`, `docs`). It is **not** a phase number.
 - `subject` is imperative, lowercase, no trailing period.
 - Body is optional but encouraged for non-trivial changes; wrap at 72 columns.
@@ -90,6 +93,7 @@ For new alembic revisions, use alembic's auto-generated filename (`<rev>_<short_
 ## 9. Before writing new code
 
 Read the path-scoped rule for the area you're touching:
+
 - `backend/...` → `.claude/rules/backend.md`
 - `frontend/...` → `.claude/rules/frontend.md`
 - `charts/...` → `.claude/rules/charts-and-helm.md`

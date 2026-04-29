@@ -64,7 +64,7 @@ If `FERNET_KEY` is regenerated after the platform is in use, every encrypted DB 
 
 ### Confirm SSH baseline
 
-Open a second SSH session to server30 on port 9453 *now*. Keep it open through every infra step in this runbook. If the primary session drops mid-step, use this one to recover. See `docs/postmortems/2026-03-31-cilium-ssh-incident.md` for why.
+Open a second SSH session to server30 on port 9453 _now_. Keep it open through every infra step in this runbook. If the primary session drops mid-step, use this one to recover. See `docs/postmortems/2026-03-31-cilium-ssh-incident.md` for why.
 
 ## 2. K3s install (requires sudo)
 

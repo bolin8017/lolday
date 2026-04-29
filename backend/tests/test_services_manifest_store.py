@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from app.services.manifest_store import (
     ManifestDecodeError,
     decode_manifest_label,

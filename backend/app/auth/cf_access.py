@@ -5,6 +5,7 @@ request header for every request that has passed its identity-aware proxy.
 The app verifies this JWT against Cloudflare's JWKS endpoint and trusts
 the contained claims as the user identity.
 """
+
 from __future__ import annotations
 
 import logging
@@ -107,9 +108,7 @@ async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User
         return existing
 
     initial_role = (
-        Role.SERVICE_TOKEN
-        if email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN)
-        else Role.USER
+        Role.SERVICE_TOKEN if email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN) else Role.USER
     )
     user = User(
         email=email,
@@ -169,14 +168,13 @@ async def resolve_user_from_jwt(
     """
     if settings.AUTH_DEV_MODE:
         if not settings.AUTH_DEV_EMAIL:
-            raise CfAccessAuthError(
-                "AUTH_DEV_MODE enabled but AUTH_DEV_EMAIL empty"
-            )
+            raise CfAccessAuthError("AUTH_DEV_MODE enabled but AUTH_DEV_EMAIL empty")
         return await get_or_create_user_by_email(session, settings.AUTH_DEV_EMAIL)
 
     if not token:
         logger.warning(
-            "cf_access 401 %s: missing Cf-Access-Jwt-Assertion", log_context,
+            "cf_access 401 %s: missing Cf-Access-Jwt-Assertion",
+            log_context,
         )
         raise CfAccessAuthError("missing Cf-Access-Jwt-Assertion header")
 
@@ -201,8 +199,11 @@ async def resolve_user_from_jwt(
             peek = "unparseable"
         logger.warning(
             "cf_access 401 %s: JWT invalid: %s. expected_aud=%s expected_iss=%s claims_peek=%s",
-            log_context, e, settings.CF_ACCESS_APP_AUD,
-            f"https://{settings.CF_ACCESS_TEAM_DOMAIN}", peek,
+            log_context,
+            e,
+            settings.CF_ACCESS_APP_AUD,
+            f"https://{settings.CF_ACCESS_TEAM_DOMAIN}",
+            peek,
         )
         raise CfAccessAuthError(f"invalid Cloudflare Access token: {e}") from e
 
@@ -238,10 +239,13 @@ async def cf_access_user(
     if token is None and not settings.AUTH_DEV_MODE:
         # Preserve the pre-refactor warning line that enumerates cf-* headers
         # so operators can see whether the CF IAP actually attached the JWT.
-        cf_hdrs = sorted(k for k in request.headers.keys() if k.lower().startswith("cf-"))
+        cf_hdrs = sorted(
+            k for k in request.headers.keys() if k.lower().startswith("cf-")
+        )
         logger.warning(
             "cf_access_user 401 path=%s: missing Cf-Access-Jwt-Assertion. cf-* headers present: %s",
-            request.url.path, cf_hdrs,
+            request.url.path,
+            cf_hdrs,
         )
     try:
         return await resolve_user_from_jwt(

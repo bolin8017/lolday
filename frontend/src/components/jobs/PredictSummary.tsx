@@ -17,7 +17,9 @@ export function PredictSummary({ job }: { job: any }) {
       <PredictionSummaryCard summary={ps ?? null} />
       {job.mlflow_run_id && (
         <Card>
-          <CardHeader><CardTitle>Output</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Output</CardTitle>
+          </CardHeader>
           <CardContent>
             <Button asChild variant="outline">
               <a

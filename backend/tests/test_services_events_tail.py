@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.models import Detector, DetectorVersion, Job, JobEvent, User
 from app.services.events_tail import EventBroker, persist_event
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def _seed_job(session: AsyncSession) -> Job:
@@ -63,7 +61,11 @@ async def test_persist_event_inserts_row(db_session: AsyncSession) -> None:
         "step": 1,
     }
     await persist_event(db_session, job_id=job.id, event=event)
-    rows = list((await db_session.scalars(select(JobEvent).where(JobEvent.job_id == job.id))).all())
+    rows = list(
+        (
+            await db_session.scalars(select(JobEvent).where(JobEvent.job_id == job.id))
+        ).all()
+    )
     assert len(rows) == 1
     assert rows[0].kind == "metric"
     assert rows[0].payload["name"] == "train_loss"
@@ -75,7 +77,11 @@ async def test_persist_event_handles_missing_ts(db_session: AsyncSession) -> Non
     job = await _seed_job(db_session)
     event = {"kind": "stage_begin", "stage": "train"}
     await persist_event(db_session, job_id=job.id, event=event)
-    rows = list((await db_session.scalars(select(JobEvent).where(JobEvent.job_id == job.id))).all())
+    rows = list(
+        (
+            await db_session.scalars(select(JobEvent).where(JobEvent.job_id == job.id))
+        ).all()
+    )
     assert rows[0].kind == "stage_begin"
     assert rows[0].ts is not None
 

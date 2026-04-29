@@ -13,6 +13,7 @@
 **Working directory:** This plan creates a NEW GitHub repository `bolin8017/maldet` at a local path `$MALDET_REPO` (suggested: `~/Documents/repositories/maldet/`). All file paths in tasks are relative to `$MALDET_REPO` unless noted. The plan document lives in the lolday repo; the code lives outside.
 
 **Prerequisites:**
+
 - `gh auth status` passes (gh CLI logged in as `bolin8017`)
 - `uv` ≥ 0.4 installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`); or Python 3.12 + `pip` as fallback
 - `git` ≥ 2.40
@@ -20,6 +21,7 @@
 - `~/.pypirc` configured for local test uploads against `testpypi` (optional, dev-only)
 
 **Constraints:**
+
 - TDD for every component — failing test first, minimal implementation, passing test, commit
 - Every public API must have type hints; mypy strict passes
 - `ruff check` + `ruff format --check` must pass before every commit
@@ -128,7 +130,7 @@ $MALDET_REPO/
 Resolving open questions from the spec:
 
 1. **Package name:** `maldet` (matches the v0 import path to minimize surprise; PyPI name `maldet`).
-2. **Scaffolding tool:** in-framework Jinja2 templates. Reason: Jinja2 is a ubiquitous dep (shipped by Flask, Sphinx, mkdocs). `copier` adds a heavier dep for a feature users invoke once per detector. If template *updates* become a need later, switching to `copier` is a non-breaking substitution behind the `maldet scaffold` command.
+2. **Scaffolding tool:** in-framework Jinja2 templates. Reason: Jinja2 is a ubiquitous dep (shipped by Flask, Sphinx, mkdocs). `copier` adds a heavier dep for a feature users invoke once per detector. If template _updates_ become a need later, switching to `copier` is a non-breaking substitution behind the `maldet scaffold` command.
 3. **Event delivery:** sidecar tail remains the design per the spec. This plan only builds the framework side (writing `events.jsonl`). The sidecar is Phase 11b (lolday backend).
 4. **CI test matrix:** Python 3.12 only for v1.0. Adding 3.13 is a v1.1 task.
 
@@ -137,6 +139,7 @@ Resolving open questions from the spec:
 ## Task 1: Repository bootstrap
 
 **Files:**
+
 - Create: `$MALDET_REPO/` directory tree, `.gitignore`, `LICENSE`, `README.md`, `CHANGELOG.md`
 
 - [ ] **Step 1: Pick and export the local path**
@@ -198,12 +201,13 @@ events.jsonl
 Plug-and-play framework for building and shipping malware detectors. Six composable layers (reader / feature / model / trainer / evaluator / predictor) connected by runtime-checkable Protocols, a framework-owned CLI (`maldet run|describe|check|scaffold`), Hydra-based configuration with CLI overrides and multirun sweeps, and unified support for scikit-learn and PyTorch Lightning. Built to run on the lolday malware-detection platform and standalone.
 
 ## Install
-
 ```
-pip install maldet             # core
-pip install maldet[lightning]  # add PyTorch Lightning engine
-pip install maldet[mlflow]     # add MLflow experiment tracking
-pip install maldet[all]        # everything
+
+pip install maldet # core
+pip install maldet[lightning] # add PyTorch Lightning engine
+pip install maldet[mlflow] # add MLflow experiment tracking
+pip install maldet[all] # everything
+
 ```
 
 ## Quickstart
@@ -228,6 +232,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 ## [1.0.0] — TBD
 
 ### Added
+
 - Initial public release.
 ```
 
@@ -243,6 +248,7 @@ git commit -m "chore: initial repo scaffold (gitignore, license, readme, changel
 ## Task 2: Python packaging (`pyproject.toml`)
 
 **Files:**
+
 - Create: `pyproject.toml`
 
 - [ ] **Step 1: Write `pyproject.toml`**
@@ -424,6 +430,7 @@ git commit -m "chore: pyproject + package skeleton (hatchling, deps, dev extras)
 ## Task 3: Linting and type checking wiring
 
 **Files:**
+
 - Create: `.pre-commit-config.yaml`
 - Create: `tests/__init__.py`, `tests/conftest.py`
 
@@ -516,6 +523,7 @@ git commit -m "chore: add pre-commit (ruff + mypy) and empty test scaffolding"
 ## Task 4: GitHub Actions CI
 
 **Files:**
+
 - Create: `.github/workflows/ci.yaml`
 
 - [ ] **Step 1: Write CI workflow**
@@ -583,6 +591,7 @@ Expected: green build. If red, fix and push again. Do NOT proceed until green.
 ## Task 5: Core types
 
 **Files:**
+
 - Create: `src/maldet/types.py`
 - Create: `tests/test_types.py`
 
@@ -750,6 +759,7 @@ git commit -m "feat(types): Sample, TrainResult, MetricReport dataclasses"
 ## Task 6: Protocols
 
 **Files:**
+
 - Create: `src/maldet/protocols.py`
 - Create: `tests/test_protocols.py`
 
@@ -995,6 +1005,7 @@ git commit -m "feat(protocols): runtime-checkable Protocols for the six layers +
 ## Task 7: Event kinds enum
 
 **Files:**
+
 - Create: `src/maldet/events/__init__.py`
 - Create: `src/maldet/events/kinds.py`
 - Create: `tests/events/test_kinds.py`
@@ -1126,6 +1137,7 @@ git commit -m "feat(events): EventKind enum + required-field validators"
 ## Task 8: CompositeEventLogger
 
 **Files:**
+
 - Create: `src/maldet/events/logger.py`
 - Create: `tests/events/test_logger_composite.py`
 
@@ -1260,6 +1272,7 @@ git commit -m "feat(events): CompositeEventLogger with per-delegate failure isol
 ## Task 9: JsonlEventLogger
 
 **Files:**
+
 - Create: `src/maldet/events/jsonl.py`
 - Create: `tests/events/test_jsonl.py`
 
@@ -1406,6 +1419,7 @@ git commit -m "feat(events): JsonlEventLogger (fsync-per-event NDJSON writer)"
 ## Task 10: StdoutEventLogger
 
 **Files:**
+
 - Create: `src/maldet/events/stdout.py`
 - Create: `tests/events/test_stdout.py`
 
@@ -1497,6 +1511,7 @@ git commit -m "feat(events): StdoutEventLogger (prefixed JSON line fallback)"
 ## Task 11: MlflowEventLogger (optional dep)
 
 **Files:**
+
 - Create: `src/maldet/events/mlflow_logger.py`
 - Create: `tests/events/test_mlflow_logger.py`
 
@@ -1644,6 +1659,7 @@ git commit -m "feat(events): MlflowEventLogger with optional-import soft depende
 ## Task 12: Manifest (Pydantic model + loader)
 
 **Files:**
+
 - Create: `src/maldet/manifest.py`
 - Create: `tests/test_manifest.py`
 - Create: `tests/fixtures/valid_manifest.toml`
@@ -1935,6 +1951,7 @@ git commit -m "feat(manifest): DetectorManifest Pydantic model + search/load"
 ## Task 13: SampleCsvReader
 
 **Files:**
+
 - Create: `src/maldet/builtins/__init__.py`
 - Create: `src/maldet/builtins/readers.py`
 - Create: `tests/builtins/test_readers.py`
@@ -2096,6 +2113,7 @@ git commit -m "feat(builtins): SampleCsvReader (sample_csv contract)"
 ## Task 14: BatchPredictor
 
 **Files:**
+
 - Create: `src/maldet/builtins/predictors.py`
 - Create: `tests/builtins/test_predictors.py`
 
@@ -2278,6 +2296,7 @@ git commit -m "feat(builtins): BatchPredictor writes predictions.csv per contrac
 ## Task 15: BinaryClassification evaluator
 
 **Files:**
+
 - Create: `src/maldet/evaluators/__init__.py`
 - Create: `src/maldet/evaluators/binary.py`
 - Create: `tests/evaluators/test_binary.py`
@@ -2465,6 +2484,7 @@ git commit -m "feat(evaluators): BinaryClassification (accuracy/precision/recall
 ## Task 16: SklearnTrainer
 
 **Files:**
+
 - Create: `src/maldet/trainers/__init__.py`
 - Create: `src/maldet/trainers/sklearn_trainer.py`
 - Create: `tests/trainers/test_sklearn.py`
@@ -2667,6 +2687,7 @@ git commit -m "feat(trainers): SklearnTrainer (fit/save/load with joblib)"
 ## Task 17: LightningTrainer — core fit
 
 **Files:**
+
 - Create: `src/maldet/trainers/lightning_trainer.py`
 - Create: `tests/trainers/test_lightning.py`
 
@@ -3006,6 +3027,7 @@ git commit -m "feat(trainers): LightningTrainer with DDP-ready env routing + cal
 ## Task 18: StageRunner
 
 **Files:**
+
 - Create: `src/maldet/runner.py`
 - Create: `tests/test_runner.py`
 
@@ -3256,6 +3278,7 @@ git commit -m "feat(runner): StageRunner orchestrates layers via Hydra"
 ## Task 19: CLI — root app
 
 **Files:**
+
 - Create: `src/maldet/cli.py`
 - Create: `src/maldet/commands/__init__.py`
 
@@ -3318,6 +3341,7 @@ git commit -m "feat(cli): Typer root app (subcommands wired in Tasks 20-23)"
 ## Task 20: CLI — `maldet run`
 
 **Files:**
+
 - Create: `src/maldet/commands/run.py`
 - Create: `tests/test_cli.py` (shared across 20-23)
 
@@ -3433,6 +3457,7 @@ git commit -m "feat(cli): maldet run train|evaluate|predict"
 ## Task 21: CLI — `maldet describe`
 
 **Files:**
+
 - Create: `src/maldet/commands/describe.py`
 
 - [ ] **Step 1: Implement `src/maldet/commands/describe.py`**
@@ -3497,6 +3522,7 @@ git commit -m "feat(cli): maldet describe (json/toml)"
 ## Task 22: CLI — `maldet check`
 
 **Files:**
+
 - Create: `src/maldet/commands/check.py`
 
 - [ ] **Step 1: Implement `src/maldet/commands/check.py`**
@@ -3581,6 +3607,7 @@ git commit -m "feat(cli): maldet check (manifest + entrypoint import)"
 ## Task 23: CLI — `maldet scaffold` (Jinja2 templates)
 
 **Files:**
+
 - Create: `src/maldet/commands/scaffold.py`
 - Create: template tree under `src/maldet/templates/rf/` and `src/maldet/templates/cnn/`
 - Create: `tests/test_scaffold.py`
@@ -3736,6 +3763,7 @@ ENTRYPOINT ["maldet"]
 - [ ] **Step 5: Write `src/maldet/templates/rf/src/__init__.py.j2`** (empty), `features.py.j2`, `models.py.j2`
 
 `features.py.j2`:
+
 ```jinja2
 """Feature extractor: first 256 bytes of ELF .text."""
 
@@ -3771,6 +3799,7 @@ class Text256Extractor:
 ```
 
 `models.py.j2`:
+
 ```jinja2
 """Model factory for the random-forest detector."""
 
@@ -3921,6 +3950,7 @@ git commit -m "feat(cli): maldet scaffold (Jinja2 rf/cnn templates)"
 ## Task 24: Integration test — sklearn E2E
 
 **Files:**
+
 - Create: `tests/integration/test_e2e_sklearn.py`
 
 - [ ] **Step 1: Write the test**
@@ -4056,6 +4086,7 @@ git commit -m "test(integration): end-to-end sklearn train/eval/predict via CLI"
 ## Task 25: Integration test — Lightning E2E (CPU)
 
 **Files:**
+
 - Create: `tests/integration/test_e2e_lightning.py`
 
 - [ ] **Step 1: Write the test**
@@ -4173,6 +4204,7 @@ git commit -m "test(integration): end-to-end Lightning CPU training via CLI"
 ## Task 26: mkdocs documentation site
 
 **Files:**
+
 - Create: `mkdocs.yml`
 - Create: `docs/index.md`, `docs/quickstart.md`, `docs/architecture.md`, `docs/protocols.md`, `docs/stages.md`, `docs/config.md`, `docs/events.md`, `docs/scaffold.md`, `docs/reference.md`
 
@@ -4229,11 +4261,12 @@ Six composable layers — **Reader**, **Extractor**, **Model**, **Trainer**,
 Classical ML (scikit-learn) and deep learning (PyTorch Lightning) are
 first-class, side-by-side. A single framework-owned CLI — `maldet run`,
 `describe`, `check`, `scaffold` — is the only thing platforms need to invoke.
-
 ```
+
 pip install maldet[lightning,mlflow]
 maldet scaffold --template rf --name mydet --out ./mydet
 cd ./mydet && pip install -e . && maldet check
+
 ```
 
 Get started: [Quickstart](quickstart.md).
@@ -4245,20 +4278,23 @@ Get started: [Quickstart](quickstart.md).
 # Quickstart
 
 ## Install
-
 ```
+
 pip install maldet[lightning,mlflow]
+
 ```
 
 ## Scaffold a detector
 
 ```
+
 maldet scaffold --template rf --name mydet --out ./mydet
 cd ./mydet
 pip install -e .
 maldet check
 maldet describe
-```
+
+````
 
 ## Write your features
 
@@ -4270,7 +4306,7 @@ class MyFeatures:
     output_shape = (128,)
     dtype = "float32"
     def extract(self, sample): ...
-```
+````
 
 ## Train (locally)
 
@@ -4294,7 +4330,8 @@ EOF
 
 maldet run train --config config.yaml
 ```
-```
+
+````
 
 - [ ] **Step 4: Write `docs/architecture.md`, `protocols.md`, `stages.md`, `config.md`, `events.md`, `scaffold.md`**
 
@@ -4341,7 +4378,7 @@ Each file imports its content from the spec file's matching section. Keep it bri
 ## maldet.runner
 
 ::: maldet.runner
-```
+````
 
 - [ ] **Step 6: Build docs locally**
 
@@ -4364,6 +4401,7 @@ git commit -m "docs: mkdocs-material site + reference + quickstart"
 ## Task 27: CI — add docs deploy + coverage gate
 
 **Files:**
+
 - Modify: `.github/workflows/ci.yaml`
 - Create: `.github/workflows/docs.yaml`
 
@@ -4372,8 +4410,8 @@ git commit -m "docs: mkdocs-material site + reference + quickstart"
 Replace the `Pytest` step with:
 
 ```yaml
-      - name: Pytest
-        run: uv run pytest --cov --cov-report=xml --cov-report=term --cov-fail-under=80 -m "not integration and not gpu"
+- name: Pytest
+  run: uv run pytest --cov --cov-report=xml --cov-report=term --cov-fail-under=80 -m "not integration and not gpu"
 ```
 
 - [ ] **Step 2: Write `.github/workflows/docs.yaml`**
@@ -4385,10 +4423,10 @@ on:
   push:
     branches: [main]
     paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'src/maldet/**'
-      - '.github/workflows/docs.yaml'
+      - "docs/**"
+      - "mkdocs.yml"
+      - "src/maldet/**"
+      - ".github/workflows/docs.yaml"
 
 jobs:
   deploy:
@@ -4441,6 +4479,7 @@ echo "https://bolin8017.github.io/maldet/"
 ## Task 28: PyPI publish workflow
 
 **Files:**
+
 - Create: `.github/workflows/publish.yaml`
 
 - [ ] **Step 1: Write `publish.yaml`**
@@ -4459,7 +4498,7 @@ jobs:
       name: pypi
       url: https://pypi.org/p/maldet
     permissions:
-      id-token: write  # for PyPI trusted publishing
+      id-token: write # for PyPI trusted publishing
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
@@ -4499,6 +4538,7 @@ Replace the `[Unreleased]` block with:
 ## [1.0.0] — 2026-04-26
 
 ### Added
+
 - Core framework: `Sample`, `TrainResult`, `MetricReport` dataclasses; runtime-checkable Protocols for the six layers + `EventLogger`.
 - Event stream: `CompositeEventLogger`, `JsonlEventLogger`, `StdoutEventLogger`, `MlflowEventLogger` (optional dep).
 - Manifest: `DetectorManifest` Pydantic model + discovery via `MALDET_MANIFEST` / `./maldet.toml` / `/app/maldet.toml`.
@@ -4541,6 +4581,7 @@ Open `https://bolin8017.github.io/maldet/` in a browser.
 ## Task 30: Lolday preflight — manifest reader library (shared dep)
 
 **Files:**
+
 - Not in this repo: record in `CHANGELOG.md` (future work) that lolday's backend will import `maldet.manifest.DetectorManifest` directly from the `maldet` package as its JSONB schema contract.
 
 - [ ] **Step 1: Document the cross-repo dep**

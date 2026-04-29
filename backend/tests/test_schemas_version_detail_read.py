@@ -21,7 +21,7 @@ def test_version_detail_read_serializes_manifest() -> None:
         "git_sha": "0" * 40,
         "harbor_image": "harbor.example/x:v3.0.0",
         "image_digest": "sha256:abc",
-        "built_at": _dt.datetime.now(_dt.timezone.utc),
+        "built_at": _dt.datetime.now(_dt.UTC),
         "status": DetectorVersionStatus.ACTIVE,
         "manifest": {
             "detector": {"name": "x", "version": "3.0.0"},

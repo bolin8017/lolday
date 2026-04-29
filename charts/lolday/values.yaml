@@ -27,9 +27,9 @@ training:
 # =============================================================================
 cloudflare:
   enabled: true
-  tunnelToken: ""       # --set at deploy time via $CF_TUNNEL_TOKEN
+  tunnelToken: "" # --set at deploy time via $CF_TUNNEL_TOKEN
   replicas: 2
-  image: cloudflare/cloudflared:2026.3.0    # pin explicit tag (no :latest)
+  image: cloudflare/cloudflared:2026.3.0 # pin explicit tag (no :latest)
 
 # =============================================================================
 # Backend API
@@ -41,8 +41,8 @@ backend:
   # Auth is Cloudflare Access SSO (see CF_ACCESS_* under env below); no
   # backend-side password secrets / firstAdmin seed / cookie config.
   # NEW for Phase 3:
-  fernetKey: ""                              # --set at deploy time
-  harborAdminPassword: ""                    # --set at deploy time (shared with Harbor release)
+  fernetKey: "" # --set at deploy time
+  harborAdminPassword: "" # --set at deploy time (shared with Harbor release)
   env:
     DOCS_ENABLED: "true"
     # NEW for Phase 3:
@@ -76,7 +76,7 @@ backend:
     # carry the `Cf-Access-Jwt-Assertion` header injected by cloudflared;
     # backend verifies the signature against this team's JWKS and validates
     # `aud` equals CF_ACCESS_APP_AUD.
-    ENVIRONMENT: "production"              # enables startup SSO-config assertions
+    ENVIRONMENT: "production" # enables startup SSO-config assertions
     CF_ACCESS_TEAM_DOMAIN: "bolin8017.cloudflareaccess.com"
     # NOT the Access App UUID (d4271ba9-...). Cloudflare's Access App has two
     # identifiers — `uid` (UUID, used in API URLs) and `aud` (64-char hex used
@@ -87,7 +87,7 @@ backend:
     #        | jq .result.aud
     CF_ACCESS_APP_AUD: "b4175457e4dca534925f0559e32c22aefb46d1caaa1ccc713f742d53825e6584"
     CF_ACCESS_JWKS_CACHE_TTL_SECONDS: "600"
-    AUTH_DEV_MODE: "false"                 # NEVER set to "true" in production
+    AUTH_DEV_MODE: "false" # NEVER set to "true" in production
     # One-time Alembic phase10_sso_admin_email migration renames the seeded
     # admin@lolday.dev row to this email so the operator's first SSO login
     # maps onto the existing row (preserving legacy owner_id values).
@@ -107,7 +107,7 @@ postgresql:
   auth:
     database: lolday
     username: lolday
-    password: ""        # --set at deploy time, NEVER commit
+    password: "" # --set at deploy time, NEVER commit
 
 # =============================================================================
 # Redis
@@ -164,7 +164,7 @@ harbor:
     tls:
       enabled: false
   externalURL: http://harbor.lolday.svc.cluster.local:80
-  harborAdminPassword: ""          # --set at deploy time
+  harborAdminPassword: "" # --set at deploy time
   persistence:
     enabled: true
     persistentVolumeClaim:
@@ -232,11 +232,11 @@ mlflow:
     port: 5000
   resources:
     requests: { cpu: 200m, memory: 512Mi }
-    limits:   { cpu: 2, memory: 4Gi }
+    limits: { cpu: 2, memory: 4Gi }
   db:
     username: mlflow
     database: mlflow
-    password: ""   # injected via --set at deploy time (NEVER commit)
+    password: "" # injected via --set at deploy time (NEVER commit)
 
 # =============================================================================
 # Sample Datasets (hostPath PVs on server30)
@@ -270,7 +270,7 @@ frontend:
   replicas: 1
   resources:
     requests: { cpu: 10m, memory: 32Mi }
-    limits:   { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 100m, memory: 128Mi }
 
 # =============================================================================
 # Monitoring (Phase 6) — kube-prometheus-stack + loki + alloy (phase 9.2)
@@ -279,14 +279,14 @@ monitoring:
   enabled: true
   namespace: monitoring
   grafana:
-    adminPassword: ""   # --set at deploy time (from Task 7)
+    adminPassword: "" # --set at deploy time (from Task 7)
   postgresExporter:
     enabled: true
     image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0
-    password: ""        # --set at deploy time, NEVER commit
+    password: "" # --set at deploy time, NEVER commit
     resources:
-      requests: { cpu: 20m,  memory: 64Mi }
-      limits:   { cpu: 100m, memory: 128Mi }
+      requests: { cpu: 20m, memory: 64Mi }
+      limits: { cpu: 100m, memory: 128Mi }
 
 # Sub-chart config consumed as values of the kube-prometheus-stack chart (alias: kps)
 kps:
@@ -298,7 +298,7 @@ kps:
   prometheus:
     prometheusSpec:
       retention: 15d
-      retentionSize: 18GiB            # leave ~10% head-room under 20 Gi PVC
+      retentionSize: 18GiB # leave ~10% head-room under 20 Gi PVC
       # Scrape every ServiceMonitor in the cluster (default scopes to the Helm release label)
       serviceMonitorSelectorNilUsesHelmValues: false
       podMonitorSelectorNilUsesHelmValues: false
@@ -314,7 +314,7 @@ kps:
                 storage: 20Gi
       resources:
         requests: { cpu: 500m, memory: 2Gi }
-        limits:   { cpu: 2,    memory: 8Gi }
+        limits: { cpu: 2, memory: 8Gi }
 
   alertmanager:
     alertmanagerSpec:
@@ -347,13 +347,13 @@ kps:
         type: None
     config:
       route:
-        receiver: 'null'
+        receiver: "null"
         group_by: [alertname, severity]
         group_wait: 30s
         group_interval: 5m
         repeat_interval: 4h
       receivers:
-        - name: 'null'
+        - name: "null"
 
   grafana:
     persistence:
@@ -382,7 +382,7 @@ kps:
         enabled: true
     resources:
       requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 1Gi }
+      limits: { cpu: 500m, memory: 1Gi }
 
   kubeStateMetrics: { enabled: true }
   nodeExporter:
@@ -394,11 +394,11 @@ kps:
   # ServiceMonitors so they don't stay perpetually DOWN. The apiserver, by
   # contrast, is reachable via the standard kubernetes.default Service, so its
   # ServiceMonitor stays enabled.
-  kubeApiServer:         { enabled: true }
+  kubeApiServer: { enabled: true }
   kubeControllerManager: { enabled: false }
-  kubeScheduler:         { enabled: false }
-  kubeProxy:             { enabled: false }
-  kubeEtcd:              { enabled: false }
+  kubeScheduler: { enabled: false }
+  kubeProxy: { enabled: false }
+  kubeEtcd: { enabled: false }
 
 # =============================================================================
 # Loki — log aggregation (single-binary mode)
@@ -433,7 +433,7 @@ loki:
         admin: loki-admin
     auth_enabled: false
     limits_config:
-      retention_period: 168h          # 7 days
+      retention_period: 168h # 7 days
       reject_old_samples: true
       reject_old_samples_max_age: 168h
   singleBinary:
@@ -444,15 +444,15 @@ loki:
       size: 30Gi
     resources:
       requests: { cpu: 200m, memory: 512Mi }
-      limits:   { cpu: 1,    memory: 2Gi }
+      limits: { cpu: 1, memory: 2Gi }
   # Required by loki chart's validate.yaml: SingleBinary mode must have
   # read/write/backend replicas=0 (otherwise the chart refuses to render,
   # demanding deploymentMode: SingleBinary<->SimpleScalable). The
   # 'coalesce warning: cannot overwrite table with non table for
   # loki.backend.image' this emits is a known, harmless quirk of merging a
   # scalar against the subchart's default image sub-map.
-  read:    { replicas: 0 }
-  write:   { replicas: 0 }
+  read: { replicas: 0 }
+  write: { replicas: 0 }
   backend: { replicas: 0 }
   # No ingress — internal only
   gateway:
@@ -574,8 +574,8 @@ alloy:
       varlog: true
       dockercontainers: true
     resources:
-      requests: { cpu: 50m,  memory: 64Mi }
-      limits:   { cpu: 200m, memory: 256Mi }
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 200m, memory: 256Mi }
   serviceMonitor:
     enabled: true
 
@@ -614,7 +614,7 @@ trivy-operator:
   trivy:
     resources:
       requests: { cpu: 100m, memory: 256Mi }
-      limits:   { cpu: 500m, memory: 1Gi }
+      limits: { cpu: 500m, memory: 1Gi }
     # Residual CVEs whose fixes exist upstream but haven't reached the
     # images we deploy yet. Chart-level bumps fix the bulk; this Rego
     # policy closes the long tail so TrivyCriticalCVE only fires on

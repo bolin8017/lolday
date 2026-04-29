@@ -1,15 +1,15 @@
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-
 from app.models.detector import DetectorBuild, DetectorBuildStatus
 
 
 @pytest.mark.asyncio
 async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
-    from app.reconciler import reconcile_build
     from app.models.detector import Detector
+    from app.reconciler import reconcile_build
 
     detector = Detector(
         name="testdet",
@@ -52,8 +52,8 @@ async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
 
 @pytest.mark.asyncio
 async def test_reconcile_cve_blocked(db_session):
-    from app.reconciler import reconcile_build
     from app.models.detector import Detector
+    from app.reconciler import reconcile_build
 
     detector = Detector(
         name="testdet2",
@@ -103,7 +103,8 @@ async def test_reconcile_cve_blocked(db_session):
 
 @pytest.mark.asyncio
 async def test_reconcile_timeout(db_session):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
+
     from app.reconciler import reconcile_build
 
     build = DetectorBuild(
@@ -114,7 +115,7 @@ async def test_reconcile_timeout(db_session):
         status=DetectorBuildStatus.BUILDING,
     )
     # started_at far in the past
-    build.started_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    build.started_at = datetime.now(UTC) - timedelta(hours=1)
     db_session.add(build)
     await db_session.commit()
 
@@ -140,8 +141,8 @@ async def test_reconcile_not_scanned_triggers_trivy_scan(db_session):
     would pass status-check tests but skip the actual scan kick-off —
     explicit trigger_scan call-count assertion here catches that.
     """
-    from app.reconciler import reconcile_build
     from app.models.detector import Detector
+    from app.reconciler import reconcile_build
     from app.services.harbor import ScanResult, ScanStatus
 
     detector = Detector(
@@ -199,10 +200,10 @@ async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metr
     (the old bool-returning API silently flipped status regardless).
     """
     import httpx
-    from app.reconciler import reconcile_build
-    from app.models.detector import Detector
-    from app.services.harbor import ScanResult, ScanStatus
     from app.metrics import BACKEND_ERRORS
+    from app.models.detector import Detector
+    from app.reconciler import reconcile_build
+    from app.services.harbor import ScanResult, ScanStatus
 
     detector = Detector(
         name="tds2",
@@ -265,10 +266,10 @@ async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_ses
     `test_reconcile_persistent_scan_error_eventually_times_out` locks the
     wall-clock bound on retries.
     """
-    from app.reconciler import reconcile_build
-    from app.models.detector import Detector, DetectorVersion
-    from app.services.harbor import ScanResult, ScanStatus
     from app.metrics import BACKEND_ERRORS
+    from app.models.detector import Detector, DetectorVersion
+    from app.reconciler import reconcile_build
+    from app.services.harbor import ScanResult, ScanStatus
     from sqlalchemy import select
 
     detector = Detector(
@@ -347,11 +348,12 @@ async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
     test pins the fix: wall-clock > BUILD_TIMEOUT_SECONDS + 60 must route
     to _handle_timeout regardless of job phase.
     """
-    from datetime import datetime, timedelta, timezone
-    from app.reconciler import reconcile_build
-    from app.models.detector import Detector, DetectorVersion
-    from app.services.harbor import ScanResult, ScanStatus
+    from datetime import datetime, timedelta
+
     from app.config import settings
+    from app.models.detector import Detector, DetectorVersion
+    from app.reconciler import reconcile_build
+    from app.services.harbor import ScanResult, ScanStatus
     from sqlalchemy import select
 
     detector = Detector(
@@ -370,7 +372,7 @@ async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
         status=DetectorBuildStatus.SCANNING,
     )
     # Stuck in scan retry past the wall-clock ceiling
-    build.started_at = datetime.now(timezone.utc) - timedelta(
+    build.started_at = datetime.now(UTC) - timedelta(
         seconds=settings.BUILD_TIMEOUT_SECONDS + 120
     )
     db_session.add(build)
@@ -420,8 +422,8 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
     without UnboundLocalError, preserve the existing row, and fire the
     build-completed notify with the existing commit SHA.
     """
-    from app.reconciler import reconcile_build
     from app.models.detector import Detector, DetectorVersion, DetectorVersionStatus
+    from app.reconciler import reconcile_build
     from app.services.harbor import ScanResult, ScanStatus
     from sqlalchemy import select
 
@@ -496,10 +498,10 @@ async def test_reconcile_dedup_rejects_digest_divergence(db_session):
     Must FAIL the new build with a clear reason rather than silently
     accept the stale existing image as authoritative.
     """
-    from app.reconciler import reconcile_build
-    from app.models.detector import Detector, DetectorVersion, DetectorVersionStatus
-    from app.services.harbor import ScanResult, ScanStatus
     from app.metrics import BACKEND_ERRORS
+    from app.models.detector import Detector, DetectorVersion, DetectorVersionStatus
+    from app.reconciler import reconcile_build
+    from app.services.harbor import ScanResult, ScanStatus
 
     detector = Detector(
         name="tds4",

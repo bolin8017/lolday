@@ -54,7 +54,9 @@ async def init_harbor() -> None:
         logger.exception("ensure_robot_account failed")
 
     try:
-        await client.set_retention_policy("detectors", keep_n_recent=DETECTORS_RETENTION_KEEP_N)
+        await client.set_retention_policy(
+            "detectors", keep_n_recent=DETECTORS_RETENTION_KEEP_N
+        )
     except Exception:
         BACKEND_ERRORS.labels(stage="retention_policy").inc()
         logger.exception("set_retention_policy failed for detectors")
@@ -66,7 +68,9 @@ def _write_docker_config_secret(robot_name: str, robot_secret: str) -> None:
     auth_blob = base64.b64encode(f"{robot_name}:{robot_secret}".encode()).decode()
     cfg = {"auths": {registry: {"auth": auth_blob}}}
     body = V1Secret(
-        metadata=V1ObjectMeta(name="harbor-push-cred", namespace=settings.BUILD_NAMESPACE),
+        metadata=V1ObjectMeta(
+            name="harbor-push-cred", namespace=settings.BUILD_NAMESPACE
+        ),
         type="kubernetes.io/dockerconfigjson",
         string_data={".dockerconfigjson": json.dumps(cfg)},
     )

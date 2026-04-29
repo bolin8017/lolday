@@ -49,19 +49,19 @@ This phase replaces both.
 
 ### Technology stack
 
-| Concern | Choice | Rationale |
-|---|---|---|
-| Language | Python 3.12+ | v0 already requires it; no reason to drop |
-| Config | **Hydra** + **hydra-zen** | de facto ML config standard (Meta / PyTorch ecosystem); composition and multirun built in |
-| Validation | **Pydantic v2** | type safety at the platform-facing config boundary |
-| Classical ML | **scikit-learn Pipeline** | the classical-ML lingua franca; XGBoost and LightGBM fit natively |
-| Deep learning | **PyTorch Lightning ≥ 2.5** | removes the hand-rolled training loop in `elfcnndet`; gives DDP, checkpointing, early stopping, mixed precision for free |
-| Metrics | **torchmetrics** (DL) + `sklearn.metrics` (ML) | torchmetrics is the Lightning-native metric library with correct cross-batch aggregation |
-| Tracking | **MLflow** (keep) | lolday already runs MLflow Server; Lightning has official `MLFlowLogger` |
-| CLI | **Typer** (keep) | v0 already uses it; the one `maldet` CLI replaces per-detector CLIs |
-| Scaffolding | **copier** or built-in Jinja2 template | `maldet scaffold --template cnn my-detector` generates a working repo |
-| Model registry | **MLflow Model Registry** (keep) | lolday's existing `services/model_registry.py` stays |
-| Serving (deferred) | FastAPI | slot reserved; no Phase 11 work |
+| Concern            | Choice                                         | Rationale                                                                                                                |
+| ------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Language           | Python 3.12+                                   | v0 already requires it; no reason to drop                                                                                |
+| Config             | **Hydra** + **hydra-zen**                      | de facto ML config standard (Meta / PyTorch ecosystem); composition and multirun built in                                |
+| Validation         | **Pydantic v2**                                | type safety at the platform-facing config boundary                                                                       |
+| Classical ML       | **scikit-learn Pipeline**                      | the classical-ML lingua franca; XGBoost and LightGBM fit natively                                                        |
+| Deep learning      | **PyTorch Lightning ≥ 2.5**                    | removes the hand-rolled training loop in `elfcnndet`; gives DDP, checkpointing, early stopping, mixed precision for free |
+| Metrics            | **torchmetrics** (DL) + `sklearn.metrics` (ML) | torchmetrics is the Lightning-native metric library with correct cross-batch aggregation                                 |
+| Tracking           | **MLflow** (keep)                              | lolday already runs MLflow Server; Lightning has official `MLFlowLogger`                                                 |
+| CLI                | **Typer** (keep)                               | v0 already uses it; the one `maldet` CLI replaces per-detector CLIs                                                      |
+| Scaffolding        | **copier** or built-in Jinja2 template         | `maldet scaffold --template cnn my-detector` generates a working repo                                                    |
+| Model registry     | **MLflow Model Registry** (keep)               | lolday's existing `services/model_registry.py` stays                                                                     |
+| Serving (deferred) | FastAPI                                        | slot reserved; no Phase 11 work                                                                                          |
 
 ### Layered architecture
 
@@ -256,16 +256,23 @@ label ∈ {"Malware", "Benign"} for binary tasks; class name for multiclass
   "n_samples": 1000,
   "duration_seconds": 12.4,
   "metrics": {
-    "accuracy": 0.95, "precision": 0.94, "recall": 0.96,
-    "f1": 0.95, "roc_auc": 0.98, "pr_auc": 0.97
+    "accuracy": 0.95,
+    "precision": 0.94,
+    "recall": 0.96,
+    "f1": 0.95,
+    "roc_auc": 0.98,
+    "pr_auc": 0.97
   },
   "per_class": {
-    "Malware": {"precision": 0.94, "recall": 0.96, "support": 500},
-    "Benign":  {"precision": 0.96, "recall": 0.94, "support": 500}
+    "Malware": { "precision": 0.94, "recall": 0.96, "support": 500 },
+    "Benign": { "precision": 0.96, "recall": 0.94, "support": 500 }
   },
   "confusion_matrix": {
     "labels": ["Benign", "Malware"],
-    "matrix": [[470, 30], [20, 480]]
+    "matrix": [
+      [470, 30],
+      [20, 480]
+    ]
   },
   "extras": {}
 }
@@ -347,11 +354,11 @@ paths:
 
 data:
   train_csv: ${paths.config_dir}/train.csv
-  test_csv:  ${paths.config_dir}/test.csv
+  test_csv: ${paths.config_dir}/test.csv
   predict_csv: ${paths.config_dir}/predict.csv
 
 mlflow:
-  tracking_uri: null      # set from env MLFLOW_TRACKING_URI
+  tracking_uri: null # set from env MLFLOW_TRACKING_URI
   run_id: null
   experiment_id: null
 ```
@@ -398,12 +405,12 @@ The backend persists events in a new `job_events` table and relays them to front
 
 ### Dataset Mount Contract
 
-| Mount | Purpose | Writer |
-|---|---|---|
-| `/mnt/config/` | `config.yaml`, `train.csv`, `test.csv`, `predict.csv` | init container `config-writer` |
-| `/mnt/samples/` | dataset root (flat SHA layout) | samples PV (read-only) |
-| `/mnt/source-model/` | trained model for evaluate / predict | init container `model-fetcher` (read-only) |
-| `/mnt/output/` | `model/`, `metrics.json`, `predictions.csv`, `events.jsonl`, `manifest.json`, `checkpoints/` | detector container |
+| Mount                | Purpose                                                                                      | Writer                                     |
+| -------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `/mnt/config/`       | `config.yaml`, `train.csv`, `test.csv`, `predict.csv`                                        | init container `config-writer`             |
+| `/mnt/samples/`      | dataset root (flat SHA layout)                                                               | samples PV (read-only)                     |
+| `/mnt/source-model/` | trained model for evaluate / predict                                                         | init container `model-fetcher` (read-only) |
+| `/mnt/output/`       | `model/`, `metrics.json`, `predictions.csv`, `events.jsonl`, `manifest.json`, `checkpoints/` | detector container                         |
 
 ### OCI Image Labels
 
@@ -445,18 +452,18 @@ The alternative `buildctl --opt label:io.maldet.manifest=<value>` injects labels
 
 ### lolday Backend Changes
 
-| File | Change |
-|---|---|
-| `services/job_spec.py` | Detector container `command=["maldet","run",stage,"--config","/mnt/config/config.yaml"]`. Add sidecar container `event-tailer` to the Volcano Job task template. |
-| `services/job_config.py` | `JobConfigRenderer` writes YAML (not JSON) and renders the Hydra YAML above. Platform overrides pass via container `args`. |
-| `services/harbor.py` | `get_artifact` reads image config `Labels` field; extracts `io.maldet.manifest`, decodes, validates against a Pydantic `DetectorManifest` model, and persists to `detector_version.manifest` (new JSONB column). |
-| `services/validator.py` | New pre-flight: reject build if manifest is absent; reject job if `resource_profile` not in `manifest.resources.supports` or `dataset_contract` not in the platform's supported list. |
-| `services/events_tail.py` | New. Receives events from sidecar via HTTP and persists to `job_events`. |
-| `models/job_event.py` | New. ORM for `job_events` (id, job_id, ts, kind, payload JSONB, indexed on `(job_id, ts)`). |
-| Alembic migration | Adds `job_events` table; adds `detector_version.manifest` JSONB column. |
-| `routers/internal.py` | New `POST /internal/jobs/{job_id}/events` endpoint. Job-token auth. |
-| `routers/jobs.py` | New `GET /jobs/{id}/events?since=<ts>` (paged fetch) and `WS /jobs/{id}/events` (live stream). Status determination switches from "Volcano Job phase" to "`stage_end.status`" (with Volcano phase as fallback). |
-| `frontend/src/pages/JobDetail.tsx` | New live metric chart (Recharts) subscribed to the WebSocket. |
+| File                               | Change                                                                                                                                                                                                           |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `services/job_spec.py`             | Detector container `command=["maldet","run",stage,"--config","/mnt/config/config.yaml"]`. Add sidecar container `event-tailer` to the Volcano Job task template.                                                 |
+| `services/job_config.py`           | `JobConfigRenderer` writes YAML (not JSON) and renders the Hydra YAML above. Platform overrides pass via container `args`.                                                                                       |
+| `services/harbor.py`               | `get_artifact` reads image config `Labels` field; extracts `io.maldet.manifest`, decodes, validates against a Pydantic `DetectorManifest` model, and persists to `detector_version.manifest` (new JSONB column). |
+| `services/validator.py`            | New pre-flight: reject build if manifest is absent; reject job if `resource_profile` not in `manifest.resources.supports` or `dataset_contract` not in the platform's supported list.                            |
+| `services/events_tail.py`          | New. Receives events from sidecar via HTTP and persists to `job_events`.                                                                                                                                         |
+| `models/job_event.py`              | New. ORM for `job_events` (id, job_id, ts, kind, payload JSONB, indexed on `(job_id, ts)`).                                                                                                                      |
+| Alembic migration                  | Adds `job_events` table; adds `detector_version.manifest` JSONB column.                                                                                                                                          |
+| `routers/internal.py`              | New `POST /internal/jobs/{job_id}/events` endpoint. Job-token auth.                                                                                                                                              |
+| `routers/jobs.py`                  | New `GET /jobs/{id}/events?since=<ts>` (paged fetch) and `WS /jobs/{id}/events` (live stream). Status determination switches from "Volcano Job phase" to "`stage_end.status`" (with Volcano phase as fallback).  |
+| `frontend/src/pages/JobDetail.tsx` | New live metric chart (Recharts) subscribed to the WebSocket.                                                                                                                                                    |
 
 ---
 
@@ -464,11 +471,11 @@ The alternative `buildctl --opt label:io.maldet.manifest=<value>` injects labels
 
 ### Tool split
 
-| Tool | Scope |
-|---|---|
-| **Hydra** | YAML loading, composition via `defaults:`, CLI overrides, multirun sweeps |
-| **hydra-zen** | Generates structured configs from Python dataclasses and factories; zero duplication between config schema and code |
-| **Pydantic v2** | Validates the platform-facing blocks (`paths`, `data`, `mlflow`); friendly error messages |
+| Tool            | Scope                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Hydra**       | YAML loading, composition via `defaults:`, CLI overrides, multirun sweeps                                           |
+| **hydra-zen**   | Generates structured configs from Python dataclasses and factories; zero duplication between config schema and code |
+| **Pydantic v2** | Validates the platform-facing blocks (`paths`, `data`, `mlflow`); friendly error messages                           |
 
 This triple is the current mainstream in the PyTorch ecosystem. Lightning tutorials use it. hydra-zen removes the "config dataclass duplicates the function signature" pain point that earlier Hydra users hit.
 
@@ -609,12 +616,12 @@ MALDET_DISTRIBUTED_STRATEGY=ddp
 
 `LightningTrainer` reads these and constructs `lightning.Trainer` arguments:
 
-| Env | → | Lightning args |
-|---|---|---|
-| `MALDET_GPU_COUNT=0` | → | `accelerator="cpu"` |
-| `MALDET_GPU_COUNT=1` | → | `accelerator="gpu", devices=1, strategy="auto"` |
-| `MALDET_GPU_COUNT=2, MALDET_DISTRIBUTED_STRATEGY=ddp` | → | `accelerator="gpu", devices=2, strategy="ddp"` |
-| `MALDET_GPU_COUNT=2, MALDET_DISTRIBUTED_STRATEGY=fsdp` | → | `accelerator="gpu", devices=2, strategy="fsdp"` |
+| Env                                                    | →   | Lightning args                                  |
+| ------------------------------------------------------ | --- | ----------------------------------------------- |
+| `MALDET_GPU_COUNT=0`                                   | →   | `accelerator="cpu"`                             |
+| `MALDET_GPU_COUNT=1`                                   | →   | `accelerator="gpu", devices=1, strategy="auto"` |
+| `MALDET_GPU_COUNT=2, MALDET_DISTRIBUTED_STRATEGY=ddp`  | →   | `accelerator="gpu", devices=2, strategy="ddp"`  |
+| `MALDET_GPU_COUNT=2, MALDET_DISTRIBUTED_STRATEGY=fsdp` | →   | `accelerator="gpu", devices=2, strategy="fsdp"` |
 
 `SklearnTrainer` ignores the GPU env vars. The detector's manifest should declare `resources.supports = ["cpu"]` so the platform never allocates GPUs to an sklearn detector.
 
@@ -636,12 +643,12 @@ Deferred. Lightning supports multi-node DDP without detector changes — it read
 
 ### Phase 11 sub-phases
 
-| Sub-phase | Scope | Deliverables |
-|---|---|---|
-| **11a — `maldet` v1 framework** | New repo (`bolin8017/maldet` or a new name) | `maldet` v1.0 on PyPI; Protocols; StageRunner; builtins (`SampleCsvReader`, `BatchPredictor`, `BinaryClassification`); CLI; EventLogger; `SklearnTrainer`; `LightningTrainer`; `maldet scaffold`; ≥ 80% unit test coverage; mkdocs documentation site |
-| **11b — lolday backend v1 contract** | lolday repo | Rewrites in `services/job_spec.py`, `services/job_config.py`, `services/harbor.py`, `services/validator.py`. New `services/events_tail.py`, `models/job_event.py`, `/internal/jobs/{id}/events`, `/jobs/{id}/events` (paged + WebSocket). New Alembic migration for `job_events` and `detector_version.manifest`. Frontend live metric chart. |
-| **11c — template detectors v2** | `elfrfdet` + `elfcnndet` repos (names kept, internals replaced, `v2.0.0` tag) | `elfrfdet` new implementation: `features.Text256Extractor` + `models.make_rf` + `maldet.toml`. ~30 lines of business logic. `elfcnndet` new implementation: `features.Text256Extractor` + `ByteCNN` `LightningModule`; manifest declares `supports_distributed = "ddp"`. Dockerfiles switch entrypoint to `maldet`. READMEs updated. |
-| **11d — E2E and retirement** | lolday server30 | Build `elfrfdet:v2.0.0` and `elfcnndet:v2.0.0` images, register, run full train→evaluate→predict with event stream, verify live metrics UI and MLflow artifacts, run 2-GPU DDP verification on `elfcnndet` (replaces Phase 8's DataParallel run), delete all v0 Harbor artifacts, mark the `islab-malware-detector` PyPI release deprecated, archive the `islab-malware-detector` GitHub repo. Write `docs/phase11-e2e-findings.md`. |
+| Sub-phase                            | Scope                                                                         | Deliverables                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **11a — `maldet` v1 framework**      | New repo (`bolin8017/maldet` or a new name)                                   | `maldet` v1.0 on PyPI; Protocols; StageRunner; builtins (`SampleCsvReader`, `BatchPredictor`, `BinaryClassification`); CLI; EventLogger; `SklearnTrainer`; `LightningTrainer`; `maldet scaffold`; ≥ 80% unit test coverage; mkdocs documentation site                                                                                                                                                                                |
+| **11b — lolday backend v1 contract** | lolday repo                                                                   | Rewrites in `services/job_spec.py`, `services/job_config.py`, `services/harbor.py`, `services/validator.py`. New `services/events_tail.py`, `models/job_event.py`, `/internal/jobs/{id}/events`, `/jobs/{id}/events` (paged + WebSocket). New Alembic migration for `job_events` and `detector_version.manifest`. Frontend live metric chart.                                                                                        |
+| **11c — template detectors v2**      | `elfrfdet` + `elfcnndet` repos (names kept, internals replaced, `v2.0.0` tag) | `elfrfdet` new implementation: `features.Text256Extractor` + `models.make_rf` + `maldet.toml`. ~30 lines of business logic. `elfcnndet` new implementation: `features.Text256Extractor` + `ByteCNN` `LightningModule`; manifest declares `supports_distributed = "ddp"`. Dockerfiles switch entrypoint to `maldet`. READMEs updated.                                                                                                 |
+| **11d — E2E and retirement**         | lolday server30                                                               | Build `elfrfdet:v2.0.0` and `elfcnndet:v2.0.0` images, register, run full train→evaluate→predict with event stream, verify live metrics UI and MLflow artifacts, run 2-GPU DDP verification on `elfcnndet` (replaces Phase 8's DataParallel run), delete all v0 Harbor artifacts, mark the `islab-malware-detector` PyPI release deprecated, archive the `islab-malware-detector` GitHub repo. Write `docs/phase11-e2e-findings.md`. |
 
 ### Dependency graph
 
@@ -661,14 +668,14 @@ Phase 11b (backend contract)        │
 
 ### Retired assets
 
-| Asset | Disposition |
-|---|---|
-| `islab-malware-detector` v0.5 on PyPI | Marked deprecated; README redirects to `maldet`; no further releases |
-| `islab-malware-detector` GitHub repo | Archived |
-| `elfrfdet`, `elfcnndet` GitHub repos | Contents replaced; `v2.0.0` tag; repo names kept |
-| Harbor v0 detector artifacts (`elfrfdet:0.1.1`, `elfcnndet:0.2.1`, …) | Deleted after 11d E2E |
-| `upxelfdet` package and artifacts | Deleted after 11d |
-| lolday DB rows in `detector`, `detector_version`, `build` referencing v0 | Hard-deleted before 11d E2E |
+| Asset                                                                    | Disposition                                                          |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `islab-malware-detector` v0.5 on PyPI                                    | Marked deprecated; README redirects to `maldet`; no further releases |
+| `islab-malware-detector` GitHub repo                                     | Archived                                                             |
+| `elfrfdet`, `elfcnndet` GitHub repos                                     | Contents replaced; `v2.0.0` tag; repo names kept                     |
+| Harbor v0 detector artifacts (`elfrfdet:0.1.1`, `elfcnndet:0.2.1`, …)    | Deleted after 11d E2E                                                |
+| `upxelfdet` package and artifacts                                        | Deleted after 11d                                                    |
+| lolday DB rows in `detector`, `detector_version`, `build` referencing v0 | Hard-deleted before 11d E2E                                          |
 
 ### YAGNI (explicit non-goals)
 
@@ -686,7 +693,7 @@ Phase 11b (backend contract)        │
 ### Open during Phase 11 implementation
 
 - **`maldet` package name.** `maldet` matches the v0 `maldet` import path used by `islab-malware-detector`; keeping it simplifies migration for anyone who copied that import style. Alternatives: `maldetector`, `islab-maldet`. Decide at 11a kickoff.
-- **`copier` vs. in-framework Jinja2 for scaffolding.** `copier` is the modern `cookiecutter` successor; in-framework Jinja2 has no extra dep. `copier` wins if we want scaffold *updates* over time. Decide at 11a design.
+- **`copier` vs. in-framework Jinja2 for scaffolding.** `copier` is the modern `cookiecutter` successor; in-framework Jinja2 has no extra dep. `copier` wins if we want scaffold _updates_ over time. Decide at 11a design.
 - **Event sidecar vs. backend pull.** Current design has a sidecar POST events to the backend. An alternative is the backend `exec`-tailing the file, as Phase 4 does for `kubectl logs`. Sidecar is cleaner for rate-limiting and retry; `exec` has no extra container. Sidecar selected for v1 and can degrade to `exec` if sidecar overhead becomes an issue.
 
 ### Future phases

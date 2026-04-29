@@ -19,24 +19,25 @@ Regression paths deliberately covered:
   - Discord network error → retry then re-raise
   - Discord success on first try → no retry
 """
+
 from __future__ import annotations
 
 import importlib.util
 import io
-import json
-import os
-import sys
 import urllib.error
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-
 _SCRIPT_PATH = (
     Path(__file__).resolve().parents[2]
-    / "charts" / "lolday" / "files" / "deadmans_switch" / "check.py"
+    / "charts"
+    / "lolday"
+    / "files"
+    / "deadmans_switch"
+    / "check.py"
 )
 
 
@@ -67,7 +68,8 @@ def _watchdog(updated_at: datetime) -> dict:
 
 def test_check_alertmanager_unreachable_returns_failure_string(check_mod):
     with mock.patch.object(
-        check_mod, "fetch_alerts",
+        check_mod,
+        "fetch_alerts",
         side_effect=urllib.error.URLError("Name does not resolve"),
     ):
         reason = check_mod.check()
@@ -93,7 +95,7 @@ def test_check_malformed_response_returns_failure_string(check_mod):
 
 
 def test_check_watchdog_fresh_returns_none(check_mod):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     fresh = now - timedelta(seconds=30)
     with mock.patch.object(check_mod, "fetch_alerts", return_value=[_watchdog(fresh)]):
         reason = check_mod.check(now=now)
@@ -101,7 +103,7 @@ def test_check_watchdog_fresh_returns_none(check_mod):
 
 
 def test_check_watchdog_stale_returns_age_in_failure_string(check_mod):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stale = now - timedelta(seconds=check_mod.MAX_AGE_SECONDS + 60)
     with mock.patch.object(check_mod, "fetch_alerts", return_value=[_watchdog(stale)]):
         reason = check_mod.check(now=now)
@@ -113,7 +115,7 @@ def test_check_watchdog_stale_returns_age_in_failure_string(check_mod):
 
 
 def test_check_watchdog_unparseable_updated_at_returns_failure_string(check_mod):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     watchdog = {
         "labels": {"alertname": "Watchdog"},
         "updatedAt": "not-a-valid-iso-date",
@@ -149,6 +151,7 @@ def _fake_http_error(code, headers=None, body=b""):
 class _SuccessResp:
     def __enter__(self):
         return self
+
     def __exit__(self, *_):
         return False
 
@@ -243,7 +246,7 @@ def test_payload_carries_required_discord_shape(check_mod, monkeypatch):
     let the message through; a refactor that drops embeds entirely
     would drop the specific failure context. We check both.
     """
-    now = datetime(2026, 4, 22, 12, 34, 56, tzinfo=timezone.utc)
+    now = datetime(2026, 4, 22, 12, 34, 56, tzinfo=UTC)
     monkeypatch.setenv("CLUSTER_NAME", "lolday-unit-test")
     payload = check_mod._build_payload("some failure reason", now=now)
     assert payload["content"] == "@here"

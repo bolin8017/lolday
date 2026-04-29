@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models import Role
 
-
 # Discord snowflakes are 64-bit IDs serialised as decimal strings, today
 # 17–19 digits with legacy and future IDs bracketing 15–20.
 _DISCORD_ID_RE = re.compile(r"^\d{15,20}$")
@@ -48,6 +47,7 @@ class UserSelfUpdate(BaseModel):
     regular user and privilege escalation through ``/users/me``; see
     ``tests/test_user_discord_id.py::test_patch_users_me_rejects_role_smuggling``.
     """
+
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = None

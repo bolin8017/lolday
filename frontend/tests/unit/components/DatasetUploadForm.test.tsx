@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { checkCsvSize, MAX_CSV_BYTES } from "@/components/forms/DatasetUploadForm.logic";
+import {
+  checkCsvSize,
+  MAX_CSV_BYTES,
+} from "@/components/forms/DatasetUploadForm.logic";
 
 describe("checkCsvSize", () => {
   it("accepts small CSV", () => {

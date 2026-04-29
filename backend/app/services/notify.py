@@ -35,7 +35,9 @@ async def post_webhook(payload: dict) -> None:
     if not url:
         return
     try:
-        async with httpx.AsyncClient(timeout=settings.DISCORD_HTTP_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(
+            timeout=settings.DISCORD_HTTP_TIMEOUT_SECONDS
+        ) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
     except Exception:

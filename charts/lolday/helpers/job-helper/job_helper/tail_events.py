@@ -63,7 +63,9 @@ def tail_and_post(
                 time.sleep(poll_interval_s)
 
 
-def _post_with_retry(client: httpx.Client, url: str, token: str, event: dict[str, Any]) -> None:
+def _post_with_retry(
+    client: httpx.Client, url: str, token: str, event: dict[str, Any]
+) -> None:
     delay = 0.5
     for attempt in range(6):
         try:
@@ -106,12 +108,16 @@ def _post_with_retry(client: httpx.Client, url: str, token: str, event: dict[str
 def _main() -> None:
     args = sys.argv[1:]
     if len(args) != 1:
-        sys.stderr.write("usage: python -m job_helper.tail_events <path/to/events.jsonl>\n")
+        sys.stderr.write(
+            "usage: python -m job_helper.tail_events <path/to/events.jsonl>\n"
+        )
         sys.exit(2)
     events_path = Path(args[0])
     endpoint_url = os.environ["INTERNAL_EVENTS_URL"]
     job_token = os.environ["JOB_TOKEN"]
-    tail_and_post(events_path=events_path, endpoint_url=endpoint_url, job_token=job_token)
+    tail_and_post(
+        events_path=events_path, endpoint_url=endpoint_url, job_token=job_token
+    )
 
 
 if __name__ == "__main__":

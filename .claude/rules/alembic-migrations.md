@@ -23,18 +23,18 @@ uv run alembic revision --autogenerate -m "<short_desc>"
 
 These migrations were created under the previous `phaseN_X_` rename rule. They stay as-is — historical names are part of the audit trail.
 
-| Filename | Phase (legacy) | What it does |
-|----------|----------------|--------------|
-| `d3f179666394_phase7_5_baseline.py` | 7.5 | First proper baseline; replaces `Base.metadata.create_all`. |
-| `8a1c2d4e5f60_phase8_gpu2_profile.py` | 8 | GPU profile additions. |
-| `b2e7c8a1f330_phase10_sso_admin_email.py` | 10 | Cloudflare SSO admin email. |
-| `74c95d81f74e_phase11b_events_manifest.py` | 11b | Events / manifest schema. |
-| `12f13a2e3d68_phase11c_drop_v0_schema_columns.py` | 11c | Drop v0 columns after retirement. |
-| `c7e3a9b1d042_phase12_1_service_token_friendly_name.py` | 12.1 | Service-token friendly name + role enum patch 1. |
-| `f9a2c4e8b01a_phase12_2_role_service_token.py` | 12.2 | Role enum patch 2. |
-| `a4b8e7c91d52_phase12_3_role_enum_lowercase.py` | 12.3 | Role enum patch 3 (lowercase + `values_callable`). |
-| `f91615e44fad_phase13a_detector_version_deleted_enum.py` | 13a | Detector version `deleted` enum. |
-| `f37230063a20_phase13b_job_user_params_column.py` | 13b | Job `user_params` column. |
+| Filename                                                 | Phase (legacy) | What it does                                                |
+| -------------------------------------------------------- | -------------- | ----------------------------------------------------------- |
+| `d3f179666394_phase7_5_baseline.py`                      | 7.5            | First proper baseline; replaces `Base.metadata.create_all`. |
+| `8a1c2d4e5f60_phase8_gpu2_profile.py`                    | 8              | GPU profile additions.                                      |
+| `b2e7c8a1f330_phase10_sso_admin_email.py`                | 10             | Cloudflare SSO admin email.                                 |
+| `74c95d81f74e_phase11b_events_manifest.py`               | 11b            | Events / manifest schema.                                   |
+| `12f13a2e3d68_phase11c_drop_v0_schema_columns.py`        | 11c            | Drop v0 columns after retirement.                           |
+| `c7e3a9b1d042_phase12_1_service_token_friendly_name.py`  | 12.1           | Service-token friendly name + role enum patch 1.            |
+| `f9a2c4e8b01a_phase12_2_role_service_token.py`           | 12.2           | Role enum patch 2.                                          |
+| `a4b8e7c91d52_phase12_3_role_enum_lowercase.py`          | 12.3           | Role enum patch 3 (lowercase + `values_callable`).          |
+| `f91615e44fad_phase13a_detector_version_deleted_enum.py` | 13a            | Detector version `deleted` enum.                            |
+| `f37230063a20_phase13b_job_user_params_column.py`        | 13b            | Job `user_params` column.                                   |
 
 ## Workflow
 

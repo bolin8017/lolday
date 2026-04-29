@@ -1,8 +1,7 @@
 import httpx
 import pytest
 import respx
-
-from app.services.harbor import HarborClient, ScanResult, ScanStatus
+from app.services.harbor import HarborClient, ScanStatus
 
 
 @pytest.mark.asyncio
@@ -21,7 +20,9 @@ async def test_ensure_project_creates_when_missing():
 async def test_ensure_project_skips_when_exists():
     with respx.mock(base_url="http://harbor") as mock:
         mock.get("/api/v2.0/projects", params={"name": "detectors"}).mock(
-            return_value=httpx.Response(200, json=[{"name": "detectors", "project_id": 1}])
+            return_value=httpx.Response(
+                200, json=[{"name": "detectors", "project_id": 1}]
+            )
         )
         client = HarborClient("http://harbor", "admin", "pw")
         await client.ensure_project("detectors", public=True)
@@ -67,10 +68,13 @@ async def test_ensure_robot_account_matches_only_exact_prefix():
     with respx.mock(base_url="http://harbor") as mock:
         # harbor returns two robots; only the exact prefix match should be recognized
         mock.get("/api/v2.0/robots").mock(
-            return_value=httpx.Response(200, json=[
-                {"name": "robot$other-project+pusher", "id": 1},
-                {"name": "robot$pusher", "id": 2},
-            ])
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"name": "robot$other-project+pusher", "id": 1},
+                    {"name": "robot$pusher", "id": 2},
+                ],
+            )
         )
         client = HarborClient("http://harbor", "admin", "pw")
         result = await client.ensure_robot_account("pusher", projects=["detectors"])
@@ -82,10 +86,13 @@ async def test_ensure_robot_account_matches_only_exact_prefix():
 async def test_set_retention_policy_updates_when_retention_id_present():
     with respx.mock(base_url="http://harbor") as mock:
         mock.get("/api/v2.0/projects/detectors").mock(
-            return_value=httpx.Response(200, json={
-                "project_id": 1,
-                "metadata": {"retention_id": 42},
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "project_id": 1,
+                    "metadata": {"retention_id": 42},
+                },
+            )
         )
         mock.put("/api/v2.0/retentions/42").mock(return_value=httpx.Response(200))
         client = HarborClient("http://harbor", "admin", "pw")
@@ -96,10 +103,13 @@ async def test_set_retention_policy_updates_when_retention_id_present():
 async def test_set_retention_policy_creates_when_no_retention_id():
     with respx.mock(base_url="http://harbor") as mock:
         mock.get("/api/v2.0/projects/detectors").mock(
-            return_value=httpx.Response(200, json={
-                "project_id": 1,
-                "metadata": {},
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "project_id": 1,
+                    "metadata": {},
+                },
+            )
         )
         mock.post("/api/v2.0/retentions").mock(return_value=httpx.Response(201))
         client = HarborClient("http://harbor", "admin", "pw")
@@ -126,7 +136,9 @@ async def test_trigger_scan_409_treated_as_success():
     with respx.mock(base_url="http://harbor") as mock:
         mock.post(
             "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x/scan"
-        ).mock(return_value=httpx.Response(409, json={"errors": [{"code": "CONFLICT"}]}))
+        ).mock(
+            return_value=httpx.Response(409, json={"errors": [{"code": "CONFLICT"}]})
+        )
         client = HarborClient("http://harbor", "admin", "pw")
         assert await client.trigger_scan("detectors", "foo", "sha256:x") is None
 
@@ -151,15 +163,20 @@ async def test_get_scan_unknown_status_falls_back_to_error():
     with respx.mock(base_url="http://harbor") as mock:
         mock.get(
             "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x"
-        ).mock(return_value=httpx.Response(200, json={
-            "digest": "sha256:x",
-            "scan_overview": {
-                "application/vnd.security.vulnerability.report; version=1.1": {
-                    "scan_status": "SomethingNewInHarbor2027",
-                    "summary": {},
-                }
-            },
-        }))
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "digest": "sha256:x",
+                    "scan_overview": {
+                        "application/vnd.security.vulnerability.report; version=1.1": {
+                            "scan_status": "SomethingNewInHarbor2027",
+                            "summary": {},
+                        }
+                    },
+                },
+            )
+        )
         client = HarborClient("http://harbor", "admin", "pw")
         result = await client.get_scan("detectors", "foo", "sha256:x")
         assert result.status == ScanStatus.ERROR
@@ -173,18 +190,23 @@ async def test_get_scan_status_error_preserved_not_silenced_as_zero():
     with respx.mock(base_url="http://harbor") as mock:
         mock.get(
             "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:errd"
-        ).mock(return_value=httpx.Response(200, json={
-            "digest": "sha256:errd",
-            "scan_overview": {
-                "application/vnd.security.vulnerability.report; version=1.1": {
-                    "scan_status": "Error",
-                    "summary": {},
-                    "start_time": "2026-04-22T01:37:43.000Z",
-                    "end_time": "2026-04-22T01:37:48.000Z",
-                    "duration": 5,
-                }
-            },
-        }))
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "digest": "sha256:errd",
+                    "scan_overview": {
+                        "application/vnd.security.vulnerability.report; version=1.1": {
+                            "scan_status": "Error",
+                            "summary": {},
+                            "start_time": "2026-04-22T01:37:43.000Z",
+                            "end_time": "2026-04-22T01:37:48.000Z",
+                            "duration": 5,
+                        }
+                    },
+                },
+            )
+        )
         client = HarborClient("http://harbor", "admin", "pw")
         result = await client.get_scan("detectors", "foo", "sha256:errd")
         assert result.status == ScanStatus.ERROR

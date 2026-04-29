@@ -10,13 +10,14 @@ imported directly in `backend/tests/test_deadmans_switch_check.py`
 via `importlib.util.spec_from_file_location` so the parse / retry /
 failure paths have real unit coverage without needing a running k8s.
 """
+
 import json
 import os
 import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 AM_URL = "http://kps-alertmanager.monitoring:9093/api/v2/alerts"
 MAX_AGE_SECONDS = 600  # 10 min: covers 5-min cron jitter plus one missed eval
@@ -39,7 +40,7 @@ def fetch_alerts():
 def check(now=None):
     """Return None if Watchdog is fresh, else a human-readable failure reason."""
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
     try:
         alerts = fetch_alerts()
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -70,20 +71,33 @@ def check(now=None):
 
 def _build_payload(reason, now=None):
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
     return {
         "content": "@here",
-        "embeds": [{
-            "title": "🚨 Dead Man's Switch — Prometheus/Alertmanager chain is broken",
-            "color": 15158332,
-            "description": reason,
-            "fields": [
-                {"name": "Cluster", "value": os.environ.get("CLUSTER_NAME", "lolday"), "inline": True},
-                {"name": "Timestamp", "value": now.isoformat(timespec="seconds"), "inline": True},
-                {"name": "Next check", "value": "5 minutes", "inline": True},
-                {"name": "Investigate", "value": "`kubectl -n monitoring get pods -l app.kubernetes.io/name=alertmanager` / `prometheus` — check WAL, rule health, scrape target state"},
-            ],
-        }],
+        "embeds": [
+            {
+                "title": "🚨 Dead Man's Switch — Prometheus/Alertmanager chain is broken",
+                "color": 15158332,
+                "description": reason,
+                "fields": [
+                    {
+                        "name": "Cluster",
+                        "value": os.environ.get("CLUSTER_NAME", "lolday"),
+                        "inline": True,
+                    },
+                    {
+                        "name": "Timestamp",
+                        "value": now.isoformat(timespec="seconds"),
+                        "inline": True,
+                    },
+                    {"name": "Next check", "value": "5 minutes", "inline": True},
+                    {
+                        "name": "Investigate",
+                        "value": "`kubectl -n monitoring get pods -l app.kubernetes.io/name=alertmanager` / `prometheus` — check WAL, rule health, scrape target state",
+                    },
+                ],
+            }
+        ],
     }
 
 
@@ -113,7 +127,7 @@ def _discord_post(url, payload, *, opener=urllib.request.urlopen, sleep=time.sle
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last_exc = exc
             if attempt < DISCORD_MAX_ATTEMPTS:
-                sleep(2 ** attempt)
+                sleep(2**attempt)
     # Exhausted; raise the final attempt's exception so main() can
     # log the concrete cause.
     if last_exc is not None:
@@ -157,7 +171,10 @@ def main():
         print(f"Discord POST failed: HTTP {exc.code} {exc.reason}", file=sys.stderr)
         return 2
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        print(f"Discord POST failed (network): {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            f"Discord POST failed (network): {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         return 2
     except RuntimeError as exc:
         # Config error (missing env var). Crash-fail so the CronJob's

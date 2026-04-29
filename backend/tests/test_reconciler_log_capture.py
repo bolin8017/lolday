@@ -1,11 +1,11 @@
 """Phase 13a A2: log capture from build / job pods with init-container fallback."""
+
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from kubernetes.client import ApiException
-
 from app.reconciler import _capture_pod_logs
+from kubernetes.client import ApiException
 
 
 @pytest.fixture
@@ -27,6 +27,7 @@ def _make_v1(pod, log_responses):
         if isinstance(result, ApiException):
             raise result
         return result or ""
+
     v1.read_namespaced_pod_log.side_effect = read_log
     return v1
 
@@ -52,11 +53,16 @@ async def test_capture_pod_logs_main_container_success(mock_k8s_pod):
 async def test_capture_pod_logs_falls_back_to_init_when_main_missing(mock_k8s_pod):
     """Build failed in init container; main never started → 404. Should walk
     back through init containers and return the first one with logs."""
-    v1 = _make_v1(mock_k8s_pod, {
-        "buildkit": ApiException(status=400, reason="container 'buildkit' not found"),
-        "validate": ApiException(status=400, reason="not found"),
-        "clone": "fatal: could not read from remote repository",
-    })
+    v1 = _make_v1(
+        mock_k8s_pod,
+        {
+            "buildkit": ApiException(
+                status=400, reason="container 'buildkit' not found"
+            ),
+            "validate": ApiException(status=400, reason="not found"),
+            "clone": "fatal: could not read from remote repository",
+        },
+    )
     with patch("app.reconciler.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
@@ -66,7 +72,7 @@ async def test_capture_pod_logs_falls_back_to_init_when_main_missing(mock_k8s_po
             failure_reason=None,
             tail_bytes=1024,
         )
-    assert "[clone]" in result   # header marks which container the log came from
+    assert "[clone]" in result  # header marks which container the log came from
     assert "could not read from remote" in result
 
 
@@ -83,6 +89,7 @@ async def test_capture_pod_logs_uses_failure_reason_hint(mock_k8s_pod):
         if container == "validate":
             return "ValidationError: maldet.toml missing [project] section"
         raise ApiException(status=400, reason="not found")
+
     v1.read_namespaced_pod_log.side_effect = read_log
 
     with patch("app.reconciler.core_v1", return_value=v1):
@@ -102,10 +109,13 @@ async def test_capture_pod_logs_uses_failure_reason_hint(mock_k8s_pod):
 @pytest.mark.asyncio
 async def test_capture_pod_logs_returns_empty_when_all_fail(mock_k8s_pod):
     """All container reads 404 → return empty string."""
-    v1 = _make_v1(mock_k8s_pod, {
-        c: ApiException(status=400, reason="not found")
-        for c in ("buildkit", "clone", "validate")
-    })
+    v1 = _make_v1(
+        mock_k8s_pod,
+        {
+            c: ApiException(status=400, reason="not found")
+            for c in ("buildkit", "clone", "validate")
+        },
+    )
     with patch("app.reconciler.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
@@ -155,8 +165,8 @@ async def test_capture_pod_logs_truncates_to_tail_bytes(mock_k8s_pod):
 async def test_capture_log_tail_uses_buildkit_container(mock_k8s_pod):
     """Regression: previous code looked for 'kaniko' which didn't exist,
     so log_tail was always empty for real builds."""
-    from app.reconciler import _capture_log_tail
     from app.models.detector import DetectorBuild
+    from app.reconciler import _capture_log_tail
 
     build = MagicMock(spec=DetectorBuild)
     build.id = uuid4()
@@ -194,7 +204,8 @@ def test_both_build_handlers_capture_log_tail():
     nobody removes the call again.
     """
     import inspect
-    from app.reconciler import _handle_succeeded, _handle_failed
+
+    from app.reconciler import _handle_failed, _handle_succeeded
 
     succ_src = inspect.getsource(_handle_succeeded)
     fail_src = inspect.getsource(_handle_failed)

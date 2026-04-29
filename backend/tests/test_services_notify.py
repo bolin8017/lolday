@@ -3,10 +3,8 @@
 import httpx
 import pytest
 import respx
-
 from app.metrics import BACKEND_ERRORS
 from app.services import notify
-
 
 WEBHOOK = "https://discord.test/api/webhooks/1/xyz"
 
@@ -27,7 +25,9 @@ async def test_post_webhook_noop_when_url_not_configured(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_post_webhook_posts_json_to_configured_url(monkeypatch):
-    monkeypatch.setattr("app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK)
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
     with respx.mock() as mock:
         route = mock.post(WEBHOOK).mock(return_value=httpx.Response(204))
         await notify.post_webhook({"content": "hi"})
@@ -39,7 +39,9 @@ async def test_post_webhook_posts_json_to_configured_url(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_post_webhook_swallows_http_error_and_increments_metric(monkeypatch):
-    monkeypatch.setattr("app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK)
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
     before = _notify_error_count()
     with respx.mock() as mock:
         mock.post(WEBHOOK).mock(return_value=httpx.Response(500))
@@ -50,7 +52,9 @@ async def test_post_webhook_swallows_http_error_and_increments_metric(monkeypatc
 
 @pytest.mark.asyncio
 async def test_post_webhook_swallows_network_error(monkeypatch):
-    monkeypatch.setattr("app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK)
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
     before = _notify_error_count()
     with respx.mock() as mock:
         mock.post(WEBHOOK).mock(side_effect=httpx.ConnectError("boom"))
@@ -61,7 +65,9 @@ async def test_post_webhook_swallows_network_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_notify_job_completed_builds_and_posts(monkeypatch):
-    monkeypatch.setattr("app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK)
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
     with respx.mock() as mock:
         route = mock.post(WEBHOOK).mock(return_value=httpx.Response(204))
         await notify.notify_job_completed(
@@ -83,7 +89,9 @@ async def test_notify_job_completed_builds_and_posts(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_notify_job_failed_sends_red_embed(monkeypatch):
-    monkeypatch.setattr("app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK)
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
     with respx.mock() as mock:
         route = mock.post(WEBHOOK).mock(return_value=httpx.Response(204))
         await notify.notify_job_failed(
@@ -101,7 +109,9 @@ async def test_notify_job_failed_sends_red_embed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_notify_trivy_blocked_sends_orange_embed(monkeypatch):
-    monkeypatch.setattr("app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK)
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
     with respx.mock() as mock:
         route = mock.post(WEBHOOK).mock(return_value=httpx.Response(204))
         await notify.notify_trivy_blocked(

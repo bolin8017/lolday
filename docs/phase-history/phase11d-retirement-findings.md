@@ -9,24 +9,24 @@ Phase 11c shipped a build pipeline that produced detector images, registered Det
 
 ## The bug chain (in encounter order)
 
-| # | Maldet ver | Issue                                                                                                                                | Fix                                                                                                              |
-| --- | --- | --- | --- |
-| 1 | 1.0.1 | sklearn/Lightning trainers' `_materialize` propagated `extractor.extract` ValueError                                                  | Wrap in try/except, skip + warn, abort only if >50% skip                                                          |
-| 2 | 1.0.1 | scaffold templates' `Dockerfile.j2` did not `COPY README.md`                                                                          | Add to both rf and cnn templates                                                                                  |
-| 3 | 1.0.2 | CI `setup-uv@v3 version: 0.4.*` rejected newer lockfile (no `version` for editable dynamic packages)                                  | Drop the version pin                                                                                              |
-| 4 | 1.0.3 | runner used `hydra_instantiate(cfg.model)`, requiring `_target_` — lolday's params guard rejects `_target_` (RCE prevention)          | Load model symbol from manifest (`stages.train.model`), treat `cfg.model` as kwargs                               |
-| 5 | 1.0.4 | torch 2.7+ wheels (CUDA 12.8) crashed at `_cuda_init` under driver 560.35.03 (CUDA 12.6)                                              | Cap `torch>=2.2,<2.7` in lightning extra                                                                          |
-| 6 | 1.0.5 | `LightningTrainer.fit` defaulted `default_root_dir` to cwd `/app`, RO under `readOnlyRootFilesystem`                                  | Fall back to `tempfile.gettempdir()` when not set                                                                 |
-| 7 | 1.0.6 | runner wrote `output_dir/{model,metrics.json,predictions.csv}` locally but never invoked `logger.log_artifact` to push to MLflow      | Each stage uploads its primary artifact via the composite logger                                                  |
-| 8 | 1.0.7 | `BinaryClassification.evaluate` and `BatchPredictor.predict` had the same skip-on-`ValueError` gap as 1.0.1                           | Mirror the trainer fix into evaluator + predictor                                                                 |
-| 9 | 1.0.8 | `LightningTrainer.load` requires `model_factory`; runner called `trainer.load(source_model)` with no kwargs                            | Runner threads `model_factory` from manifest into `trainer.load(...)` when the signature accepts it                |
+| #   | Maldet ver | Issue                                                                                                                            | Fix                                                                                                 |
+| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 1   | 1.0.1      | sklearn/Lightning trainers' `_materialize` propagated `extractor.extract` ValueError                                             | Wrap in try/except, skip + warn, abort only if >50% skip                                            |
+| 2   | 1.0.1      | scaffold templates' `Dockerfile.j2` did not `COPY README.md`                                                                     | Add to both rf and cnn templates                                                                    |
+| 3   | 1.0.2      | CI `setup-uv@v3 version: 0.4.*` rejected newer lockfile (no `version` for editable dynamic packages)                             | Drop the version pin                                                                                |
+| 4   | 1.0.3      | runner used `hydra_instantiate(cfg.model)`, requiring `_target_` — lolday's params guard rejects `_target_` (RCE prevention)     | Load model symbol from manifest (`stages.train.model`), treat `cfg.model` as kwargs                 |
+| 5   | 1.0.4      | torch 2.7+ wheels (CUDA 12.8) crashed at `_cuda_init` under driver 560.35.03 (CUDA 12.6)                                         | Cap `torch>=2.2,<2.7` in lightning extra                                                            |
+| 6   | 1.0.5      | `LightningTrainer.fit` defaulted `default_root_dir` to cwd `/app`, RO under `readOnlyRootFilesystem`                             | Fall back to `tempfile.gettempdir()` when not set                                                   |
+| 7   | 1.0.6      | runner wrote `output_dir/{model,metrics.json,predictions.csv}` locally but never invoked `logger.log_artifact` to push to MLflow | Each stage uploads its primary artifact via the composite logger                                    |
+| 8   | 1.0.7      | `BinaryClassification.evaluate` and `BatchPredictor.predict` had the same skip-on-`ValueError` gap as 1.0.1                      | Mirror the trainer fix into evaluator + predictor                                                   |
+| 9   | 1.0.8      | `LightningTrainer.load` requires `model_factory`; runner called `trainer.load(source_model)` with no kwargs                      | Runner threads `model_factory` from manifest into `trainer.load(...)` when the signature accepts it |
 
 Two more issues lived outside maldet:
 
-| Layer       | Issue                                                                                                                       | Fix                                                                                |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| lolday      | torch>=2.x calls `getpass.getuser()` at import; UID 1000 has no `/etc/passwd` entry under `runAsUser:1000`                  | Backend `job_spec.py` adds `USER=maldet` env to the detector container             |
-| elfcnndet   | `BinaryClassification` calls `model.predict`/`predict_proba`; LightningModule doesn't expose those by default               | `ByteCNN.predict` / `predict_proba` adapt forward + softmax (elfcnndet 2.1.0)      |
+| Layer     | Issue                                                                                                         | Fix                                                                           |
+| --------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| lolday    | torch>=2.x calls `getpass.getuser()` at import; UID 1000 has no `/etc/passwd` entry under `runAsUser:1000`    | Backend `job_spec.py` adds `USER=maldet` env to the detector container        |
+| elfcnndet | `BinaryClassification` calls `model.predict`/`predict_proba`; LightningModule doesn't expose those by default | `ByteCNN.predict` / `predict_proba` adapt forward + softmax (elfcnndet 2.1.0) |
 
 Detector / image / dep things that bit:
 

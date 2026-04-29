@@ -16,10 +16,9 @@ import uuid as _uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.models import Job
 from app.models.job import JobStatus, JobType, ResourceProfile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def _make_predict_job(
@@ -37,7 +36,7 @@ async def _make_predict_job(
         resource_profile=ResourceProfile.STANDARD,
         resolved_config={},
         idempotency_key="test-" + _uuid.uuid4().hex,
-        submitted_at=_dt.datetime.now(_dt.timezone.utc),
+        submitted_at=_dt.datetime.now(_dt.UTC),
         mlflow_run_id=mlflow_run_id,
         started_at=started_at,
         finished_at=finished_at,
@@ -51,11 +50,9 @@ async def _make_predict_job(
 async def test_project_prediction_summary_writes_to_summary_metrics(
     db_session: AsyncSession,
 ) -> None:
-    started = _dt.datetime.now(_dt.timezone.utc)
+    started = _dt.datetime.now(_dt.UTC)
     finished = started + _dt.timedelta(seconds=12)
-    job = await _make_predict_job(
-        db_session, started_at=started, finished_at=finished
-    )
+    job = await _make_predict_job(db_session, started_at=started, finished_at=finished)
 
     csv = "file_name,pred_label\nA,Malware\nB,Benign\nC,Malware\nD,Malware\n"
     with patch(
@@ -63,6 +60,7 @@ async def test_project_prediction_summary_writes_to_summary_metrics(
         new=AsyncMock(return_value=csv),
     ):
         from app.reconciler import _project_prediction_summary
+
         await _project_prediction_summary(db_session, job)
     await db_session.refresh(job)
 
@@ -82,6 +80,7 @@ async def test_project_prediction_summary_handles_missing_csv(
         new=AsyncMock(side_effect=FileNotFoundError("no predictions.csv")),
     ):
         from app.reconciler import _project_prediction_summary
+
         await _project_prediction_summary(db_session, job)
     await db_session.refresh(job)
 

@@ -3,7 +3,9 @@ import { describe, it, expect, vi } from "vitest";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 
 describe("DeleteConfirmDialog", () => {
-  function setup(overrides: Partial<React.ComponentProps<typeof DeleteConfirmDialog>> = {}) {
+  function setup(
+    overrides: Partial<React.ComponentProps<typeof DeleteConfirmDialog>> = {},
+  ) {
     const onConfirm = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();
     const props: React.ComponentProps<typeof DeleteConfirmDialog> = {
@@ -34,26 +36,34 @@ describe("DeleteConfirmDialog", () => {
 
   it("Delete button is disabled with wrong text", () => {
     setup();
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Elfrfdet" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Elfrfdet" },
+    });
     expect(screen.getByRole("button", { name: /^delete$/i })).toBeDisabled();
   });
 
   it("Delete button is enabled with exact match", () => {
     setup();
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "elfrfdet" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "elfrfdet" },
+    });
     expect(screen.getByRole("button", { name: /^delete$/i })).toBeEnabled();
   });
 
   it("calls onConfirm when Delete clicked with match", async () => {
     const { onConfirm } = setup();
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "elfrfdet" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "elfrfdet" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 
   it("shows pending state on Delete button", () => {
     setup({ pending: true });
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "elfrfdet" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "elfrfdet" },
+    });
     expect(screen.getByRole("button", { name: /deleting/i })).toBeDisabled();
   });
 
@@ -61,7 +71,8 @@ describe("DeleteConfirmDialog", () => {
     setup({
       errorBanner: {
         code: "version_has_in_flight_jobs",
-        message: "Cancel running jobs that use this version before deleting it.",
+        message:
+          "Cancel running jobs that use this version before deleting it.",
       },
     });
     expect(screen.getByText(/Cancel running jobs/)).toBeInTheDocument();

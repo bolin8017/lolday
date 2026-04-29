@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { useDeleteDetector, useDetectors, type Detector } from "@/api/queries/detectors";
+import {
+  useDeleteDetector,
+  useDetectors,
+  type Detector,
+} from "@/api/queries/detectors";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
 import { LoldayApiError } from "@/api/errors";
@@ -27,7 +31,9 @@ function DetectorRowActions({
   detector: { id: string; name: string; display_name: string };
 }) {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<ReturnType<typeof detailToDeleteBanner> | null>(null);
+  const [error, setError] = useState<ReturnType<
+    typeof detailToDeleteBanner
+  > | null>(null);
   const deleteMut = useDeleteDetector();
 
   return (
@@ -53,13 +59,16 @@ function DetectorRowActions({
 
       <DeleteConfirmDialog
         open={open}
-        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setError(null);
+        }}
         title={`Delete detector ${detector.display_name}?`}
         description={
           <>
-            This soft-deletes the detector. All versions and Harbor images
-            will be permanently purged. Historical jobs and runs remain
-            visible but will reference a deleted detector.
+            This soft-deletes the detector. All versions and Harbor images will
+            be permanently purged. Historical jobs and runs remain visible but
+            will reference a deleted detector.
           </>
         }
         confirmText={detector.name}
@@ -68,7 +77,8 @@ function DetectorRowActions({
             await deleteMut.mutateAsync(detector.id);
             setOpen(false);
           } catch (e) {
-            const detail = e instanceof LoldayApiError ? e.structuredDetail : undefined;
+            const detail =
+              e instanceof LoldayApiError ? e.structuredDetail : undefined;
             setError(detailToDeleteBanner(detail));
           }
         }}
@@ -81,12 +91,27 @@ function DetectorRowActions({
 
 const columns: ColumnDef<Detector>[] = [
   { accessorKey: "display_name", header: "Name" },
-  { accessorKey: "description", header: "Description",
-    cell: ({ row }) => <span className="text-muted-foreground">{row.original.description ?? "—"}</span> },
-  { accessorKey: "git_url", header: "Git URL",
-    cell: ({ row }) => <span className="font-mono text-xs">{row.original.git_url}</span> },
-  { accessorKey: "created_at", header: "Created",
-    cell: ({ row }) => formatRelative(row.original.created_at) },
+  {
+    accessorKey: "description",
+    header: "Description",
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">
+        {row.original.description ?? "—"}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "git_url",
+    header: "Git URL",
+    cell: ({ row }) => (
+      <span className="font-mono text-xs">{row.original.git_url}</span>
+    ),
+  },
+  {
+    accessorKey: "created_at",
+    header: "Created",
+    cell: ({ row }) => formatRelative(row.original.created_at),
+  },
   {
     id: "actions",
     header: "",
@@ -101,14 +126,23 @@ export default function DetectorsListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Detectors</h1>
-        <Button asChild><Link to="/detectors/new"><Plus className="mr-2 h-4 w-4" />Register</Link></Button>
+        <Button asChild>
+          <Link to="/detectors/new">
+            <Plus className="mr-2 h-4 w-4" />
+            Register
+          </Link>
+        </Button>
       </div>
-      {isLoading ? <p className="text-muted-foreground">Loading…</p> : (
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : (
         <DataTable
           data={items}
           columns={columns}
           emptyMessage="No detectors registered yet."
-          onRowClick={(d) => { window.location.href = `/detectors/${d.id}`; }}
+          onRowClick={(d) => {
+            window.location.href = `/detectors/${d.id}`;
+          }}
         />
       )}
     </div>

@@ -1,7 +1,14 @@
 import { NavLink } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
-  Package, FolderOpen, Play, BarChart3, Tag, User as UserIcon, LogOut, Shield,
+  Package,
+  FolderOpen,
+  Play,
+  BarChart3,
+  Tag,
+  User as UserIcon,
+  LogOut,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
@@ -67,7 +74,9 @@ export function Sidebar() {
           className={({ isActive }) =>
             cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
-              isActive ? "bg-slate-800 text-white" : "text-slate-300 hover:bg-slate-800/60",
+              isActive
+                ? "bg-slate-800 text-white"
+                : "text-slate-300 hover:bg-slate-800/60",
             )
           }
         >

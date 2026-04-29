@@ -46,7 +46,9 @@ export function PerClassMetrics({ perClass, positiveClass }: Props) {
               {cls}
               {cls === positiveClass ? " (positive)" : ""}
             </TableCell>
-            <TableCell className="text-right">{m.precision.toFixed(4)}</TableCell>
+            <TableCell className="text-right">
+              {m.precision.toFixed(4)}
+            </TableCell>
             <TableCell className="text-right">{m.recall.toFixed(4)}</TableCell>
             <TableCell className="text-right">{m.f1.toFixed(4)}</TableCell>
             <TableCell className="text-right">{m.support}</TableCell>

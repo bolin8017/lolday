@@ -28,9 +28,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
-
 from maldet.manifest import DetectorManifest, ManifestNotFoundError, load_manifest
+from pydantic import BaseModel
 
 # Files written under build-args/.
 ARG_NAMES = (
@@ -108,8 +107,16 @@ def install_detector(repo: Path) -> None:
     # OOM-kills the validate container (exit 137).
     subprocess.run(
         [
-            sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet",
-            "--no-deps", "--target", str(_INSTALL_TARGET), str(repo),
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--quiet",
+            "--no-deps",
+            "--target",
+            str(_INSTALL_TARGET),
+            str(repo),
         ],
         check=True,
     )

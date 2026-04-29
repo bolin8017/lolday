@@ -32,10 +32,15 @@ class User(Base):
     __tablename__ = "user"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
     )
     email: Mapped[str] = mapped_column(
-        String(length=320), unique=True, index=True, nullable=False,
+        String(length=320),
+        unique=True,
+        index=True,
+        nullable=False,
     )
     role: Mapped[Role] = mapped_column(
         SAEnum(

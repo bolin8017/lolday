@@ -14,7 +14,7 @@ export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 120_000,
   expect: { timeout: 10_000 },
-  fullyParallel: false,   // tests share backend state; keep sequential
+  fullyParallel: false, // tests share backend state; keep sequential
   reporter: "list",
   use: {
     baseURL: BASE_URL,

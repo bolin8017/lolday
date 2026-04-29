@@ -13,6 +13,7 @@
 **Server:** server30 (Ubuntu 24.04, K3s v1.34.6+k3s1, 2× RTX 2080 Ti)
 
 **Constraints:**
+
 - `bolin8017` has no persistent sudo; give sudo commands to user to run
 - CLI tools in `~/.local/bin/`; do NOT system-install anything without explicit approval
 - SSH (port 9453) must never be disrupted; K3s must remain running after every step
@@ -113,6 +114,7 @@ scripts/
 ## Task 1: Backend Scaffolding — Dependencies + Split models.py / schemas.py
 
 **Files:**
+
 - Modify: `backend/pyproject.toml`
 - Create: `backend/app/models/__init__.py`
 - Create: `backend/app/models/user.py`
@@ -258,6 +260,7 @@ git commit -m "refactor(backend): split models.py and schemas.py into packages"
 ## Task 2: Detector Data Model + Alembic Migration
 
 **Files:**
+
 - Modify: `backend/app/models/detector.py`
 - Modify: `backend/app/models/credential.py`
 - Create: `backend/alembic/versions/xxxx_add_detector_tables.py`
@@ -527,6 +530,7 @@ cd backend && uv run alembic revision --autogenerate -m "add detector tables"
 ```
 
 Expected: new file in `alembic/versions/xxxx_add_detector_tables.py`. Open it, verify:
+
 - Creates `detector`, `detector_version`, `detector_build`, `user_git_credential` tables
 - Creates indices `detector_owner_git_unique` (partial), `detector_version_tag_unique`
 - Creates ENUM types `detector_version_status`, `detector_build_status`, `git_provider`
@@ -553,6 +557,7 @@ git commit -m "feat(backend): add detector lifecycle data models and migration"
 ## Task 3: Config, Crypto Service, Git Service
 
 **Files:**
+
 - Modify: `backend/app/config.py`
 - Create: `backend/app/services/__init__.py`
 - Create: `backend/app/services/crypto.py`
@@ -824,6 +829,7 @@ git commit -m "feat(backend): add crypto (Fernet) and git URL/API services"
 ## Task 4: Static Validator Service
 
 **Files:**
+
 - Create: `backend/app/services/validator.py`
 - Create: `backend/tests/test_services_validator.py`
 - Create: `backend/tests/fixtures/valid_detector/` (minimal valid repo fixture)
@@ -1065,6 +1071,7 @@ git commit -m "feat(backend): add static detector repo validator"
 ## Task 5: Harbor API Client Service
 
 **Files:**
+
 - Create: `backend/app/services/harbor.py`
 - Create: `backend/tests/test_services_harbor.py`
 - Modify: `backend/pyproject.toml` (add `respx` to dev deps)
@@ -1338,6 +1345,7 @@ git commit -m "feat(backend): add Harbor REST API client service"
 ## Task 6: K8s Client and Build Service
 
 **Files:**
+
 - Create: `backend/app/services/k8s.py`
 - Create: `backend/app/services/build.py`
 - Create: `backend/tests/test_services_build.py`
@@ -1661,6 +1669,7 @@ git commit -m "feat(backend): add k8s client and build Job spec generator"
 ## Task 7: Credentials Router (PAT CRUD)
 
 **Files:**
+
 - Create: `backend/app/schemas/credential.py`
 - Create: `backend/app/routers/credentials.py`
 - Create: `backend/tests/test_credentials.py`
@@ -1910,6 +1919,7 @@ git commit -m "feat(backend): add PAT credential management endpoints"
 ## Task 8: Detector Schemas + Register / List / Get / Delete Endpoints
 
 **Files:**
+
 - Modify: `backend/app/schemas/detector.py`
 - Create: `backend/app/routers/detectors.py`
 - Modify: `backend/app/deps.py` (+ require_detector_access)
@@ -2400,6 +2410,7 @@ git commit -m "feat(backend): add detector register/list/get/update/delete endpo
 ## Task 9: Versions and Available-Tags Endpoints
 
 **Files:**
+
 - Modify: `backend/app/routers/detectors.py`
 - Modify: `backend/tests/test_detectors.py` (or new `test_versions.py`)
 
@@ -2527,6 +2538,7 @@ git commit -m "feat(backend): add version list and GitHub available-tags endpoin
 ## Task 10: Build Lifecycle Endpoints + Internal Schema Callback
 
 **Files:**
+
 - Create: `backend/app/routers/internal.py`
 - Modify: `backend/app/routers/detectors.py`
 - Modify: `backend/app/deps.py` (+ require_build_token)
@@ -2963,6 +2975,7 @@ git commit -m "feat(backend): add build lifecycle endpoints and schema callback"
 ## Task 11: Build Reconciler
 
 **Files:**
+
 - Create: `backend/app/reconciler.py`
 - Create: `backend/tests/test_reconciler.py`
 - Modify: `backend/app/main.py` (lifespan)
@@ -3380,6 +3393,7 @@ git commit -m "feat(backend): add build reconciler loop with state machine"
 ## Task 12: Build Helper Image (maldet_validator)
 
 **Files:**
+
 - Create: `charts/lolday/helpers/build-helper/Dockerfile`
 - Create: `charts/lolday/helpers/build-helper/maldet_validator.py`
 
@@ -3524,6 +3538,7 @@ git commit -m "feat(chart): add build-helper image source (runtime validator)"
 ## Task 13: Helm Chart — Add Harbor Dependency + Values
 
 **Files:**
+
 - Modify: `charts/lolday/Chart.yaml`
 - Modify: `charts/lolday/values.yaml`
 
@@ -3567,7 +3582,7 @@ harbor:
     tls:
       enabled: false
   externalURL: http://harbor.harbor.svc.cluster.local:80
-  harborAdminPassword: ""          # --set at deploy time
+  harborAdminPassword: "" # --set at deploy time
   persistence:
     enabled: true
     persistentVolumeClaim:
@@ -3616,8 +3631,8 @@ harbor:
 # =============================================================================
 backend:
   # existing
-  fernetKey: ""                    # --set
-  harborAdminPassword: ""          # --set (shared with harbor section for backend to use admin API)
+  fernetKey: "" # --set
+  harborAdminPassword: "" # --set (shared with harbor section for backend to use admin API)
   env:
     DOCS_ENABLED: "true"
     HARBOR_URL: "http://harbor.harbor.svc.cluster.local:80"
@@ -3663,6 +3678,7 @@ git commit -m "feat(chart): add Harbor sub-chart dependency and values"
 ## Task 14: Helm Templates — RBAC, Secrets, NetworkPolicy
 
 **Files:**
+
 - Create: `charts/lolday/templates/backend-rbac.yaml`
 - Create: `charts/lolday/templates/backend-fernet-secret.yaml`
 - Create: `charts/lolday/templates/harbor-admin-secret.yaml`
@@ -3877,6 +3893,7 @@ git commit -m "feat(chart): add backend RBAC, secrets, and build NetworkPolicy"
 ## Task 15: Deployment Scripts — patch-k3s-registries.sh + deploy.sh
 
 **Files:**
+
 - Create: `scripts/patch-k3s-registries.sh`
 - Modify: `scripts/deploy.sh`
 
@@ -4041,6 +4058,7 @@ git commit -m "feat(scripts): add patch-k3s-registries.sh and update deploy.sh f
 ## Task 16: Harbor Post-install Init in Backend Lifespan
 
 **Files:**
+
 - Modify: `backend/app/main.py`
 - Create: `backend/app/services/harbor_init.py`
 
@@ -4255,6 +4273,7 @@ git status
 ## Task 18: E2E Smoke Test with upxelfdet
 
 **Files:**
+
 - Create: `docs/phase3-e2e-checklist.md`
 
 - [ ] **Step 1: Register the platform admin and create developer test user**
@@ -4359,6 +4378,7 @@ Expected: artifact with tag `v0.1.0`, scan_overview showing `Success`, 0 Critica
 - [ ] **Step 9: Write checklist document**
 
 Create `docs/phase3-e2e-checklist.md` with the above command blocks, plus:
+
 - Troubleshooting (common failures and remediation)
 - Secret rotation procedure (Fernet key)
 - Harbor storage monitoring tip: `kubectl exec -n harbor harbor-core-xxx -- df -h /storage`

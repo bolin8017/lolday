@@ -69,11 +69,13 @@ export function useJobEvents(
             { credentials: "include" },
           );
         } catch (e) {
-          if (!cancelled) setError(`Network error loading history: ${(e as Error).message}`);
+          if (!cancelled)
+            setError(`Network error loading history: ${(e as Error).message}`);
           return;
         }
         if (!resp.ok) {
-          if (!cancelled) setError(`Failed to load history: HTTP ${resp.status}`);
+          if (!cancelled)
+            setError(`Failed to load history: HTTP ${resp.status}`);
           return;
         }
         const page = (await resp.json()) as EventsPage;

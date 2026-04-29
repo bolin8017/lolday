@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
 
-interface Props { text: string; className?: string }
+interface Props {
+  text: string;
+  className?: string;
+}
 
 export function LogTail({ text, className }: Props) {
   const ref = useRef<HTMLPreElement | null>(null);

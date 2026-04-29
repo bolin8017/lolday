@@ -2,7 +2,6 @@ import hashlib
 from pathlib import Path
 
 import pytest
-
 from app.services.dataset import (
     DatasetIntegrityError,
     DatasetValidationError,
@@ -31,16 +30,15 @@ def test_parse_csv_missing_file_name_column_raises():
 
 
 def test_parse_csv_missing_label_column_raises():
-    bad = "file_name\n0000002158d35c2bb5e7d96a39ff464ea4c83de8c5fd72094736f79125aaca11\n"
+    bad = (
+        "file_name\n0000002158d35c2bb5e7d96a39ff464ea4c83de8c5fd72094736f79125aaca11\n"
+    )
     with pytest.raises(DatasetValidationError, match="label"):
         parse_csv(bad)
 
 
 def test_parse_csv_rejects_non_sha256_filename():
-    bad = (
-        "file_name,label\n"
-        "not-a-sha256,Malware\n"
-    )
+    bad = "file_name,label\nnot-a-sha256,Malware\n"
     with pytest.raises(DatasetValidationError, match="file_name"):
         parse_csv(bad)
 

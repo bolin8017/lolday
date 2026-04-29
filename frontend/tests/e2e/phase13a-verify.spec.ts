@@ -22,7 +22,8 @@ const ENABLED = process.env.PHASE13A_VERIFY === "1";
 // Override via env if cluster shifts. Names are used as confirmText in
 // delete-dialog state machine tests, so they must match the row.
 const DETECTOR_NAME = process.env.PHASE13A_DETECTOR_NAME ?? "elfrfdet";
-const DETECTOR_ID = process.env.PHASE13A_DETECTOR_ID ?? "42b6a93a-4384-4a64-b4a7-145ee3f13b20";
+const DETECTOR_ID =
+  process.env.PHASE13A_DETECTOR_ID ?? "42b6a93a-4384-4a64-b4a7-145ee3f13b20";
 const VERSION_TAG = process.env.PHASE13A_VERSION_TAG ?? "v3.0.0";
 
 test.use({
@@ -39,23 +40,33 @@ test.describe.serial("Phase 13a deploy verification", () => {
     test.skip(!ENABLED, "set PHASE13A_VERIFY=1 + service-token env to enable");
   });
 
-  test("A1: View manifest opens Sheet with manifest tree (active version)", async ({ page }) => {
+  test("A1: View manifest opens Sheet with manifest tree (active version)", async ({
+    page,
+  }) => {
     test.setTimeout(60_000);
     await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "commit" });
     await page.getByRole("tab", { name: /versions/i }).click();
-    await page.getByRole("button", { name: /view manifest/i }).first().click();
+    await page
+      .getByRole("button", { name: /view manifest/i })
+      .first()
+      .click();
 
     const sheet = page.getByRole("dialog");
     await expect(sheet).toBeVisible({ timeout: 10_000 });
     // Manifest contains the detector name; assert it shows up in the tree.
-    await expect(sheet.getByText(DETECTOR_NAME).first()).toBeVisible({ timeout: 5_000 });
+    await expect(sheet.getByText(DETECTOR_NAME).first()).toBeVisible({
+      timeout: 5_000,
+    });
 
     // Close sheet via Escape to leave a clean state for next test.
     await page.keyboard.press("Escape");
   });
 
   test("A1: View manifest legacy fallback (skipped if no legacy versions in cluster)", async () => {
-    test.skip(true, "no legacy (manifest IS NULL) versions in deployed cluster as of phase13a");
+    test.skip(
+      true,
+      "no legacy (manifest IS NULL) versions in deployed cluster as of phase13a",
+    );
     // If a legacy version is later inserted, replace the skip with:
     //   await page.goto(`/detectors/${LEGACY_DETECTOR_ID}`)
     //   await page.getByRole("tab", { name: /versions/i }).click()
@@ -65,7 +76,9 @@ test.describe.serial("Phase 13a deploy verification", () => {
     //   await expect(sheet.getByText(/rebuild this version/i)).toBeVisible();
   });
 
-  test("A2: Build logs sheet opens with non-empty content", async ({ page }) => {
+  test("A2: Build logs sheet opens with non-empty content", async ({
+    page,
+  }) => {
     test.setTimeout(60_000);
     await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "commit" });
     await page.getByRole("tab", { name: /builds/i }).click();
@@ -88,10 +101,14 @@ test.describe.serial("Phase 13a deploy verification", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("A3: Logout button visible on /jobs even when list is long", async ({ page }) => {
+  test("A3: Logout button visible on /jobs even when list is long", async ({
+    page,
+  }) => {
     test.setTimeout(60_000);
     await page.goto("/jobs", { waitUntil: "commit" });
-    await expect(page.getByRole("heading", { name: /^jobs$/i })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: /^jobs$/i })).toBeVisible({
+      timeout: 10_000,
+    });
 
     const logout = page.getByRole("button", { name: /log\s*out/i });
     await expect(logout).toBeVisible({ timeout: 5_000 });
@@ -108,13 +125,14 @@ test.describe.serial("Phase 13a deploy verification", () => {
       () => document.documentElement.scrollHeight > window.innerHeight + 1,
     );
     expect(bodyScrolls).toBe(false);
-
   });
 
   test("A3: Logout button visible on /runs", async ({ page }) => {
     test.setTimeout(60_000);
     await page.goto("/runs", { waitUntil: "commit" });
-    await expect(page.getByRole("heading", { name: /experiments/i })).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole("heading", { name: /experiments/i }),
+    ).toBeVisible({ timeout: 10_000 });
 
     const logout = page.getByRole("button", { name: /log\s*out/i });
     await expect(logout).toBeVisible({ timeout: 5_000 });
@@ -123,10 +141,11 @@ test.describe.serial("Phase 13a deploy verification", () => {
     expect(box).not.toBeNull();
     const viewport = page.viewportSize();
     expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
-
   });
 
-  test("A4: Delete detector dialog state machine (cancel without deleting)", async ({ page }) => {
+  test("A4: Delete detector dialog state machine (cancel without deleting)", async ({
+    page,
+  }) => {
     test.setTimeout(60_000);
     await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "commit" });
 
@@ -155,10 +174,11 @@ test.describe.serial("Phase 13a deploy verification", () => {
 
     // Sanity: detector still exists (URL stays).
     await expect(page).toHaveURL(new RegExp(`/detectors/${DETECTOR_ID}`));
-
   });
 
-  test("A4: Delete version dialog state machine (cancel without deleting)", async ({ page }) => {
+  test("A4: Delete version dialog state machine (cancel without deleting)", async ({
+    page,
+  }) => {
     test.setTimeout(60_000);
     await page.goto(`/detectors/${DETECTOR_ID}`, { waitUntil: "commit" });
     await page.getByRole("tab", { name: /versions/i }).click();
@@ -168,7 +188,9 @@ test.describe.serial("Phase 13a deploy verification", () => {
     // and "Delete" buttons. Anchor on the row containing VERSION_TAG.
     const versionRow = page.getByRole("row").filter({ hasText: VERSION_TAG });
     await expect(versionRow).toBeVisible({ timeout: 10_000 });
-    const versionDeleteBtn = versionRow.getByRole("button", { name: /^Delete$/ });
+    const versionDeleteBtn = versionRow.getByRole("button", {
+      name: /^Delete$/,
+    });
     await versionDeleteBtn.click();
 
     const dialog = page.getByRole("dialog");
@@ -188,11 +210,13 @@ test.describe.serial("Phase 13a deploy verification", () => {
 
     // Version still in the table.
     await expect(versionRow).toBeVisible();
-
   });
 
   test("A4: in-flight 409 banner with link (skipped if no in-flight jobs)", async () => {
-    test.skip(true, "no pending/preparing/running jobs in deployed cluster as of phase13a");
+    test.skip(
+      true,
+      "no pending/preparing/running jobs in deployed cluster as of phase13a",
+    );
     // To exercise: submit a long-running train job, then attempt to delete
     // its detector or version while job is non-terminal. Assert:
     //   - dialog stays open

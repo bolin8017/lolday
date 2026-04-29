@@ -11,6 +11,9 @@ describe("applyFieldErrorsToForm", () => {
     ]);
     applyFieldErrorsToForm(err, setError as any);
     expect(setError).toHaveBeenCalledTimes(2);
-    expect(setError).toHaveBeenCalledWith("email", { type: "server", message: "Not a valid email" });
+    expect(setError).toHaveBeenCalledWith("email", {
+      type: "server",
+      message: "Not a valid email",
+    });
   });
 });

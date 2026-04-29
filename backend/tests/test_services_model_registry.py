@@ -1,5 +1,4 @@
 import pytest
-
 from app.models.model_registry import ModelVersionStage
 from app.services.model_registry import (
     InvalidTransitionError,
