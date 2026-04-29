@@ -15,7 +15,7 @@
 # introduce fresh High/Critical CVEs between a successful Trivy scan
 # and a later rebuild.
 
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
+FROM nvidia/cuda:13.2.1-cudnn-runtime-ubuntu22.04
 
 # Python 3.12 via deadsnakes PPA — fastest path on Ubuntu 22.04 LTS to
 # get a maintained 3.12 interpreter without compiling from source.
