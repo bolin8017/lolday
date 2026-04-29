@@ -1,0 +1,46 @@
+name: helpers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/lolday/helpers/build-helper/**"
+      - "charts/lolday/helpers/job-helper/**"
+      - ".github/workflows/helpers.yml"
+      - ".github/actions/docker-meta-build/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/lolday/helpers/build-helper/**"
+      - "charts/lolday/helpers/job-helper/**"
+      - ".github/workflows/helpers.yml"
+      - ".github/actions/docker-meta-build/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-helper:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        helper: [build-helper, job-helper]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Build (and push if not PR)
+        uses: ./.github/actions/docker-meta-build
+        with:
+          image: lolday-${{ matrix.helper }}
+          context: ./charts/lolday/helpers/${{ matrix.helper }}
+          push: ${{ github.event_name != 'pull_request' }}
