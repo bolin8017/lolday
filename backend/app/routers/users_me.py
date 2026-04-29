@@ -25,8 +25,8 @@ async def read_me(
 
 # Belt-and-suspenders defence: UserSelfUpdate's `extra='forbid'` is the
 # primary schema-level guard, but the handler also rejects any field outside
-# this set so a future schema regression that accidentally re-added
-# `hashed_password`/`role`/etc. cannot silently mutate the ORM row.
+# this set so a future schema regression that accidentally widened the
+# schema (e.g. exposing `role` or `email`) cannot silently mutate the ORM row.
 _ALLOWED_SELF_FIELDS = frozenset({"display_name", "discord_user_id"})
 
 

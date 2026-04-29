@@ -1,7 +1,7 @@
 /**
  * Phase 11e production smoke test.
  *
- * Opt-in: set `PHASE11E_VERIFY=1` and source `~/.lolday-cf-svctoken.env`.
+ * Opt-in: set `PHASE11E_VERIFY=1` and source `.lolday-secrets.env` (CF_ACCESS_CLIENT_ID/SECRET live there as of 2026-04-29).
  * Drives the full RJSF → submit → reconciler → list-page tile flow against
  * the deployed cluster. Skipped by default so the regular CI run doesn't
  * need a deployed stack.

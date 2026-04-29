@@ -1,9 +1,9 @@
 import enum
+import uuid
 from datetime import datetime
 
-from fastapi_users.db import SQLAlchemyBaseUserTableUUID
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import String, func
+from sqlalchemy import String, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -28,7 +28,15 @@ SERVICE_TOKEN_EMAIL_DOMAIN = "@cf-access.local"
 SERVICE_TOKEN_DISPLAY_NAME = "Internal service token"
 
 
-class User(SQLAlchemyBaseUserTableUUID, Base):
+class User(Base):
+    __tablename__ = "user"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4,
+    )
+    email: Mapped[str] = mapped_column(
+        String(length=320), unique=True, index=True, nullable=False,
+    )
     role: Mapped[Role] = mapped_column(
         SAEnum(
             Role,

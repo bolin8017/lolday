@@ -1,15 +1,22 @@
 """phase7_5_baseline
 
 Revision ID: d3f179666394
-Revises: 
+Revises:
 Create Date: 2026-04-21 11:37:42.794732
 
+2026-04-29 type swap (chore/drop-hashed-password): the original migration
+imported ``fastapi_users_db_sqlalchemy.generics.GUID`` for UUID columns.
+Phase 10 SSO retired the password flow, and a later migration drops the
+fastapi-users vestige columns from the user table; with no other use of
+the third-party GUID type, this baseline now uses SQLAlchemy 2.0 native
+``sa.Uuid()`` directly. Schema-equivalent on both PostgreSQL (native UUID)
+and SQLite (CHAR(32) hex). Production never re-runs baseline; tests on
+fresh aiosqlite pick up the new type cleanly.
 """
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-import fastapi_users_db_sqlalchemy
 from sqlalchemy import Text
 from sqlalchemy.dialects import postgresql
 
@@ -32,7 +39,7 @@ def upgrade() -> None:
     sa.Column('test_dataset_id', sa.Uuid(), nullable=True),
     sa.Column('predict_dataset_id', sa.Uuid(), nullable=True),
     sa.Column('source_model_version_id', sa.Uuid(), nullable=True),
-    sa.Column('owner_id', fastapi_users_db_sqlalchemy.generics.GUID(), nullable=False),
+    sa.Column('owner_id', sa.Uuid(), nullable=False),
     sa.Column('resolved_config', postgresql.JSONB(astext_type=Text()).with_variant(sa.JSON(), 'sqlite'), nullable=False),
     sa.Column('mlflow_experiment_id', sa.String(length=50), nullable=True),
     sa.Column('mlflow_run_id', sa.String(length=50), nullable=True),
@@ -66,7 +73,7 @@ def upgrade() -> None:
     sa.Column('current_stage', sa.Enum('None', 'Staging', 'Production', 'Archived', name='model_stage_enum'), nullable=False),
     sa.Column('detector_version_id', sa.UUID(), nullable=False),
     sa.Column('source_job_id', sa.Uuid(), nullable=False),
-    sa.Column('owner_id', fastapi_users_db_sqlalchemy.generics.GUID(), nullable=False),
+    sa.Column('owner_id', sa.Uuid(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('last_transitioned_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.ForeignKeyConstraint(['detector_version_id'], ['detector_version.id'], ),
@@ -82,7 +89,7 @@ def upgrade() -> None:
     sa.Column('display_name', sa.String(length=100), nullable=True),
     sa.Column('discord_user_id', sa.String(length=60), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
-    sa.Column('id', fastapi_users_db_sqlalchemy.generics.GUID(), nullable=False),
+    sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('email', sa.String(length=320), nullable=False),
     sa.Column('hashed_password', sa.String(length=1024), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
@@ -95,7 +102,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('name', sa.String(length=100), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('owner_id', fastapi_users_db_sqlalchemy.generics.GUID(), nullable=False),
+    sa.Column('owner_id', sa.Uuid(), nullable=False),
     sa.Column('visibility', sa.Enum('public', 'private', name='dataset_visibility_enum'), nullable=False),
     sa.Column('csv_content', sa.Text(), nullable=False),
     sa.Column('csv_checksum', sa.String(length=64), nullable=False),
@@ -130,7 +137,7 @@ def upgrade() -> None:
     sa.Column('model_version_id', sa.Uuid(), nullable=False),
     sa.Column('from_stage', sa.Enum('None', 'Staging', 'Production', 'Archived', name='model_stage_enum'), nullable=False),
     sa.Column('to_stage', sa.Enum('None', 'Staging', 'Production', 'Archived', name='model_stage_enum'), nullable=False),
-    sa.Column('actor_id', fastapi_users_db_sqlalchemy.generics.GUID(), nullable=False),
+    sa.Column('actor_id', sa.Uuid(), nullable=False),
     sa.Column('comment', sa.Text(), nullable=True),
     sa.Column('transitioned_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.ForeignKeyConstraint(['actor_id'], ['user.id'], ),

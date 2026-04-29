@@ -1265,21 +1265,6 @@ export interface components {
             id: string;
             /** Email */
             email: string;
-            /**
-             * Is Active
-             * @default true
-             */
-            is_active: boolean;
-            /**
-             * Is Superuser
-             * @default false
-             */
-            is_superuser: boolean;
-            /**
-             * Is Verified
-             * @default false
-             */
-            is_verified: boolean;
             role: components["schemas"]["Role"];
             /** Display Name */
             display_name?: string | null;
@@ -1290,12 +1275,12 @@ export interface components {
         };
         /**
          * UserSelfUpdate
-         * @description Body accepted by `PATCH /users/me` — only self-mutable fields.
+         * @description Body accepted by ``PATCH /users/me`` — only self-mutable fields.
          *
-         *     `extra='forbid'` means sending `role`, `is_superuser`, `email`, `password`,
-         *     etc. returns 422 rather than silently dropping them. This is the sole
-         *     line between a regular user and privilege escalation through `/users/me`;
-         *     see `tests/test_user_discord_id.py::test_patch_users_me_rejects_role_smuggling`.
+         *     ``extra="forbid"`` means sending ``role``, ``email``, etc. returns 422
+         *     rather than silently dropping them. This is the sole line between a
+         *     regular user and privilege escalation through ``/users/me``; see
+         *     ``tests/test_user_discord_id.py::test_patch_users_me_rejects_role_smuggling``.
          */
         UserSelfUpdate: {
             /** Display Name */

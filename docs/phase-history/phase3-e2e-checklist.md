@@ -305,4 +305,4 @@ kubectl -n lolday delete job -l lolday.io/build-id=$BUILD_ID
 # Reconciler will mark it FAILED within 10s
 ```
 
-**Reset entire Phase 3 state (nuclear):** See `docs/phase3-deploy-runbook.md` § Rollback.
+**Reset entire Phase 3 state (nuclear):** See `phase3-deploy-runbook.md` § Rollback (in this same `docs/phase-history/` directory).

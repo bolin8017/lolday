@@ -173,8 +173,8 @@ def test_verify_cf_token_rejects_token_signed_by_different_key(rsa_keypair):
 
 
 async def test_get_or_create_user_creates_new_row_with_defaults(db_session):
-    """First visit by a new email auto-provisions a User with role=USER,
-    is_active=true, and display_name derived from email local-part."""
+    """First visit by a new email auto-provisions a User with role=USER
+    and display_name derived from email local-part."""
     from sqlalchemy import select
 
     from app.auth.cf_access import get_or_create_user_by_email
@@ -184,7 +184,6 @@ async def test_get_or_create_user_creates_new_row_with_defaults(db_session):
 
     assert user.email == "newbie@example.com"
     assert user.role == Role.USER
-    assert user.is_active is True
     assert user.display_name == "newbie"
 
     row = (
@@ -275,7 +274,6 @@ async def test_cf_access_user_returns_user_for_valid_jwt(
 
     assert user.email == "alice@example.com"
     assert user.role.value == "user"
-    assert user.is_active is True
 
 
 async def test_cf_access_user_raises_401_when_header_missing(db_session, monkeypatch):

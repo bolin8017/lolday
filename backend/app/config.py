@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Phase 4: Dataset & Jobs (MLflow)
     JOB_NAMESPACE: str = "lolday"
-    JOB_HELPER_IMAGE: str = "harbor.lolday.svc:80/lolday/job-helper:v4"
+    JOB_HELPER_IMAGE: str = "harbor.harbor.svc:80/lolday/job-helper:v4"
     JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600      # 6h
     JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800    # 30m
     JOB_ACTIVE_DEADLINE_PREDICT_SECONDS: int = 3600     # 1h

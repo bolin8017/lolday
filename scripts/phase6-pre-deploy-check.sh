@@ -30,8 +30,8 @@ fi
 
 # --- Secrets ---
 echo "[2/6] secrets in env ..."
-: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in ~/.lolday-secrets.env}"
-: "${PG_EXPORTER_PASSWORD:?set PG_EXPORTER_PASSWORD in ~/.lolday-secrets.env}"
+: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .lolday-secrets.env (repo root or \$HOME) and source it before running}"
+: "${PG_EXPORTER_PASSWORD:?set PG_EXPORTER_PASSWORD in .lolday-secrets.env (repo root or \$HOME) and source it before running}"
 echo "  OK"
 
 # --- Tunnel + DNS (only strict for sub-phase 6-3) ---
