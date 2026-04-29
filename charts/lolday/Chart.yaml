@@ -3,7 +3,7 @@ name: lolday
 description: ISLab Malware Detector Management Platform
 type: application
 version: 0.15.0
-appVersion: "phase12"
+appVersion: "phase13b"
 
 dependencies:
   - name: harbor
