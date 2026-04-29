@@ -176,11 +176,10 @@ Grouped:
 
 | File | Mode | Used by |
 |------|------|---------|
-| `.lolday-secrets.env` | 600 | `scripts/deploy.sh`, `recover-harbor.sh`, `harbor-inventory.sh`, `fix-lolday-project-public.sh`, `diag-backend-401.sh`, `phase6-pre-deploy-check.sh`. Contains `GRAFANA_ADMIN_PASSWORD`, `PG_EXPORTER_PASSWORD`, `CF_ENABLED`, `CF_TUNNEL_TOKEN`, `DISCORD_WEBHOOK_URL_EVENTS`, `HARBOR_ADMIN_PASSWORD`, `FERNET_KEY`, plus other operator-managed values. |
-| `.lolday-cf-svctoken.env` | 600 | Operator-only. Used to test svctoken auth via `/users/me`. See `docs/phase-history/phase12.1-role-enum-bug.md`. |
+| `.lolday-secrets.env` | 600 | `scripts/deploy.sh`, `recover-harbor.sh`, `harbor-inventory.sh`, `fix-lolday-project-public.sh`, `diag-backend-401.sh`, `phase6-pre-deploy-check.sh`. Contains `GRAFANA_ADMIN_PASSWORD`, `PG_EXPORTER_PASSWORD`, `CF_ENABLED`, `CF_TUNNEL_TOKEN`, `DISCORD_WEBHOOK_URL_EVENTS`, `HARBOR_ADMIN_PASSWORD`, `FERNET_KEY`, plus `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` (machine-principal service token; sourced manually for `/users/me` svctoken debug — see `docs/phase-history/phase12.1-role-enum-bug.md`). |
 | `.lolday-cloudflare-access-backups/` | dir | JSON snapshots of Cloudflare Access app/policy state (audit backups). Created ad-hoc, not consumed by any script. |
 
-Templates: `.lolday-secrets.env.example`, `.lolday-cf-svctoken.env.example` at repo root (committed).
+Template: `.lolday-secrets.env.example` at repo root (committed).
 
 ### 5.3 Known inconsistency (tracked, not fixed here)
 

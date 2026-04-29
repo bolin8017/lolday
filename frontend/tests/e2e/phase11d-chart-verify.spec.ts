@@ -2,7 +2,7 @@
  * Phase 11d production smoke test for the live-metric chart.
  *
  * Opt-in: set `PHASE11D_VERIFY=1`, `PHASE11D_JOB_ID=<terminal-job-uuid>`, and
- * source `~/.lolday-cf-svctoken.env` (CF_ACCESS_CLIENT_ID/SECRET) before
+ * source `.lolday-secrets.env` (CF_ACCESS_CLIENT_ID/SECRET live there as of 2026-04-29) before
  * running. CI / local dev runs skip this spec since they don't have prod
  * credentials; skipping it via `test.skip` keeps the default `pnpm test:e2e`
  * green.

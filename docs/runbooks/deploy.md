@@ -40,19 +40,18 @@ Installs kubectl, helm, k9s, etc. into `~/.local/bin/`. No sudo.
 
 ### Operator-local secret files
 
-Copy from the committed examples and fill in values out-of-band (password manager / sealed channel):
+Copy from the committed example and fill in values out-of-band (password manager / sealed channel):
 
 ```bash
 cp .lolday-secrets.env.example .lolday-secrets.env
 chmod 600 .lolday-secrets.env
 # fill: GRAFANA_ADMIN_PASSWORD, PG_EXPORTER_PASSWORD, CF_ENABLED,
 # CF_TUNNEL_TOKEN, DISCORD_WEBHOOK_URL_EVENTS, HARBOR_ADMIN_PASSWORD,
-# FERNET_KEY, plus other operator-managed values
-
-cp .lolday-cf-svctoken.env.example .lolday-cf-svctoken.env
-chmod 600 .lolday-cf-svctoken.env
-# fill: CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET (from Cloudflare
-# Access service token; see docs/phase-history/phase12.1-role-enum-bug.md)
+# FERNET_KEY, plus other operator-managed values.
+# CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (machine-principal
+# service token) are also in this file but only sourced manually
+# for /users/me svctoken debug — see
+# docs/phase-history/phase12.1-role-enum-bug.md.
 ```
 
 `FERNET_KEY` generation:
@@ -110,7 +109,7 @@ Out-of-band steps in the Cloudflare dashboard:
 2. **Access App** — create a self-hosted application for the lolday domain. Configure desired identity provider and policies. Note:
    - Team domain (e.g. `<your-team>.cloudflareaccess.com`) → set in Helm `values.yaml` overrides as `backend.cfAccess.teamDomain` (or env `CF_ACCESS_TEAM_DOMAIN`).
    - App AUD claim (64-char hex) → `CF_ACCESS_APP_AUD`.
-3. **Service token (optional)** — create a service token for machine principals. Save id/secret to `.lolday-cf-svctoken.env`.
+3. **Service token (optional)** — create a service token for machine principals. Save id/secret to `.lolday-secrets.env` as `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`.
 
 Backend boot in production rejects empty `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_APP_AUD`.
 

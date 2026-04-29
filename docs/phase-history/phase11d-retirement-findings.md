@@ -53,7 +53,7 @@ If the previous session had pulled the pod's full traceback rather than relying 
 - **Frontend live-metric verification.** `useJobEvents` WS hook + `JobMetricChart` rendering on `/jobs/:id` was not exercised in this session. Manual browser check recommended.
 - **Maldet template improvements.** Bake `model.predict/predict_proba` into the cnn `models.py.j2` so future Lightning-based detectors don't trip the same wire as elfcnndet 2.0.x. Also reconsider whether `MlflowEventLogger` should hard-error (rather than no-op) when `MLFLOW_RUN_ID` env is set, so detectors missing the `[mlflow]` extra fail loudly at start instead of silently leaking metrics.
 - **Driver upgrade unlocks loosening `torch<2.7`** (item 5).
-- **Service-token cleanup.** Phase 11c E2E service token + CF Access policy + DB user + `~/.lolday-cf-svctoken.env` are still in place. Keep for future automation OR rotate when next migration cycle starts.
+- **Service-token cleanup.** Phase 11c E2E service token + CF Access policy + DB user + `~/.lolday-cf-svctoken.env` are still in place. Keep for future automation OR rotate when next migration cycle starts. (2026-04-29: the env vars were merged into `.lolday-secrets.env` — see CF_ACCESS_CLIENT_ID/SECRET there.)
 
 ## Final state
 

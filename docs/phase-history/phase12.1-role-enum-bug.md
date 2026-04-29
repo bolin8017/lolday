@@ -108,7 +108,7 @@ If we adopt B in the future, do it as a separate dedicated cleanup phase with ex
 ## Test that should pass after fix
 
 ```bash
-source .lolday-cf-svctoken.env
+source .lolday-secrets.env  # CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET live here as of 2026-04-29
 curl -s -o /dev/null -w "%{http_code}\n" \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
   -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \

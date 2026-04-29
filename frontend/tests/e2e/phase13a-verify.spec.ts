@@ -2,7 +2,7 @@
  * Phase 13a deploy verification — drives the deployed UI through the
  * 9 manual-check items in plan Task 6.3 Step 3. Opt-in:
  *
- *   source .lolday-cf-svctoken.env       # CF_ACCESS_CLIENT_ID/SECRET
+ *   source .lolday-secrets.env           # CF_ACCESS_CLIENT_ID/SECRET (merged 2026-04-29)
  *   cd frontend
  *   PHASE13A_VERIFY=1 pnpm playwright test phase13a-verify.spec.ts
  *
