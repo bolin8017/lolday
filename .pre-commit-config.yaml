@@ -1,6 +1,14 @@
 # .pre-commit-config.yaml — repo-wide hygiene gate.
 # Activate with: pre-commit install (runs in scripts/install-tools.sh).
 # After cloning, run once: pre-commit run --all-files
+#
+# Prerequisites for the `local` hooks below:
+#   - frontend/node_modules — run `pnpm install` in frontend/ so the
+#     prettier and eslint binaries exist at frontend/node_modules/.bin/.
+#   - backend/.venv with mypy — run `cd backend && uv sync` so
+#     `uv run --project backend mypy` resolves.
+# install-tools.sh installs pre-commit but not these per-language venvs;
+# they're set up the same way you'd set up to run tests.
 
 minimum_pre_commit_version: "4.0.0"
 

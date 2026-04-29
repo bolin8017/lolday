@@ -297,6 +297,18 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 11. **mypy module overrides (`[mypy-<module>] ignore_errors = true`)** — First-wave mypy is intentionally lenient (`strict = false`, only `warn_*` flags + `check_untyped_defs`). Modules below are overridden at module level; each entry must be removed when the corresponding phase refactors that file.
     - **`app.reconciler`** — activated 2026-04-29 in Phase 4 of `chore/engineering-hygiene`. 20 `union-attr` / `arg-type` errors across the 57KB reconciler (all `Optional`-handling issues); root-cause fix deferred to the phase that refactors `reconciler.py` (see #1). Entry: `[mypy-app.reconciler] ignore_errors = true` in `mypy.ini`.
 
+    Removal procedure (for the future reconciler-refactor phase):
+
+    ```bash
+    # 1. Remove the override block from mypy.ini.
+    # 2. Run mypy without the SKIP machinery to surface the errors:
+    uv run --project backend mypy --config-file mypy.ini
+    # 3. Fix each union-attr / arg-type finding at root cause (typically
+    #    a missing `if X is None: continue` or `assert X is not None`).
+    # 4. Re-run; expect "Success: no issues found".
+    # 5. pre-commit run --all-files; expect exit 0.
+    ```
+
 ## 10. Common gotchas
 
 1. **SSH on server30** — see hard rule. Cilium 2026-03-31 incident in `docs/postmortems/2026-03-31-cilium-ssh-incident.md`.
