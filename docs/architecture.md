@@ -288,12 +288,13 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 2. **No CI/CD.** No GitHub Actions, no automated build/test, no release pipeline. `scripts/deploy.sh` is manual.
 3. **Single `values.yaml`** (~27KB). No dev/prod overlay system.
 4. **Helper images built by hand.** No automated build/push of `build-helper:vN` / `job-helper:vN`.
-5. **No pre-commit / husky / lint-staged / prettier / `.editorconfig`.** No automated formatting discipline.
-6. **No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.** Caches exist but settings are default.
+5. ~~**No pre-commit / husky / lint-staged / prettier / `.editorconfig`.**~~ — resolved 2026-04-29 in `chore/engineering-hygiene`: pre-commit framework wired up at repo root with hooks for ruff (lint+format), mypy, prettier, eslint, and `pre-commit-hooks` built-ins. `.editorconfig` added. See `docs/superpowers/specs/2026-04-29-engineering-hygiene-design.md`.
+6. ~~**No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.**~~ — resolved 2026-04-29 in `chore/engineering-hygiene`: config moved to repo-root `ruff.toml` and `mypy.ini` (mainstream pattern for monorepos with multiple Python project boundaries). `backend/pyproject.toml` deliberately does not host `[tool.ruff]` / `[tool.mypy]` to avoid shadowing the root config.
 7. ~~**fastapi-users vestige**~~ — resolved 2026-04-29 in `chore/drop-hashed-password`: User model + schema no longer inherit from fastapi-users base classes; `hashed_password` was dropped along with three other unused booleans (`is_active` / `is_superuser` / `is_verified`). The phase 7.5 baseline migration was edited to use SQLAlchemy 2.0 native `sa.Uuid()` instead of `fastapi_users_db_sqlalchemy.generics.GUID()` (schema-equivalent type swap), allowing both `fastapi-users` and `fastapi-users-db-sqlalchemy` to be removed from the venv entirely. PyJWT (previously a transitive dep) is now declared directly.
 8. **Helper image versions hardcoded** — `BUILD_IMAGE_HELPER=v3`, `JOB_HELPER_IMAGE=v4` in `config.py`. No versioning strategy.
 9. ~~**Secrets path inconsistency**~~ — resolved 2026-04-29: all script callers follow the canonical fallback pattern (`recover-harbor.sh` is the model). See `.claude/rules/scripts-and-ops.md`.
 10. ~~**Harbor URL inconsistency**~~ — resolved 2026-04-29: the two forms (`harbor.harbor.svc` for K8s in-cluster API, `harbor.lolday.svc` for image pulls via host-level setup) are intentional. See §5.3. The lone outlier in `config.py` defaults was fixed.
+11. **mypy module-level overrides pending cleanup.** Large modules (notably `backend/app/reconciler.py`, 57KB) currently have `[mypy-<module>] ignore_errors = true` in `mypy.ini` to keep the first-wave adoption tractable. Each future phase that touches such a module should remove the override and fix types as part of that phase. Tracked from 2026-04-29 in `chore/engineering-hygiene`.
 
 ## 10. Common gotchas
 

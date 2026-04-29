@@ -50,3 +50,6 @@ Thumbs.db
 # Git worktrees
 .worktrees/
 test.db
+
+# Engineering hygiene — local diff preview artefact (Phase 2 of plan 2026-04-29)
+.engineering-hygiene-preview.diff

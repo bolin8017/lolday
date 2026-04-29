@@ -1,0 +1,28 @@
+# ruff.toml — repo-wide Python lint + format config
+# Truth lives here, NOT in backend/pyproject.toml (would shadow this).
+
+target-version = "py312"
+line-length = 88
+
+extend-exclude = [
+    "backend/.venv",
+    "backend/migrations/versions",
+    "**/.venv",
+    "frontend",
+    "charts/lolday/charts",
+]
+
+[lint]
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM", "RUF"]
+ignore = [
+    "E501",   # line length is owned by ruff format
+    "B008",   # FastAPI Depends() default is intentional
+    "SIM108", # ternary often hurts readability
+]
+
+[lint.per-file-ignores]
+"backend/tests/**" = ["S101", "B017"]
+"scripts/**" = ["T20"]
+
+[format]
+# Defaults are black-compatible; do not override.

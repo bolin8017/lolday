@@ -73,6 +73,29 @@ Both checks run inside the FastAPI lifespan. A misconfigured deploy crashes the 
 - Do not write OIDC / JWT verification yourself — use fastapi-users / cf-access.
 - Do not write retry logic yourself — use `httpx` + `tenacity` (or whatever is already in `pyproject.toml`).
 
+## Lint / Format / Type-check 紀律
+
+Tooling: **ruff** (lint + format) and **mypy** (type check). Config is at repo root: `ruff.toml` and `mypy.ini` — **do not** add `[tool.ruff]` or `[tool.mypy]` sections to `backend/pyproject.toml` (they would shadow the root config).
+
+Manual commands from `backend/`:
+
+```bash
+uv run ruff check .
+uv run ruff format .
+uv run mypy
+```
+
+### Forbidden additions
+
+- `black`, `flake8`, `pylint`, `isort`, `autopep8`, `yapf` — all replaced by ruff.
+- Hand-edits to `pyproject.toml` for deps — use `uv add <pkg>` (existing rule).
+
+### Rules
+
+- Expanding `[lint] ignore` or `[lint.per-file-ignores]` to silence real errors is forbidden. To suppress a specific layout block, use `# fmt: off` / `# fmt: on` (ruff-supported, behaviour-equivalent to black) and add a brief reason comment.
+- `# noqa: <code>` and `# type: ignore[<code>]` must be accompanied by a same-line reason (`# noqa: B008  # FastAPI Depends() pattern`). Bare suppressions are forbidden.
+- mypy strictness is incrementally enabled: each `[mypy-<module>] ignore_errors = true` in `mypy.ini` is a tracked debt entry in `docs/architecture.md` §9. When a phase touches such a module, remove the override and fix types as part of that phase.
+
 ## Don't add
 
 - New auth backends.

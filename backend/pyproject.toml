@@ -30,6 +30,7 @@ dev = [
     "aiosqlite>=0.21.0",
     "respx>=0.21.0",
     "fakeredis>=2.35.1",
+    "mypy>=1.20.2",
 ]
 
 [tool.pytest.ini_options]

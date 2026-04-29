@@ -4,6 +4,7 @@ import tsparser from "@typescript-eslint/parser";
 import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
+import prettierConfig from "eslint-config-prettier/flat";
 
 export default [
   { ignores: ["dist", "node_modules", "src/api/schema.gen.ts"] },
@@ -29,4 +30,5 @@ export default [
       globals: { ...globals.node },
     },
   },
+  prettierConfig,
 ];
