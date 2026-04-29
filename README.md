@@ -40,4 +40,4 @@ bash scripts/teardown.sh
 ## Documentation
 
 - [Design Spec](docs/superpowers/specs/2026-03-30-lolday-platform-design.md)
-- [Phase 1 Plan (v2)](docs/superpowers/plans/2026-04-13-phase1-infrastructure-v2.md)
+- [Phase 1 Plan](docs/superpowers/plans/2026-03-30-phase1-infrastructure.md)
