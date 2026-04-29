@@ -45,7 +45,17 @@ jobs:
         run: helm lint charts/lolday
 
       - name: helm template (render-only sanity)
-        run: helm template lolday charts/lolday --namespace lolday > /tmp/manifests.yaml
+        run: |
+          helm template lolday charts/lolday --namespace lolday \
+            --set harbor.harborAdminPassword=fake-harbor-pw \
+            --set backend.harborAdminPassword=fake-harbor-pw \
+            --set backend.fernetKey="ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=" \
+            --set postgresql.auth.password=fake-pg-pw \
+            --set mlflow.db.password=fake-mlflow-pw \
+            --set monitoring.grafana.adminPassword=fake-grafana-pw \
+            --set monitoring.postgresExporter.password=fake-pg-exporter-pw \
+            --set cloudflare.tunnelToken=fake-cf-tunnel-token \
+            > /tmp/manifests.yaml
 
       - name: Upload rendered manifests
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
