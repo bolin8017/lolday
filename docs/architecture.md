@@ -181,15 +181,20 @@ Grouped:
 
 Template: `.lolday-secrets.env.example` at repo root (committed).
 
-### 5.3 Known inconsistency (tracked, not fixed here)
+### 5.3 Harbor DNS — two intentional forms
 
-`backend/app/config.py` uses **three Harbor URL forms**:
+Two host names point at Harbor; they are **not interchangeable**:
 
-- `HARBOR_URL = "http://harbor.harbor.svc.cluster.local:80"` (full FQDN)
-- `HARBOR_IMAGE_PREFIX = "harbor.harbor.svc:80"` (short)
-- `JOB_HELPER_IMAGE = "harbor.lolday.svc:80/lolday/job-helper:v4"` (likely typo: `lolday` should be `harbor`)
+| Name | Resolved by | Used for |
+|------|-------------|----------|
+| `harbor.harbor.svc[.cluster.local]` | K8s in-cluster DNS (CoreDNS) — Harbor's Service in the `harbor` namespace | HTTP API calls from inside a pod (e.g. backend → Harbor REST) |
+| `harbor.lolday.svc[.cluster.local]` | server30 host-level setup: `/etc/hosts` entry + K3s containerd registry mirror (`/etc/rancher/k3s/registries.yaml`, see `scripts/patch-k3s-registries.sh`) — both point at Harbor's ClusterIP | Image pulls (containerd at the kubelet / docker level) |
 
-The third looks like a typo. Fixing is a follow-up phase (see §9).
+**Defaults in `backend/app/config.py`** all use the K8s native form (`harbor.harbor.svc`) — appropriate for tests and as a sentinel.
+
+**Production overrides in `charts/lolday/values.yaml`** uniformly use `harbor.lolday.svc` (because in production the values are consumed by templates that render image references AND by the backend pod making API calls; the host-level mirror handles both).
+
+If you see a default in `config.py` that uses `harbor.lolday.svc`, it's likely a copy-paste error from values.yaml — flag it.
 
 ## 6. Build / Test / Release
 
@@ -287,8 +292,8 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 6. **No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.** Caches exist but settings are default.
 7. **fastapi-users vestige** — `User.hashed_password` column still present but unused since Phase 10 SSO migration.
 8. **Helper image versions hardcoded** — `BUILD_IMAGE_HELPER=v3`, `JOB_HELPER_IMAGE=v4` in `config.py`. No versioning strategy.
-9. **Secrets path inconsistency** — 4 scripts hardcode `~/.lolday-secrets.env`; should follow the fallback pattern (`recover-harbor.sh` is the model).
-10. **Harbor URL inconsistency** — three forms in `config.py`. `harbor.lolday.svc:80` looks like a typo for `harbor.harbor.svc:80`.
+9. ~~**Secrets path inconsistency**~~ — resolved 2026-04-29: all script callers follow the canonical fallback pattern (`recover-harbor.sh` is the model). See `.claude/rules/scripts-and-ops.md`.
+10. ~~**Harbor URL inconsistency**~~ — resolved 2026-04-29: the two forms (`harbor.harbor.svc` for K8s in-cluster API, `harbor.lolday.svc` for image pulls via host-level setup) are intentional. See §5.3. The lone outlier in `config.py` defaults was fixed.
 
 ## 10. Common gotchas
 
