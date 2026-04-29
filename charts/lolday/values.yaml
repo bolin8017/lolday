@@ -53,7 +53,6 @@ backend:
     # BUILD_NAMESPACE + JOB_NAMESPACE are injected from `global.namespace` in
     # templates/backend.yaml — Phase 7.5 narrowed the pods Role to that ns, so
     # letting these two drift silently 403s GPU accounting.
-    BUILD_IMAGE_HELPER: "harbor.lolday.svc:80/lolday/build-helper:v3"
     BUILD_IMAGE_BUILDKIT: "moby/buildkit:v0.29.0-rootless"
     BUILD_IMAGE_GIT: "alpine/git:v2.52.0"
     BUILD_TIMEOUT_SECONDS: "1200"
@@ -62,7 +61,6 @@ backend:
     RECONCILER_ENABLED: "true"
     MLFLOW_TRACKING_URI: "http://mlflow.lolday.svc:5000"
     DATASET_CSV_MAX_BYTES: "10485760"
-    JOB_HELPER_IMAGE: "harbor.lolday.svc:80/lolday/job-helper:v4"
     JOB_PER_USER_CONCURRENCY: "2"
     JOB_IDEMPOTENCY_WINDOW_SECONDS: "300"
     INTERNAL_EVENTS_BASE_URL: "http://backend:8000"
@@ -251,7 +249,6 @@ samples:
 # ML Training/Evaluation/Predict Jobs
 # =============================================================================
 jobs:
-  helperImage: harbor.lolday.svc:80/lolday/job-helper:v4
   activeDeadlineSeconds:
     train: 21600
     evaluate: 1800

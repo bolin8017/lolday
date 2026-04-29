@@ -40,6 +40,26 @@ unset _var _url
 BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase12.1-2}
 FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase13a-2}
 
+# ---------------------------------------------------------------------------
+# Helper images — read SHA-pinned refs from the lockfile and drift-guard
+# them against the current HEAD subtrees. The lock is produced by
+# scripts/build-helpers.sh; see docs/runbooks/release-helpers.md.
+# ---------------------------------------------------------------------------
+HELPERS_LOCK="$CHART_DIR/helpers.lock"
+if [ ! -f "$HELPERS_LOCK" ]; then
+  echo "ERROR: $HELPERS_LOCK missing — run 'bash scripts/build-helpers.sh' first" >&2
+  exit 1
+fi
+
+if ! bash "$SCRIPT_DIR/check-helpers-lock.sh"; then
+  exit 1
+fi
+
+BUILD_IMAGE_HELPER=$(python3 -c \
+  'import json,sys; print(json.load(open(sys.argv[1]))["build_helper"])' "$HELPERS_LOCK")
+JOB_HELPER_IMAGE=$(python3  -c \
+  'import json,sys; print(json.load(open(sys.argv[1]))["job_helper"])'  "$HELPERS_LOCK")
+
 # Pre-flight
 echo "[1/4] Pre-flight checks..."
 if ! kubectl get nodes &>/dev/null; then
@@ -187,6 +207,8 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
   --set monitoring.grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD" \
   --set monitoring.postgresExporter.password="$PG_EXPORTER_PASSWORD" \
+  --set backend.env.BUILD_IMAGE_HELPER="$BUILD_IMAGE_HELPER" \
+  --set backend.env.JOB_HELPER_IMAGE="$JOB_HELPER_IMAGE" \
   --wait --timeout 20m
 
 echo ""

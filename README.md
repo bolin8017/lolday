@@ -27,7 +27,18 @@ helm install gpu-operator nvidia/gpu-operator \
   --set dcgmExporter.enabled=true \
   --wait --timeout 5m
 
-# 4. Deploy the platform (no sudo)
+# 4. Deploy the platform — first round (no sudo)
+#    Brings up Harbor + monitoring; backend will CrashLoopBackOff until
+#    helper images are pushed in step 6.
+bash scripts/deploy.sh
+
+# 5. Bootstrap Harbor projects + robot account
+bash scripts/recover-harbor.sh
+
+# 6. Build and push helper images (writes/refreshes charts/lolday/helpers.lock)
+bash scripts/build-helpers.sh
+
+# 7. Deploy again — backend now starts clean
 bash scripts/deploy.sh
 ```
 

@@ -115,11 +115,13 @@ Backend boot in production rejects empty `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_A
 
 ## 5. Deploy the platform (no sudo)
 
+The deploy script reads `charts/lolday/helpers.lock` and injects the two helper image refs via Helm `--set`. **The lock must exist and match the current HEAD** — see `docs/runbooks/release-helpers.md` for the bootstrap order on a fresh install. A missing or drifted lock exits 1 with a remediation message.
+
 ```bash
 bash scripts/deploy.sh
 ```
 
-Internally: `helm dependency update charts/lolday` then `helm upgrade --install lolday charts/lolday -n lolday`. The script reads `.lolday-secrets.env` for operator-managed secrets.
+Internally: `helm dependency update charts/lolday` then `helm upgrade --install lolday charts/lolday -n lolday`. The script reads `.lolday-secrets.env` for operator-managed secrets and `charts/lolday/helpers.lock` for helper image refs.
 
 Watch:
 
