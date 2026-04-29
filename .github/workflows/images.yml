@@ -1,0 +1,48 @@
+name: images
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*.*.*"
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/images.yml"
+      - ".github/actions/docker-meta-build/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/images.yml"
+      - ".github/actions/docker-meta-build/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-image:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, frontend]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Build (and push if not PR)
+        uses: ./.github/actions/docker-meta-build
+        with:
+          image: lolday-${{ matrix.image }}
+          context: ./${{ matrix.image }}
+          push: ${{ github.event_name != 'pull_request' }}
