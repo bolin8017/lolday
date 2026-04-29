@@ -18,8 +18,6 @@ async def test_insert_and_query(db_session: AsyncSession) -> None:
         id=uuid.uuid4(),
         email="t@example.com",
         hashed_password="x",
-        is_active=True,
-        is_verified=True,
     )
     det = Detector(
         name="d1-task3",

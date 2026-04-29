@@ -77,9 +77,6 @@ def test_role_orm_writes_lowercase_value_and_roundtrips(
                 hashed_password="!testing-only!",
                 role=role,
                 display_name=role.name,
-                is_active=True,
-                is_verified=True,
-                is_superuser=False,
             )
         )
         session.commit()
@@ -121,9 +118,6 @@ def test_role_user_default_stores_lowercase(tmp_path, monkeypatch):
                 hashed_password="!testing-only!",
                 # role= intentionally omitted — exercises the column default.
                 display_name="default-role",
-                is_active=True,
-                is_verified=True,
-                is_superuser=False,
             )
         )
         session.commit()

@@ -21,8 +21,6 @@ async def _seed_job_with_token(
         id=uuid.uuid4(),
         email=f"events-int-{uuid.uuid4().hex[:8]}@example.com",
         hashed_password="x",
-        is_active=True,
-        is_verified=True,
     )
     det = Detector(
         name=f"events-int-{uuid.uuid4().hex[:8]}",

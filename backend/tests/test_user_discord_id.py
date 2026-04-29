@@ -15,7 +15,7 @@ async def test_service_token_user_can_read_self(client):
     service-token User row. ``UserRead.email`` must be a plain ``str``.
     """
     email = "service-abc123@cf-access.local"
-    await _make_user(email, role=Role.ADMIN, is_superuser=True)
+    await _make_user(email, role=Role.ADMIN)
     c = _as_user(client, email)
     r = await c.get("/api/v1/users/me")
     assert r.status_code == 200, r.text

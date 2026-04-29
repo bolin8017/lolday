@@ -35,7 +35,6 @@ async def setup_db():
 async def _make_user(
     email: str,
     role: Role = Role.USER,
-    is_superuser: bool = False,
 ) -> User:
     """Insert or return a test User row with the given role."""
     async with test_session_maker() as session:
@@ -49,9 +48,6 @@ async def _make_user(
             hashed_password="!testing-only!",
             role=role,
             display_name=email.split("@", 1)[0],
-            is_active=True,
-            is_superuser=is_superuser,
-            is_verified=True,
         )
         session.add(user)
         await session.commit()
@@ -125,7 +121,7 @@ async def auth_client_developer(client):
 
 @pytest_asyncio.fixture
 async def auth_client_admin(client):
-    await _make_user("adm@example.dev", role=Role.ADMIN, is_superuser=True)
+    await _make_user("adm@example.dev", role=Role.ADMIN)
     return _as_user(client, "adm@example.dev")
 
 
