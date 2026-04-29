@@ -57,8 +57,8 @@ If something works in `pnpm dev` but breaks in the built container, suspect CSP 
 - `pnpm playwright test` — E2E (`frontend/tests/e2e/`). Some tests require the backend running.
 - Run `pnpm typecheck && pnpm lint` before commit.
 
-## Duplicated config files (tech debt — DO NOT touch in this scope)
+## Stray config build emits (gitignored)
 
-`frontend/playwright.config.{ts,js,d.ts}`, `vite.config.{ts,js,d.ts}`, `vitest.config.{ts,js,d.ts}`, and `tailwind.config.{ts,js,d.ts}` each have three copies. The `.ts` is the source of truth. The `.js` and `.d.ts` are accidental build emit committed in error.
+`frontend/{playwright,vite,vitest,tailwind}.config.ts` are the source of truth and the only versions tracked in git. `tsc --build` over the configs occasionally produces `.js` and `.d.ts` siblings as accidental local output; these and `*.tsbuildinfo` are listed in the root `.gitignore` so they cannot be committed by accident.
 
-When modifying config, edit the `.ts` only. The cleanup (delete the `.js` / `.d.ts` siblings, add the build-info file to `.gitignore`) is in a follow-up phase.
+Edit the `.ts` only. If you see a stray `.js` or `.d.ts` next to a config, delete it locally — runtime tools (vite/vitest/playwright/tailwind) read the `.ts` directly via tsx/esbuild.
