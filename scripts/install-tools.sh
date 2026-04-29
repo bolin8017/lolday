@@ -10,7 +10,7 @@ echo ""
 # -------------------------------------------------------
 # kubectl
 # -------------------------------------------------------
-echo "[1/3] kubectl..."
+echo "[1/4] kubectl..."
 if command -v kubectl &>/dev/null; then
   echo "  Already installed: $(kubectl version --client --short 2>/dev/null || kubectl version --client 2>&1 | head -1)"
 else
@@ -24,7 +24,7 @@ fi
 # -------------------------------------------------------
 # helm
 # -------------------------------------------------------
-echo "[2/3] helm..."
+echo "[2/4] helm..."
 if command -v helm &>/dev/null; then
   echo "  Already installed: $(helm version --short 2>/dev/null)"
 else
