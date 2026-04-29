@@ -76,5 +76,5 @@ def downgrade() -> None:
         "in backend/app/models/user.py (the values_callable on User.role) "
         "MUST be reverted in the same deploy before running this. If you "
         "have done that, comment out this guard and rerun. See "
-        "docs/phase12.1-role-enum-bug.md for context."
+        "docs/phase-history/phase12.1-role-enum-bug.md for context."
     )

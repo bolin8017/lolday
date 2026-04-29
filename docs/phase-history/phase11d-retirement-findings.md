@@ -41,7 +41,7 @@ If the previous session had pulled the pod's full traceback rather than relying 
 
 ## What got retired
 
-- **DB:** 2 v0 detector_version rows + 1 v0 model_version + 3 v0 jobs + 9 v0 detector_build rows. Snapshot at `docs/phase11d-v0-snapshot.json` (40 KB JSON).
+- **DB:** 2 v0 detector_version rows + 1 v0 model_version + 3 v0 jobs + 9 v0 detector_build rows. Snapshot at `phase11d-v0-snapshot.json` (in this same `docs/phase-history/` directory; 40 KB JSON).
 - **Harbor:** 1 v0 artifact (`detectors/elfrfdet:v0.1.1`).
 - **GitHub:** `bolin8017/islab-malware-detector` archived.
 - **Volcano namespace:** ~170 Aborted/Failed historical jobs deleted; 21 Completed kept as audit trail.

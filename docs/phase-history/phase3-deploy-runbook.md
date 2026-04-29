@@ -254,4 +254,4 @@ helm upgrade lolday ./charts/lolday \
 
 ## After Task 17 completes → proceed to Task 18 E2E
 
-See `docs/phase3-e2e-checklist.md`.
+See `phase3-e2e-checklist.md` (in this same `docs/phase-history/` directory).

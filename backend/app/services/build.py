@@ -79,7 +79,7 @@ def build_job_spec(
     #   kernel.apparmor_restrict_unprivileged_userns = 0
     # in /etc/sysctl.d/ — without it rootlesskit fails with
     #   `[rootlesskit:parent] error: ... EPERM`
-    # See docs/ops/host-prep.md for the full host setup.
+    # See docs/runbooks/deploy.md §1 (Pre-requisites) for the full host setup.
     buildkit_sc = {
         "runAsNonRoot": True,
         "runAsUser": 1000,

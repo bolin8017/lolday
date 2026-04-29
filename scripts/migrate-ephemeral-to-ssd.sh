@@ -506,7 +506,7 @@ EOF
 │   • rsync_and_verify integrity gate (file-count + byte-size)    │
 │     before each bind-mount flip                                 │
 │                                                                 │
-│ See docs/2026-04-21-phase8-e2e-ux-findings.md § "Stage 4        │
+│ See docs/phase-history/phase8-e2e-ux-findings.md § "Stage 4    │
 │ data-loss post-mortem" for the full detail.                     │
 └─────────────────────────────────────────────────────────────────┘
 
