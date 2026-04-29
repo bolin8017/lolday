@@ -1,0 +1,62 @@
+name: frontend
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "backend/**"
+      - "charts/**"
+      - "scripts/**"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "backend/**"
+      - "charts/**"
+      - "scripts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup pnpm + install frontend
+        uses: ./.github/actions/setup-pnpm-node
+
+      - name: Typecheck
+        run: pnpm --dir frontend typecheck
+
+      - name: Vitest
+        run: pnpm --dir frontend test
+
+  # ---------------------------------------------------------------------------
+  # FUTURE PHASE: Playwright E2E. Spec §4.3 deferred (no Postgres/MLflow/CF
+  # Access mocking infrastructure in CI yet). Spec doc:
+  #   docs/superpowers/specs/2026-04-30-github-actions-cicd-design.md
+  # When activating, this needs at minimum:
+  #   - Postgres + Redis service containers OR aiosqlite-only backend mode
+  #   - MLflow mock or skip-mode
+  #   - CF Access bypass for test JWT
+  # Until then, operator runs `pnpm --dir frontend playwright test` locally
+  # before merging frontend changes.
+  # ---------------------------------------------------------------------------
+  # playwright-e2e:
+  #   runs-on: ubuntu-24.04
+  #   steps:
+  #     - uses: actions/checkout@... # pin SHA
+  #     - uses: ./.github/actions/setup-pnpm-node
+  #     - run: pnpm --dir frontend playwright install --with-deps
+  #     - run: pnpm --dir frontend playwright test

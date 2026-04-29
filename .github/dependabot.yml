@@ -1,0 +1,70 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      backend-minor-patch:
+        patterns: ["*"]
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      frontend-minor-patch:
+        patterns: ["*"]
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /charts/lolday/helpers/build-helper
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /charts/lolday/helpers/job-helper
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /charts/lolday/helpers/mlflow-server
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /charts/lolday/helpers/pytorch-cu12-base
+    schedule:
+      interval: weekly

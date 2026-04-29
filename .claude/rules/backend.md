@@ -101,3 +101,7 @@ uv run mypy
 - New auth backends.
 - New DB drivers.
 - Mock-only tests for code that hits real services in prod (the test will pass but mask production drift).
+
+## CI
+
+Enforced by `.github/workflows/{lint,backend}.yml`. Discipline rules in `.claude/rules/github-actions.md`. Do not duplicate ruff / mypy invocations in `backend.yml` — `lint.yml` owns hygiene.

@@ -87,3 +87,7 @@ pnpm typecheck       # tsc --noEmit
 `frontend/{playwright,vite,vitest,tailwind}.config.ts` are the source of truth and the only versions tracked in git. `tsc --build` over the configs occasionally produces `.js` and `.d.ts` siblings as accidental local output; these and `*.tsbuildinfo` are listed in the root `.gitignore` so they cannot be committed by accident.
 
 Edit the `.ts` only. If you see a stray `.js` or `.d.ts` next to a config, delete it locally — runtime tools (vite/vitest/playwright/tailwind) read the `.ts` directly via tsx/esbuild.
+
+## CI
+
+Enforced by `.github/workflows/{lint,frontend}.yml`. Discipline rules in `.claude/rules/github-actions.md`. Do not duplicate prettier / eslint / typecheck invocations in `frontend.yml` — `lint.yml` owns hygiene.

@@ -1,0 +1,18 @@
+name: setup-uv
+description: Install uv and run `uv sync --frozen` against a project directory.
+inputs:
+  working-directory:
+    description: Project directory passed to `uv sync --project`. Default `backend`.
+    required: false
+    default: backend
+runs:
+  using: composite
+  steps:
+    - name: Install uv (cached)
+      uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+      with:
+        enable-cache: true
+        cache-dependency-glob: "**/uv.lock"
+    - name: uv sync ${{ inputs.working-directory }}
+      shell: bash
+      run: uv sync --frozen --project ${{ inputs.working-directory }}

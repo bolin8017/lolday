@@ -67,6 +67,7 @@ cd frontend && pnpm test                # frontend unit (vitest)
 cd frontend && pnpm playwright test     # frontend E2E
 helm lint charts/lolday                 # helm sanity
 pre-commit run --all-files              # lint+format whole repo (also auto-runs on git commit)
+gh workflow run lint.yml                # trigger CI sanity from local (needs gh CLI)
 ```
 
 Detailed flow → `docs/runbooks/deploy.md` and `docs/architecture.md` §6.

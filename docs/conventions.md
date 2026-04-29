@@ -99,3 +99,73 @@ Read the path-scoped rule for the area you're touching:
 - `charts/...` → `.claude/rules/charts-and-helm.md`
 - `scripts/...` → `.claude/rules/scripts-and-ops.md`
 - `backend/migrations/...` → `.claude/rules/alembic-migrations.md`
+
+## 10. CI / CD (GitHub Actions)
+
+> Source spec: `docs/superpowers/specs/2026-04-30-github-actions-cicd-design.md`. Detailed discipline lives in `.claude/rules/github-actions.md`.
+
+### 10.1 Workflow inventory
+
+| Workflow       | Triggers                                                          | What it does                                                                              |
+| -------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `lint.yml`     | every push to `main`, every PR                                    | `pre-commit run --all-files` (single source of truth for ruff / mypy / prettier / eslint) |
+| `backend.yml`  | path-filtered to `backend/**`                                     | `cd backend && uv run pytest`                                                             |
+| `frontend.yml` | path-filtered to `frontend/**`                                    | `pnpm typecheck` + `pnpm test` (vitest); playwright deferred                              |
+| `helm.yml`     | path-filtered to `charts/**`                                      | `helm dep update` + `helm lint` + `helm template`                                         |
+| `images.yml`   | `backend/Dockerfile` / `frontend/Dockerfile` paths + tag `v*.*.*` | matrix build backend / frontend → GHCR (PR builds only, no push)                          |
+| `helpers.yml`  | path-filtered to `charts/lolday/helpers/{build,job}-helper/**`    | matrix build → GHCR; `mlflow-server` and `pytorch-cu12-base` excluded by design           |
+
+### 10.2 Pre-commit is the single source of truth
+
+The CI's `lint.yml` runs `pre-commit run --all-files` against the same `.pre-commit-config.yaml` operators run locally. Do **not** add parallel `uv run ruff check` / `pnpm lint` steps to other workflows — duplication breeds drift. To add a new check, edit `.pre-commit-config.yaml`; CI follows automatically.
+
+### 10.3 Two-registry model
+
+- **GHCR** — `ghcr.io/bolin8017/lolday-{backend,frontend,build-helper,job-helper}`. Populated by CI on `main` and tag pushes. Verification artefact.
+- **Harbor** — `harbor.lolday.svc:80/lolday/*`. Production runtime registry, server30-internal. Populated by operator running `bash scripts/build-helpers.sh` and the parallel manual flows for backend / frontend / mlflow-server / pytorch-cu12-base. CI never pushes here.
+
+Why split: Harbor is unreachable from GitHub-hosted runners by design (`docs/architecture.md` §5.3); see spec §3.1 for the rejection of self-hosted-runner / Cloudflare-Tunnel-Harbor alternatives.
+
+### 10.4 Image tag rules
+
+| Trigger            | Tags applied                                 |
+| ------------------ | -------------------------------------------- |
+| `push: main`       | `main`, `main-<short-sha>`, `sha-<long-sha>` |
+| `push: tag v1.2.3` | `1.2.3`, `1.2`, `1`, `latest`                |
+| `pull_request`     | not pushed (build only)                      |
+
+### 10.5 Releasing
+
+```bash
+git tag v0.1.0
+git push --tags
+```
+
+`images.yml` and `helpers.yml` (NB: helpers does **not** trigger on tag — its tag is content-addressable subtree SHA via `helpers.lock`, not platform semver) push semver tags to GHCR. Production deploy on server30 is unaffected — operator continues `bash scripts/deploy.sh`.
+
+### 10.6 Branch-protection setup (operator manual)
+
+GitHub provides no in-repo declarative branch-protection API stable enough to depend on. After the CI PR merges, operator goes to `Settings → Branches → Add branch ruleset` (or classic «Add rule» on `main`) and configures:
+
+1. **Require a pull request before merging** — yes.
+2. **Required status checks** — add all six:
+   - `lint / pre-commit`
+   - `backend / pytest`
+   - `frontend / unit`
+   - `helm / lint-template`
+   - `images / build-image (backend)`, `images / build-image (frontend)`
+   - `helpers / build-helper (build-helper)`, `helpers / build-helper (job-helper)`
+3. **Require branches to be up to date before merging** — yes.
+4. **Require conversation resolution** — yes.
+5. **Require linear history** — yes.
+6. **Restrict who can push to matching branches / disallow force pushes** — yes.
+7. **Allow squash merge only** (Settings → General → Pull Requests).
+
+### 10.7 Dependabot SOP
+
+Weekly Mondays. Per ecosystem:
+
+- **`github-actions`** — bumps SHA pin + comment in lock-step. Green CI = squash merge.
+- **`pip`** (backend) — minor/patch grouped; verify `cd backend && uv lock` aligns with the merged `pyproject.toml`.
+- **`npm`** (frontend) — minor/patch grouped; check peer-dep warnings in CI log.
+- **`docker`** (per Dockerfile dir) — base-image bump. For `mlflow-server` and `pytorch-cu12-base`, merging the PR is half the work — operator must rebuild manually because their CI build is out of scope.

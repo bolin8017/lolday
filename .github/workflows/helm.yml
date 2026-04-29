@@ -1,0 +1,65 @@
+name: helm
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-template:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup helm
+        uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+        with:
+          version: v3.16.4
+
+      - name: Cache sub-chart tgz
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: charts/lolday/charts
+          key: ${{ runner.os }}-helm-deps-${{ hashFiles('charts/lolday/Chart.lock') }}
+
+      - name: helm dependency update
+        run: helm dependency update charts/lolday
+
+      - name: helm lint
+        run: helm lint charts/lolday
+
+      - name: helm template (render-only sanity)
+        run: |
+          helm template lolday charts/lolday --namespace lolday \
+            --set harbor.harborAdminPassword=fake-harbor-pw \
+            --set backend.harborAdminPassword=fake-harbor-pw \
+            --set backend.fernetKey="ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=" \
+            --set postgresql.auth.password=fake-pg-pw \
+            --set mlflow.db.password=fake-mlflow-pw \
+            --set monitoring.grafana.adminPassword=fake-grafana-pw \
+            --set monitoring.postgresExporter.password=fake-pg-exporter-pw \
+            --set cloudflare.tunnelToken=fake-cf-tunnel-token \
+            > /tmp/manifests.yaml
+
+      - name: Upload rendered manifests
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: helm-manifests-${{ github.run_id }}
+          path: /tmp/manifests.yaml
+          retention-days: 14

@@ -1,5 +1,12 @@
 # Lolday
 
+[![lint](https://github.com/bolin8017/lolday/actions/workflows/lint.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/lint.yml)
+[![backend](https://github.com/bolin8017/lolday/actions/workflows/backend.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/backend.yml)
+[![frontend](https://github.com/bolin8017/lolday/actions/workflows/frontend.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/frontend.yml)
+[![helm](https://github.com/bolin8017/lolday/actions/workflows/helm.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/helm.yml)
+[![images](https://github.com/bolin8017/lolday/actions/workflows/images.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/images.yml)
+[![helpers](https://github.com/bolin8017/lolday/actions/workflows/helpers.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/helpers.yml)
+
 Internal ML platform for ISLab malware detector management.
 
 ## Prerequisites

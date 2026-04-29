@@ -89,3 +89,7 @@ Read the SSH safety hard rule in root `CLAUDE.md` first. Any change that could a
 
 - Single file today; no overlay system.
 - Secrets go through `*-secret.yaml` templates wired to external sources (operator-local `.lolday-secrets.env` or in-cluster Secrets). Never put plaintext credentials in `values.yaml`.
+
+## CI
+
+`helm dependency update`, `helm lint`, `helm template` enforced by `.github/workflows/helm.yml`. Helper image Dockerfile build verification (build-helper, job-helper only) by `.github/workflows/helpers.yml` — `mlflow-server` and `pytorch-cu12-base` are excluded by design (operator manual). Discipline rules in `.claude/rules/github-actions.md`.

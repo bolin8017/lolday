@@ -53,3 +53,6 @@ test.db
 
 # Engineering hygiene — local diff preview artefacts (Phase 2 of plan 2026-04-29)
 .engineering-hygiene-preview.*
+
+# Local GHA debug artifacts (nektos/act)
+/.github/.cache/

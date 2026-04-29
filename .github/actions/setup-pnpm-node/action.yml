@@ -1,0 +1,17 @@
+name: setup-pnpm-node
+description: Corepack-enable pnpm, run setup-node with pnpm cache, install frontend deps.
+runs:
+  using: composite
+  steps:
+    - name: Enable corepack
+      shell: bash
+      run: corepack enable
+    - name: Setup Node from frontend/.nvmrc with pnpm cache
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version-file: frontend/.nvmrc
+        cache: pnpm
+        cache-dependency-path: frontend/pnpm-lock.yaml
+    - name: pnpm install (frontend, frozen)
+      shell: bash
+      run: pnpm --dir frontend install --frozen-lockfile
