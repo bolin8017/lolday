@@ -8,7 +8,7 @@ inputs:
     description: Build context path (relative to repo root).
     required: true
   push:
-    description: '"true" to push, "false" to build only. Caller passes ${{ github.event_name != ''pull_request'' }}.'
+    description: '"true" to push, "false" to build only. Callers pass an event-conditional expression.'
     required: true
 runs:
   using: composite
