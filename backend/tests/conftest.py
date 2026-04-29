@@ -296,6 +296,26 @@ def mock_k8s_batch(monkeypatch):
 
     monkeypatch.setattr("app.services.k8s.volcano_v1alpha1", lambda: _StubVolcano())
 
+    # Patch the rebound `from app.services.k8s import core_v1` (etc.) names
+    # in every caller module — Python's `from ... import ...` creates a new
+    # module-local binding that is NOT updated by patching the source. Locally
+    # this gap was masked because the operator's real kubeconfig let the
+    # un-patched calls reach a live cluster; in CI there is no cluster.
+    for _mod, _names in [
+        ("app.services.harbor_init", ["core_v1"]),
+        ("app.services.cluster_status", ["core_v1", "volcano_v1alpha1"]),
+        ("app.routers.detectors", ["batch_v1", "core_v1"]),
+        ("app.routers.jobs", ["batch_v1", "core_v1", "volcano_v1alpha1"]),
+        ("app.reconciler", ["batch_v1", "core_v1", "volcano_v1alpha1"]),
+    ]:
+        for _name in _names:
+            if _name == "batch_v1":
+                monkeypatch.setattr(f"{_mod}.{_name}", lambda: stub)
+            elif _name == "core_v1":
+                monkeypatch.setattr(f"{_mod}.{_name}", lambda: _StubCore())
+            else:
+                monkeypatch.setattr(f"{_mod}.{_name}", lambda: _StubVolcano())
+
 
 @pytest.fixture(autouse=True)
 def mock_mlflow(request, monkeypatch):
