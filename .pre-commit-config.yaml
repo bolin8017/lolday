@@ -46,7 +46,7 @@ repos:
         name: prettier
         language: system
         entry: frontend/node_modules/.bin/prettier --write --ignore-unknown
-        files: \.(ts|tsx|js|jsx|cjs|mjs|css|json|md|mdx|yaml|yml)$
+        files: \.(ts|tsx|js|jsx|cjs|mjs|css|html|json|md|mdx|yaml|yml)$
 
       - id: eslint
         name: eslint
