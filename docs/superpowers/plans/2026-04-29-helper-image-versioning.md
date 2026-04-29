@@ -133,7 +133,8 @@ Write `tests/build-helpers/run_all.sh`:
 ```bash
 #!/usr/bin/env bash
 # Run every test_*.sh in this directory, report pass/fail, exit non-zero
-# on the first failure. Run with `bash tests/build-helpers/run_all.sh`.
+# if any test file fails (after running every file — does not short-
+# circuit on the first failure). Run with `bash tests/build-helpers/run_all.sh`.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -329,10 +330,10 @@ repo="$(mk_fixture)"
 trap "rm -rf '$repo'" EXIT
 cd "$repo"
 
+# Override REPO_ROOT via LOLDAY_REPO_ROOT_OVERRIDE so the sourced
+# script targets the fixture repo, not the real lolday repo.
+export LOLDAY_REPO_ROOT_OVERRIDE="$repo"
 LOLDAY_BUILD_HELPERS_SOURCED=1
-# Override REPO_ROOT so the sourced script targets the fixture, not the
-# real lolday repo.
-REPO_ROOT="$repo"
 # shellcheck disable=SC1090
 . "$SCRIPT"
 
@@ -364,8 +365,9 @@ shallow="$(mktemp -d)"
 ( cd "$shallow" && git clone --depth=1 -q "file://$repo" clone )
 (
   cd "$shallow/clone"
+  # inside the shallow subshell:
+  export LOLDAY_REPO_ROOT_OVERRIDE="$shallow/clone"
   LOLDAY_BUILD_HELPERS_SOURCED=1
-  REPO_ROOT="$shallow/clone"
   # shellcheck disable=SC1090
   . "$SCRIPT"
   if assert_not_shallow 2>/dev/null; then
@@ -470,8 +472,8 @@ repo="$(mk_fixture)"
 trap "rm -rf '$repo'" EXIT
 cd "$repo"
 
+export LOLDAY_REPO_ROOT_OVERRIDE="$repo"
 LOLDAY_BUILD_HELPERS_SOURCED=1
-REPO_ROOT="$repo"
 LOCK_FILE="$repo/charts/lolday/helpers.lock"
 # shellcheck disable=SC1090
 . "$SCRIPT"
@@ -693,6 +695,7 @@ set -euo pipefail
 repo="$(mk_fixture)"
 trap "rm -rf '$repo'" EXIT
 cd "$repo"
+export LOLDAY_REPO_ROOT_OVERRIDE="$repo"
 
 # Run with --dry-run. We intentionally do NOT define a kubectl mock —
 # the script must short-circuit before any kubectl call.
@@ -730,6 +733,7 @@ set -euo pipefail
 repo="$(mk_fixture)"
 trap "rm -rf '$repo'" EXIT
 cd "$repo"
+export LOLDAY_REPO_ROOT_OVERRIDE="$repo"
 
 build_sha="$(expected_sha "$repo" build-helper)"
 job_sha="$(expected_sha "$repo" job-helper)"
@@ -764,6 +768,7 @@ set -euo pipefail
 repo="$(mk_fixture)"
 trap "rm -rf '$repo'" EXIT
 cd "$repo"
+export LOLDAY_REPO_ROOT_OVERRIDE="$repo"
 
 # Dirty up the tree.
 echo "// dirty" >> charts/lolday/helpers/build-helper/maldet_validator.py
@@ -864,6 +869,22 @@ build_ref() {
 
 main() {
   parse_args "$@"
+
+  # Validate --only target up front. resolve_targets() also has its
+  # own check, but its exit code is silently swallowed when called
+  # via < <(...) process substitution (subshell exit codes do not
+  # propagate). Validate here so the failure mode is loud.
+  if [ -n "$ONLY" ]; then
+    local found=0
+    for h in "${HELPERS[@]}"; do
+      [ "$h" = "$ONLY" ] && found=1
+    done
+    if [ "$found" -eq 0 ]; then
+      echo "ERROR: --only $ONLY: not in HELPERS=(${HELPERS[*]})" >&2
+      exit 1
+    fi
+  fi
+
   assert_not_shallow
 
   # Pre-flight: when not allowing dirty, every target subtree must be
@@ -896,10 +917,9 @@ main() {
         echo "[skip] $helper:$sha already in Harbor"
       else
         echo "[build] $helper -> $ref"
-        local push_ref="$HARBOR_HOST_PUSH/$HARBOR_PROJECT/$helper:${ref##*:}"
-        ( cd "$REPO_ROOT" && \
-          docker build --pull -t "$push_ref" "charts/lolday/helpers/$helper" )
-        docker push "$push_ref"
+        # Push tag carries the same SHA (or the dirty-suffixed form via
+        # build_ref) — extract from the ref so we don't recompute.
+        docker_build_push "$helper" "${ref##*:}"
       fi
     fi
 
