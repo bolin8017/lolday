@@ -5,7 +5,10 @@ export function formatDuration(
   end: string | null | undefined,
 ): string {
   if (!start || !end) return "—";
-  const secs = Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000));
+  const secs = Math.max(
+    0,
+    Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000),
+  );
   if (secs < 60) return `${secs}s`;
   if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
   return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;

@@ -1,15 +1,18 @@
+import { type ReactNode, type ReactElement } from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
 
-function renderBanner(node: React.ReactNode) {
+function renderBanner(node: ReactNode) {
   return render(<MemoryRouter>{node}</MemoryRouter>);
 }
 
 describe("detailToDeleteBanner", () => {
   it("returns generic 'Delete failed.' for undefined detail", () => {
-    expect(detailToDeleteBanner(undefined)).toEqual({ message: "Delete failed." });
+    expect(detailToDeleteBanner(undefined)).toEqual({
+      message: "Delete failed.",
+    });
   });
 
   it("passes through unknown codes unchanged", () => {
@@ -24,7 +27,7 @@ describe("detailToDeleteBanner", () => {
     });
     expect(banner.code).toBe("version_has_in_flight_jobs");
     // message is now a ReactNode; render it to verify the embedded link.
-    renderBanner(banner.message as React.ReactElement);
+    renderBanner(banner.message as ReactElement);
     expect(screen.getByText(/Cancel running jobs/i)).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /See running jobs/i });
     expect(link).toBeInTheDocument();
@@ -37,14 +40,18 @@ describe("detailToDeleteBanner", () => {
       message: "Cancel running jobs for this detector before deleting it.",
     });
     expect(banner.code).toBe("detector_has_in_flight_jobs");
-    renderBanner(banner.message as React.ReactElement);
+    renderBanner(banner.message as ReactElement);
     expect(screen.getByText(/Cancel running jobs/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /See running jobs/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /See running jobs/i }),
+    ).toBeInTheDocument();
   });
 
   it("uses fallback message text when detail.message is missing on in-flight code", () => {
     const banner = detailToDeleteBanner({ code: "version_has_in_flight_jobs" });
-    renderBanner(banner.message as React.ReactElement);
-    expect(screen.getByText(/Cancel running jobs first\./i)).toBeInTheDocument();
+    renderBanner(banner.message as ReactElement);
+    expect(
+      screen.getByText(/Cancel running jobs first\./i),
+    ).toBeInTheDocument();
   });
 });

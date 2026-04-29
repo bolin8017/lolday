@@ -29,7 +29,12 @@ class MlflowClient:
         self._retries = retries
 
     async def _request(
-        self, method: str, path: str, *, json: dict | None = None, params: dict | None = None
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        params: dict | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base}/api/2.0/mlflow{path}"
         last_exc: Exception | None = None
@@ -53,8 +58,8 @@ class MlflowClient:
         code = body.get("error_code", "UNKNOWN")
         msg = body.get("message", "")
         e = MlflowError(f"{code}: {msg}")
-        e.code = code  # type: ignore[attr-defined]
-        e.http_status = status  # type: ignore[attr-defined]
+        e.code = code  # type: ignore[attr-defined]  # dynamic attribute for error context
+        e.http_status = status  # type: ignore[attr-defined]  # dynamic attribute for error context
         raise e
 
     # experiments
@@ -68,7 +73,9 @@ class MlflowClient:
         return resp["experiment_id"]
 
     async def get_experiment_by_name(self, name: str) -> dict[str, Any]:
-        resp = await self._request("GET", "/experiments/get-by-name", params={"experiment_name": name})
+        resp = await self._request(
+            "GET", "/experiments/get-by-name", params={"experiment_name": name}
+        )
         return resp["experiment"]
 
     async def get_or_create_experiment(
@@ -167,10 +174,14 @@ class MlflowClient:
 
     async def delete_model_version(self, name: str, version: str) -> None:
         await self._request(
-            "DELETE", "/model-versions/delete", json={"name": name, "version": str(version)}
+            "DELETE",
+            "/model-versions/delete",
+            json={"name": name, "version": str(version)},
         )
 
-    async def search_registered_models(self, max_results: int = 100) -> list[dict[str, Any]]:
+    async def search_registered_models(
+        self, max_results: int = 100
+    ) -> list[dict[str, Any]]:
         resp = await self._request(
             "GET",
             "/registered-models/search",

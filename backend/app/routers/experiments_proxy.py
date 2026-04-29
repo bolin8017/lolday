@@ -5,16 +5,18 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.config import settings
-from app.users import current_active_user
 from app.models import User
 from app.services.mlflow_client import MlflowClient, MlflowError
+from app.users import current_active_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 def _client() -> MlflowClient:
-    return MlflowClient(settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS)
+    return MlflowClient(
+        settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
+    )
 
 
 @router.get("/experiments")
@@ -25,7 +27,7 @@ async def list_experiments(
     try:
         return await _client().search_experiments(max_results=max_results)
     except MlflowError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.get("/experiments/{experiment_id}/runs")
@@ -39,7 +41,7 @@ async def list_runs(
             experiment_ids=[experiment_id], max_results=max_results
         )
     except MlflowError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.get("/runs/{run_id}")
@@ -50,7 +52,7 @@ async def get_run(
     try:
         return await _client().get_run(run_id)
     except MlflowError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.get("/runs/{run_id}/artifacts")
@@ -84,7 +86,7 @@ async def download_artifact(
             status_code=502,
             detail=f"unexpected artifact_uri scheme: {artifact_uri!r}",
         )
-    relative = artifact_uri[len(prefix):].rstrip("/")
+    relative = artifact_uri[len(prefix) :].rstrip("/")
     url = f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow-artifacts/artifacts/{relative}/{path}"
     async with httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS) as c:
         r = await c.get(url)

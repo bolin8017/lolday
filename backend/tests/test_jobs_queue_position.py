@@ -25,7 +25,9 @@ async def _create_job(user_client, seed_detector_version, seed_dataset):
 
 @pytest.mark.asyncio
 async def test_queue_position_requires_auth(client):
-    r = await client.get("/api/v1/jobs/00000000-0000-0000-0000-000000000000/queue-position")
+    r = await client.get(
+        "/api/v1/jobs/00000000-0000-0000-0000-000000000000/queue-position"
+    )
     assert r.status_code == 401
 
 

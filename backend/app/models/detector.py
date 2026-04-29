@@ -1,35 +1,37 @@
-import enum
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import (
+    JSON,
     DateTime,
-    Enum as SAEnum,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
     func,
 )
+from sqlalchemy import (
+    Enum as SAEnum,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.user import Base
 
 # Use JSONB on PostgreSQL; fall back to plain JSON on SQLite (tests).
 _JSONB = JSONB().with_variant(JSON(), "sqlite")
 
-from app.models.user import Base
 
-
-class DetectorVersionStatus(str, enum.Enum):
+class DetectorVersionStatus(StrEnum):
     ACTIVE = "active"
-    RETENTION_PRUNED = "retention_pruned"   # GC by reconciler retention
-    DELETED = "deleted"                      # Phase 13a (A4): user-initiated soft delete
+    RETENTION_PRUNED = "retention_pruned"  # GC by reconciler retention
+    DELETED = "deleted"  # Phase 13a (A4): user-initiated soft delete
 
 
-class DetectorBuildStatus(str, enum.Enum):
+class DetectorBuildStatus(StrEnum):
     PENDING = "pending"
     CLONING = "cloning"
     VALIDATING = "validating"

@@ -4,6 +4,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_register_rejects_user_role(auth_client_user, monkeypatch):
     from app.routers import detectors as dr
+
     monkeypatch.setattr(dr, "_clone_and_validate", _fake_meta("upxelfdet"))
     resp = await auth_client_user.post(
         "/api/v1/detectors",
@@ -15,6 +16,7 @@ async def test_register_rejects_user_role(auth_client_user, monkeypatch):
 @pytest.mark.asyncio
 async def test_register_developer(auth_client_developer, monkeypatch):
     from app.routers import detectors as dr
+
     monkeypatch.setattr(dr, "_clone_and_validate", _fake_meta("upxelfdet"))
     resp = await auth_client_developer.post(
         "/api/v1/detectors",
@@ -28,6 +30,7 @@ async def test_register_developer(auth_client_developer, monkeypatch):
 @pytest.mark.asyncio
 async def test_register_duplicate_git_url(auth_client_developer, monkeypatch):
     from app.routers import detectors as dr
+
     monkeypatch.setattr(dr, "_clone_and_validate", _fake_meta("upxelfdet"))
     r1 = await auth_client_developer.post(
         "/api/v1/detectors", json={"git_url": "https://github.com/bolin8017/upxelfdet"}
@@ -42,6 +45,7 @@ async def test_register_duplicate_git_url(auth_client_developer, monkeypatch):
 @pytest.mark.asyncio
 async def test_list_and_get(auth_client_developer, monkeypatch):
     from app.routers import detectors as dr
+
     monkeypatch.setattr(dr, "_clone_and_validate", _fake_meta("upxelfdet"))
     create = await auth_client_developer.post(
         "/api/v1/detectors", json={"git_url": "https://github.com/bolin8017/upxelfdet"}
@@ -57,10 +61,13 @@ async def test_list_and_get(auth_client_developer, monkeypatch):
 @pytest.mark.asyncio
 async def test_soft_delete(auth_client_developer, monkeypatch):
     from app.routers import detectors as dr
+
     monkeypatch.setattr(dr, "_clone_and_validate", _fake_meta("upxelfdet"))
+
     # Also monkeypatch the Harbor cleanup to avoid real API call
     async def _noop_cleanup(*a, **kw):
         pass
+
     monkeypatch.setattr(dr, "_delete_harbor_images", _noop_cleanup)
     create = await auth_client_developer.post(
         "/api/v1/detectors", json={"git_url": "https://github.com/bolin8017/upxelfdet"}
@@ -76,6 +83,7 @@ async def test_soft_delete(auth_client_developer, monkeypatch):
 async def test_register_git_clone_uses_safe_env(auth_client_developer, monkeypatch):
     """Git clone subprocess must set GIT_TERMINAL_PROMPT=0 to avoid password prompts."""
     from app.routers import detectors as dr
+
     captured = {}
 
     async def fake_accessible(*a, **kw):
@@ -86,10 +94,16 @@ async def test_register_git_clone_uses_safe_env(auth_client_developer, monkeypat
 
         class FakeProc:
             returncode = 1
+
             async def communicate(self):
                 return (b"", b"fake error\n")
-            def kill(self): pass
-            async def wait(self): pass
+
+            def kill(self):
+                pass
+
+            async def wait(self):
+                pass
+
         return FakeProc()
 
     monkeypatch.setattr(dr, "check_repo_accessible", fake_accessible)
@@ -108,4 +122,5 @@ async def test_register_git_clone_uses_safe_env(auth_client_developer, monkeypat
 def _fake_meta(name: str):
     async def _inner(url, pat):
         return {"name": name, "description": "demo", "display_name": name}
+
     return _inner

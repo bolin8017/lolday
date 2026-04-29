@@ -28,6 +28,7 @@ async def test_create_dataset_happy_path(user_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_create_dataset_rejects_oversize(user_client: AsyncClient, monkeypatch):
     from app.config import settings
+
     monkeypatch.setattr(settings, "DATASET_CSV_MAX_BYTES", 10)
     r = await user_client.post(
         "/api/v1/datasets",
@@ -174,8 +175,13 @@ async def test_delete_dataset_blocked_by_active_job(
     te = await seed_dataset(name="te")
     r = await user_client.post(
         "/api/v1/jobs",
-        json={"type": "train", "detector_version_id": dv_id,
-              "train_dataset_id": tr, "test_dataset_id": te, "params": {}},
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {},
+        },
     )
     assert r.status_code == 202
 

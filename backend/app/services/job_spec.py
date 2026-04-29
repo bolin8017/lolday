@@ -164,7 +164,11 @@ def _detector_container(
         "volumeMounts": [
             {"name": "config", "mountPath": "/mnt/config", "readOnly": True},
             {"name": "output", "mountPath": "/mnt/output"},
-            {"name": "source-model", "mountPath": "/mnt/source-model", "readOnly": True},
+            {
+                "name": "source-model",
+                "mountPath": "/mnt/source-model",
+                "readOnly": True,
+            },
             {"name": "samples", "mountPath": "/mnt/samples", "readOnly": True},
             {"name": "tmp", "mountPath": "/tmp"},
         ],
@@ -186,7 +190,9 @@ def _detector_container(
     }
 
 
-def _event_tailer_sidecar(job_id: uuid.UUID, internal_events_url: str) -> dict[str, Any]:
+def _event_tailer_sidecar(
+    job_id: uuid.UUID, internal_events_url: str
+) -> dict[str, Any]:
     return {
         "name": "event-tailer",
         "image": settings.JOB_HELPER_IMAGE,
@@ -285,9 +291,7 @@ def build_volcano_job_manifest(
         "activeDeadlineSeconds": _active_deadline(job_type),
         "restartPolicy": "Never",
         "automountServiceAccountToken": False,
-        "nodeSelector": {
-            "kubernetes.io/hostname": settings.JOB_NODE_SELECTOR_HOSTNAME
-        },
+        "nodeSelector": {"kubernetes.io/hostname": settings.JOB_NODE_SELECTOR_HOSTNAME},
         "securityContext": {
             "runAsNonRoot": True,
             "runAsUser": 1000,

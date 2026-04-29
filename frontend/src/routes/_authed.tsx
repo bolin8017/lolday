@@ -26,8 +26,9 @@ export default function AuthedLayout() {
       <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-4 p-6 text-center">
         <h1 className="text-xl font-semibold">Session not established</h1>
         <p className="text-sm text-muted-foreground">
-          Your browser reached lolday but the backend did not receive a valid Cloudflare Access
-          JWT. This usually means the Cloudflare Access session expired — please re-authenticate.
+          Your browser reached lolday but the backend did not receive a valid
+          Cloudflare Access JWT. This usually means the Cloudflare Access
+          session expired — please re-authenticate.
         </p>
         <a
           href="/cdn-cgi/access/logout"

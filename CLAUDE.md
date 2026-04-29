@@ -43,6 +43,14 @@ ISLab is a Taiwanese security research lab. Default to English-ecosystem / GitHu
 - Vite is an accepted gray zone (now Vercel-backed).
 - Exception: use a China-origin tool when it has a clear advantage and no reasonable alternative — flag it explicitly first.
 
+### Lint / format 不繞過
+
+紀律由 `pre-commit` 自動套用。任何形式的 bypass 都是破壞紀律。
+
+- `git commit --no-verify` 視同破壞紀律。Hook 失敗請查 root cause，不要 bypass。
+- 任何 `# noqa: <code>` / `# type: ignore[<code>]` 必須在同一行附 reason 註解。
+- `# fmt: off` / `# fmt: on` 區段是 ruff 官方支援的「此處刻意保留 layout」標記，可用，但要附理由（若意圖非顯而易見）。
+
 ### Prefer open-source packages over custom code
 
 Lolday is a glue platform. For every component, **first look for an existing open-source / actively maintained project** before proposing a custom implementation. Write custom code only for the glue layer and `maldet`-spec-specific logic.
@@ -57,19 +65,20 @@ cd backend && uv run pytest             # backend tests
 cd frontend && pnpm test                # frontend unit (vitest)
 cd frontend && pnpm playwright test     # frontend E2E
 helm lint charts/lolday                 # helm sanity
+pre-commit run --all-files              # lint+format whole repo (also auto-runs on git commit)
 ```
 
 Detailed flow → `docs/runbooks/deploy.md` and `docs/architecture.md` §6.
 
 ## Project layout
 
-| Path | What | Detailed rules |
-|------|------|----------------|
-| `backend/` | FastAPI + uv | `.claude/rules/backend.md` |
-| `frontend/` | Vite + React + TS | `.claude/rules/frontend.md` |
-| `charts/lolday/` | Helm umbrella + sub-charts + helpers | `.claude/rules/charts-and-helm.md` |
-| `scripts/` | install / deploy / diag / recover | `.claude/rules/scripts-and-ops.md` |
-| `backend/migrations/` | Alembic | `.claude/rules/alembic-migrations.md` |
-| `tests/phase7/` | shell-based smoke tests | — |
-| `docs/superpowers/{specs,plans}/` | Phase planning artefacts | `docs/conventions.md` |
-| `docs/{architecture,conventions,runbooks,phase-history,postmortems}/` | platform docs | this file |
+| Path                                                                  | What                                 | Detailed rules                        |
+| --------------------------------------------------------------------- | ------------------------------------ | ------------------------------------- |
+| `backend/`                                                            | FastAPI + uv                         | `.claude/rules/backend.md`            |
+| `frontend/`                                                           | Vite + React + TS                    | `.claude/rules/frontend.md`           |
+| `charts/lolday/`                                                      | Helm umbrella + sub-charts + helpers | `.claude/rules/charts-and-helm.md`    |
+| `scripts/`                                                            | install / deploy / diag / recover    | `.claude/rules/scripts-and-ops.md`    |
+| `backend/migrations/`                                                 | Alembic                              | `.claude/rules/alembic-migrations.md` |
+| `tests/phase7/`                                                       | shell-based smoke tests              | —                                     |
+| `docs/superpowers/{specs,plans}/`                                     | Phase planning artefacts             | `docs/conventions.md`                 |
+| `docs/{architecture,conventions,runbooks,phase-history,postmortems}/` | platform docs                        | this file                             |

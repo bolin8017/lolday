@@ -11,7 +11,10 @@ import { applyFieldErrorsToForm } from "@/lib/errors";
 import type { LoldayApiError } from "@/api/errors";
 
 const schema = z.object({
-  name: z.string().min(1).regex(/^[a-z0-9-]+$/, "lowercase letters, digits, hyphen only"),
+  name: z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/, "lowercase letters, digits, hyphen only"),
   display_name: z.string().min(1).max(200),
   description: z.string().optional(),
   git_url: z.string().url(),
@@ -21,7 +24,12 @@ type Values = z.infer<typeof schema>;
 export function RegisterDetectorForm() {
   const nav = useNavigate();
   const mut = useRegisterDetector();
-  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<Values>({
+  const {
+    register,
+    handleSubmit,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<Values>({
     resolver: zodResolver(schema),
   });
   const onSubmit = handleSubmit(async (v) => {
@@ -37,23 +45,41 @@ export function RegisterDetectorForm() {
       <div>
         <Label htmlFor="name">Name (slug)</Label>
         <Input id="name" placeholder="upxelfdet" {...register("name")} />
-        {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+        {errors.name && (
+          <p className="text-xs text-destructive">{errors.name.message}</p>
+        )}
       </div>
       <div>
         <Label htmlFor="display_name">Display name</Label>
-        <Input id="display_name" placeholder="UPX ELF Detector" {...register("display_name")} />
-        {errors.display_name && <p className="text-xs text-destructive">{errors.display_name.message}</p>}
+        <Input
+          id="display_name"
+          placeholder="UPX ELF Detector"
+          {...register("display_name")}
+        />
+        {errors.display_name && (
+          <p className="text-xs text-destructive">
+            {errors.display_name.message}
+          </p>
+        )}
       </div>
       <div>
         <Label htmlFor="git_url">Git URL</Label>
-        <Input id="git_url" placeholder="https://github.com/…" {...register("git_url")} />
-        {errors.git_url && <p className="text-xs text-destructive">{errors.git_url.message}</p>}
+        <Input
+          id="git_url"
+          placeholder="https://github.com/…"
+          {...register("git_url")}
+        />
+        {errors.git_url && (
+          <p className="text-xs text-destructive">{errors.git_url.message}</p>
+        )}
       </div>
       <div>
         <Label htmlFor="description">Description</Label>
         <Textarea id="description" rows={3} {...register("description")} />
       </div>
-      <Button type="submit" disabled={isSubmitting}>Register detector</Button>
+      <Button type="submit" disabled={isSubmitting}>
+        Register detector
+      </Button>
     </form>
   );
 }

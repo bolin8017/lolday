@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
+from app.models import Detector, DetectorVersion, Job, JobEvent, User
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models import Detector, DetectorVersion, Job, JobEvent, User
 
 
 @pytest.mark.asyncio
@@ -50,7 +49,7 @@ async def test_insert_and_query(db_session: AsyncSession) -> None:
 
     ev = JobEvent(
         job_id=job.id,
-        ts=datetime(2026, 4, 24, tzinfo=timezone.utc),
+        ts=datetime(2026, 4, 24, tzinfo=UTC),
         kind="stage_begin",
         payload={"stage": "train"},
     )

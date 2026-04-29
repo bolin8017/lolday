@@ -11,7 +11,8 @@ export function parseCsvPreview(text: string, limit = 20): CsvPreview {
   if (lines.length === 0) throw new Error("Empty CSV");
   const columns = splitLine(lines[0]);
   for (const req of REQUIRED) {
-    if (!columns.includes(req)) throw new Error(`Missing required column: ${req}`);
+    if (!columns.includes(req))
+      throw new Error(`Missing required column: ${req}`);
   }
   const dataLines = lines.slice(1);
   const rows = dataLines.slice(0, limit).map((line) => {
@@ -29,12 +30,16 @@ function splitLine(line: string): string[] {
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (inQuote) {
-      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-      else if (ch === '"') inQuote = false;
+      if (ch === '"' && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else if (ch === '"') inQuote = false;
       else cur += ch;
     } else {
-      if (ch === ",") { out.push(cur); cur = ""; }
-      else if (ch === '"') inQuote = true;
+      if (ch === ",") {
+        out.push(cur);
+        cur = "";
+      } else if (ch === '"') inQuote = true;
       else cur += ch;
     }
   }

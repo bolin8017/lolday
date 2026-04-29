@@ -15,6 +15,7 @@
 ## File Structure (which file does what)
 
 ### Backend
+
 - `backend/app/schemas/detector.py` — `VersionDetailRead.manifest: dict[str, Any] | None` (A1)
 - `backend/app/reconciler.py` — refactor log-capture functions (A2)
 - `backend/app/models/detector.py` — `DetectorVersionStatus.DELETED` (A4)
@@ -24,6 +25,7 @@
 - `backend/tests/test_reconciler_log_capture.py` — A2 cases (new file)
 
 ### Frontend
+
 - `frontend/src/routes/_authed.tsx` — fixed-viewport app shell (A3)
 - `frontend/src/routes/_authed.detectors.$id.tsx` — null-manifest fallback + per-version delete button + detector delete button (A1, A4)
 - `frontend/src/routes/_authed.detectors._index.tsx` — row dropdown menu with Delete (A4)
@@ -35,6 +37,7 @@
 - `frontend/tests/unit/DeleteConfirmDialog.test.tsx` — A4 unit (new file)
 
 ### Configuration / docs
+
 - (no chart changes for 13a)
 
 ---
@@ -42,6 +45,7 @@
 ## Task 1.1: Make `VersionDetailRead.manifest` nullable
 
 **Files:**
+
 - Modify: `backend/app/schemas/detector.py`
 - Modify: `backend/tests/test_routers_detectors.py`
 
@@ -134,6 +138,7 @@ EOF
 ## Task 1.2: Frontend ManifestView null-state fallback
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.detectors.$id.tsx`
 - Modify: `frontend/tests/e2e/detectors.spec.ts`
 
@@ -154,11 +159,20 @@ If `pnpm gen:schema` doesn't exist, check `frontend/package.json` scripts. The p
 Add to `frontend/tests/e2e/detectors.spec.ts`:
 
 ```ts
-test("View manifest button opens Sheet with fallback for legacy version", async ({ page, seedLegacyVersion }) => {
-  const detector = await seedLegacyVersion({ name: "legacy-det", tag: "v0.1.0" });
+test("View manifest button opens Sheet with fallback for legacy version", async ({
+  page,
+  seedLegacyVersion,
+}) => {
+  const detector = await seedLegacyVersion({
+    name: "legacy-det",
+    tag: "v0.1.0",
+  });
   await page.goto(`/detectors/${detector.id}`);
   await page.getByRole("tab", { name: /versions/i }).click();
-  await page.getByRole("button", { name: /view manifest/i }).first().click();
+  await page
+    .getByRole("button", { name: /view manifest/i })
+    .first()
+    .click();
 
   // Sheet should be visible
   const sheet = page.getByRole("dialog");
@@ -169,11 +183,20 @@ test("View manifest button opens Sheet with fallback for legacy version", async 
   await expect(sheet.getByText(/rebuild this version/i)).toBeVisible();
 });
 
-test("View manifest button opens Sheet with manifest tree for phase11e+ version", async ({ page, seedActiveVersion }) => {
-  const detector = await seedActiveVersion({ name: "modern-det", tag: "v3.0.0" });
+test("View manifest button opens Sheet with manifest tree for phase11e+ version", async ({
+  page,
+  seedActiveVersion,
+}) => {
+  const detector = await seedActiveVersion({
+    name: "modern-det",
+    tag: "v3.0.0",
+  });
   await page.goto(`/detectors/${detector.id}`);
   await page.getByRole("tab", { name: /versions/i }).click();
-  await page.getByRole("button", { name: /view manifest/i }).first().click();
+  await page
+    .getByRole("button", { name: /view manifest/i })
+    .first()
+    .click();
 
   const sheet = page.getByRole("dialog");
   await expect(sheet).toBeVisible();
@@ -197,10 +220,18 @@ Expected: legacy test fails (current code shows "Failed to load manifest"); mode
 In `frontend/src/routes/_authed.detectors.$id.tsx`, replace `<ManifestView>` (currently around line 172):
 
 ```tsx
-function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) {
+function ManifestView({
+  detectorId,
+  tag,
+}: {
+  detectorId: string;
+  tag: string;
+}) {
   const { data, isLoading, error } = useDetectorVersion(detectorId, tag);
-  if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
-  if (error) return <p className="text-sm text-destructive">Failed to load manifest.</p>;
+  if (isLoading)
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (error)
+    return <p className="text-sm text-destructive">Failed to load manifest.</p>;
   const manifest = data?.manifest;
   if (manifest == null) {
     return (
@@ -248,6 +279,7 @@ EOF
 ## Task 2.1: `_capture_pod_logs` generic helper with tests
 
 **Files:**
+
 - Modify: `backend/app/reconciler.py`
 - Create: `backend/tests/test_reconciler_log_capture.py`
 
@@ -532,6 +564,7 @@ EOF
 ## Task 2.2: Refactor `_capture_log_tail` and `_capture_job_log_tail` to use the helper
 
 **Files:**
+
 - Modify: `backend/app/reconciler.py`
 
 - [ ] **Step 1: Write a regression test verifying the build helper picks `buildkit`**
@@ -634,6 +667,7 @@ EOF
 ## Task 3.1: Sidebar layout fix (fixed-viewport app shell)
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.tsx`
 - Create: `frontend/tests/e2e/layout.spec.ts`
 
@@ -645,7 +679,10 @@ Create `frontend/tests/e2e/layout.spec.ts`:
 import { test, expect } from "@playwright/test";
 
 test.describe("App-shell layout — sidebar bottom block always visible", () => {
-  test("logout button visible on /jobs even with long list", async ({ page, seedManyJobs }) => {
+  test("logout button visible on /jobs even with long list", async ({
+    page,
+    seedManyJobs,
+  }) => {
     await seedManyJobs(80);
     await page.goto("/jobs");
     await page.waitForSelector("h1");
@@ -667,7 +704,10 @@ test.describe("App-shell layout — sidebar bottom block always visible", () => 
     await expect(logout).toBeVisible();
   });
 
-  test("body does not scroll; only main scrolls", async ({ page, seedManyJobs }) => {
+  test("body does not scroll; only main scrolls", async ({
+    page,
+    seedManyJobs,
+  }) => {
     await seedManyJobs(80);
     await page.goto("/jobs");
 
@@ -720,6 +760,7 @@ return (
 ```
 
 The two changes:
+
 - `min-h-screen` → `h-screen overflow-hidden` on the parent.
 - `flex flex-1 flex-col` → `flex flex-1 flex-col overflow-hidden` on the middle column.
 - `overflow-auto` → `overflow-y-auto` on `<main>` (explicit Y-only scroll).
@@ -753,6 +794,7 @@ EOF
 ## Task 4.1: Migration — add `DetectorVersionStatus.DELETED` enum value
 
 **Files:**
+
 - Modify: `backend/app/models/detector.py`
 - Create: `backend/migrations/versions/<hash>_phase13a_detector_version_deleted.py`
 
@@ -850,6 +892,7 @@ EOF
 ## Task 4.2: Backend — `DELETE /detectors/{id}/versions/{tag}` endpoint
 
 **Files:**
+
 - Modify: `backend/app/routers/detectors.py`
 - Modify: `backend/tests/test_routers_detectors.py`
 
@@ -1102,6 +1145,7 @@ EOF
 ## Task 4.3: Backend — strengthen `DELETE /detectors/{id}` with in-flight check
 
 **Files:**
+
 - Modify: `backend/app/routers/detectors.py`
 - Modify: `backend/tests/test_routers_detectors.py`
 
@@ -1203,6 +1247,7 @@ EOF
 ## Task 4.4: Frontend — `<DeleteConfirmDialog>` component
 
 **Files:**
+
 - Create: `frontend/src/components/common/DeleteConfirmDialog.tsx`
 - Create: `frontend/tests/unit/DeleteConfirmDialog.test.tsx`
 - Verify: `frontend/src/components/ui/dialog.tsx` (shadcn) — already exists per Phase 5
@@ -1217,7 +1262,9 @@ import { describe, it, expect, vi } from "vitest";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 
 describe("DeleteConfirmDialog", () => {
-  function setup(overrides: Partial<React.ComponentProps<typeof DeleteConfirmDialog>> = {}) {
+  function setup(
+    overrides: Partial<React.ComponentProps<typeof DeleteConfirmDialog>> = {},
+  ) {
     const onConfirm = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();
     const props: React.ComponentProps<typeof DeleteConfirmDialog> = {
@@ -1248,26 +1295,34 @@ describe("DeleteConfirmDialog", () => {
 
   it("Delete button is disabled with wrong text", () => {
     setup();
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Elfrfdet" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Elfrfdet" },
+    });
     expect(screen.getByRole("button", { name: /^delete$/i })).toBeDisabled();
   });
 
   it("Delete button is enabled with exact match", () => {
     setup();
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "elfrfdet" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "elfrfdet" },
+    });
     expect(screen.getByRole("button", { name: /^delete$/i })).toBeEnabled();
   });
 
   it("calls onConfirm when Delete clicked with match", async () => {
     const { onConfirm } = setup();
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "elfrfdet" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "elfrfdet" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 
   it("shows pending state on Delete button", () => {
     setup({ pending: true });
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "elfrfdet" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "elfrfdet" },
+    });
     expect(screen.getByRole("button", { name: /deleting/i })).toBeDisabled();
   });
 
@@ -1275,7 +1330,8 @@ describe("DeleteConfirmDialog", () => {
     setup({
       errorBanner: {
         code: "version_has_in_flight_jobs",
-        message: "Cancel running jobs that use this version before deleting it.",
+        message:
+          "Cancel running jobs that use this version before deleting it.",
       },
     });
     expect(screen.getByText(/Cancel running jobs/)).toBeInTheDocument();
@@ -1369,7 +1425,8 @@ export function DeleteConfirmDialog({
 
         <div className="space-y-2 py-2">
           <Label htmlFor="delete-confirm-input">
-            Type <span className="font-mono font-semibold">{confirmText}</span> to confirm
+            Type <span className="font-mono font-semibold">{confirmText}</span>{" "}
+            to confirm
           </Label>
           <Input
             id="delete-confirm-input"
@@ -1382,7 +1439,11 @@ export function DeleteConfirmDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={pending}
+          >
             Cancel
           </Button>
           <Button
@@ -1430,6 +1491,7 @@ EOF
 ## Task 4.5: Frontend — `useDeleteVersion` hook + tighten `useDeleteDetector` invalidation
 
 **Files:**
+
 - Modify: `frontend/src/api/queries/detectors.ts`
 
 - [ ] **Step 1: Regenerate schema for the new endpoint**
@@ -1508,6 +1570,7 @@ EOF
 ## Task 4.6: Frontend — wire delete buttons in detector list page
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.detectors._index.tsx`
 - Verify: `frontend/src/components/ui/dropdown-menu.tsx` exists (shadcn)
 
@@ -1549,9 +1612,16 @@ import { useDeleteDetector } from "@/api/queries/detectors";
 import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 
 // Inside the component:
-function DetectorRowActions({ detector }: { detector: { id: string; name: string } }) {
+function DetectorRowActions({
+  detector,
+}: {
+  detector: { id: string; name: string };
+}) {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const [error, setError] = useState<{
+    code?: string;
+    message?: string;
+  } | null>(null);
   const deleteMut = useDeleteDetector();
 
   return (
@@ -1577,13 +1647,16 @@ function DetectorRowActions({ detector }: { detector: { id: string; name: string
 
       <DeleteConfirmDialog
         open={open}
-        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setError(null);
+        }}
         title={`Delete detector ${detector.name}?`}
         description={
           <>
-            This soft-deletes the detector. All versions and Harbor images
-            will be permanently purged. Historical jobs and runs remain
-            visible but will reference a deleted detector.
+            This soft-deletes the detector. All versions and Harbor images will
+            be permanently purged. Historical jobs and runs remain visible but
+            will reference a deleted detector.
           </>
         }
         confirmText={detector.name}
@@ -1592,7 +1665,9 @@ function DetectorRowActions({ detector }: { detector: { id: string; name: string
             await deleteMut.mutateAsync(detector.id);
             setOpen(false);
           } catch (e) {
-            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            const detail = (
+              e as { detail?: { code?: string; message?: string } }
+            )?.detail;
             setError(detail ?? { message: "Delete failed." });
           }
         }}
@@ -1639,6 +1714,7 @@ EOF
 ## Task 4.7: Frontend — wire delete buttons in detector detail page
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.detectors.$id.tsx`
 
 - [ ] **Step 1: Add a "Delete" button in the page header**
@@ -1650,7 +1726,9 @@ Modify the header `<div>` (around `_authed.detectors.$id.tsx:94-98`) to include 
   <h1 className="text-2xl font-semibold">{det.display_name}</h1>
   <div className="flex items-center gap-2">
     <DetectorDeleteButton detector={det} />
-    <Link to="/detectors" className="text-sm text-muted-foreground">← back</Link>
+    <Link to="/detectors" className="text-sm text-muted-foreground">
+      ← back
+    </Link>
   </div>
 </div>
 ```
@@ -1658,30 +1736,36 @@ Modify the header `<div>` (around `_authed.detectors.$id.tsx:94-98`) to include 
 Implement `DetectorDeleteButton` near the bottom of the same file (or in a separate co-located component file if you prefer):
 
 ```tsx
-function DetectorDeleteButton({ detector }: { detector: { id: string; name: string } }) {
+function DetectorDeleteButton({
+  detector,
+}: {
+  detector: { id: string; name: string };
+}) {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const [error, setError] = useState<{
+    code?: string;
+    message?: string;
+  } | null>(null);
   const deleteMut = useDeleteDetector();
   const nav = useNavigate();
 
   return (
     <>
-      <Button
-        variant="destructive"
-        size="sm"
-        onClick={() => setOpen(true)}
-      >
+      <Button variant="destructive" size="sm" onClick={() => setOpen(true)}>
         Delete
       </Button>
       <DeleteConfirmDialog
         open={open}
-        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setError(null);
+        }}
         title={`Delete detector ${detector.name}?`}
         description={
           <>
-            This soft-deletes the detector. All versions and Harbor
-            images will be permanently purged. Historical jobs and runs
-            remain visible but will reference a deleted detector.
+            This soft-deletes the detector. All versions and Harbor images will
+            be permanently purged. Historical jobs and runs remain visible but
+            will reference a deleted detector.
           </>
         }
         confirmText={detector.name}
@@ -1690,7 +1774,9 @@ function DetectorDeleteButton({ detector }: { detector: { id: string; name: stri
             await deleteMut.mutateAsync(detector.id);
             nav("/detectors");
           } catch (e) {
-            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            const detail = (
+              e as { detail?: { code?: string; message?: string } }
+            )?.detail;
             setError(detail ?? { message: "Delete failed." });
           }
         }}
@@ -1738,7 +1824,10 @@ function VersionDeleteButton({
   version: { tag: string };
 }) {
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<{ code?: string; message?: string } | null>(null);
+  const [error, setError] = useState<{
+    code?: string;
+    message?: string;
+  } | null>(null);
   const deleteMut = useDeleteVersion(detectorId);
 
   return (
@@ -1753,13 +1842,16 @@ function VersionDeleteButton({
       </Button>
       <DeleteConfirmDialog
         open={open}
-        onOpenChange={(o) => { setOpen(o); if (!o) setError(null); }}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setError(null);
+        }}
         title={`Delete version ${version.tag}?`}
         description={
           <>
-            This soft-deletes only this version. The Harbor image for
-            this tag will be permanently purged. Historical jobs that
-            ran against this version remain visible.
+            This soft-deletes only this version. The Harbor image for this tag
+            will be permanently purged. Historical jobs that ran against this
+            version remain visible.
           </>
         }
         confirmText={version.tag}
@@ -1768,7 +1860,9 @@ function VersionDeleteButton({
             await deleteMut.mutateAsync(version.tag);
             setOpen(false);
           } catch (e) {
-            const detail = (e as { detail?: { code?: string; message?: string } })?.detail;
+            const detail = (
+              e as { detail?: { code?: string; message?: string } }
+            )?.detail;
             setError(detail ?? { message: "Delete failed." });
           }
         }}
@@ -1818,6 +1912,7 @@ EOF
 ## Task 4.8: Frontend — playwright e2e tests for delete
 
 **Files:**
+
 - Modify: `frontend/tests/e2e/detectors.spec.ts`
 
 - [ ] **Step 1: Write the e2e tests**
@@ -1829,7 +1924,10 @@ test.describe("Delete detector / version", () => {
   test("delete detector happy path", async ({ page, seedDetector }) => {
     const { id, name } = await seedDetector({ name: "to-delete" });
     await page.goto(`/detectors/${id}`);
-    await page.getByRole("button", { name: /^Delete$/ }).first().click();
+    await page
+      .getByRole("button", { name: /^Delete$/ })
+      .first()
+      .click();
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
@@ -1847,9 +1945,13 @@ test.describe("Delete detector / version", () => {
     await expect(page.getByText(name)).not.toBeVisible();
   });
 
-  test("delete version happy path", async ({ page, seedDetectorWithVersion }) => {
+  test("delete version happy path", async ({
+    page,
+    seedDetectorWithVersion,
+  }) => {
     const { detectorId, tag } = await seedDetectorWithVersion({
-      name: "rfdet", tag: "v1.0.0",
+      name: "rfdet",
+      tag: "v1.0.0",
     });
     await page.goto(`/detectors/${detectorId}`);
     await page.getByRole("tab", { name: /versions/i }).click();
@@ -1864,11 +1966,17 @@ test.describe("Delete detector / version", () => {
   });
 
   test("delete blocked by in-flight job", async ({
-    page, seedDetectorWithRunningJob,
+    page,
+    seedDetectorWithRunningJob,
   }) => {
-    const { detectorId, name } = await seedDetectorWithRunningJob({ name: "blocked" });
+    const { detectorId, name } = await seedDetectorWithRunningJob({
+      name: "blocked",
+    });
     await page.goto(`/detectors/${detectorId}`);
-    await page.getByRole("button", { name: /^Delete$/ }).first().click();
+    await page
+      .getByRole("button", { name: /^Delete$/ })
+      .first()
+      .click();
 
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("textbox").fill(name);
@@ -1877,7 +1985,7 @@ test.describe("Delete detector / version", () => {
     // Dialog stays open with error banner
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/cancel running jobs/i)).toBeVisible();
-    await expect(page).toHaveURL(`/detectors/${detectorId}`);   // didn't navigate
+    await expect(page).toHaveURL(`/detectors/${detectorId}`); // didn't navigate
   });
 });
 ```
@@ -1904,6 +2012,7 @@ git commit -m "test(e2e): delete detector / version + in-flight 409 (phase 13a A
 ## Task 5.1: A5 evaluate metrics — reproduction & diagnosis
 
 **Files:**
+
 - (no code changes in this task; produces a written diagnosis)
 - Create: `docs/superpowers/notes/2026-04-28-phase13a-a5-evaluate-metrics-investigation.md`
 
@@ -1933,6 +2042,7 @@ ORDER BY ts;
 ```
 
 Categorize the result into one of:
+
 - **0 rows** — events never reached the backend.
 - **N rows but no `metric` / `confusion_matrix` kind** — maldet didn't emit them.
 - **N rows including `metric` and `confusion_matrix`** — projection ran but didn't pick them up (unlikely given current code; check for projection exception).
@@ -1946,6 +2056,7 @@ kubectl logs <pod-name> -c event-tailer --previous   # if pod exists
 ```
 
 Look for:
+
 - "wrote 0 events to backend" → tailer exited before reading the jsonl.
 - HTTP errors on POST.
 - File-path errors (looking for `/mnt/output/events.jsonl` but it's elsewhere).
@@ -1957,6 +2068,7 @@ If the pod is gone, reproduce with a small evaluate job and `kubectl describe po
 Open `/home/bolin8017/Documents/repositories/maldet/src/maldet/runner.py` lines 131-155 (the `if stage == "evaluate":` branch).
 
 Cross-check:
+
 - `evaluator.evaluate(...)` returns a `MetricReport` and emits `log_metric` per metric inside `BinaryClassification.evaluate`.
 - The `output_dir` and `events.jsonl` writer path matches the `event-tailer` reader path.
 
@@ -1983,7 +2095,7 @@ Create `docs/superpowers/notes/2026-04-28-phase13a-a5-evaluate-metrics-investiga
 ## Sampled jobs
 
 | Job ID | summary_metrics | duration | notes |
-|---|---|---|---|
+| ------ | --------------- | -------- | ----- |
 
 ## Events table inspection
 
@@ -2014,6 +2126,7 @@ git commit -m "docs(phase13a-a5): investigation findings for evaluate summary_me
 ## Task 5.2: A5 fix (branch determined by 5.1)
 
 **Files:** depend on root cause:
+
 - If event-tailer flush bug: `charts/lolday/helpers/event-tailer/*` (Python)
 - If reconciler projection bug: `backend/app/reconciler.py`
 - If maldet emit bug: external maldet PR; Phase 13a includes only a tracking note
@@ -2070,7 +2183,9 @@ Pattern depends on branch. Concrete examples:
 
 ```markdown
 # docs/superpowers/notes/2026-04-28-phase13a-a5-maldet-pr-tracker.md
+
 # Tracker: maldet PR for evaluate stage_end / metric emit
+
 - PR: <url when filed>
 - Status: <draft / under review / merged>
 - Affected lolday version: must include reconciler bump after maldet release
@@ -2107,6 +2222,7 @@ EOF
 ## Task 6.1: Build + push backend phase13a image
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml` (`backend.image.tag`)
 
 - [ ] **Step 1: Tag and push backend image**
@@ -2141,6 +2257,7 @@ git commit -m "chore(deploy): bump backend default tag to phase13a"
 ## Task 6.2: Build + push frontend phase13a image
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml` (`frontend.image.tag`)
 
 - [ ] **Step 1: Tag and push frontend image**
@@ -2221,24 +2338,24 @@ If smoke uncovers any new issues, file as bugs and either fix-and-recommit or de
 
 ### Spec coverage check
 
-| Spec section | Plan task |
-|---|---|
-| §1 A1 schema nullable | 1.1 |
-| §1 A1 frontend fallback + click verification | 1.2 |
-| §2 A2 generic helper | 2.1 |
-| §2 A2 wire wrappers | 2.2 |
-| §3 A3 layout | 3.1 |
-| §4.1 enum + migration | 4.1 |
-| §4.2a new endpoint | 4.2 |
-| §4.2b strengthen detector delete | 4.3 |
-| §4.4 DeleteConfirmDialog | 4.4 |
-| §4.5 hooks | 4.5 |
-| §4.3 wire detector list | 4.6 |
-| §4.3 wire detector detail | 4.7 |
-| §4.6 e2e | 4.8 |
-| §5 A5 investigation | 5.1 |
-| §5 A5 fix | 5.2 |
-| Migration & deploy | 6.1 / 6.2 / 6.3 |
+| Spec section                                 | Plan task       |
+| -------------------------------------------- | --------------- |
+| §1 A1 schema nullable                        | 1.1             |
+| §1 A1 frontend fallback + click verification | 1.2             |
+| §2 A2 generic helper                         | 2.1             |
+| §2 A2 wire wrappers                          | 2.2             |
+| §3 A3 layout                                 | 3.1             |
+| §4.1 enum + migration                        | 4.1             |
+| §4.2a new endpoint                           | 4.2             |
+| §4.2b strengthen detector delete             | 4.3             |
+| §4.4 DeleteConfirmDialog                     | 4.4             |
+| §4.5 hooks                                   | 4.5             |
+| §4.3 wire detector list                      | 4.6             |
+| §4.3 wire detector detail                    | 4.7             |
+| §4.6 e2e                                     | 4.8             |
+| §5 A5 investigation                          | 5.1             |
+| §5 A5 fix                                    | 5.2             |
+| Migration & deploy                           | 6.1 / 6.2 / 6.3 |
 
 All sections accounted for.
 

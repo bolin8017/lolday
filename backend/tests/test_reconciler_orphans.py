@@ -7,10 +7,10 @@ checks the `lolday.job-id` label against the DB, and deletes orphans
 """
 
 import uuid
+from datetime import UTC
 from unittest.mock import patch
 
 import pytest
-
 from app.models.job import Job, JobStatus, JobType
 from app.reconciler import reconcile_orphan_vcjobs
 
@@ -18,6 +18,7 @@ from app.reconciler import reconcile_orphan_vcjobs
 @pytest.fixture
 async def seed_job(db_session, seed_detector_version, seed_dataset, seed_user):
     """Insert a Job row with all required FKs and return it."""
+
     async def _seed(
         status: JobStatus = JobStatus.RUNNING,
         job_type: JobType = JobType.TRAIN,
@@ -43,6 +44,7 @@ async def seed_job(db_session, seed_detector_version, seed_dataset, seed_user):
         await db_session.commit()
         await db_session.refresh(j)
         return j
+
     return _seed
 
 
@@ -82,6 +84,7 @@ async def test_orphan_vcjob_is_deleted(db_session, seed_job):
                     _vcjob("job-train-orphan", orphan_uuid),
                 ]
             }
+
         def delete_namespaced_custom_object(self, *a, **kw):
             delete_calls.append(kw["name"])
 
@@ -89,9 +92,11 @@ async def test_orphan_vcjob_is_deleted(db_session, seed_job):
         def delete_namespaced_secret(self, *a, **kw):
             secret_delete_calls.append(kw["name"])
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
     assert delete_calls == ["job-train-orphan"], delete_calls
     # secret name is derived from the orphan UUID's first 16 hex chars (no dashes)
@@ -109,6 +114,7 @@ async def test_matched_vcjob_is_left_alone(db_session, seed_job):
     class _VolcanoStub:
         def list_namespaced_custom_object(self, *a, **kw):
             return {"items": [_vcjob("job-train-matched", str(matched_job.id))]}
+
         def delete_namespaced_custom_object(self, *a, **kw):
             delete_calls.append(kw["name"])
 
@@ -116,9 +122,11 @@ async def test_matched_vcjob_is_left_alone(db_session, seed_job):
         def delete_namespaced_secret(self, *a, **kw):
             pass
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
     assert delete_calls == [], delete_calls
 
@@ -131,6 +139,7 @@ async def test_unlabeled_vcjob_is_skipped(db_session):
     class _VolcanoStub:
         def list_namespaced_custom_object(self, *a, **kw):
             return {"items": [_vcjob("foreign-vcjob", None)]}
+
         def delete_namespaced_custom_object(self, *a, **kw):
             delete_calls.append(kw["name"])
 
@@ -138,9 +147,11 @@ async def test_unlabeled_vcjob_is_skipped(db_session):
         def delete_namespaced_secret(self, *a, **kw):
             pass
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
     assert delete_calls == [], delete_calls
 
@@ -156,6 +167,7 @@ async def test_secret_404_is_tolerated(db_session, seed_job):
     class _VolcanoStub:
         def list_namespaced_custom_object(self, *a, **kw):
             return {"items": [_vcjob("job-train-orphan", orphan_uuid)]}
+
         def delete_namespaced_custom_object(self, *a, **kw):
             delete_calls.append(kw["name"])
 
@@ -163,9 +175,11 @@ async def test_secret_404_is_tolerated(db_session, seed_job):
         def delete_namespaced_secret(self, *a, **kw):
             raise ApiException(status=404)
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
     assert delete_calls == ["job-train-orphan"], delete_calls
 
@@ -180,6 +194,7 @@ async def test_list_apiexception_propagates(db_session):
     class _VolcanoStub:
         def list_namespaced_custom_object(self, *a, **kw):
             raise ApiException(status=403, reason="Forbidden")
+
         def delete_namespaced_custom_object(self, *a, **kw):  # never reached
             raise AssertionError("delete must not run when list failed")
 
@@ -187,10 +202,12 @@ async def test_list_apiexception_propagates(db_session):
         def delete_namespaced_secret(self, *a, **kw):  # never reached
             raise AssertionError("secret delete must not run when list failed")
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            with pytest.raises(ApiException):
-                await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        pytest.raises(ApiException),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
 
 @pytest.mark.asyncio
@@ -206,10 +223,13 @@ async def test_delete_non_404_apiexception_continues(db_session):
 
     class _VolcanoStub:
         def list_namespaced_custom_object(self, *a, **kw):
-            return {"items": [
-                _vcjob("job-train-a", orphan_a),
-                _vcjob("job-train-b", orphan_b),
-            ]}
+            return {
+                "items": [
+                    _vcjob("job-train-a", orphan_a),
+                    _vcjob("job-train-b", orphan_b),
+                ]
+            }
+
         def delete_namespaced_custom_object(self, *a, **kw):
             delete_attempts.append(kw["name"])
             if kw["name"] == "job-train-a":
@@ -219,16 +239,18 @@ async def test_delete_non_404_apiexception_continues(db_session):
         def delete_namespaced_secret(self, *a, **kw):
             secret_attempts.append(kw["name"])
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
     # both vcjobs were attempted; only the second succeeded so its secret
     # cleanup ran. The first is left for the next pass.
     assert delete_attempts == ["job-train-a", "job-train-b"], delete_attempts
-    assert secret_attempts == [
-        f"job-token-{orphan_b.replace('-', '')[:16]}"
-    ], secret_attempts
+    assert secret_attempts == [f"job-token-{orphan_b.replace('-', '')[:16]}"], (
+        secret_attempts
+    )
 
 
 @pytest.mark.asyncio
@@ -244,6 +266,7 @@ async def test_vcjob_404_still_cleans_secret(db_session):
     class _VolcanoStub:
         def list_namespaced_custom_object(self, *a, **kw):
             return {"items": [_vcjob("job-train-orphan", orphan_uuid)]}
+
         def delete_namespaced_custom_object(self, *a, **kw):
             raise ApiException(status=404)
 
@@ -251,13 +274,15 @@ async def test_vcjob_404_still_cleans_secret(db_session):
         def delete_namespaced_secret(self, *a, **kw):
             secret_attempts.append(kw["name"])
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
-    assert secret_attempts == [
-        f"job-token-{orphan_uuid.replace('-', '')[:16]}"
-    ], secret_attempts
+    assert secret_attempts == [f"job-token-{orphan_uuid.replace('-', '')[:16]}"], (
+        secret_attempts
+    )
 
 
 @pytest.mark.asyncio
@@ -266,10 +291,10 @@ async def test_age_guard_skips_freshly_created_vcjobs(db_session):
     that window covers the gap between the API's K8s create and DB
     commit, so a freshly-submitted job isn't ripped out from under
     the user."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     fresh_uuid = str(uuid.uuid4())
-    fresh_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     delete_calls: list[str] = []
 
@@ -279,6 +304,7 @@ async def test_age_guard_skips_freshly_created_vcjobs(db_session):
     class _VolcanoStub:
         def list_namespaced_custom_object(self, *a, **kw):
             return {"items": [fresh_vjob]}
+
         def delete_namespaced_custom_object(self, *a, **kw):
             delete_calls.append(kw["name"])
 
@@ -286,9 +312,11 @@ async def test_age_guard_skips_freshly_created_vcjobs(db_session):
         def delete_namespaced_secret(self, *a, **kw):
             pass
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
     assert delete_calls == [], delete_calls
 
@@ -310,6 +338,7 @@ async def test_malformed_label_increments_metric(db_session):
     class _VolcanoStub:
         def list_namespaced_custom_object(self, *a, **kw):
             return {"items": [bad]}
+
         def delete_namespaced_custom_object(self, *a, **kw):
             delete_calls.append(kw["name"])
 
@@ -317,9 +346,11 @@ async def test_malformed_label_increments_metric(db_session):
         def delete_namespaced_secret(self, *a, **kw):
             pass
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            await reconcile_orphan_vcjobs(db_session)
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
 
     assert delete_calls == [], delete_calls
     after = counter._value.get() if hasattr(counter, "_value") else 0

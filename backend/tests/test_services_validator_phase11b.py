@@ -3,25 +3,39 @@
 from __future__ import annotations
 
 import pytest
-from maldet.manifest import DetectorManifest
-
 from app.models.job import ResourceProfile
 from app.services.validator import (
     JobSubmissionError,
     validate_job_submission,
 )
+from maldet.manifest import DetectorManifest
 
 
 def _manifest(**overrides) -> DetectorManifest:
     data = {
         "detector": {"name": "d", "version": "1", "framework": "sklearn"},
-        "input": {"binary_format": "elf", "required_sections": [], "dataset_contract": "sample_csv"},
-        "output": {"task": "binary_classification", "classes": ["Malware", "Benign"], "score_range": [0.0, 1.0]},
-        "resources": {"supports": ["cpu"], "recommended": "cpu", "min_memory_gib": 1, "gpu_required": False},
+        "input": {
+            "binary_format": "elf",
+            "required_sections": [],
+            "dataset_contract": "sample_csv",
+        },
+        "output": {
+            "task": "binary_classification",
+            "classes": ["Malware", "Benign"],
+            "score_range": [0.0, 1.0],
+        },
+        "resources": {
+            "supports": ["cpu"],
+            "recommended": "cpu",
+            "min_memory_gib": 1,
+            "gpu_required": False,
+        },
         "lifecycle": {
             "stages": ["train", "evaluate", "predict"],
-            "supports_serving": False, "supports_hpsweep": True,
-            "supports_distributed": False, "supports_multinode": False,
+            "supports_serving": False,
+            "supports_hpsweep": True,
+            "supports_distributed": False,
+            "supports_multinode": False,
         },
         "artifacts": {
             "model": {"path": "model/", "type": "dir"},
@@ -68,11 +82,15 @@ def test_rejects_mismatched_dataset_contract() -> None:
 
 
 def test_rejects_stage_not_declared() -> None:
-    m = _manifest(lifecycle={
-        "stages": ["train", "evaluate"],
-        "supports_serving": False, "supports_hpsweep": True,
-        "supports_distributed": False, "supports_multinode": False,
-    })
+    m = _manifest(
+        lifecycle={
+            "stages": ["train", "evaluate"],
+            "supports_serving": False,
+            "supports_hpsweep": True,
+            "supports_distributed": False,
+            "supports_multinode": False,
+        }
+    )
     with pytest.raises(JobSubmissionError, match="stage"):
         validate_job_submission(
             manifest=m,
@@ -114,8 +132,10 @@ def test_accepts_gpu2_profile_when_manifest_supports_ddp() -> None:
         },
         lifecycle={
             "stages": ["train", "evaluate", "predict"],
-            "supports_serving": False, "supports_hpsweep": True,
-            "supports_distributed": "ddp", "supports_multinode": False,
+            "supports_serving": False,
+            "supports_hpsweep": True,
+            "supports_distributed": "ddp",
+            "supports_multinode": False,
         },
     )
     validate_job_submission(

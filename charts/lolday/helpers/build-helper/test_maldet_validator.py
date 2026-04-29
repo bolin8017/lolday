@@ -12,7 +12,7 @@ import pytest
 
 # Tests live next to the validator script; import the module directly.
 sys.path.insert(0, str(Path(__file__).parent))
-import maldet_validator as mv  # noqa: E402
+import maldet_validator as mv
 
 
 def _write_repo(root: Path, *, framework: str = "sklearn", name: str = "demo") -> None:

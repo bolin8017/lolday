@@ -8,9 +8,17 @@ test("submit train job and see it succeed", async ({ page }) => {
   await page.goto("/jobs/new");
 
   // Pick detector + version (upxelfdet v0.5.0 built in Task 22)
-  await page.getByText(/^Detector$/).locator("..").getByRole("combobox").click();
+  await page
+    .getByText(/^Detector$/)
+    .locator("..")
+    .getByRole("combobox")
+    .click();
   await page.getByRole("option", { name: /upx/i }).click();
-  await page.getByText(/^Version$/).locator("..").getByRole("combobox").click();
+  await page
+    .getByText(/^Version$/)
+    .locator("..")
+    .getByRole("combobox")
+    .click();
   await page.getByRole("option", { name: /v0\.5\.0/ }).click();
 
   // Pick train + test datasets (any available dataset — the admin's uploaded one from Task 25 or earlier)
@@ -26,5 +34,7 @@ test("submit train job and see it succeed", async ({ page }) => {
   await page.waitForURL(/\/jobs\/[0-9a-f-]+/, { timeout: 15_000 });
 
   // Wait for succeeded (the new job's StatusBadge flips, or an old succeeded Metric appears)
-  await expect(page.getByText(/succeeded/i).first()).toBeVisible({ timeout: 8 * 60_000 });
+  await expect(page.getByText(/succeeded/i).first()).toBeVisible({
+    timeout: 8 * 60_000,
+  });
 });

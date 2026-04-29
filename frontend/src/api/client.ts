@@ -17,7 +17,10 @@ const errorMiddleware: Middleware = {
     if (response.ok) return undefined;
     const contentType = response.headers.get("content-type") ?? "";
     const body = contentType.includes("application/json")
-      ? await response.clone().json().catch(() => null)
+      ? await response
+          .clone()
+          .json()
+          .catch(() => null)
       : null;
     throw parseError(response.status, body);
   },

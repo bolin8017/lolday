@@ -1,9 +1,10 @@
 import pytest
-from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_create_train_job_happy_path(user_client, seed_detector_version, seed_dataset):
+async def test_create_train_job_happy_path(
+    user_client, seed_detector_version, seed_dataset
+):
     dv_id = await seed_detector_version()
     train_ds = await seed_dataset(name="tr-ds")
     test_ds = await seed_dataset(name="te-ds")
@@ -36,7 +37,9 @@ async def test_create_job_type_mismatch_rejected(user_client, seed_detector_vers
 
 
 @pytest.mark.asyncio
-async def test_create_evaluate_requires_source_model(user_client, seed_detector_version, seed_dataset):
+async def test_create_evaluate_requires_source_model(
+    user_client, seed_detector_version, seed_dataset
+):
     dv_id = await seed_detector_version()
     test_ds = await seed_dataset(name="te-ds")
     r = await user_client.post(
@@ -52,7 +55,9 @@ async def test_create_evaluate_requires_source_model(user_client, seed_detector_
 
 
 @pytest.mark.asyncio
-async def test_idempotency_duplicate_submission(user_client, seed_detector_version, seed_dataset):
+async def test_idempotency_duplicate_submission(
+    user_client, seed_detector_version, seed_dataset
+):
     dv_id = await seed_detector_version()
     tr = await seed_dataset(name="tr")
     te = await seed_dataset(name="te")
@@ -74,6 +79,7 @@ async def test_concurrency_limit_enforced(
     user_client, seed_detector_version, seed_dataset, monkeypatch
 ):
     from app.config import settings
+
     monkeypatch.setattr(settings, "JOB_PER_USER_CONCURRENCY", 1)
 
     dv_id = await seed_detector_version()
@@ -82,29 +88,45 @@ async def test_concurrency_limit_enforced(
 
     r1 = await user_client.post(
         "/api/v1/jobs",
-        json={"type": "train", "detector_version_id": dv_id,
-              "train_dataset_id": tr, "test_dataset_id": te, "params": {"seed": 1}},
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {"seed": 1},
+        },
     )
     assert r1.status_code == 202
 
     r2 = await user_client.post(
         "/api/v1/jobs",
-        json={"type": "train", "detector_version_id": dv_id,
-              "train_dataset_id": tr, "test_dataset_id": te, "params": {"seed": 2}},
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {"seed": 2},
+        },
     )
     assert r2.status_code == 429
 
 
 @pytest.mark.asyncio
-async def test_list_jobs_owner_scoped(user_client, second_user_client,
-                                       seed_detector_version, seed_dataset):
+async def test_list_jobs_owner_scoped(
+    user_client, second_user_client, seed_detector_version, seed_dataset
+):
     dv_id = await seed_detector_version()
     tr = await seed_dataset(name="tr")
     te = await seed_dataset(name="te")
     await user_client.post(
         "/api/v1/jobs",
-        json={"type": "train", "detector_version_id": dv_id,
-              "train_dataset_id": tr, "test_dataset_id": te, "params": {"seed": 1}},
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {"seed": 1},
+        },
     )
     r = await second_user_client.get("/api/v1/jobs")
     assert r.json()["total"] == 0
@@ -117,8 +139,13 @@ async def test_cancel_job(user_client, seed_detector_version, seed_dataset):
     te = await seed_dataset(name="te")
     cr = await user_client.post(
         "/api/v1/jobs",
-        json={"type": "train", "detector_version_id": dv_id,
-              "train_dataset_id": tr, "test_dataset_id": te, "params": {}},
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {},
+        },
     )
     jid = cr.json()["id"]
     r = await user_client.post(f"/api/v1/jobs/{jid}/cancel")
@@ -134,8 +161,13 @@ async def test_internal_config_endpoint_requires_token(
     te = await seed_dataset(name="te")
     cr = await user_client.post(
         "/api/v1/jobs",
-        json={"type": "train", "detector_version_id": dv_id,
-              "train_dataset_id": tr, "test_dataset_id": te, "params": {}},
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {},
+        },
     )
     jid = cr.json()["id"]
 

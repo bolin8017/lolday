@@ -80,6 +80,7 @@ bash scripts/deploy.sh
 ```
 
 Expected output:
+
 - `[1/4] Pre-flight checks...` → Cluster OK
 - `[2/4] Preparing Helm dependencies...` → downloads Harbor 1.16 tarball
 - `[3/4] Ensuring namespaces...` → creates `lolday` and `harbor`
@@ -87,6 +88,7 @@ Expected output:
 - Final `kubectl -n lolday get pods` → backend may be CrashLoopBackOff initially (can't reach Harbor yet); Harbor pods Running
 
 **Wait for Harbor:**
+
 ```bash
 kubectl wait --for=condition=Ready pod -l app=harbor,component=core -n harbor --timeout=10m
 kubectl -n harbor get pods
@@ -94,11 +96,13 @@ kubectl -n harbor get pods
 ```
 
 **Verify backend state:**
+
 ```bash
 kubectl -n lolday logs deployment/backend --tail=30
 ```
 
 Expected in logs:
+
 - `Seed admin created: admin@lolday.dev` OR `Seed admin already exists` (idempotent)
 - `harbor init` success OR `ensure_project failed` retries
 - `build reconciler started`
@@ -114,6 +118,7 @@ sudo bash scripts/patch-k3s-registries.sh
 ```
 
 Review the proposed diff carefully. Script behavior:
+
 1. Reads Harbor Service ClusterIP
 2. Backs up `/etc/rancher/k3s/registries.yaml` → `.bak.<timestamp>`
 3. Shows `diff -u` and asks `Apply? [y/N]`
@@ -123,6 +128,7 @@ Review the proposed diff carefully. Script behavior:
 **SSH SAFETY:** port 9453 should stay up throughout. If SSH drops during this step, you have a big problem. If connection feels laggy after `systemctl restart k3s`, wait ~30s — kubelet re-registering takes time.
 
 **Verify after:**
+
 ```bash
 sudo systemctl is-active k3s    # active
 kubectl get pods -A             # all namespaces healthy
@@ -160,6 +166,7 @@ kill $PF_PID
 ```
 
 Verify both images in Harbor:
+
 ```bash
 kubectl port-forward -n harbor svc/harbor 8080:80 &
 PF_PID=$!; sleep 3
@@ -180,6 +187,7 @@ helm upgrade lolday ./charts/lolday \
 ```
 
 Backend pod restarts. Watch:
+
 ```bash
 kubectl -n lolday rollout status deployment/backend
 kubectl -n lolday logs deployment/backend --tail=50 -f
@@ -214,6 +222,7 @@ kubectl -n harbor port-forward svc/harbor 8080:80 &
 ## Rollback
 
 ### Full rollback (wipe Phase 3)
+
 ```bash
 helm uninstall lolday -n lolday
 helm uninstall harbor -n harbor 2>/dev/null || true   # in case it became its own release
@@ -230,6 +239,7 @@ sudo systemctl is-active k3s    # active
 ```
 
 ### Partial rollback (backend image only)
+
 ```bash
 helm upgrade lolday ./charts/lolday \
   -n lolday --reuse-values \
@@ -240,15 +250,15 @@ helm upgrade lolday ./charts/lolday \
 
 ## Common gotchas
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Backend CrashLoop with `fernet_key` error | FERNET_KEY malformed (not base64 32-byte) | Regenerate per step 1 |
-| Harbor core pod stuck `Init` | PVC not bound | `kubectl describe pod -n harbor harbor-core-*` — check StorageClass; default `local-path` should work on K3s |
-| Harbor login 401 | Wrong password OR Harbor still initializing | Wait 3min after all pods Ready; retry |
-| `patch-k3s-registries.sh` fails with "Failed to read Harbor ClusterIP" | Harbor not deployed yet | Complete step 3 first |
-| Image push timeout | Harbor database / Redis not ready | `kubectl -n harbor get pods` — wait for all Ready |
-| Backend log: `harbor init failed` repeatedly | `robot$build-pusher` creation race | Restart backend pod: `kubectl -n lolday rollout restart deployment/backend` |
-| K3s restart broke SSH | Rare but catastrophic | Console access (if available) → `systemctl restart k3s` OR boot from backup |
+| Symptom                                                                | Cause                                       | Fix                                                                                                          |
+| ---------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Backend CrashLoop with `fernet_key` error                              | FERNET_KEY malformed (not base64 32-byte)   | Regenerate per step 1                                                                                        |
+| Harbor core pod stuck `Init`                                           | PVC not bound                               | `kubectl describe pod -n harbor harbor-core-*` — check StorageClass; default `local-path` should work on K3s |
+| Harbor login 401                                                       | Wrong password OR Harbor still initializing | Wait 3min after all pods Ready; retry                                                                        |
+| `patch-k3s-registries.sh` fails with "Failed to read Harbor ClusterIP" | Harbor not deployed yet                     | Complete step 3 first                                                                                        |
+| Image push timeout                                                     | Harbor database / Redis not ready           | `kubectl -n harbor get pods` — wait for all Ready                                                            |
+| Backend log: `harbor init failed` repeatedly                           | `robot$build-pusher` creation race          | Restart backend pod: `kubectl -n lolday rollout restart deployment/backend`                                  |
+| K3s restart broke SSH                                                  | Rare but catastrophic                       | Console access (if available) → `systemctl restart k3s` OR boot from backup                                  |
 
 ---
 

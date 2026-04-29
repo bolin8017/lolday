@@ -142,6 +142,7 @@ docs/
 ## Task 1: Add `maldet` to backend deps
 
 **Files:**
+
 - Modify: `backend/pyproject.toml`
 - Modify: `backend/uv.lock`
 
@@ -186,6 +187,7 @@ git commit -m "deps: pin maldet~=1.0 (phase 11b bootstrap)"
 ## Task 2: Alembic migration — `job_events` table + `detector_version.manifest` column
 
 **Files:**
+
 - Create: `backend/migrations/versions/XXXX_phase11b_events_manifest.py`
 - Modify: `backend/app/models/detector.py` (add column, so `alembic revision --autogenerate` picks it up)
 - Test: `backend/tests/test_migrations_parity.py` (existing — run after migration)
@@ -264,6 +266,7 @@ git commit -m "feat(db): phase 11b migration — job_events + detector_version.m
 ## Task 3: `JobEvent` ORM model
 
 **Files:**
+
 - Create: `backend/app/models/job_event.py`
 - Modify: `backend/app/models/__init__.py`
 - Test: `backend/tests/test_models_job_event.py`
@@ -365,7 +368,7 @@ class JobEvent(Base):
 
 - [ ] **Step 4: Export from `app/models/__init__.py`**
 
-Find the existing export line (models __init__ collects the exports). Add `JobEvent`:
+Find the existing export line (models **init** collects the exports). Add `JobEvent`:
 
 ```python
 from app.models.job_event import JobEvent
@@ -394,6 +397,7 @@ git commit -m "feat(models): JobEvent ORM (phase 11b event stream persistence)"
 ## Task 4: Harbor — read image labels
 
 **Files:**
+
 - Modify: `backend/app/services/harbor.py` (add `get_image_labels`)
 - Test: `backend/tests/test_services_harbor_labels.py`
 
@@ -496,6 +500,7 @@ git commit -m "feat(harbor): HarborClient.get_image_labels reads OCI image confi
 ## Task 5: `manifest_store` — decode OCI label → DetectorManifest
 
 **Files:**
+
 - Create: `backend/app/services/manifest_store.py`
 - Create: `backend/tests/fixtures/valid_maldet_manifest.json`
 - Test: `backend/tests/test_services_manifest_store.py`
@@ -510,17 +515,40 @@ Write `backend/tests/fixtures/valid_maldet_manifest.json`:
 
 ```json
 {
-  "detector": {"name": "elfrfdet", "version": "2.0.0", "framework": "sklearn"},
-  "input": {"binary_format": "elf", "required_sections": [".text"], "dataset_contract": "sample_csv"},
-  "output": {"task": "binary_classification", "classes": ["Malware", "Benign"], "score_range": [0.0, 1.0]},
-  "resources": {"supports": ["cpu", "gpu1", "gpu2"], "recommended": "cpu", "min_memory_gib": 2, "gpu_required": false},
-  "lifecycle": {"stages": ["train", "evaluate", "predict"], "supports_serving": false, "supports_hpsweep": true, "supports_distributed": false, "supports_multinode": false},
-  "artifacts": {
-    "model": {"path": "model/", "type": "dir"},
-    "metrics": {"path": "metrics.json", "type": "file"},
-    "predictions": {"path": "predictions.csv", "type": "file"}
+  "detector": {
+    "name": "elfrfdet",
+    "version": "2.0.0",
+    "framework": "sklearn"
   },
-  "compat": {"min_python": "3.12", "min_maldet": "1.0", "schema_version": 1},
+  "input": {
+    "binary_format": "elf",
+    "required_sections": [".text"],
+    "dataset_contract": "sample_csv"
+  },
+  "output": {
+    "task": "binary_classification",
+    "classes": ["Malware", "Benign"],
+    "score_range": [0.0, 1.0]
+  },
+  "resources": {
+    "supports": ["cpu", "gpu1", "gpu2"],
+    "recommended": "cpu",
+    "min_memory_gib": 2,
+    "gpu_required": false
+  },
+  "lifecycle": {
+    "stages": ["train", "evaluate", "predict"],
+    "supports_serving": false,
+    "supports_hpsweep": true,
+    "supports_distributed": false,
+    "supports_multinode": false
+  },
+  "artifacts": {
+    "model": { "path": "model/", "type": "dir" },
+    "metrics": { "path": "metrics.json", "type": "file" },
+    "predictions": { "path": "predictions.csv", "type": "file" }
+  },
+  "compat": { "min_python": "3.12", "min_maldet": "1.0", "schema_version": 1 },
   "stages": {
     "train": {
       "reader": "maldet.builtins.readers:SampleCsvReader",
@@ -644,6 +672,7 @@ git commit -m "feat(services): manifest_store decodes io.maldet.manifest OCI lab
 ## Task 5b: Populate `detector_version.manifest` during build reconciliation
 
 **Files:**
+
 - Modify: `backend/app/reconciler.py` (inside `reconcile_build` — find the success path where image digest is recorded)
 - Test: extend an existing reconciler-build test to assert the manifest is stored, OR add a focused test.
 
@@ -752,6 +781,7 @@ git commit -m "feat(reconciler): persist io.maldet.manifest into DetectorVersion
 ## Task 6: Validator — manifest + job pre-flight
 
 **Files:**
+
 - Create: `backend/app/services/validator.py` (new OR extend existing `services/validator.py` — the Phase 4 codebase may already have a stub; check first)
 - Test: `backend/tests/test_services_validator_phase11b.py`
 
@@ -929,6 +959,7 @@ git commit -m "feat(validator): phase 11b manifest + job pre-flight (resource / 
 ## Task 7: `job_config.py` — rewrite as Hydra YAML renderer
 
 **Files:**
+
 - Modify: `backend/app/services/job_config.py` (complete rewrite, preserve file shape)
 - Replace: `backend/tests/test_services_job_config.py` content
 - Create: `backend/tests/test_services_job_config_phase11b.py` (or fully replace the old one)
@@ -1179,6 +1210,7 @@ If retrofitting the Alembic migration: also `git add` the migration file.
 ## Task 8: `job_spec.py` — `maldet run` + sidecar event-tailer
 
 **Files:**
+
 - Modify: `backend/app/services/job_spec.py`
 - Replace/create: `backend/tests/test_services_job_spec_phase11b.py`
 
@@ -1445,6 +1477,7 @@ Note the parameter change: `detector_cli_command` is GONE (every detector's entr
 - [ ] **Step 2b: Update call-site in `routers/jobs.py`**
 
 Find where `build_volcano_job_manifest` is called. Update the kwargs:
+
 - Remove `detector_cli_command=...`
 - Remove `model_name=...`
 - Add `internal_events_url=<constructed from settings.INTERNAL_EVENTS_BASE_URL + f"/internal/jobs/{job_id}/events">`
@@ -1468,6 +1501,7 @@ git commit -m "feat(job_spec): phase 11b maldet-run + event-tailer sidecar"
 ## Task 9: Sidecar — `tail_events.py` in `job-helper`
 
 **Files:**
+
 - Create: `charts/lolday/helpers/job-helper/job_helper/tail_events.py`
 - Modify: `charts/lolday/helpers/job-helper/pyproject.toml` (add httpx)
 - Test: `charts/lolday/helpers/job-helper/tests/test_tail_events.py` (create tests/ dir if missing)
@@ -1673,6 +1707,7 @@ The user may need `sudo` for `docker` if their user isn't in the `docker` group.
 ## Task 10: `services/events_tail.py` — persistence + in-process broadcast
 
 **Files:**
+
 - Create: `backend/app/services/events_tail.py`
 - Test: `backend/tests/test_services_events_tail.py`
 
@@ -1826,6 +1861,7 @@ git commit -m "feat(services): events_tail — persist + in-process broadcast"
 ## Task 11: Internal events POST endpoint
 
 **Files:**
+
 - Modify: `backend/app/routers/internal.py`
 - Test: `backend/tests/test_internal_events.py`
 
@@ -1922,6 +1958,7 @@ git commit -m "feat(internal): POST /internal/jobs/{id}/events (sidecar ingress)
 ## Task 12: GET /jobs/{id}/events — paged retrieval
 
 **Files:**
+
 - Modify: `backend/app/routers/jobs.py`
 - Create: `backend/app/schemas/job_event.py`
 - Test: `backend/tests/test_jobs_events_endpoint.py`
@@ -2053,6 +2090,7 @@ git commit -m "feat(jobs): GET /jobs/{id}/events (paged historical retrieval)"
 ## Task 13: WebSocket /jobs/{id}/events — live stream
 
 **Files:**
+
 - Modify: `backend/app/routers/jobs.py` (add WS endpoint)
 - Test: `backend/tests/test_jobs_events_websocket.py`
 
@@ -2169,6 +2207,7 @@ git commit -m "feat(jobs): WS /jobs/{id}/events (phase 11b live stream)"
 ## Task 14: Reconciler — status determination from stage_end events
 
 **Files:**
+
 - Modify: `backend/app/reconciler.py`
 - Test: existing `backend/tests/test_reconciler_jobs.py` — add new cases
 
@@ -2254,6 +2293,7 @@ git commit -m "feat(reconciler): trust stage_end event before Volcano phase"
 ## Task 15: Frontend — live metric chart + event log
 
 **Files:**
+
 - Create: `frontend/src/hooks/useJobEvents.ts`
 - Create: `frontend/src/components/JobMetricChart.tsx`
 - Modify: `frontend/src/pages/JobDetail.tsx`
@@ -2278,7 +2318,9 @@ export function useJobEvents(jobId: string | null): MaldetEvent[] {
   useEffect(() => {
     if (!jobId) return;
     const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${scheme}://${window.location.host}/api/v1/jobs/${jobId}/events`);
+    const ws = new WebSocket(
+      `${scheme}://${window.location.host}/api/v1/jobs/${jobId}/events`,
+    );
 
     ws.onmessage = (ev) => {
       try {
@@ -2305,7 +2347,16 @@ export function useJobEvents(jobId: string | null): MaldetEvent[] {
 - [ ] **Step 2: Write `components/JobMetricChart.tsx`**
 
 ```tsx
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import type { MaldetEvent } from "@/hooks/useJobEvents";
 
 type Point = { step: number; [metric: string]: number };
@@ -2328,7 +2379,8 @@ function metricsToSeries(events: MaldetEvent[]): Point[] {
 export function JobMetricChart({ events }: { events: MaldetEvent[] }) {
   const data = metricsToSeries(events);
   const metrics = new Set<string>();
-  for (const d of data) for (const k of Object.keys(d)) if (k !== "step") metrics.add(k);
+  for (const d of data)
+    for (const k of Object.keys(d)) if (k !== "step") metrics.add(k);
   if (data.length === 0) {
     return <p className="text-sm text-muted-foreground">No metrics yet.</p>;
   }
@@ -2341,7 +2393,13 @@ export function JobMetricChart({ events }: { events: MaldetEvent[] }) {
         <Tooltip />
         <Legend />
         {[...metrics].map((m, i) => (
-          <Line key={m} type="monotone" dataKey={m} stroke={`hsl(${(i * 70) % 360}, 70%, 45%)`} dot={false} />
+          <Line
+            key={m}
+            type="monotone"
+            dataKey={m}
+            stroke={`hsl(${(i * 70) % 360}, 70%, 45%)`}
+            dot={false}
+          />
         ))}
       </LineChart>
     </ResponsiveContainer>
@@ -2357,14 +2415,18 @@ Find the existing JobDetail page. Inside the render tree, for jobs in status `ru
 import { useJobEvents } from "@/hooks/useJobEvents";
 import { JobMetricChart } from "@/components/JobMetricChart";
 // ...
-const events = useJobEvents(job.status === "succeeded" || job.status === "failed" ? null : jobId);
+const events = useJobEvents(
+  job.status === "succeeded" || job.status === "failed" ? null : jobId,
+);
 // ...
-{events.length > 0 && (
-  <section>
-    <h2>Live metrics</h2>
-    <JobMetricChart events={events} />
-  </section>
-)}
+{
+  events.length > 0 && (
+    <section>
+      <h2>Live metrics</h2>
+      <JobMetricChart events={events} />
+    </section>
+  );
+}
 ```
 
 - [ ] **Step 4: Install recharts if not present**
@@ -2386,6 +2448,7 @@ git commit -m "feat(frontend): live metric chart + event stream (phase 11b)"
 ## Task 16: Chart + values.yaml bumps
 
 **Files:**
+
 - Modify: `charts/lolday/Chart.yaml` (appVersion + version bump)
 - Modify: `charts/lolday/values.yaml` (jobHelper v2 → v3, + new env for backend `INTERNAL_EVENTS_BASE_URL`)
 - Modify: `charts/lolday/templates/backend.yaml` (add `INTERNAL_EVENTS_BASE_URL` env)
@@ -2415,8 +2478,8 @@ backend:
 Add to the env list:
 
 ```yaml
-        - name: INTERNAL_EVENTS_BASE_URL
-          value: {{ .Values.backend.env.INTERNAL_EVENTS_BASE_URL | quote }}
+- name: INTERNAL_EVENTS_BASE_URL
+  value: { { .Values.backend.env.INTERNAL_EVENTS_BASE_URL | quote } }
 ```
 
 - [ ] **Step 4: deploy.sh**
@@ -2435,6 +2498,7 @@ git commit -m "chore(chart): bump to 0.13.0, job-helper v3, backend phase11b, +I
 ## Task 17: Deploy + local E2E checklist
 
 **Files:**
+
 - Create: `docs/phase11b-e2e-checklist.md`
 
 - [ ] **Step 1: Build + push backend image phase11b**
@@ -2581,21 +2645,21 @@ git push origin --delete phase-11b-impl  # remote (optional; GitHub UI can also 
 
 **Spec coverage (§3F lolday Backend Changes):**
 
-| Spec item | Task |
-|---|---|
-| `services/job_spec.py` — `maldet run` + sidecar | Task 8 |
-| `services/job_config.py` — Hydra YAML + overrides | Task 7 |
-| `services/harbor.py` — read Labels field | Task 4 |
-| `services/validator.py` — manifest + resource + dataset_contract pre-flight | Task 6 |
-| `services/events_tail.py` — sidecar HTTP receive + persist | Task 10 |
-| `models/job_event.py` — ORM | Task 3 |
-| Alembic migration | Task 2 |
-| `routers/internal.py` — POST /internal/jobs/{id}/events | Task 11 |
-| `routers/jobs.py` — GET paged + WS stream | Tasks 12 + 13 |
-| Reconciler — status from `stage_end.status` | Task 14 |
-| `frontend/src/pages/JobDetail.tsx` — live metric chart | Task 15 |
-| Chart / deploy / values | Task 16 |
-| E2E checklist | Task 17 |
+| Spec item                                                                   | Task          |
+| --------------------------------------------------------------------------- | ------------- |
+| `services/job_spec.py` — `maldet run` + sidecar                             | Task 8        |
+| `services/job_config.py` — Hydra YAML + overrides                           | Task 7        |
+| `services/harbor.py` — read Labels field                                    | Task 4        |
+| `services/validator.py` — manifest + resource + dataset_contract pre-flight | Task 6        |
+| `services/events_tail.py` — sidecar HTTP receive + persist                  | Task 10       |
+| `models/job_event.py` — ORM                                                 | Task 3        |
+| Alembic migration                                                           | Task 2        |
+| `routers/internal.py` — POST /internal/jobs/{id}/events                     | Task 11       |
+| `routers/jobs.py` — GET paged + WS stream                                   | Tasks 12 + 13 |
+| Reconciler — status from `stage_end.status`                                 | Task 14       |
+| `frontend/src/pages/JobDetail.tsx` — live metric chart                      | Task 15       |
+| Chart / deploy / values                                                     | Task 16       |
+| E2E checklist                                                               | Task 17       |
 
 All mapped.
 

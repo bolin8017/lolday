@@ -1,12 +1,13 @@
 import asyncio
+import contextlib
 import csv
 import io
 import logging
 import uuid
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from kubernetes.client import ApiException
@@ -23,15 +24,7 @@ from app.models.detector import (
     DetectorVersionStatus,
 )
 from app.services.build import build_secret_name
-from app.services.harbor import HarborClient, ScanResult, ScanStatus
-from app.services.manifest_store import ManifestDecodeError, decode_manifest_label
-from app.services.notify import (
-    notify_build_completed,
-    notify_build_failed,
-    notify_job_completed,
-    notify_job_failed,
-    notify_trivy_blocked,
-)
+from app.services.harbor import HarborClient, ScanStatus
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
@@ -39,6 +32,14 @@ from app.services.k8s import (
     batch_v1,
     core_v1,
     volcano_v1alpha1,
+)
+from app.services.manifest_store import ManifestDecodeError, decode_manifest_label
+from app.services.notify import (
+    notify_build_completed,
+    notify_build_failed,
+    notify_job_completed,
+    notify_job_failed,
+    notify_trivy_blocked,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,9 +69,7 @@ class NotifyContext:
     discord_id: str | None
 
 
-async def _user_context(
-    session: AsyncSession, user_id
-) -> NotifyContext | None:
+async def _user_context(session: AsyncSession, user_id) -> NotifyContext | None:
     """Resolve a notification identity, or ``None`` to signal "skip notify".
 
     ``name`` falls back through display_name → email local-part → literal
@@ -113,7 +112,7 @@ def _primary_metric(metrics: dict) -> tuple[str, float] | None:
     precision > recall; None if none are numeric."""
     for key in ("f1", "accuracy", "precision", "recall"):
         val = metrics.get(key)
-        if isinstance(val, (int, float)):
+        if isinstance(val, int | float):
             return (key, float(val))
     return None
 
@@ -141,7 +140,7 @@ async def _fire_job_failed_notify(
     if ds_id:
         ds = await session.get(DatasetConfig, ds_id)
         dataset_name = ds.name if ds else None
-    asyncio.create_task(
+    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
         notify_job_failed(
             user_name=ctx.name,
             user_discord_id=ctx.discord_id,
@@ -169,12 +168,12 @@ async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
         if e.status == 404:
             b.status = DetectorBuildStatus.FAILED
             b.failure_reason = "k8s_job_missing"
-            b.finished_at = datetime.now(timezone.utc)
+            b.finished_at = datetime.now(UTC)
             await session.commit()
             ctx = await _user_context(session, b.triggered_by_id)
             if ctx is not None:
                 label = await _detector_label(session, b.detector_id)
-                asyncio.create_task(
+                asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                     notify_build_failed(
                         user_name=ctx.name,
                         user_discord_id=ctx.discord_id,
@@ -192,7 +191,7 @@ async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
     # to sit above the dispatch, not inside an elif, for the Error-retry
     # loop to be genuinely bounded.
     if (
-        datetime.now(timezone.utc) - b.started_at.replace(tzinfo=timezone.utc)
+        datetime.now(UTC) - b.started_at.replace(tzinfo=UTC)
     ).total_seconds() > settings.BUILD_TIMEOUT_SECONDS + 60:
         await _handle_timeout(session, b)
         return
@@ -218,7 +217,7 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
     if digest is None:
         b.status = DetectorBuildStatus.FAILED
         b.failure_reason = "artifact_missing_in_harbor"
-        b.finished_at = datetime.now(timezone.utc)
+        b.finished_at = datetime.now(UTC)
         await session.commit()
         return
 
@@ -281,12 +280,12 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
         b.failure_reason = f"cve_blocked: critical={scan.critical} high={scan.high}"
         b.trivy_critical = scan.critical
         b.trivy_high = scan.high
-        b.finished_at = datetime.now(timezone.utc)
+        b.finished_at = datetime.now(UTC)
         await session.commit()
         ctx = await _user_context(session, b.triggered_by_id)
         if ctx is not None:
             label = await _detector_label(session, b.detector_id)
-            asyncio.create_task(
+            asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                 notify_trivy_blocked(
                     user_name=ctx.name,
                     user_discord_id=ctx.discord_id,
@@ -336,12 +335,12 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 )
                 b.status = DetectorBuildStatus.FAILED
                 b.failure_reason = "harbor_labels_fetch_failed"
-                b.finished_at = datetime.now(timezone.utc)
+                b.finished_at = datetime.now(UTC)
                 await session.commit()
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -363,12 +362,12 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 )
                 b.status = DetectorBuildStatus.FAILED
                 b.failure_reason = "manifest_label_missing"
-                b.finished_at = datetime.now(timezone.utc)
+                b.finished_at = datetime.now(UTC)
                 await session.commit()
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -391,12 +390,12 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 )
                 b.status = DetectorBuildStatus.FAILED
                 b.failure_reason = "manifest_invalid"
-                b.finished_at = datetime.now(timezone.utc)
+                b.finished_at = datetime.now(UTC)
                 await session.commit()
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -428,12 +427,12 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                 )
                 b.status = DetectorBuildStatus.FAILED
                 b.failure_reason = "git_sha_label_missing"
-                b.finished_at = datetime.now(timezone.utc)
+                b.finished_at = datetime.now(UTC)
                 await session.commit()
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -474,12 +473,12 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
                     f"{existing_version.image_digest[:19]}…; refusing to rebind to "
                     f"{digest[:19]}… — bump tag or delete existing version first"
                 )
-                b.finished_at = datetime.now(timezone.utc)
+                b.finished_at = datetime.now(UTC)
                 await session.commit()
                 ctx = await _user_context(session, b.triggered_by_id)
                 if ctx is not None:
                     label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(
+                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                         notify_build_failed(
                             user_name=ctx.name,
                             user_discord_id=ctx.discord_id,
@@ -517,14 +516,15 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
             BACKEND_ERRORS.labels(stage="log_capture_build").inc()
             logger.warning(
                 "log capture failed for build %s — continuing without log_tail",
-                b.id, exc_info=True,
+                b.id,
+                exc_info=True,
             )
-        b.finished_at = datetime.now(timezone.utc)
+        b.finished_at = datetime.now(UTC)
         await session.commit()
         ctx = await _user_context(session, b.triggered_by_id)
         if ctx is not None:
             label = await _detector_label(session, b.detector_id)
-            asyncio.create_task(
+            asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
                 notify_build_completed(
                     user_name=ctx.name,
                     user_discord_id=ctx.discord_id,
@@ -550,14 +550,15 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
         BACKEND_ERRORS.labels(stage="log_capture_build").inc()
         logger.warning(
             "log capture failed for build %s — continuing without log_tail",
-            b.id, exc_info=True,
+            b.id,
+            exc_info=True,
         )
-    b.finished_at = datetime.now(timezone.utc)
+    b.finished_at = datetime.now(UTC)
     await session.commit()
     ctx = await _user_context(session, b.triggered_by_id)
     if ctx is not None:
         label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(
+        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
             notify_build_failed(
                 user_name=ctx.name,
                 user_discord_id=ctx.discord_id,
@@ -591,12 +592,12 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
             )
     b.status = DetectorBuildStatus.TIMEOUT
     b.failure_reason = "build exceeded timeout"
-    b.finished_at = datetime.now(timezone.utc)
+    b.finished_at = datetime.now(UTC)
     await session.commit()
     ctx = await _user_context(session, b.triggered_by_id)
     if ctx is not None:
         label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(
+        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
             notify_build_failed(
                 user_name=ctx.name,
                 user_discord_id=ctx.discord_id,
@@ -668,7 +669,8 @@ async def _capture_pod_logs(
     """
     try:
         pods = core_v1().list_namespaced_pod(
-            namespace=namespace, label_selector=label_selector,
+            namespace=namespace,
+            label_selector=label_selector,
         )
     except ApiException:
         return ""
@@ -814,10 +816,8 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
         except Exception:
             BACKEND_ERRORS.labels(stage="reconciler_iteration").inc()
             logger.exception("reconciler iteration failed")
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop_event.wait(), timeout=RECONCILER_WAIT_SECONDS)
-        except asyncio.TimeoutError:
-            pass
     logger.info("reconciler stopped")
 
 
@@ -825,8 +825,8 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
 # Phase 4: Job + Model Registry reconciliation
 # =============================================================================
 
-from app.models.job import Job, JobStatus, JobType, NON_TERMINAL_STATUSES  # noqa: E402
-from app.services.mlflow_client import MlflowClient  # noqa: E402
+from app.models.job import NON_TERMINAL_STATUSES, Job, JobStatus, JobType
+from app.services.mlflow_client import MlflowClient
 
 
 async def reconcile_job(session: AsyncSession, j: Job) -> None:
@@ -852,7 +852,7 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
         if e.status == 404:
             j.status = JobStatus.FAILED
             j.failure_reason = "k8s_job_missing"
-            j.finished_at = datetime.now(timezone.utc)
+            j.finished_at = datetime.now(UTC)
             await session.commit()
             await _fire_job_failed_notify(session, j, "k8s_job_missing")
         return
@@ -878,7 +878,7 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
                 )
         j.status = JobStatus.TIMEOUT
         j.failure_reason = "detector_timeout"
-        j.finished_at = datetime.now(timezone.utc)
+        j.finished_at = datetime.now(UTC)
         await session.commit()
         await _fire_job_failed_notify(session, j, "detector_timeout")
         await _cleanup_job_secret(j)
@@ -914,9 +914,7 @@ def _job_timed_out(j: Job, vjob: dict) -> bool:
         JobType.PREDICT: settings.JOB_ACTIVE_DEADLINE_PREDICT_SECONDS,
     }
     deadline = deadline_map.get(j.type, 3600)
-    elapsed = (
-        datetime.now(timezone.utc) - j.started_at.replace(tzinfo=timezone.utc)
-    ).total_seconds()
+    elapsed = (datetime.now(UTC) - j.started_at.replace(tzinfo=UTC)).total_seconds()
     return elapsed > deadline + 60
 
 
@@ -937,9 +935,7 @@ async def _check_event_terminal(session: AsyncSession, job_id: uuid.UUID) -> str
     return status if status in ("success", "failure") else None
 
 
-async def _project_summary_metrics(
-    session: AsyncSession, job_id: uuid.UUID
-) -> None:
+async def _project_summary_metrics(session: AsyncSession, job_id: uuid.UUID) -> None:
     """Aggregate last-per-name metric events + latest confusion_matrix event for
     ``job_id`` into ``Job.summary_metrics``. Idempotent — running twice produces
     the same result.
@@ -952,12 +948,14 @@ async def _project_summary_metrics(
     """
     from app.models import JobEvent
 
-    rows = (await session.execute(
-        select(JobEvent.kind, JobEvent.payload, JobEvent.ts)
-        .where(JobEvent.job_id == job_id)
-        .where(JobEvent.kind.in_(["metric", "confusion_matrix", "per_class"]))
-        .order_by(JobEvent.ts.asc())
-    )).all()
+    rows = (
+        await session.execute(
+            select(JobEvent.kind, JobEvent.payload, JobEvent.ts)
+            .where(JobEvent.job_id == job_id)
+            .where(JobEvent.kind.in_(["metric", "confusion_matrix", "per_class"]))
+            .order_by(JobEvent.ts.asc())
+        )
+    ).all()
 
     metrics: dict[str, float] = {}
     confusion_matrix: dict[str, Any] | None = None
@@ -998,13 +996,8 @@ async def _read_mlflow_artifact(run_id: str, path: str) -> str:
     legitimately lack a ``predictions.csv`` should not surface as an
     error).
     """
-    url = (
-        f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow/runs/get"
-        f"?run_id={run_id}"
-    )
-    async with httpx.AsyncClient(
-        timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
-    ) as c:
+    url = f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow/runs/get?run_id={run_id}"
+    async with httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS) as c:
         run_resp = await c.get(url)
         run_resp.raise_for_status()
         artifact_uri: str = run_resp.json()["run"]["info"]["artifact_uri"]
@@ -1012,14 +1005,12 @@ async def _read_mlflow_artifact(run_id: str, path: str) -> str:
     prefix = "mlflow-artifacts:/"
     if not artifact_uri.startswith(prefix):
         raise RuntimeError(f"unexpected artifact_uri scheme: {artifact_uri!r}")
-    relative = artifact_uri[len(prefix):].rstrip("/")
+    relative = artifact_uri[len(prefix) :].rstrip("/")
     download_url = (
         f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow-artifacts/artifacts/"
         f"{relative}/{path}"
     )
-    async with httpx.AsyncClient(
-        timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
-    ) as c:
+    async with httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS) as c:
         r = await c.get(download_url)
     if r.status_code == 404:
         raise FileNotFoundError(path)
@@ -1043,7 +1034,7 @@ async def _project_prediction_summary(session: AsyncSession, j: Job) -> None:
         csv_text = await _read_mlflow_artifact(j.mlflow_run_id, "predictions.csv")
     except FileNotFoundError:
         return
-    except Exception:  # noqa: BLE001 — never raise out of the projector
+    except Exception:
         BACKEND_ERRORS.labels(stage="prediction_summary_artifact_read").inc()
         logger.exception(
             "prediction_summary artifact read failed",
@@ -1101,7 +1092,7 @@ async def _update_job_progress(session: AsyncSession, j: Job) -> None:
     if pod.status.phase == "Running" and j.status != JobStatus.RUNNING:
         j.status = JobStatus.RUNNING
         if j.started_at is None:
-            j.started_at = datetime.now(timezone.utc)
+            j.started_at = datetime.now(UTC)
         await session.commit()
 
 
@@ -1116,7 +1107,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
 
     j.log_tail = log_tail
     j.status = JobStatus.SUCCEEDED
-    j.finished_at = datetime.now(timezone.utc)
+    j.finished_at = datetime.now(UTC)
 
     if j.type == JobType.TRAIN:
         try:
@@ -1132,7 +1123,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
 
     try:
         await _project_summary_metrics(session, j.id)
-    except Exception:  # noqa: BLE001 — never block job termination on projection
+    except Exception:
         BACKEND_ERRORS.labels(stage="summary_projection").inc()
         logger.exception(
             "summary_metrics projection failed", extra={"job_id": str(j.id)}
@@ -1141,7 +1132,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
     if j.type == JobType.PREDICT:
         try:
             await _project_prediction_summary(session, j)
-        except Exception:  # noqa: BLE001 — never block job termination on projection
+        except Exception:
             BACKEND_ERRORS.labels(stage="prediction_summary_projection").inc()
             logger.exception(
                 "prediction_summary projection failed",
@@ -1159,9 +1150,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
         from app.models import DetectorVersion
 
         dv = await session.get(DetectorVersion, j.detector_version_id)
-        det_label = (
-            await _detector_label(session, dv.detector_id) if dv else "unknown"
-        )
+        det_label = await _detector_label(session, dv.detector_id) if dv else "unknown"
         detector_label = f"{det_label} {dv.git_tag}" if dv else det_label
         dataset_name = None
         if j.train_dataset_id or j.test_dataset_id or j.predict_dataset_id:
@@ -1175,12 +1164,12 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
             sa = (
                 j.started_at
                 if j.started_at.tzinfo
-                else j.started_at.replace(tzinfo=timezone.utc)
+                else j.started_at.replace(tzinfo=UTC)
             )
             fa = (
                 j.finished_at
                 if j.finished_at.tzinfo
-                else j.finished_at.replace(tzinfo=timezone.utc)
+                else j.finished_at.replace(tzinfo=UTC)
             )
             duration = int((fa - sa).total_seconds())
         mlflow_url = (
@@ -1188,7 +1177,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
             if j.mlflow_experiment_id and j.mlflow_run_id
             else None
         )
-        asyncio.create_task(
+        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
             notify_job_completed(
                 user_name=ctx.name,
                 user_discord_id=ctx.discord_id,
@@ -1238,7 +1227,7 @@ async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
     j.status = JobStatus.FAILED
     j.failure_reason = reason
     j.log_tail = log_tail
-    j.finished_at = datetime.now(timezone.utc)
+    j.finished_at = datetime.now(UTC)
     await session.commit()
 
     # Phase 11e: failed jobs may still have meaningful early-stage metrics
@@ -1246,7 +1235,7 @@ async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
     # Project them too so the UI summary card surfaces what's available.
     try:
         await _project_summary_metrics(session, j.id)
-    except Exception:  # noqa: BLE001 — never block job termination on projection
+    except Exception:
         BACKEND_ERRORS.labels(stage="summary_projection").inc()
         logger.exception(
             "summary_metrics projection failed", extra={"job_id": str(j.id)}
@@ -1358,7 +1347,7 @@ async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
         plural=VOLCANO_JOB_PLURAL,
     )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     deleted = 0
     for vjob in listing.get("items", []):
         meta = vjob.get("metadata", {}) or {}
@@ -1419,7 +1408,10 @@ async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
             else:
                 BACKEND_ERRORS.labels(stage="orphan_vcjob_delete").inc()
                 logger.warning(
-                    "orphan vcjob %s delete returned %s", name, exc.status, exc_info=True
+                    "orphan vcjob %s delete returned %s",
+                    name,
+                    exc.status,
+                    exc_info=True,
                 )
                 continue
 
@@ -1471,5 +1463,5 @@ async def sync_model_versions(session: AsyncSession) -> None:
             continue
         if stage_enum != mv.current_stage:
             mv.current_stage = stage_enum
-            mv.last_transitioned_at = datetime.now(timezone.utc)
+            mv.last_transitioned_at = datetime.now(UTC)
     await session.commit()

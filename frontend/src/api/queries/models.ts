@@ -12,7 +12,8 @@ export const modelsKeys = {
   detail: (name: string) => [...modelsKeys.all, "detail", name] as const,
   versions: (name: string) => [...modelsKeys.all, "versions", name] as const,
   version: (id: string) => [...modelsKeys.all, "version", id] as const,
-  versionForJob: (jobId: string) => [...modelsKeys.all, "version-for-job", jobId] as const,
+  versionForJob: (jobId: string) =>
+    [...modelsKeys.all, "version-for-job", jobId] as const,
 };
 
 export function useRegisteredModels() {
@@ -30,7 +31,9 @@ export function useModelDetail(name: string) {
   return useQuery({
     queryKey: modelsKeys.detail(name),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/models/{name}", { params: { path: { name } } });
+      const { data, error } = await client.GET("/api/v1/models/{name}", {
+        params: { path: { name } },
+      });
       if (error) throw error;
       return data as RegisteredModel;
     },
@@ -42,9 +45,12 @@ export function useModelVersions(name: string) {
   return useQuery({
     queryKey: modelsKeys.versions(name),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/models/{name}/versions", {
-        params: { path: { name } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/models/{name}/versions",
+        {
+          params: { path: { name } },
+        },
+      );
       if (error) throw error;
       return data;
     },
@@ -56,9 +62,12 @@ export function useModelVersion(id: string | null | undefined) {
   return useQuery({
     queryKey: modelsKeys.version(id ?? ""),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/models/versions/{version_id}", {
-        params: { path: { version_id: id! } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/models/versions/{version_id}",
+        {
+          params: { path: { version_id: id! } },
+        },
+      );
       if (error) throw error;
       return data as ModelVersion;
     },
@@ -84,10 +93,17 @@ export function useModelVersionForJob(jobId: string | null | undefined) {
 export function useTransitionModel(name: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { version: number; target_stage: Stage; comment?: string }) => {
+    mutationFn: async (args: {
+      version: number;
+      target_stage: Stage;
+      comment?: string;
+    }) => {
       const { data, error } = await client.POST(
         "/api/v1/models/{name}/versions/{version}/transition",
-        { params: { path: { name, version: args.version } }, body: { to_stage: args.target_stage, comment: args.comment } },
+        {
+          params: { path: { name, version: args.version } },
+          body: { to_stage: args.target_stage, comment: args.comment },
+        },
       );
       if (error) throw error;
       return data;

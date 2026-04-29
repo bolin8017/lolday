@@ -42,6 +42,7 @@ These snapshots are used in Task 11's diff-based verification.
 ## Task 1: Create `.claude/rules/` (5 path-scoped rule files)
 
 **Files:**
+
 - Create: `.claude/rules/backend.md`
 - Create: `.claude/rules/frontend.md`
 - Create: `.claude/rules/charts-and-helm.md`
@@ -161,6 +162,7 @@ Sections:
    ```
 
    Currently `fix-lolday-project-public.sh`, `phase6-pre-deploy-check.sh`, and others still hardcode `~/.lolday-secrets.env`. Fixing them is a follow-up phase (see spec §14).
+
 5. **Writing a new script** — `#!/usr/bin/env bash`, `set -euo pipefail`, `${VAR:?required}` for mandatory env vars, `[step N] ...` echo-format logs, errors to stderr.
 6. **Phase pre-deploy checks** — `phase4-pre-deploy-check.sh` and `phase6-pre-deploy-check.sh` are templates; new phases that touch deploy should add an analogous pre-check.
 
@@ -237,6 +239,7 @@ EOF
 ## Task 2: Create `docs/architecture.md`
 
 **Files:**
+
 - Create: `docs/architecture.md`
 
 **References:** spec §6 (10 chapters).
@@ -258,6 +261,7 @@ Top of file:
 ```
 
 Then 10 `##` chapters, in order:
+
 1. Purpose & positioning
 2. System diagram
 3. Component responsibility table
@@ -272,6 +276,7 @@ Then 10 `##` chapters, in order:
 - [ ] **Step 2.2: Fill Chapter 1 — Purpose & positioning (~30 lines)**
 
 Required content:
+
 - Lolday = ISLab internal ML platform managing **malware detector lifecycle**.
 - It is **not** an ML framework. Detector logic lives in the external `maldet` PyPI package; lolday is glue.
 - Target deploy: **server30** single-node K3s. Ubuntu 24.04, shared lab.
@@ -280,6 +285,7 @@ Required content:
 - [ ] **Step 2.3: Fill Chapter 2 — System diagram (~40 lines)**
 
 Render with mermaid `C4Container` syntax. Required nodes & edges:
+
 - Browser → Cloudflare tunnel (cloudflared) → Traefik ingress → frontend (nginx) / backend (FastAPI).
 - backend → PostgreSQL, Redis, MLflow tracking server, Harbor registry, K8s API (Volcano vcjob).
 - Volcano vcjob → job-helper image → maldet detector → write MLflow run + push image to Harbor.
@@ -294,6 +300,7 @@ Markdown table, columns: `元件 | 技術 | 進入點 | 主要責任 | 對應 ru
 Rows (group by section):
 
 Platform:
+
 - backend / FastAPI 0.115 + Py3.12 / `backend/app/main.py` / REST API + reconciler / `rules/backend.md`
 - frontend / Vite + React 18 + TS 5.5 / `frontend/src/main.tsx` / UI; pull API via TanStack Query / `rules/frontend.md`
 - reconciler / in-process within backend / `backend/app/reconciler.py` / watch vcjob events; sync DB / phase11b/12 specs
@@ -309,12 +316,14 @@ Platform:
 - GPU operator / upstream chart (NOT in this repo) / installed via README setup / NVIDIA driver + DCGM exporter
 
 Helpers (`charts/lolday/helpers/`):
+
 - build-helper / Py / `maldet_validator.py` / validate built detector matches maldet spec / `rules/charts-and-helm.md`
 - job-helper / Py module / `job_helper/` / vcjob entrypoint / `rules/charts-and-helm.md`
 - mlflow-server / Dockerfile only / — / custom mlflow image / —
 - pytorch-cu12-base / Dockerfile only / — / GPU base image / —
 
 Monitoring (`templates/monitoring/`):
+
 - alertmanager rules + Discord receiver / `alertmanager-rules.yaml`, `alertmanager-config-discord.yaml`
 - deadmans-switch CronJob / `deadmans-switch.yaml` + `files/deadmans_switch/check.py` / fail-fast on missing `DISCORD_URL`
 - postgres-exporter (init job + main) / `postgres-exporter*.yaml`
@@ -322,12 +331,14 @@ Monitoring (`templates/monitoring/`):
 - Grafana dashboards / `grafana-dashboards.yaml` + `dashboards/*.json`
 
 Notifications:
+
 - Discord events webhook / `services/discord.py` (embed builders) + `services/notify.py` (HTTP delivery, fire-and-forget)
 - deadmans-switch / independent webhook via `DISCORD_URL`
 
 - [ ] **Step 2.5: Fill Chapter 4 — Data flows (~60 lines)**
 
 Five subsections:
+
 - **4.1 Build a detector** — user → frontend → `POST /detectors` → DB row → backend triggers build via `build-helper` image (BuildKit) → push to Harbor → mark ready.
 - **4.2 Run a job (core flow)** — user → `POST /jobs` → backend writes DB row + creates Volcano vcjob → vcjob pulls detector image + dataset PVC → runs → writes MLflow run → emits events → reconciler syncs DB.
 - **4.3 SSO / auth** — browser → Cloudflare Access → `CF-Access-Jwt-Assertion` header → `cf_access.py` JWKS verify → `users_me` get-or-creates DB User.
@@ -339,6 +350,7 @@ Five subsections:
 Two subsections:
 
 **5.1 Runtime env vars (read by backend, set via Helm `values.yaml`)** — table form. Reference `backend/app/config.py` as authoritative. Group:
+
 - Core: `DATABASE_URL`, `REDIS_URL`, `DOCS_ENABLED`, `ENVIRONMENT`, `LOLDAY_UI_BASE_URL`
 - Crypto: `FERNET_KEY`
 - Harbor: `HARBOR_URL`, `HARBOR_ADMIN_USERNAME/PASSWORD`, `HARBOR_IMAGE_PREFIX`
@@ -354,6 +366,7 @@ Two subsections:
 State that `backend/app/config.py` is the single source of truth; this section is a navigational summary.
 
 **5.2 Operator-local env files (repo root, gitignored)** — table:
+
 - `.lolday-secrets.env` — chmod 600, sourced by `scripts/deploy.sh`, `recover-harbor.sh`, `harbor-inventory.sh`, `fix-lolday-project-public.sh`, `diag-backend-401.sh`, `phase6-pre-deploy-check.sh`. Contains: `GRAFANA_ADMIN_PASSWORD`, `PG_EXPORTER_PASSWORD`, `CF_ENABLED`, `CF_TUNNEL_TOKEN`, `DISCORD_WEBHOOK_URL_EVENTS`, `HARBOR_ADMIN_PASSWORD`, `FERNET_KEY`, plus other operator-managed values.
 - `.lolday-cf-svctoken.env` — chmod 600, used to test svctoken auth via `/users/me` (see `docs/phase-history/phase12.1-role-enum-bug.md`).
 - `.lolday-cloudflare-access-backups/` — JSON snapshots of Cloudflare Access app/policy state (audit backups).
@@ -363,6 +376,7 @@ State that `backend/app/config.py` is the single source of truth; this section i
 - [ ] **Step 2.7: Fill Chapter 6 — Build / Test / Release (~40 lines)**
 
 Required points:
+
 - **No GitHub Actions.** No automated CI. All build / test / release happens locally then via `scripts/deploy.sh`. (Listed in §9.)
 - **Backend image** — `backend/Dockerfile`: `python:3.12-slim` + uv installed via copy from `ghcr.io/astral-sh/uv:latest`; `uv sync --frozen --no-dev --no-editable`; CMD runs uvicorn.
 - **Frontend image** — `frontend/Dockerfile`: 2-stage. Build with `node:22-alpine` + corepack + pnpm. Serve with `nginxinc/nginx-unprivileged:1.27-alpine` (non-root, listens 8080, supports `readOnlyRootFilesystem`). HEALTHCHECK on `/healthz`.
@@ -390,6 +404,7 @@ End the chapter with: "Operational checklists & retrospective findings: `docs/ph
 - [ ] **Step 2.10: Fill Chapter 9 — Known tech debt (~40 lines)**
 
 Bulleted list:
+
 1. `backend/app/reconciler.py` (57KB) — single-file beast. Refactor only with phase plan.
 2. **No CI/CD.** No GitHub Actions, no automated build/test, no release pipeline. `scripts/deploy.sh` is manual.
 3. **Single `values.yaml`** (~27KB). No dev/prod overlay.
@@ -408,6 +423,7 @@ Bulleted list:
 - [ ] **Step 2.11: Fill Chapter 10 — Common gotchas (~30 lines)**
 
 Bulleted list:
+
 1. **SSH on server30** — see hard rule. Cilium 2026-03-31 incident.
 2. **Alembic autogenerate is unreliable** for enums, indexes, server_default. Phase 12.1 / 12.2 / 12.3 are the receipts.
 3. **Helm `dependency update`** re-fetches sub-chart tgz files; never commit them.
@@ -439,9 +455,9 @@ Expected: 350–500.
 
 - [ ] **Step 2.14: Verify mermaid block present**
 
-```bash
+````bash
 grep -c '```mermaid' docs/architecture.md
-```
+````
 
 Expected: ≥ 1.
 
@@ -469,6 +485,7 @@ EOF
 ## Task 3: Create `docs/conventions.md`
 
 **Files:**
+
 - Create: `docs/conventions.md`
 
 **References:** spec §7.
@@ -490,6 +507,7 @@ EOF
 `<type>/<short-kebab-desc>`
 
 Examples:
+
 - `feat/job-detail-tabs`
 - `fix/role-enum-lowercase`
 - `chore/bump-deps`
@@ -507,11 +525,13 @@ Allowed types: `feat | fix | chore | docs | refactor | test | perf | build | ci`
 Format: `<type>(<scope>): <subject>`
 
 Examples:
+
 - `feat(jobs): add detail summary tab`
 - `fix(auth): align role_enum to values_callable`
 - `chore(charts): bump kube-prometheus-stack to 84.4.0`
 
 Rules:
+
 - `scope` is a module name (`jobs`, `auth`, `reconciler`, `harbor`, `charts`,
   `frontend`, `backend`, `migrations`, `rules`, `docs`). It is NOT a phase number.
 - `subject` is imperative, lowercase, no trailing period.
@@ -530,10 +550,11 @@ representative commit's message (squash-merge friendly).
 PR title format: same as a Conventional Commit.
 
 PR description must include the spec/plan link when one exists:
-
 ```
+
 Spec: docs/superpowers/specs/YYYY-MM-DD-phaseN-X-design.md
 Plan: docs/superpowers/plans/YYYY-MM-DD-phaseN-X.md
+
 ```
 
 PRs without a spec are acceptable for hotfixes and tiny doc fixes.
@@ -545,6 +566,7 @@ PRs without a spec are acceptable for hotfixes and tiny doc fixes.
 ## 4. Phase numbering — only in planning docs
 
 Phase numbers (`phaseN-X`) live in:
+
 - `docs/superpowers/specs/YYYY-MM-DD-phaseN-X-design.md`
 - `docs/superpowers/plans/YYYY-MM-DD-phaseN-X.md`
 - PR descriptions (as `Spec:` / `Plan:` pointers)
@@ -600,6 +622,7 @@ See `.claude/rules/alembic-migrations.md`.
 ## 9. Before writing new code
 
 Read the path-scoped rule for the area you're touching:
+
 - `backend/...` → `.claude/rules/backend.md`
 - `frontend/...` → `.claude/rules/frontend.md`
 - `charts/...` → `.claude/rules/charts-and-helm.md`
@@ -639,6 +662,7 @@ EOF
 ## Task 4: Create `docs/runbooks/{deploy,troubleshooting}.md`
 
 **Files:**
+
 - Create: `docs/runbooks/deploy.md`
 - Create: `docs/runbooks/troubleshooting.md`
 
@@ -661,6 +685,7 @@ mkdir -p docs/runbooks
 ```
 
 Sections (all `##`):
+
 1. Pre-requisites
 2. K3s install
 3. GPU operator install
@@ -673,10 +698,12 @@ Sections (all `##`):
 - [ ] **Step 4.2: Fill `deploy.md` Section 1 — Pre-requisites**
 
 Required content (copied / paraphrased from `docs/phase-history/host-prep.md`):
+
 - Ubuntu 24.04 host with NVIDIA driver installed (`nvidia-smi` works on host).
 - Operator account with **temporary** sudo access (will be revoked).
 - Tools: `bash scripts/install-tools.sh` installs kubectl, helm, k9s, etc. into `~/.local/bin/` (no sudo).
 - **Create operator-local secret files** from examples:
+
   ```bash
   cp .lolday-secrets.env.example .lolday-secrets.env
   chmod 600 .lolday-secrets.env
@@ -686,6 +713,7 @@ Required content (copied / paraphrased from `docs/phase-history/host-prep.md`):
   chmod 600 .lolday-cf-svctoken.env
   # fill in CF service token
   ```
+
 - Confirm SSH stays alive on port 9453 throughout deploy (see hard rule).
 
 - [ ] **Step 4.3: Fill `deploy.md` Sections 2–8**
@@ -714,7 +742,7 @@ Header:
 ```markdown
 # Troubleshooting (symptom → action)
 
-> Source: ad-hoc consolidation of scripts/diag-*, scripts/recover-*, and
+> Source: ad-hoc consolidation of scripts/diag-_, scripts/recover-_, and
 > known incident patterns. Symptom-keyed for fast lookup.
 ```
 
@@ -767,6 +795,7 @@ EOF
 ## Task 5: Create `docs/postmortems/2026-03-31-cilium-ssh-incident.md`
 
 **Files:**
+
 - Create: `docs/postmortems/2026-03-31-cilium-ssh-incident.md`
 
 **References:** spec §12.
@@ -828,6 +857,7 @@ EOF
 ## Task 6: Create env example files
 
 **Files:**
+
 - Create: `.lolday-secrets.env.example`
 - Create: `.lolday-cf-svctoken.env.example`
 
@@ -928,6 +958,7 @@ EOF
 ## Task 7: Move scattered `docs/` files to `docs/phase-history/`
 
 **Files:**
+
 - `git mv` 11 files into `docs/phase-history/`
 - Remove empty `docs/ops/`
 
@@ -1009,6 +1040,7 @@ EOF
 ## Task 8: Rewrite `CLAUDE.md` (slim index)
 
 **Files:**
+
 - Modify: `CLAUDE.md` (full rewrite, < 100 lines).
 
 **References:** spec §4.
@@ -1023,7 +1055,7 @@ Expected: no diff (file untouched so far).
 
 - [ ] **Step 8.2: Replace `CLAUDE.md` with the new content (full content below, paste verbatim)**
 
-```markdown
+````markdown
 # Lolday — internal ML platform for ISLab malware detector management
 
 @README.md
@@ -1100,28 +1132,30 @@ cd frontend && pnpm test                # frontend unit (vitest)
 cd frontend && pnpm playwright test     # frontend E2E
 helm lint charts/lolday                 # helm sanity
 ```
+````
 
 Detailed flow → `docs/runbooks/deploy.md` and `docs/architecture.md` §6.
 
 ## Project layout
 
-| Path | What | Detailed rules |
-|------|------|----------------|
-| `backend/` | FastAPI + uv | `.claude/rules/backend.md` |
-| `frontend/` | Vite + React + TS | `.claude/rules/frontend.md` |
-| `charts/lolday/` | Helm umbrella + sub-charts + helpers | `.claude/rules/charts-and-helm.md` |
-| `scripts/` | install / deploy / diag / recover | `.claude/rules/scripts-and-ops.md` |
-| `backend/migrations/` | Alembic | `.claude/rules/alembic-migrations.md` |
-| `tests/phase7/` | shell-based smoke tests | — |
-| `docs/superpowers/specs|plans/` | Phase planning artefacts | `docs/conventions.md` |
-| `docs/{architecture,conventions,runbooks,phase-history,postmortems}/` | platform docs | this file |
-```
+| Path                                                                  | What                                 | Detailed rules                        |
+| --------------------------------------------------------------------- | ------------------------------------ | ------------------------------------- | --------------------- |
+| `backend/`                                                            | FastAPI + uv                         | `.claude/rules/backend.md`            |
+| `frontend/`                                                           | Vite + React + TS                    | `.claude/rules/frontend.md`           |
+| `charts/lolday/`                                                      | Helm umbrella + sub-charts + helpers | `.claude/rules/charts-and-helm.md`    |
+| `scripts/`                                                            | install / deploy / diag / recover    | `.claude/rules/scripts-and-ops.md`    |
+| `backend/migrations/`                                                 | Alembic                              | `.claude/rules/alembic-migrations.md` |
+| `tests/phase7/`                                                       | shell-based smoke tests              | —                                     |
+| `docs/superpowers/specs                                               | plans/`                              | Phase planning artefacts              | `docs/conventions.md` |
+| `docs/{architecture,conventions,runbooks,phase-history,postmortems}/` | platform docs                        | this file                             |
+
+````
 
 - [ ] **Step 8.3: Verify line count < 100**
 
 ```bash
 wc -l CLAUDE.md
-```
+````
 
 Expected: < 100.
 
@@ -1176,6 +1210,7 @@ EOF
 ## Task 9: Fix README.md broken phase1 link
 
 **Files:**
+
 - Modify: `README.md`
 
 **References:** spec §3 (file tree shows `README.md ✏️`); spec §9 item 10 (broken link).
@@ -1234,6 +1269,7 @@ EOF
 ## Task 10: Rebuild `MEMORY.md` (auto memory)
 
 **Files:**
+
 - Create / overwrite: `~/.claude/projects/-home-bolin8017-Documents-repositories-lolday/memory/MEMORY.md`
 
 **References:** spec §10.
@@ -1365,6 +1401,7 @@ Expected: working tree clean (apart from the unrelated `charts/lolday/helpers/bu
 - [ ] **Step 11.9: Manually open and skim the new docs**
 
 Open these in an editor and verify they read coherently:
+
 - `CLAUDE.md`
 - `docs/architecture.md`
 - `docs/conventions.md`

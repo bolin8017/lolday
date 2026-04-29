@@ -1,6 +1,6 @@
-import enum
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import String, Uuid, func
@@ -11,7 +11,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class Role(str, enum.Enum):
+class Role(StrEnum):
     ADMIN = "admin"
     DEVELOPER = "developer"
     USER = "user"
@@ -32,10 +32,15 @@ class User(Base):
     __tablename__ = "user"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4,
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
     )
     email: Mapped[str] = mapped_column(
-        String(length=320), unique=True, index=True, nullable=False,
+        String(length=320),
+        unique=True,
+        index=True,
+        nullable=False,
     )
     role: Mapped[Role] = mapped_column(
         SAEnum(

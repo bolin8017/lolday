@@ -12,7 +12,9 @@ describe("parseCsvPreview", () => {
   });
 
   it("caps rows at limit", () => {
-    const rows = Array.from({ length: 50 }, (_, i) => `f${i},Malware`).join("\n");
+    const rows = Array.from({ length: 50 }, (_, i) => `f${i},Malware`).join(
+      "\n",
+    );
     const csv = `file_name,label\n${rows}\n`;
     const p = parseCsvPreview(csv, 20);
     expect(p.rows.length).toBe(20);

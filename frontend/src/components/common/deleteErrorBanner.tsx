@@ -16,7 +16,9 @@ const IN_FLIGHT_CODES = new Set([
   "detector_has_in_flight_jobs",
 ]);
 
-export function detailToDeleteBanner(detail: DeleteErrorDetail | undefined): DeleteErrorBanner {
+export function detailToDeleteBanner(
+  detail: DeleteErrorDetail | undefined,
+): DeleteErrorBanner {
   if (!detail) return { message: "Delete failed." };
   if (detail.code && IN_FLIGHT_CODES.has(detail.code)) {
     return {

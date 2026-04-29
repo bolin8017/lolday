@@ -15,7 +15,9 @@ export default function ExperimentsListPage() {
           <Link key={exp.experiment_id} to={`/runs/${exp.experiment_id}`}>
             <Card className="transition hover:border-primary">
               <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">#{exp.experiment_id}</div>
+                <div className="text-xs text-muted-foreground">
+                  #{exp.experiment_id}
+                </div>
                 <div className="text-lg font-medium">{exp.name}</div>
               </CardContent>
             </Card>

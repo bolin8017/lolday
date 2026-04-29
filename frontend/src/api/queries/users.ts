@@ -15,7 +15,9 @@ export function useGitCredential() {
     queryKey: usersKeys.gitCredential,
     queryFn: async () => {
       try {
-        const { data, error } = await client.GET("/api/v1/users/me/git-credential");
+        const { data, error } = await client.GET(
+          "/api/v1/users/me/git-credential",
+        );
         if (error) throw error;
         return data as GitCredential;
       } catch (e) {
@@ -31,11 +33,15 @@ export function useSetGitCredential() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: { provider: "github"; token: string }) => {
-      const { data, error } = await client.PUT("/api/v1/users/me/git-credential", { body: args });
+      const { data, error } = await client.PUT(
+        "/api/v1/users/me/git-credential",
+        { body: args },
+      );
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: usersKeys.gitCredential }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: usersKeys.gitCredential }),
   });
 }
 
@@ -46,7 +52,8 @@ export function useDeleteGitCredential() {
       const { error } = await client.DELETE("/api/v1/users/me/git-credential");
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: usersKeys.gitCredential }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: usersKeys.gitCredential }),
   });
 }
 
@@ -54,7 +61,9 @@ export function useUpdateMe() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: components["schemas"]["UserSelfUpdate"]) => {
-      const { data, error } = await client.PATCH("/api/v1/users/me", { body: args });
+      const { data, error } = await client.PATCH("/api/v1/users/me", {
+        body: args,
+      });
       if (error) throw error;
       return data;
     },

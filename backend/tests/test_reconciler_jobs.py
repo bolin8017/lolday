@@ -1,10 +1,9 @@
 import uuid
-from datetime import datetime, timezone
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.models.job import JobStatus, JobType
 from app.reconciler import reconcile_job
 
@@ -30,39 +29,64 @@ def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
     }
 
     class _Pod:
-        class _Meta: name = "pod-xxx"
+        class _Meta:
+            name = "pod-xxx"
+
         metadata = _Meta()
+
         class _St:
             phase = pod_phase
-            init_container_statuses = []
-            container_statuses = [
-                type("C", (), {
-                    "name": "detector",
-                    "state": type("T", (), {
-                        "terminated": type("TT", (), {"exit_code": exit_code})()
-                    })(),
-                })()
-            ] if job_failed else []
+            init_container_statuses: list = []  # noqa: RUF012  # stub class
+            container_statuses = (
+                [
+                    type(
+                        "C",
+                        (),
+                        {
+                            "name": "detector",
+                            "state": type(
+                                "T",
+                                (),
+                                {
+                                    "terminated": type(
+                                        "TT", (), {"exit_code": exit_code}
+                                    )()
+                                },
+                            )(),
+                        },
+                    )()
+                ]
+                if job_failed
+                else []
+            )
+
         status = _St()
 
     class _VolcanoStub:
         def get_namespaced_custom_object(self, *a, **kw):
             return vjob
+
         def delete_namespaced_custom_object(self, *a, **kw):
             pass
 
     class _CoreStub:
         def list_namespaced_pod(self, namespace, **kw):
-            class _R: items = [_Pod()]
+            class _R:
+                items: list = [_Pod()]  # noqa: RUF012  # stub class
+
             return _R()
+
         def read_namespaced_pod_log(self, **kw):
             return "sample log tail"
+
         def delete_namespaced_secret(self, *a, **kw):
             pass
 
-    with patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()):
-        with patch("app.reconciler.core_v1", return_value=_CoreStub()):
-            yield
+    with (
+        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -91,6 +115,7 @@ async def seed_job(db_session, seed_detector_version, seed_dataset, seed_user):
         started_at=None,
     ):
         from app.models import Job
+
         dv_id = await seed_detector_version(name=f"det-{uuid.uuid4().hex[:6]}")
         tr = await seed_dataset(name=f"ds-{uuid.uuid4().hex[:6]}")
         te = await seed_dataset(name=f"ds-{uuid.uuid4().hex[:6]}")
@@ -113,6 +138,7 @@ async def seed_job(db_session, seed_detector_version, seed_dataset, seed_user):
         await db_session.commit()
         await db_session.refresh(j)
         return j
+
     return _seed
 
 
@@ -139,17 +165,25 @@ async def test_reconcile_job_marks_succeeded_and_registers_model(
 
     j = await seed_job(status=JobStatus.RUNNING, job_type=JobType.TRAIN)
 
-    base = datetime.now(timezone.utc)
-    db_session.add_all([
-        JobEvent(
-            id=uuid.uuid4(), job_id=j.id, ts=base,
-            kind="metric", payload={"name": "accuracy", "value": 0.9, "step": 0},
-        ),
-        JobEvent(
-            id=uuid.uuid4(), job_id=j.id, ts=base,
-            kind="metric", payload={"name": "f1", "value": 0.85, "step": 0},
-        ),
-    ])
+    base = datetime.now(UTC)
+    db_session.add_all(
+        [
+            JobEvent(
+                id=uuid.uuid4(),
+                job_id=j.id,
+                ts=base,
+                kind="metric",
+                payload={"name": "accuracy", "value": 0.9, "step": 0},
+            ),
+            JobEvent(
+                id=uuid.uuid4(),
+                job_id=j.id,
+                ts=base,
+                kind="metric",
+                payload={"name": "f1", "value": 0.85, "step": 0},
+            ),
+        ]
+    )
     await db_session.commit()
 
     with _patched_k8s(pod_phase=None, job_succeeded=1, job_failed=None):
@@ -186,10 +220,11 @@ async def test_reconcile_job_marks_oom(db_session, seed_job):
 @pytest.mark.asyncio
 async def test_reconcile_job_timeout(db_session, seed_job, monkeypatch):
     from app.config import settings
+
     monkeypatch.setattr(settings, "JOB_ACTIVE_DEADLINE_TRAIN_SECONDS", 1)
     j = await seed_job(
         status=JobStatus.RUNNING,
-        started_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        started_at=datetime(2020, 1, 1, tzinfo=UTC),
     )
     with _patched_k8s(pod_phase="Running", job_succeeded=None, job_failed=None):
         await reconcile_job(db_session, j)

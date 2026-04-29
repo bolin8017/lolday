@@ -18,20 +18,20 @@
 
 ## File Structure (locked-in decomposition)
 
-| File | Action | Purpose after PR |
-|---|---|---|
-| `backend/app/models/user.py` | Rewrite | `User` ORM class without fastapi-users base class; only application-domain columns |
-| `backend/app/schemas/user.py` | Rewrite | `UserRead` / `UserSelfUpdate` as native Pydantic v2 BaseModels |
-| `backend/app/auth/cf_access.py` | Edit (small) | Drop 3 vestige kwargs from `User(...)` constructor; remove `_sso_sentinel_password()` helper + `import secrets` |
-| `backend/migrations/versions/<rev>_drop_fastapi_users_user_columns.py` | Create | Single migration: drop 4 columns via `op.batch_alter_table` |
-| `backend/migrations/versions/d3f179666394_phase7_5_baseline.py` | Edit (5 occurrences + 1 import + module docstring) | `sa.Uuid()` replaces `fastapi_users_db_sqlalchemy.generics.GUID()`; removes the only project use of the third-party type |
-| `backend/pyproject.toml` | Edit (1 line) | Remove `fastapi-users[sqlalchemy]>=14.0.0` entirely (no replacement); add `PyJWT>=2.0.0` (previously transitive via fastapi-users, now direct dep) |
-| `backend/uv.lock` | Regenerate | Result of `uv lock` |
-| `backend/tests/conftest.py` | Edit | `_make_user` signature drops `is_superuser`; `User(...)` drops 4 kwargs; `auth_client_admin` caller drops `is_superuser=True` |
-| `backend/tests/test_*.py` (10 files) | Edit | Drop 4 kwargs from User constructions and raw SQL |
-| `frontend/src/api/schema.gen.ts` | Regenerate | Auto-removes 3 boolean keys from `UserRead` |
-| `docs/architecture.md` | Edit (one entry) | §9 #7 marked resolved |
-| `.claude/rules/backend.md` | Edit (one paragraph) | Auth design bullet rewritten |
+| File                                                                   | Action                                             | Purpose after PR                                                                                                                                   |
+| ---------------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/app/models/user.py`                                           | Rewrite                                            | `User` ORM class without fastapi-users base class; only application-domain columns                                                                 |
+| `backend/app/schemas/user.py`                                          | Rewrite                                            | `UserRead` / `UserSelfUpdate` as native Pydantic v2 BaseModels                                                                                     |
+| `backend/app/auth/cf_access.py`                                        | Edit (small)                                       | Drop 3 vestige kwargs from `User(...)` constructor; remove `_sso_sentinel_password()` helper + `import secrets`                                    |
+| `backend/migrations/versions/<rev>_drop_fastapi_users_user_columns.py` | Create                                             | Single migration: drop 4 columns via `op.batch_alter_table`                                                                                        |
+| `backend/migrations/versions/d3f179666394_phase7_5_baseline.py`        | Edit (5 occurrences + 1 import + module docstring) | `sa.Uuid()` replaces `fastapi_users_db_sqlalchemy.generics.GUID()`; removes the only project use of the third-party type                           |
+| `backend/pyproject.toml`                                               | Edit (1 line)                                      | Remove `fastapi-users[sqlalchemy]>=14.0.0` entirely (no replacement); add `PyJWT>=2.0.0` (previously transitive via fastapi-users, now direct dep) |
+| `backend/uv.lock`                                                      | Regenerate                                         | Result of `uv lock`                                                                                                                                |
+| `backend/tests/conftest.py`                                            | Edit                                               | `_make_user` signature drops `is_superuser`; `User(...)` drops 4 kwargs; `auth_client_admin` caller drops `is_superuser=True`                      |
+| `backend/tests/test_*.py` (10 files)                                   | Edit                                               | Drop 4 kwargs from User constructions and raw SQL                                                                                                  |
+| `frontend/src/api/schema.gen.ts`                                       | Regenerate                                         | Auto-removes 3 boolean keys from `UserRead`                                                                                                        |
+| `docs/architecture.md`                                                 | Edit (one entry)                                   | §9 #7 marked resolved                                                                                                                              |
+| `.claude/rules/backend.md`                                             | Edit (one paragraph)                               | Auth design bullet rewritten                                                                                                                       |
 
 ---
 
@@ -40,6 +40,7 @@
 **Why first:** `is_active=True`, `is_superuser=*`, `is_verified=True` all have model-level defaults inherited from `SQLAlchemyBaseUserTable` (`default=True/False/False`). Removing them now is a no-op against the current schema — tests stay green. This isolates the 11-file mechanical change from the structural refactor.
 
 **Files:**
+
 - Modify: `backend/tests/conftest.py`
 - Modify: `backend/tests/test_internal_events.py`
 - Modify: `backend/tests/test_reconciler_events.py`
@@ -52,6 +53,7 @@
 - Modify: `backend/tests/test_role_enum_roundtrip.py` (ORM inserts only — raw SQL stays for now)
 
 **NOT modified:**
+
 - `backend/tests/test_admin.py` — sends `is_superuser` in JSON body to verify `extra="forbid"` rejects it. After everything ships, that key is still unknown to the schema and still 422s. No change.
 - `backend/tests/test_migrations_phase12.py` — runs alembic to phase 12.x revisions only (before our new migration). Those revisions still have the columns. Raw SQL stays.
 
@@ -235,6 +237,7 @@ EOF
 ## Task 2: Generate alembic migration shell
 
 **Files:**
+
 - Create: `backend/migrations/versions/<rev>_drop_fastapi_users_user_columns.py`
 
 - [ ] **Step 2.1: Verify current alembic head**
@@ -317,6 +320,7 @@ Expected: a single head matching the new revision ID (no longer `f37230063a20`).
 ## Task 3: Refactor model, schema, and cf_access
 
 **Files:**
+
 - Rewrite: `backend/app/models/user.py`
 - Rewrite: `backend/app/schemas/user.py`
 - Edit: `backend/app/auth/cf_access.py`
@@ -506,6 +510,7 @@ Expected: no output (zero matches). If anything is left, remove it.
 ## Task 4: Strip remaining `hashed_password=` from tests + raw SQL
 
 **Files:**
+
 - Modify: `backend/tests/conftest.py`
 - Modify: `backend/tests/test_internal_events.py`, `test_reconciler_events.py`, `test_service_token_notify.py`, `test_jobs_events_endpoint.py`, `test_jobs_events_websocket.py`, `test_services_events_tail.py`, `test_models_job_event.py`
 - Modify: `backend/tests/test_role_enum_roundtrip.py` (both ORM and raw SQL)
@@ -675,6 +680,7 @@ EOF
 ## Task 6: Remove fastapi-users dep entirely (edit baseline + drop pyproject entry)
 
 **Files:**
+
 - Modify: `backend/migrations/versions/d3f179666394_phase7_5_baseline.py` (replace `fastapi_users_db_sqlalchemy.generics.GUID()` with `sa.Uuid()`; remove `import fastapi_users_db_sqlalchemy`)
 - Modify: `backend/pyproject.toml` (remove `fastapi-users[sqlalchemy]>=14.0.0` line entirely; add `PyJWT>=2.0.0` as explicit direct dep)
 - Regenerate: `backend/uv.lock`
@@ -731,6 +737,7 @@ cd backend && uv lock
 ```
 
 Expected output includes lines like:
+
 ```
 Removed fastapi-users v15.0.5
 Removed fastapi-users-db-sqlalchemy v7.0.0
@@ -799,6 +806,7 @@ git commit -m "chore(deps): remove fastapi-users entirely; baseline migration us
 ## Task 7: Regenerate frontend API types
 
 **Files:**
+
 - Regenerate: `frontend/src/api/schema.gen.ts`
 
 - [ ] **Step 7.1: Generate fresh OpenAPI document from the in-process app**
@@ -898,6 +906,7 @@ EOF
 ## Task 8: Mark vestige resolved in docs + helm sanity
 
 **Files:**
+
 - Modify: `docs/architecture.md`
 - Modify: `.claude/rules/backend.md`
 

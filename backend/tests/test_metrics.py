@@ -3,6 +3,7 @@
 Also covers the `lolday_backend_errors_total` custom Counter added post-phase6
 to make silent-failure paths observable (see reconciler.py + harbor_init.py).
 """
+
 import asyncio
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
@@ -39,18 +40,25 @@ def test_backend_errors_counter_increments_per_stage():
     BACKEND_ERRORS.labels(stage="probe_inc_a").inc()
     BACKEND_ERRORS.labels(stage="probe_inc_b").inc()
 
-    assert REGISTRY.get_sample_value(
-        "lolday_backend_errors_total", {"stage": "probe_inc_a"}
-    ) == 2.0
-    assert REGISTRY.get_sample_value(
-        "lolday_backend_errors_total", {"stage": "probe_inc_b"}
-    ) == 1.0
+    assert (
+        REGISTRY.get_sample_value(
+            "lolday_backend_errors_total", {"stage": "probe_inc_a"}
+        )
+        == 2.0
+    )
+    assert (
+        REGISTRY.get_sample_value(
+            "lolday_backend_errors_total", {"stage": "probe_inc_b"}
+        )
+        == 1.0
+    )
 
 
 def _get(stage: str) -> float:
-    return REGISTRY.get_sample_value(
-        "lolday_backend_errors_total", {"stage": stage}
-    ) or 0.0
+    return (
+        REGISTRY.get_sample_value("lolday_backend_errors_total", {"stage": stage})
+        or 0.0
+    )
 
 
 @pytest.mark.asyncio
@@ -144,6 +152,7 @@ async def test_metrics_includes_http_counter(client: AsyncClient):
 async def test_metrics_includes_backend_errors_series(client: AsyncClient):
     """After BACKEND_ERRORS is touched, the series must appear on /metrics."""
     from app.metrics import BACKEND_ERRORS
+
     BACKEND_ERRORS.labels(stage="probe_exposed").inc()
     resp = await client.get("/metrics")
     assert "lolday_backend_errors_total" in resp.text

@@ -34,9 +34,7 @@ export function JobMetricChart({ events }: { events: MaldetEvent[] }) {
     for (const k of Object.keys(d)) if (k !== "step") metrics.add(k);
   }
   if (data.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">No metrics yet.</p>
-    );
+    return <p className="text-sm text-muted-foreground">No metrics yet.</p>;
   }
   return (
     <ResponsiveContainer width="100%" height={320}>

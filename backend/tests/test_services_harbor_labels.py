@@ -5,9 +5,8 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from httpx import Response
-
 from app.services.harbor import HarborClient
+from httpx import Response
 
 
 @pytest.mark.asyncio

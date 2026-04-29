@@ -4,9 +4,13 @@ import { Download } from "lucide-react";
 import { SourceModelCard } from "./SourceModelCard";
 import { PredictionSummaryCard } from "./PredictionSummaryCard";
 import { ResolvedConfigCard } from "./ResolvedConfigCard";
+import type { components } from "@/api/schema.gen";
 
-export function PredictSummary({ job }: { job: any }) {
+type JobRead = components["schemas"]["JobRead"];
+
+export function PredictSummary({ job }: { job: JobRead }) {
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prediction_summary has PredictionSummary shape at runtime
   const ps = sm.prediction_summary as any;
 
   return (
@@ -17,7 +21,9 @@ export function PredictSummary({ job }: { job: any }) {
       <PredictionSummaryCard summary={ps ?? null} />
       {job.mlflow_run_id && (
         <Card>
-          <CardHeader><CardTitle>Output</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Output</CardTitle>
+          </CardHeader>
           <CardContent>
             <Button asChild variant="outline">
               <a

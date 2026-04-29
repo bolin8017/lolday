@@ -22,6 +22,7 @@ down two contracts:
 * a raw row inserted with VALUE ``'service_token'`` (the shape phase
   12.2's UPDATE produces in prod) reads back as ``Role.SERVICE_TOKEN``
 """
+
 import pathlib
 import uuid
 
@@ -29,11 +30,9 @@ import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
-from sqlalchemy.orm import Session
-
 from app.config import settings
 from app.models import Role, User
-
+from sqlalchemy.orm import Session
 
 _PROJECT_ROOT = pathlib.Path(__file__).parent.parent
 
@@ -54,9 +53,7 @@ def _alembic_head_engine(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("role", list(Role))
-def test_role_orm_writes_lowercase_value_and_roundtrips(
-    role, tmp_path, monkeypatch
-):
+def test_role_orm_writes_lowercase_value_and_roundtrips(role, tmp_path, monkeypatch):
     """ORM insert of every Role member must store the lowercase VALUE
     in the DB and read back as the same Role member.
 

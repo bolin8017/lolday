@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import httpx
 import pytest
@@ -31,6 +30,7 @@ async def test_write_config_writes_all_files(tmp_path, monkeypatch):
     )
 
     from job_helper import write_config
+
     await write_config.main()
 
     cfg = json.loads((config_dir / "config.json").read_text())
@@ -56,20 +56,28 @@ async def test_write_config_retries_on_500(tmp_path, monkeypatch):
     monkeypatch.setenv("CONFIG_DIR", str(config_dir))
 
     call_count = 0
+
     def _maybe_fail(request):
         nonlocal call_count
         call_count += 1
         if call_count < 3:
             return httpx.Response(500)
-        return httpx.Response(200, json={
-            "config": {"x": 1}, "train_csv": None, "test_csv": None, "predict_csv": None,
-        })
+        return httpx.Response(
+            200,
+            json={
+                "config": {"x": 1},
+                "train_csv": None,
+                "test_csv": None,
+                "predict_csv": None,
+            },
+        )
 
     respx.get(
         "http://backend/api/v1/internal/jobs/aabbccdd-0000-0000-0000-000000000000/config"
     ).mock(side_effect=_maybe_fail)
 
     from job_helper import write_config
+
     await write_config.main()
     assert call_count == 3
     assert (config_dir / "config.json").read_text()
@@ -87,6 +95,7 @@ def test_fetch_model_downloads_artifacts(tmp_path, monkeypatch):
 
     def _fake_download(run_id, artifact_path, dst_path):
         from pathlib import Path as P
+
         d = P(dst_path) / artifact_path
         d.mkdir(parents=True, exist_ok=True)
         (d / "model.pkl").write_bytes(b"binary")
@@ -95,6 +104,7 @@ def test_fetch_model_downloads_artifacts(tmp_path, monkeypatch):
 
     with patch("mlflow.artifacts.download_artifacts", side_effect=_fake_download):
         from job_helper import fetch_model
+
         fetch_model.main()
 
     assert (target / "model" / "model.pkl").exists()

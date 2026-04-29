@@ -69,6 +69,25 @@ echo "[step 2] verifying..."
 - `[step N] ...` echo-format logs to stdout, errors to stderr (`>&2`)
 - Idempotent where possible
 
+## Engineering hygiene 紀律
+
+Repo-wide formatting / linting / type-check is governed by `pre-commit`. Config is at repo root (`.pre-commit-config.yaml`); install + activation happens in `scripts/install-tools.sh`.
+
+Repo-wide manual commands:
+
+```bash
+pre-commit run --all-files            # run every hook over the entire repo
+pre-commit run <hook-id> --all-files  # run a single hook (e.g. ruff, prettier, mypy)
+pre-commit autoupdate                 # bump hook revs (optional, ~quarterly)
+pre-commit install                    # re-activate the git hook (idempotent)
+```
+
+### Forbidden
+
+- `git commit --no-verify` — bypasses the hook. If a hook fails, fix the root cause; do not bypass.
+- `|| true` inside hook scripts — failures must surface.
+- New `.py` scripts must conform to the root `ruff.toml`. Shell scripts are not linted by ruff (non-Python); shellcheck is out of scope for this phase.
+
 ## Phase pre-deploy checks
 
 `phase4-pre-deploy-check.sh` and `phase6-pre-deploy-check.sh` exist as templates. New phases that touch deploy should add an analogous pre-check (verify required env is set, required PVCs exist, required CRDs installed, etc.). Avoid one-off checklists in markdown — code is more reliable.

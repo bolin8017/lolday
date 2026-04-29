@@ -15,7 +15,7 @@ handful of users would multiply list_pod_for_all_namespaces traffic by N.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from cachetools import TTLCache, cached
 
@@ -76,12 +76,16 @@ def get_gpu_allocation() -> dict:
 
 
 def _list_queue_jobs(queue_name: str) -> list[dict]:
-    items = volcano_v1alpha1().list_namespaced_custom_object(
-        group=VOLCANO_BATCH_GROUP,
-        version=VOLCANO_BATCH_VERSION,
-        namespace=settings.JOB_NAMESPACE,
-        plural=VOLCANO_JOB_PLURAL,
-    ).get("items", [])
+    items = (
+        volcano_v1alpha1()
+        .list_namespaced_custom_object(
+            group=VOLCANO_BATCH_GROUP,
+            version=VOLCANO_BATCH_VERSION,
+            namespace=settings.JOB_NAMESPACE,
+            plural=VOLCANO_JOB_PLURAL,
+        )
+        .get("items", [])
+    )
     return [j for j in items if (j.get("spec") or {}).get("queue") == queue_name]
 
 
@@ -101,7 +105,7 @@ def get_queue_depth(queue_name: str = DEFAULT_QUEUE) -> int:
     # scheduler outage would look like "all OK" until the next clean read.
     # Instead, count what we can and let per-job errors degrade gracefully.
     try:
-        cutoff = datetime.now(timezone.utc).timestamp() - VOLCANO_STALE_SECONDS
+        cutoff = datetime.now(UTC).timestamp() - VOLCANO_STALE_SECONDS
         stale = 0
         for j in non_terminal:
             if _phase(j) not in _PENDING_PHASES:

@@ -13,6 +13,7 @@
 **Server:** server30 (Ubuntu 24.04, K3s v1.34.6+k3s1; Phase 4 stack deployed: backend `phase4`, MLflow, PostgreSQL, Harbor, Redis).
 
 **Constraints:**
+
 - `bolin8017` has no persistent sudo; give sudo commands to user to run (no sudo expected for Phase 5 — user-land only).
 - CLI tools in `~/.local/bin/`; do NOT system-install anything without explicit approval.
 - SSH (port 9453) must never be disrupted; K3s must remain running after every step.
@@ -206,6 +207,7 @@ Commits after every task. E2E specs are added incrementally so CI stays green as
 ## Task 1: Scaffold frontend project
 
 **Files:**
+
 - Create: `frontend/package.json`
 - Create: `frontend/.gitignore`
 - Create: `frontend/.env.example`
@@ -344,7 +346,13 @@ Write `frontend/tsconfig.node.json`:
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "playwright.config.ts", "tailwind.config.ts", "postcss.config.js"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "tailwind.config.ts",
+    "postcss.config.js"
+  ]
 }
 ```
 
@@ -449,6 +457,7 @@ Expected: commit created. `pnpm` not installed yet — task 2 wires dependencies
 ## Task 2: Install dependencies with pnpm
 
 **Files:**
+
 - Modify: `frontend/package.json`
 - Create: `frontend/pnpm-lock.yaml` (generated)
 
@@ -529,6 +538,7 @@ git commit -m "feat(frontend): install runtime + dev dependencies"
 ## Task 3: Configure Tailwind CSS + PostCSS
 
 **Files:**
+
 - Create: `frontend/tailwind.config.ts`
 - Create: `frontend/postcss.config.js`
 - Modify: `frontend/src/index.css`
@@ -664,8 +674,12 @@ Write `frontend/src/index.css`:
     --ring: 212.7 26.8% 83.9%;
   }
 
-  * { @apply border-border; }
-  body { @apply bg-background text-foreground; }
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
 ```
 
@@ -691,6 +705,7 @@ git commit -m "feat(frontend): add Tailwind CSS + shadcn theme variables"
 ## Task 4: Initialize shadcn/ui and add core components
 
 **Files:**
+
 - Create: `frontend/components.json`
 - Create: `frontend/src/lib/cn.ts`
 - Create: `frontend/src/components/ui/*.tsx` (via shadcn CLI)
@@ -770,6 +785,7 @@ git commit -m "feat(frontend): init shadcn/ui + add core component primitives"
 ## Task 5: Configure Vitest + Playwright + ESLint
 
 **Files:**
+
 - Create: `frontend/vitest.config.ts`
 - Create: `frontend/tests/setup.ts`
 - Create: `frontend/playwright.config.ts`
@@ -821,16 +837,14 @@ export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 120_000,
   expect: { timeout: 10_000 },
-  fullyParallel: false,   // tests share backend state; keep sequential
+  fullyParallel: false, // tests share backend state; keep sequential
   reporter: "list",
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-  ],
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });
 ```
 
@@ -853,7 +867,11 @@ export default [
       parserOptions: { ecmaFeatures: { jsx: true } },
       globals: { window: "readonly", document: "readonly", fetch: "readonly" },
     },
-    plugins: { "@typescript-eslint": tseslint, react, "react-hooks": reactHooks },
+    plugins: {
+      "@typescript-eslint": tseslint,
+      react,
+      "react-hooks": reactHooks,
+    },
     rules: {
       ...tseslint.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
@@ -887,6 +905,7 @@ git commit -m "feat(frontend): configure Vitest + Playwright + ESLint"
 ## Task 6: Backend — add FastAPI Users cookie auth transport
 
 **Files:**
+
 - Modify: `backend/app/config.py`
 - Modify: `backend/app/users.py`
 - Modify: `backend/app/main.py`
@@ -1051,6 +1070,7 @@ git commit -m "feat(backend): add FastAPI Users CookieTransport for frontend aut
 ## Task 7: Generate API types + build openapi-fetch client
 
 **Files:**
+
 - Create: `frontend/scripts/gen-api-types.sh`
 - Create: `frontend/src/api/schema.gen.ts` (generated)
 - Create: `frontend/src/api/client.ts`
@@ -1115,7 +1135,11 @@ export class LoldayApiError extends Error {
   readonly detail: string;
   readonly fieldErrors: ValidationFieldError[];
 
-  constructor(status: number, detail: string, fieldErrors: ValidationFieldError[] = []) {
+  constructor(
+    status: number,
+    detail: string,
+    fieldErrors: ValidationFieldError[] = [],
+  ) {
     super(detail || `HTTP ${status}`);
     this.status = status;
     this.detail = detail;
@@ -1130,8 +1154,10 @@ export function parseError(status: number, body: unknown): LoldayApiError {
     const detail = (body as { detail: unknown }).detail;
     if (Array.isArray(detail)) {
       const fieldErrors: ValidationFieldError[] = detail
-        .filter((d): d is RawValidationItem =>
-          typeof d === "object" && d !== null && "loc" in d && "msg" in d)
+        .filter(
+          (d): d is RawValidationItem =>
+            typeof d === "object" && d !== null && "loc" in d && "msg" in d,
+        )
         .map((d) => ({
           field: d.loc.filter((p) => p !== "body").join("."),
           message: d.msg,
@@ -1170,7 +1196,10 @@ const errorMiddleware: Middleware = {
     if (response.ok) return undefined;
     const contentType = response.headers.get("content-type") ?? "";
     const body = contentType.includes("application/json")
-      ? await response.clone().json().catch(() => null)
+      ? await response
+          .clone()
+          .json()
+          .catch(() => null)
       : null;
 
     if (response.status === 401 && on401Handler) {
@@ -1183,7 +1212,7 @@ const errorMiddleware: Middleware = {
 
 export const client = createClient<paths>({
   baseUrl: API_BASE,
-  credentials: "include",   // send cookies on every request
+  credentials: "include", // send cookies on every request
 });
 
 client.use(errorMiddleware);
@@ -1211,6 +1240,7 @@ git commit -m "feat(frontend): generate API types + openapi-fetch client with er
 ## Task 8: Wire TanStack Query + React Router v7 providers
 
 **Files:**
+
 - Modify: `frontend/src/App.tsx`
 - Create: `frontend/src/api/queryClient.ts`
 
@@ -1250,7 +1280,9 @@ import { Toaster } from "@/components/ui/toaster";
 const router = createBrowserRouter([
   {
     path: "/",
-    lazy: async () => ({ Component: (await import("./routes/_authed")).default }),
+    lazy: async () => ({
+      Component: (await import("./routes/_authed")).default,
+    }),
     children: [
       {
         index: true,
@@ -1260,7 +1292,9 @@ const router = createBrowserRouter([
   },
   {
     path: "/login",
-    lazy: async () => ({ Component: (await import("./routes/_public.login")).default }),
+    lazy: async () => ({
+      Component: (await import("./routes/_public.login")).default,
+    }),
   },
 ]);
 
@@ -1336,6 +1370,7 @@ git commit -m "feat(frontend): wire QueryClient + React Router providers"
 ## Task 9: Set up i18n (react-i18next)
 
 **Files:**
+
 - Create: `frontend/src/i18n/index.ts`
 - Create: `frontend/src/i18n/en.json`
 - Create: `frontend/src/i18n/zh-TW.json`
@@ -1361,7 +1396,10 @@ i18n
       "zh-TW": { translation: zhTW },
     },
     interpolation: { escapeValue: false },
-    detection: { order: ["localStorage", "navigator"], caches: ["localStorage"] },
+    detection: {
+      order: ["localStorage", "navigator"],
+      caches: ["localStorage"],
+    },
   });
 
 export default i18n;
@@ -1454,6 +1492,7 @@ git commit -m "feat(frontend): configure react-i18next with en primary + zh-TW s
 ## Task 10: Lib utilities (date, status, errors) with tests
 
 **Files:**
+
 - Create: `frontend/src/lib/date.ts`
 - Create: `frontend/src/lib/status.ts`
 - Create: `frontend/src/lib/errors.ts`
@@ -1478,15 +1517,21 @@ describe("formatDuration", () => {
   });
 
   it("formats seconds under a minute", () => {
-    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:00:45Z")).toBe("45s");
+    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:00:45Z")).toBe(
+      "45s",
+    );
   });
 
   it("formats minutes + seconds", () => {
-    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:02:03Z")).toBe("2m 3s");
+    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:02:03Z")).toBe(
+      "2m 3s",
+    );
   });
 
   it("formats hours + minutes", () => {
-    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T01:30:00Z")).toBe("1h 30m");
+    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T01:30:00Z")).toBe(
+      "1h 30m",
+    );
   });
 });
 
@@ -1518,7 +1563,10 @@ export function formatDuration(
   end: string | null | undefined,
 ): string {
   if (!start || !end) return "—";
-  const secs = Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000));
+  const secs = Math.max(
+    0,
+    Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000),
+  );
   if (secs < 60) return `${secs}s`;
   if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
   return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
@@ -1544,7 +1592,11 @@ Write `frontend/tests/unit/lib/status.test.ts`:
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { statusTone, isTerminal, NON_TERMINAL_JOB_STATUSES } from "@/lib/status";
+import {
+  statusTone,
+  isTerminal,
+  NON_TERMINAL_JOB_STATUSES,
+} from "@/lib/status";
 
 describe("statusTone", () => {
   it("maps success-ish statuses to success", () => {
@@ -1566,7 +1618,8 @@ describe("statusTone", () => {
 
 describe("isTerminal", () => {
   it("returns false for running-ish statuses", () => {
-    for (const s of NON_TERMINAL_JOB_STATUSES) expect(isTerminal(s)).toBe(false);
+    for (const s of NON_TERMINAL_JOB_STATUSES)
+      expect(isTerminal(s)).toBe(false);
   });
   it("returns true for succeeded / failed / cancelled / timeout", () => {
     expect(isTerminal("succeeded")).toBe(true);
@@ -1580,8 +1633,16 @@ describe("isTerminal", () => {
 - [ ] **Step 6: Implement `src/lib/status.ts`**
 
 ```ts
-export const NON_TERMINAL_JOB_STATUSES = ["pending", "preparing", "running"] as const;
-export const NON_TERMINAL_BUILD_STATUSES = ["pending", "building", "scanning"] as const;
+export const NON_TERMINAL_JOB_STATUSES = [
+  "pending",
+  "preparing",
+  "running",
+] as const;
+export const NON_TERMINAL_BUILD_STATUSES = [
+  "pending",
+  "building",
+  "scanning",
+] as const;
 
 export type Tone = "success" | "destructive" | "info" | "muted" | "warning";
 
@@ -1603,8 +1664,10 @@ export function statusTone(status: string): Tone {
 }
 
 export function isTerminal(status: string): boolean {
-  return !(NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(status)
-      && !(NON_TERMINAL_BUILD_STATUSES as readonly string[]).includes(status);
+  return (
+    !(NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(status) &&
+    !(NON_TERMINAL_BUILD_STATUSES as readonly string[]).includes(status)
+  );
 }
 ```
 
@@ -1632,7 +1695,10 @@ describe("applyFieldErrorsToForm", () => {
     ]);
     applyFieldErrorsToForm(err, setError as any);
     expect(setError).toHaveBeenCalledTimes(2);
-    expect(setError).toHaveBeenCalledWith("email", { type: "server", message: "Not a valid email" });
+    expect(setError).toHaveBeenCalledWith("email", {
+      type: "server",
+      message: "Not a valid email",
+    });
   });
 });
 ```
@@ -1678,7 +1744,9 @@ describe("parseCsvPreview", () => {
   });
 
   it("caps rows at limit", () => {
-    const rows = Array.from({ length: 50 }, (_, i) => `f${i},Malware`).join("\n");
+    const rows = Array.from({ length: 50 }, (_, i) => `f${i},Malware`).join(
+      "\n",
+    );
     const csv = `file_name,label\n${rows}\n`;
     const p = parseCsvPreview(csv, 20);
     expect(p.rows.length).toBe(20);
@@ -1707,7 +1775,8 @@ export function parseCsvPreview(text: string, limit = 20): CsvPreview {
   if (lines.length === 0) throw new Error("Empty CSV");
   const columns = splitLine(lines[0]);
   for (const req of REQUIRED) {
-    if (!columns.includes(req)) throw new Error(`Missing required column: ${req}`);
+    if (!columns.includes(req))
+      throw new Error(`Missing required column: ${req}`);
   }
   const dataLines = lines.slice(1);
   const rows = dataLines.slice(0, limit).map((line) => {
@@ -1725,12 +1794,16 @@ function splitLine(line: string): string[] {
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (inQuote) {
-      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-      else if (ch === '"') inQuote = false;
+      if (ch === '"' && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else if (ch === '"') inQuote = false;
       else cur += ch;
     } else {
-      if (ch === ",") { out.push(cur); cur = ""; }
-      else if (ch === '"') inQuote = true;
+      if (ch === ",") {
+        out.push(cur);
+        cur = "";
+      } else if (ch === '"') inQuote = true;
       else cur += ch;
     }
   }
@@ -1758,6 +1831,7 @@ git commit -m "feat(frontend): lib utilities (date, status, errors, csv) with un
 ## Task 11: `usePolling` hook with test
 
 **Files:**
+
 - Create: `frontend/src/hooks/usePolling.ts`
 - Create: `frontend/tests/unit/hooks/usePolling.test.ts`
 
@@ -1824,6 +1898,7 @@ git commit -m "feat(frontend): add usePolling helper with unit test"
 ## Task 12: Sidebar layout component
 
 **Files:**
+
 - Create: `frontend/src/components/layout/Sidebar.tsx`
 
 - [ ] **Step 1: Create Sidebar**
@@ -1834,7 +1909,13 @@ Write `frontend/src/components/layout/Sidebar.tsx`:
 import { NavLink } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
-  Package, FolderOpen, Play, BarChart3, Tag, User as UserIcon, LogOut,
+  Package,
+  FolderOpen,
+  Play,
+  BarChart3,
+  Tag,
+  User as UserIcon,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
@@ -1884,7 +1965,9 @@ export function Sidebar() {
           className={({ isActive }) =>
             cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
-              isActive ? "bg-slate-800 text-white" : "text-slate-300 hover:bg-slate-800/60",
+              isActive
+                ? "bg-slate-800 text-white"
+                : "text-slate-300 hover:bg-slate-800/60",
             )
           }
         >
@@ -1921,6 +2004,7 @@ git commit -m "feat(frontend): sidebar layout component"
 ## Task 13: TopBar + Breadcrumb
 
 **Files:**
+
 - Create: `frontend/src/components/layout/TopBar.tsx`
 - Create: `frontend/src/components/layout/Breadcrumb.tsx`
 - Create: `frontend/src/hooks/useBreadcrumb.ts`
@@ -1944,11 +2028,26 @@ export interface CrumbMatch {
 export function useBreadcrumb(): CrumbMatch[] {
   const matches = useMatches();
   return matches
-    .filter((m): m is typeof m & { handle: { breadcrumb: string | ((d: unknown) => string) } } =>
-      Boolean(m.handle && typeof m.handle === "object" && m.handle !== null && "breadcrumb" in m.handle))
+    .filter(
+      (
+        m,
+      ): m is typeof m & {
+        handle: { breadcrumb: string | ((d: unknown) => string) };
+      } =>
+        Boolean(
+          m.handle &&
+          typeof m.handle === "object" &&
+          m.handle !== null &&
+          "breadcrumb" in m.handle,
+        ),
+    )
     .map((m) => {
-      const b = (m.handle as { breadcrumb: string | ((d: unknown) => string) }).breadcrumb;
-      return { pathname: m.pathname, label: typeof b === "function" ? b(m.data) : b };
+      const b = (m.handle as { breadcrumb: string | ((d: unknown) => string) })
+        .breadcrumb;
+      return {
+        pathname: m.pathname,
+        label: typeof b === "function" ? b(m.data) : b,
+      };
     });
 }
 ```
@@ -2013,6 +2112,7 @@ git commit -m "feat(frontend): top bar + breadcrumb driven by route handles"
 ## Task 14: `useAuth` hook + route guard in authed layout
 
 **Files:**
+
 - Create: `frontend/src/hooks/useAuth.ts`
 - Create: `frontend/src/api/queries/auth.ts`
 - Modify: `frontend/src/routes/_authed.tsx`
@@ -2058,8 +2158,12 @@ export function useLogin() {
         { method: "POST", body, credentials: "include" },
       );
       if (!resp.ok) {
-        const detail = await resp.json().catch(() => ({ detail: `HTTP ${resp.status}` }));
-        throw Object.assign(new Error(detail.detail ?? "Login failed"), { status: resp.status });
+        const detail = await resp
+          .json()
+          .catch(() => ({ detail: `HTTP ${resp.status}` }));
+        throw Object.assign(new Error(detail.detail ?? "Login failed"), {
+          status: resp.status,
+        });
       }
     },
     onSuccess: () => qc.invalidateQueries(),
@@ -2070,10 +2174,10 @@ export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      await fetch(
-        `${import.meta.env.VITE_API_BASE}/auth/cookie/logout`,
-        { method: "POST", credentials: "include" },
-      );
+      await fetch(`${import.meta.env.VITE_API_BASE}/auth/cookie/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
     },
     onSettled: () => {
       qc.clear();
@@ -2096,7 +2200,9 @@ export function useAuth() {
   return {
     currentUser: userQuery.data ?? null,
     isLoading: userQuery.isLoading,
-    isUnauthenticated: userQuery.isError && (userQuery.error as { status?: number } | undefined)?.status === 401,
+    isUnauthenticated:
+      userQuery.isError &&
+      (userQuery.error as { status?: number } | undefined)?.status === 401,
     logout: () => logoutMut.mutate(),
   };
 }
@@ -2116,7 +2222,11 @@ export default function AuthedLayout() {
   const { currentUser, isLoading, isUnauthenticated } = useAuth();
 
   if (isLoading) {
-    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+        Loading…
+      </div>
+    );
   }
   if (isUnauthenticated || !currentUser) {
     return <Navigate to="/login" replace />;
@@ -2161,6 +2271,7 @@ git commit -m "feat(frontend): useAuth hook + route guard on authed layout"
 ## Task 15: Login form + /login route
 
 **Files:**
+
 - Create: `frontend/src/components/forms/LoginForm.tsx`
 - Modify: `frontend/src/routes/_public.login.tsx`
 - Modify: `frontend/src/routes/_public.tsx`
@@ -2208,7 +2319,11 @@ export function LoginForm() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const login = useLogin();
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<FormValues>({
     resolver: zodResolver(schema),
   });
 
@@ -2222,9 +2337,9 @@ export function LoginForm() {
   });
 
   const serverError = login.isError
-    ? ((login.error as { status?: number }).status === 429
-        ? t("login.rateLimited")
-        : t("login.invalidCredentials"))
+    ? (login.error as { status?: number }).status === 429
+      ? t("login.rateLimited")
+      : t("login.invalidCredentials")
     : null;
 
   return (
@@ -2236,18 +2351,40 @@ export function LoginForm() {
         <form className="space-y-4" onSubmit={onSubmit}>
           <div className="space-y-2">
             <Label htmlFor="email">{t("login.email")}</Label>
-            <Input id="email" type="email" autoComplete="email" {...register("email")} />
-            {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              {...register("email")}
+            />
+            {errors.email && (
+              <p className="text-xs text-destructive">{errors.email.message}</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">{t("login.password")}</Label>
-            <Input id="password" type="password" autoComplete="current-password" {...register("password")} />
-            {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              {...register("password")}
+            />
+            {errors.password && (
+              <p className="text-xs text-destructive">
+                {errors.password.message}
+              </p>
+            )}
           </div>
           {serverError && (
-            <Alert variant="destructive"><AlertDescription>{serverError}</AlertDescription></Alert>
+            <Alert variant="destructive">
+              <AlertDescription>{serverError}</AlertDescription>
+            </Alert>
           )}
-          <Button type="submit" className="w-full" disabled={isSubmitting || login.isPending}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isSubmitting || login.isPending}
+          >
             {t("login.submit")}
           </Button>
         </form>
@@ -2263,7 +2400,9 @@ Write `frontend/src/routes/_public.login.tsx`:
 
 ```tsx
 import { LoginForm } from "@/components/forms/LoginForm";
-export default function LoginPage() { return <LoginForm />; }
+export default function LoginPage() {
+  return <LoginForm />;
+}
 ```
 
 - [ ] **Step 4: Update router to use `_public` layout**
@@ -2274,18 +2413,22 @@ Edit `frontend/src/App.tsx` — replace the `/login` route with a nested version
 const router = createBrowserRouter([
   {
     path: "/",
-    lazy: async () => ({ Component: (await import("./routes/_authed")).default }),
-    children: [
-      { index: true, loader: () => redirect("/detectors") },
-    ],
+    lazy: async () => ({
+      Component: (await import("./routes/_authed")).default,
+    }),
+    children: [{ index: true, loader: () => redirect("/detectors") }],
   },
   {
     path: "/",
-    lazy: async () => ({ Component: (await import("./routes/_public")).default }),
+    lazy: async () => ({
+      Component: (await import("./routes/_public")).default,
+    }),
     children: [
       {
         path: "login",
-        lazy: async () => ({ Component: (await import("./routes/_public.login")).default }),
+        lazy: async () => ({
+          Component: (await import("./routes/_public.login")).default,
+        }),
       },
     ],
   },
@@ -2316,6 +2459,7 @@ git commit -m "feat(frontend): login form with cookie-based authentication"
 ## Task 16: Playwright helper + first E2E (login.spec.ts)
 
 **Files:**
+
 - Create: `frontend/tests/e2e/helpers.ts`
 - Create: `frontend/tests/e2e/login.spec.ts`
 
@@ -2339,7 +2483,9 @@ export function seedCreds(): SeedCreds {
   const email = process.env.E2E_ADMIN_EMAIL;
   const password = process.env.E2E_ADMIN_PASSWORD;
   if (!email || !password) {
-    throw new Error("Set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD before running E2E.");
+    throw new Error(
+      "Set E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD before running E2E.",
+    );
   }
   return { email, password };
 }
@@ -2385,7 +2531,7 @@ test("invalid creds show error", async ({ page }) => {
 
 Append to `frontend/README.md` (create if missing):
 
-```md
+````md
 ## E2E
 
 Requires the backend to be reachable on `http://localhost:8000` (`kubectl port-forward svc/backend 8000:8000`) and credentials in env:
@@ -2396,7 +2542,9 @@ export E2E_ADMIN_EMAIL=$ADMIN_EMAIL E2E_ADMIN_PASSWORD=$ADMIN_PASSWORD
 pnpm dev &
 pnpm test:e2e
 ```
-```
+````
+
+````
 
 - [ ] **Step 4: Run the spec**
 
@@ -2408,7 +2556,7 @@ cd /home/bolin8017/Documents/repositories/lolday/frontend
 source ~/.lolday-secrets.env
 export E2E_ADMIN_EMAIL=$ADMIN_EMAIL E2E_ADMIN_PASSWORD=$ADMIN_PASSWORD
 pnpm test:e2e login.spec
-```
+````
 
 Expected: 3 tests PASS.
 
@@ -2425,6 +2573,7 @@ git commit -m "test(frontend): Playwright helpers + login.spec E2E"
 ## Task 17: Users / credentials query hooks
 
 **Files:**
+
 - Create: `frontend/src/api/queries/users.ts`
 
 - [ ] **Step 1: Write the query hooks**
@@ -2447,8 +2596,10 @@ export function useGitCredential() {
   return useQuery({
     queryKey: usersKeys.gitCredential,
     queryFn: async () => {
-      const { data, error, response } = await client.GET("/api/v1/users/me/git-credential");
-      if (response.status === 404) return null;  // not set
+      const { data, error, response } = await client.GET(
+        "/api/v1/users/me/git-credential",
+      );
+      if (response.status === 404) return null; // not set
       if (error) throw error;
       return data as GitCredential;
     },
@@ -2460,11 +2611,15 @@ export function useSetGitCredential() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: { provider: "github"; token: string }) => {
-      const { data, error } = await client.PUT("/api/v1/users/me/git-credential", { body: args });
+      const { data, error } = await client.PUT(
+        "/api/v1/users/me/git-credential",
+        { body: args },
+      );
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: usersKeys.gitCredential }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: usersKeys.gitCredential }),
   });
 }
 
@@ -2475,7 +2630,8 @@ export function useDeleteGitCredential() {
       const { error } = await client.DELETE("/api/v1/users/me/git-credential");
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: usersKeys.gitCredential }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: usersKeys.gitCredential }),
   });
 }
 
@@ -2483,7 +2639,9 @@ export function useUpdatePassword() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: { password: string }) => {
-      const { data, error } = await client.PATCH("/api/v1/users/me", { body: args });
+      const { data, error } = await client.PATCH("/api/v1/users/me", {
+        body: args,
+      });
       if (error) throw error;
       return data;
     },
@@ -2506,6 +2664,7 @@ git commit -m "feat(frontend): user profile + git credential query hooks"
 ## Task 18: Profile page (password + git credential)
 
 **Files:**
+
 - Create: `frontend/src/components/forms/PasswordChangeForm.tsx`
 - Create: `frontend/src/components/forms/GitCredentialForm.tsx`
 - Create: `frontend/src/routes/_authed.profile.tsx`
@@ -2524,14 +2683,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
-const schema = z.object({
-  password: z.string().min(8, "At least 8 characters"),
-  confirm: z.string(),
-}).refine((d) => d.password === d.confirm, { path: ["confirm"], message: "Passwords do not match" });
+const schema = z
+  .object({
+    password: z.string().min(8, "At least 8 characters"),
+    confirm: z.string(),
+  })
+  .refine((d) => d.password === d.confirm, {
+    path: ["confirm"],
+    message: "Passwords do not match",
+  });
 type Values = z.infer<typeof schema>;
 
 export function PasswordChangeForm() {
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Values>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<Values>({
     resolver: zodResolver(schema),
   });
   const mut = useUpdatePassword();
@@ -2546,14 +2715,20 @@ export function PasswordChangeForm() {
       <div>
         <Label htmlFor="pw">New password</Label>
         <Input id="pw" type="password" {...register("password")} />
-        {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+        {errors.password && (
+          <p className="text-xs text-destructive">{errors.password.message}</p>
+        )}
       </div>
       <div>
         <Label htmlFor="pw2">Confirm password</Label>
         <Input id="pw2" type="password" {...register("confirm")} />
-        {errors.confirm && <p className="text-xs text-destructive">{errors.confirm.message}</p>}
+        {errors.confirm && (
+          <p className="text-xs text-destructive">{errors.confirm.message}</p>
+        )}
       </div>
-      <Button type="submit" disabled={isSubmitting}>Update password</Button>
+      <Button type="submit" disabled={isSubmitting}>
+        Update password
+      </Button>
     </form>
   );
 }
@@ -2568,14 +2743,20 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useGitCredential, useSetGitCredential, useDeleteGitCredential } from "@/api/queries/users";
+import {
+  useGitCredential,
+  useSetGitCredential,
+  useDeleteGitCredential,
+} from "@/api/queries/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 
-const schema = z.object({ token: z.string().min(20, "Looks too short for a PAT") });
+const schema = z.object({
+  token: z.string().min(20, "Looks too short for a PAT"),
+});
 type Values = z.infer<typeof schema>;
 
 export function GitCredentialForm() {
@@ -2584,7 +2765,12 @@ export function GitCredentialForm() {
   const clearCred = useDeleteGitCredential();
   const [editing, setEditing] = useState(false);
   const { toast } = useToast();
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Values>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<Values>({
     resolver: zodResolver(schema),
   });
 
@@ -2599,10 +2785,15 @@ export function GitCredentialForm() {
           </AlertDescription>
         </Alert>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setEditing(true)}>Update</Button>
+          <Button variant="secondary" onClick={() => setEditing(true)}>
+            Update
+          </Button>
           <Button
             variant="destructive"
-            onClick={async () => { await clearCred.mutateAsync(); toast({ title: "Credential cleared." }); }}
+            onClick={async () => {
+              await clearCred.mutateAsync();
+              toast({ title: "Credential cleared." });
+            }}
           >
             Clear
           </Button>
@@ -2623,12 +2814,29 @@ export function GitCredentialForm() {
     >
       <div>
         <Label htmlFor="tok">GitHub PAT</Label>
-        <Input id="tok" type="password" autoComplete="off" {...register("token")} />
-        {errors.token && <p className="text-xs text-destructive">{errors.token.message}</p>}
+        <Input
+          id="tok"
+          type="password"
+          autoComplete="off"
+          {...register("token")}
+        />
+        {errors.token && (
+          <p className="text-xs text-destructive">{errors.token.message}</p>
+        )}
       </div>
       <div className="flex gap-2">
-        <Button type="submit" disabled={isSubmitting}>Save</Button>
-        {editing && <Button type="button" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>}
+        <Button type="submit" disabled={isSubmitting}>
+          Save
+        </Button>
+        {editing && (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setEditing(false)}
+          >
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   );
@@ -2652,19 +2860,35 @@ export default function ProfilePage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <Card>
-        <CardHeader><CardTitle>Account</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Account</CardTitle>
+        </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <div><span className="text-muted-foreground">Email:</span> {currentUser?.email}</div>
-          <div><span className="text-muted-foreground">Role:</span> {currentUser?.role ?? "user"}</div>
+          <div>
+            <span className="text-muted-foreground">Email:</span>{" "}
+            {currentUser?.email}
+          </div>
+          <div>
+            <span className="text-muted-foreground">Role:</span>{" "}
+            {currentUser?.role ?? "user"}
+          </div>
         </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>Change password</CardTitle></CardHeader>
-        <CardContent><PasswordChangeForm /></CardContent>
+        <CardHeader>
+          <CardTitle>Change password</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PasswordChangeForm />
+        </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>GitHub PAT</CardTitle></CardHeader>
-        <CardContent><GitCredentialForm /></CardContent>
+        <CardHeader>
+          <CardTitle>GitHub PAT</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <GitCredentialForm />
+        </CardContent>
       </Card>
     </div>
   );
@@ -2702,6 +2926,7 @@ git commit -m "feat(frontend): profile page (password change + git credential)"
 ## Task 19: Reusable DataTable + StatusBadge + Detectors query hooks
 
 **Files:**
+
 - Create: `frontend/src/components/tables/DataTable.tsx`
 - Create: `frontend/src/components/common/StatusBadge.tsx`
 - Create: `frontend/src/api/queries/detectors.ts`
@@ -2721,7 +2946,14 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown } from "lucide-react";
 
@@ -2732,7 +2964,12 @@ interface Props<T> {
   onRowClick?: (row: T) => void;
 }
 
-export function DataTable<T>({ data, columns, emptyMessage = "No data.", onRowClick }: Props<T>) {
+export function DataTable<T>({
+  data,
+  columns,
+  emptyMessage = "No data.",
+  onRowClick,
+}: Props<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const table = useReactTable({
     data,
@@ -2753,11 +2990,17 @@ export function DataTable<T>({ data, columns, emptyMessage = "No data.", onRowCl
                 {hg.headers.map((h) => (
                   <TableHead key={h.id}>
                     {h.isPlaceholder ? null : h.column.getCanSort() ? (
-                      <Button variant="ghost" size="sm" onClick={h.column.getToggleSortingHandler()}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={h.column.getToggleSortingHandler()}
+                      >
                         {flexRender(h.column.columnDef.header, h.getContext())}
                         <ArrowUpDown className="ml-2 h-3 w-3" />
                       </Button>
-                    ) : flexRender(h.column.columnDef.header, h.getContext())}
+                    ) : (
+                      flexRender(h.column.columnDef.header, h.getContext())
+                    )}
                   </TableHead>
                 ))}
               </TableRow>
@@ -2766,7 +3009,10 @@ export function DataTable<T>({ data, columns, emptyMessage = "No data.", onRowCl
           <TableBody>
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-24 text-center text-muted-foreground"
+                >
                   {emptyMessage}
                 </TableCell>
               </TableRow>
@@ -2774,12 +3020,17 @@ export function DataTable<T>({ data, columns, emptyMessage = "No data.", onRowCl
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onClick={
+                    onRowClick ? () => onRowClick(row.original) : undefined
+                  }
                   className={onRowClick ? "cursor-pointer" : undefined}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -2789,13 +3040,24 @@ export function DataTable<T>({ data, columns, emptyMessage = "No data.", onRowCl
         </Table>
       </div>
       <div className="flex items-center justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => table.previousPage()}
+          disabled={!table.getCanPreviousPage()}
+        >
           Prev
         </Button>
         <span className="text-sm text-muted-foreground">
-          Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() || 1}
+          Page {table.getState().pagination.pageIndex + 1} of{" "}
+          {table.getPageCount() || 1}
         </span>
-        <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => table.nextPage()}
+          disabled={!table.getCanNextPage()}
+        >
           Next
         </Button>
       </div>
@@ -2826,7 +3088,9 @@ export function StatusBadge({ status }: { status: string }) {
   const { t, i18n } = useTranslation();
   const key = `status.${status}`;
   const label = i18n.exists(key) ? t(key) : status;
-  return <Badge className={cn(TONE_CLASSES[statusTone(status)])}>{label}</Badge>;
+  return (
+    <Badge className={cn(TONE_CLASSES[statusTone(status)])}>{label}</Badge>
+  );
 }
 ```
 
@@ -2848,10 +3112,13 @@ export const detectorsKeys = {
   list: () => [...detectorsKeys.all, "list"] as const,
   detail: (id: string) => [...detectorsKeys.all, "detail", id] as const,
   versions: (id: string) => [...detectorsKeys.all, "versions", id] as const,
-  version: (id: string, tag: string) => [...detectorsKeys.all, "version", id, tag] as const,
+  version: (id: string, tag: string) =>
+    [...detectorsKeys.all, "version", id, tag] as const,
   builds: (id: string) => [...detectorsKeys.all, "builds", id] as const,
-  build: (id: string, bid: string) => [...detectorsKeys.all, "build", id, bid] as const,
-  availableTags: (id: string) => [...detectorsKeys.all, "available-tags", id] as const,
+  build: (id: string, bid: string) =>
+    [...detectorsKeys.all, "build", id, bid] as const,
+  availableTags: (id: string) =>
+    [...detectorsKeys.all, "available-tags", id] as const,
 };
 
 export function useDetectors() {
@@ -2869,9 +3136,12 @@ export function useDetector(id: string) {
   return useQuery({
     queryKey: detectorsKeys.detail(id),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/detectors/{detector_id}", {
-        params: { path: { detector_id: id } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/detectors/{detector_id}",
+        {
+          params: { path: { detector_id: id } },
+        },
+      );
       if (error) throw error;
       return data as Detector;
     },
@@ -2882,9 +3152,12 @@ export function useDetectorVersions(id: string) {
   return useQuery({
     queryKey: detectorsKeys.versions(id),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/detectors/{detector_id}/versions", {
-        params: { path: { detector_id: id } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/detectors/{detector_id}/versions",
+        {
+          params: { path: { detector_id: id } },
+        },
+      );
       if (error) throw error;
       return data;
     },
@@ -2895,9 +3168,12 @@ export function useDetectorVersion(id: string, tag: string) {
   return useQuery({
     queryKey: detectorsKeys.version(id, tag),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/detectors/{detector_id}/versions/{tag}", {
-        params: { path: { detector_id: id, tag } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/detectors/{detector_id}/versions/{tag}",
+        {
+          params: { path: { detector_id: id, tag } },
+        },
+      );
       if (error) throw error;
       return data as DetectorVersion;
     },
@@ -2909,16 +3185,21 @@ export function useDetectorBuilds(id: string) {
   return useQuery({
     queryKey: detectorsKeys.builds(id),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/detectors/{detector_id}/builds", {
-        params: { path: { detector_id: id } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/detectors/{detector_id}/builds",
+        {
+          params: { path: { detector_id: id } },
+        },
+      );
       if (error) throw error;
       return data;
     },
     refetchInterval: (q) => {
       const builds = (q.state.data as { data?: Build[] } | undefined)?.data;
       if (!builds) return false;
-      const anyActive = builds.some((b) => ["pending", "building", "scanning"].includes(b.status));
+      const anyActive = builds.some((b) =>
+        ["pending", "building", "scanning"].includes(b.status),
+      );
       return anyActive ? 2000 : false;
     },
   });
@@ -2928,9 +3209,12 @@ export function useAvailableTags(id: string) {
   return useQuery({
     queryKey: detectorsKeys.availableTags(id),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/detectors/{detector_id}/available-tags", {
-        params: { path: { detector_id: id } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/detectors/{detector_id}/available-tags",
+        {
+          params: { path: { detector_id: id } },
+        },
+      );
       if (error) throw error;
       return data as { tag: string; sha: string }[];
     },
@@ -2954,14 +3238,18 @@ export function useTriggerBuild(detectorId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: { git_tag: string }) => {
-      const { data, error } = await client.POST("/api/v1/detectors/{detector_id}/builds", {
-        params: { path: { detector_id: detectorId } },
-        body,
-      });
+      const { data, error } = await client.POST(
+        "/api/v1/detectors/{detector_id}/builds",
+        {
+          params: { path: { detector_id: detectorId } },
+          body,
+        },
+      );
       if (error) throw error;
       return data as Build;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: detectorsKeys.builds(detectorId) }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: detectorsKeys.builds(detectorId) }),
   });
 }
 
@@ -2976,7 +3264,8 @@ export function useCancelBuild(detectorId: string) {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: detectorsKeys.builds(detectorId) }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: detectorsKeys.builds(detectorId) }),
   });
 }
 
@@ -3008,6 +3297,7 @@ git commit -m "feat(frontend): DataTable + StatusBadge + detectors query hooks"
 ## Task 20: Detectors list + register
 
 **Files:**
+
 - Create: `frontend/src/routes/_authed.detectors._index.tsx`
 - Create: `frontend/src/routes/_authed.detectors.new.tsx`
 - Create: `frontend/src/components/forms/RegisterDetectorForm.tsx`
@@ -3030,7 +3320,10 @@ import { applyFieldErrorsToForm } from "@/lib/errors";
 import type { LoldayApiError } from "@/api/errors";
 
 const schema = z.object({
-  name: z.string().min(1).regex(/^[a-z0-9-]+$/, "lowercase letters, digits, hyphen only"),
+  name: z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/, "lowercase letters, digits, hyphen only"),
   display_name: z.string().min(1).max(200),
   description: z.string().optional(),
   git_url: z.string().url(),
@@ -3040,7 +3333,12 @@ type Values = z.infer<typeof schema>;
 export function RegisterDetectorForm() {
   const nav = useNavigate();
   const mut = useRegisterDetector();
-  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<Values>({
+  const {
+    register,
+    handleSubmit,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<Values>({
     resolver: zodResolver(schema),
   });
   const onSubmit = handleSubmit(async (v) => {
@@ -3056,23 +3354,41 @@ export function RegisterDetectorForm() {
       <div>
         <Label htmlFor="name">Name (slug)</Label>
         <Input id="name" placeholder="upxelfdet" {...register("name")} />
-        {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+        {errors.name && (
+          <p className="text-xs text-destructive">{errors.name.message}</p>
+        )}
       </div>
       <div>
         <Label htmlFor="display_name">Display name</Label>
-        <Input id="display_name" placeholder="UPX ELF Detector" {...register("display_name")} />
-        {errors.display_name && <p className="text-xs text-destructive">{errors.display_name.message}</p>}
+        <Input
+          id="display_name"
+          placeholder="UPX ELF Detector"
+          {...register("display_name")}
+        />
+        {errors.display_name && (
+          <p className="text-xs text-destructive">
+            {errors.display_name.message}
+          </p>
+        )}
       </div>
       <div>
         <Label htmlFor="git_url">Git URL</Label>
-        <Input id="git_url" placeholder="https://github.com/…" {...register("git_url")} />
-        {errors.git_url && <p className="text-xs text-destructive">{errors.git_url.message}</p>}
+        <Input
+          id="git_url"
+          placeholder="https://github.com/…"
+          {...register("git_url")}
+        />
+        {errors.git_url && (
+          <p className="text-xs text-destructive">{errors.git_url.message}</p>
+        )}
       </div>
       <div>
         <Label htmlFor="description">Description</Label>
         <Textarea id="description" rows={3} {...register("description")} />
       </div>
-      <Button type="submit" disabled={isSubmitting}>Register detector</Button>
+      <Button type="submit" disabled={isSubmitting}>
+        Register detector
+      </Button>
     </form>
   );
 }
@@ -3095,12 +3411,27 @@ export const handle = { breadcrumb: "Detectors" };
 
 const columns: ColumnDef<Detector>[] = [
   { accessorKey: "display_name", header: "Name" },
-  { accessorKey: "description", header: "Description",
-    cell: ({ row }) => <span className="text-muted-foreground">{row.original.description ?? "—"}</span> },
-  { accessorKey: "git_url", header: "Git URL",
-    cell: ({ row }) => <span className="font-mono text-xs">{row.original.git_url}</span> },
-  { accessorKey: "created_at", header: "Created",
-    cell: ({ row }) => formatRelative(row.original.created_at) },
+  {
+    accessorKey: "description",
+    header: "Description",
+    cell: ({ row }) => (
+      <span className="text-muted-foreground">
+        {row.original.description ?? "—"}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "git_url",
+    header: "Git URL",
+    cell: ({ row }) => (
+      <span className="font-mono text-xs">{row.original.git_url}</span>
+    ),
+  },
+  {
+    accessorKey: "created_at",
+    header: "Created",
+    cell: ({ row }) => formatRelative(row.original.created_at),
+  },
 ];
 
 export default function DetectorsListPage() {
@@ -3109,14 +3440,23 @@ export default function DetectorsListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Detectors</h1>
-        <Button asChild><Link to="/detectors/new"><Plus className="mr-2 h-4 w-4" />Register</Link></Button>
+        <Button asChild>
+          <Link to="/detectors/new">
+            <Plus className="mr-2 h-4 w-4" />
+            Register
+          </Link>
+        </Button>
       </div>
-      {isLoading ? <p className="text-muted-foreground">Loading…</p> : (
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : (
         <DataTable
           data={(data as Detector[]) ?? []}
           columns={columns}
           emptyMessage="No detectors registered yet."
-          onRowClick={(d) => { window.location.href = `/detectors/${d.id}`; }}
+          onRowClick={(d) => {
+            window.location.href = `/detectors/${d.id}`;
+          }}
         />
       )}
     </div>
@@ -3178,6 +3518,7 @@ git commit -m "feat(frontend): detectors list + register detector form"
 ## Task 21: Detector detail (Overview / Versions / Builds tabs)
 
 **Files:**
+
 - Create: `frontend/src/routes/_authed.detectors.$id.tsx`
 - Create: `frontend/src/components/common/JsonViewer.tsx`
 - Create: `frontend/src/components/common/LogTail.tsx`
@@ -3204,7 +3545,10 @@ Write `frontend/src/components/common/LogTail.tsx`:
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
 
-interface Props { text: string; className?: string }
+interface Props {
+  text: string;
+  className?: string;
+}
 
 export function LogTail({ text, className }: Props) {
   const ref = useRef<HTMLPreElement | null>(null);
@@ -3232,13 +3576,40 @@ Write `frontend/src/routes/_authed.detectors.$id.tsx`:
 ```tsx
 import { useParams, Link } from "react-router";
 import { useState } from "react";
-import { useDetector, useDetectorVersion, useDetectorVersions, useDetectorBuilds, useAvailableTags, useTriggerBuild, useCancelBuild } from "@/api/queries/detectors";
+import {
+  useDetector,
+  useDetectorVersion,
+  useDetectorVersions,
+  useDetectorBuilds,
+  useAvailableTags,
+  useTriggerBuild,
+  useCancelBuild,
+} from "@/api/queries/detectors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { DataTable } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { JsonViewer } from "@/components/common/JsonViewer";
@@ -3261,18 +3632,51 @@ export default function DetectorDetailPage() {
 
   if (!det) return <p className="text-muted-foreground">Loading…</p>;
 
-  const versionsArr = (versions as { tag: string; git_sha: string; status: string; built_at: string }[]) ?? [];
-  const buildsArr = (builds as { id: string; git_tag: string; status: string; started_at: string; finished_at: string | null; log_tail: string | null }[]) ?? [];
+  const versionsArr =
+    (versions as {
+      tag: string;
+      git_sha: string;
+      status: string;
+      built_at: string;
+    }[]) ?? [];
+  const buildsArr =
+    (builds as {
+      id: string;
+      git_tag: string;
+      status: string;
+      started_at: string;
+      finished_at: string | null;
+      log_tail: string | null;
+    }[]) ?? [];
 
   const versionsCols: ColumnDef<(typeof versionsArr)[number]>[] = [
     { accessorKey: "tag", header: "Tag" },
-    { accessorKey: "git_sha", header: "Commit",
-      cell: ({ row }) => <span className="font-mono">{row.original.git_sha.slice(0, 10)}</span> },
-    { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
-    { accessorKey: "built_at", header: "Built", cell: ({ row }) => formatRelative(row.original.built_at) },
-    { id: "actions", header: "",
+    {
+      accessorKey: "git_sha",
+      header: "Commit",
       cell: ({ row }) => (
-        <Button variant="ghost" size="sm" onClick={() => setOpenSchemaTag(row.original.tag)}>
+        <span className="font-mono">{row.original.git_sha.slice(0, 10)}</span>
+      ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
+    {
+      accessorKey: "built_at",
+      header: "Built",
+      cell: ({ row }) => formatRelative(row.original.built_at),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setOpenSchemaTag(row.original.tag)}
+        >
           View config schema
         </Button>
       ),
@@ -3281,24 +3685,52 @@ export default function DetectorDetailPage() {
 
   const buildsCols: ColumnDef<(typeof buildsArr)[number]>[] = [
     { accessorKey: "git_tag", header: "Tag" },
-    { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
-    { accessorKey: "started_at", header: "Started", cell: ({ row }) => formatRelative(row.original.started_at) },
-    { id: "duration", header: "Duration",
-      cell: ({ row }) => formatDuration(row.original.started_at, row.original.finished_at) },
-    { id: "actions", header: "",
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
+    {
+      accessorKey: "started_at",
+      header: "Started",
+      cell: ({ row }) => formatRelative(row.original.started_at),
+    },
+    {
+      id: "duration",
+      header: "Duration",
+      cell: ({ row }) =>
+        formatDuration(row.original.started_at, row.original.finished_at),
+    },
+    {
+      id: "actions",
+      header: "",
       cell: ({ row }) => (
         <div className="flex gap-1">
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="sm">Logs</Button>
+              <Button variant="ghost" size="sm">
+                Logs
+              </Button>
             </SheetTrigger>
             <SheetContent className="w-[600px] sm:max-w-[640px]">
-              <SheetHeader><SheetTitle>Build {row.original.id.slice(0, 8)} — logs</SheetTitle></SheetHeader>
-              <div className="mt-4"><LogTail text={row.original.log_tail ?? "(no output)"} /></div>
+              <SheetHeader>
+                <SheetTitle>
+                  Build {row.original.id.slice(0, 8)} — logs
+                </SheetTitle>
+              </SheetHeader>
+              <div className="mt-4">
+                <LogTail text={row.original.log_tail ?? "(no output)"} />
+              </div>
             </SheetContent>
           </Sheet>
-          {["pending", "building", "scanning"].includes(row.original.status) && (
-            <Button variant="ghost" size="sm" onClick={() => cancelBuild.mutate(row.original.id)}>
+          {["pending", "building", "scanning"].includes(
+            row.original.status,
+          ) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => cancelBuild.mutate(row.original.id)}
+            >
               Cancel
             </Button>
           )}
@@ -3311,7 +3743,9 @@ export default function DetectorDetailPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{det.display_name}</h1>
-        <Link to="/detectors" className="text-sm text-muted-foreground">← back</Link>
+        <Link to="/detectors" className="text-sm text-muted-foreground">
+          ← back
+        </Link>
       </div>
 
       <Tabs defaultValue="overview">
@@ -3323,21 +3757,44 @@ export default function DetectorDetailPage() {
 
         <TabsContent value="overview">
           <Card>
-            <CardHeader><CardTitle>Metadata</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Metadata</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">Name:</span> <code>{det.name}</code></div>
-              <div><span className="text-muted-foreground">Git URL:</span> <code>{det.git_url}</code></div>
-              <div><span className="text-muted-foreground">Description:</span> {det.description ?? "—"}</div>
-              <div><span className="text-muted-foreground">Created:</span> {formatRelative(det.created_at)}</div>
+              <div>
+                <span className="text-muted-foreground">Name:</span>{" "}
+                <code>{det.name}</code>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Git URL:</span>{" "}
+                <code>{det.git_url}</code>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Description:</span>{" "}
+                {det.description ?? "—"}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Created:</span>{" "}
+                {formatRelative(det.created_at)}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="versions">
-          <DataTable data={versionsArr} columns={versionsCols} emptyMessage="No versions built yet." />
-          <Sheet open={!!openSchemaTag} onOpenChange={(o) => !o && setOpenSchemaTag(null)}>
+          <DataTable
+            data={versionsArr}
+            columns={versionsCols}
+            emptyMessage="No versions built yet."
+          />
+          <Sheet
+            open={!!openSchemaTag}
+            onOpenChange={(o) => !o && setOpenSchemaTag(null)}
+          >
             <SheetContent className="w-[720px] sm:max-w-[760px]">
-              <SheetHeader><SheetTitle>Config schema: {openSchemaTag}</SheetTitle></SheetHeader>
+              <SheetHeader>
+                <SheetTitle>Config schema: {openSchemaTag}</SheetTitle>
+              </SheetHeader>
               <div className="mt-4">
                 <VersionSchemaView detectorId={id} tag={openSchemaTag ?? ""} />
               </div>
@@ -3352,14 +3809,22 @@ export default function DetectorDetailPage() {
                 <Button>+ Trigger build</Button>
               </DialogTrigger>
               <DialogContent>
-                <DialogHeader><DialogTitle>Trigger build</DialogTitle></DialogHeader>
+                <DialogHeader>
+                  <DialogTitle>Trigger build</DialogTitle>
+                </DialogHeader>
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Pick a git tag from the repository:</p>
+                  <p className="text-sm text-muted-foreground">
+                    Pick a git tag from the repository:
+                  </p>
                   <Select value={pickedTag ?? ""} onValueChange={setPickedTag}>
-                    <SelectTrigger><SelectValue placeholder="Select tag" /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select tag" />
+                    </SelectTrigger>
                     <SelectContent>
                       {(tags ?? []).map((t) => (
-                        <SelectItem key={t.tag} value={t.tag}>{t.tag} ({t.sha.slice(0, 7)})</SelectItem>
+                        <SelectItem key={t.tag} value={t.tag}>
+                          {t.tag} ({t.sha.slice(0, 7)})
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -3378,14 +3843,24 @@ export default function DetectorDetailPage() {
               </DialogContent>
             </Dialog>
           </div>
-          <DataTable data={buildsArr} columns={buildsCols} emptyMessage="No builds yet." />
+          <DataTable
+            data={buildsArr}
+            columns={buildsCols}
+            emptyMessage="No builds yet."
+          />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function VersionSchemaView({ detectorId, tag }: { detectorId: string; tag: string }) {
+function VersionSchemaView({
+  detectorId,
+  tag,
+}: {
+  detectorId: string;
+  tag: string;
+}) {
   const { data } = useDetectorVersion(detectorId, tag);
   if (!data) return <p className="text-muted-foreground">Loading…</p>;
   return <JsonViewer value={data.config_schema} />;
@@ -3416,6 +3891,7 @@ git commit -m "feat(frontend): detector detail page with versions + builds tabs"
 ## Task 22: Detector build E2E (detector-build.spec.ts)
 
 **Files:**
+
 - Create: `frontend/tests/e2e/detector-build.spec.ts`
 
 - [ ] **Step 1: Write the spec**
@@ -3426,13 +3902,18 @@ Write `frontend/tests/e2e/detector-build.spec.ts`:
 import { test, expect } from "@playwright/test";
 import { login } from "./helpers";
 
-test("register upxelfdet + trigger build + wait for success", async ({ page }) => {
-  test.setTimeout(10 * 60_000);   // builds can take a few minutes
+test("register upxelfdet + trigger build + wait for success", async ({
+  page,
+}) => {
+  test.setTimeout(10 * 60_000); // builds can take a few minutes
   await login(page);
 
   // Ensure PAT is set (precondition) — if not, navigate to profile first
   await page.goto("/profile");
-  const needsPat = await page.getByText(/GitHub PAT is set/i).isVisible().catch(() => false);
+  const needsPat = await page
+    .getByText(/GitHub PAT is set/i)
+    .isVisible()
+    .catch(() => false);
   if (!needsPat) {
     const token = process.env.E2E_GITHUB_PAT;
     test.skip(!token, "Set E2E_GITHUB_PAT to run this spec end-to-end.");
@@ -3448,7 +3929,9 @@ test("register upxelfdet + trigger build + wait for success", async ({ page }) =
     await page.getByRole("link", { name: /register/i }).click();
     await page.getByLabel(/^Name/i).fill("upxelfdet");
     await page.getByLabel(/Display name/i).fill("UPX ELF Detector");
-    await page.getByLabel(/Git URL/i).fill("https://github.com/bolin8017/upxelfdet");
+    await page
+      .getByLabel(/Git URL/i)
+      .fill("https://github.com/bolin8017/upxelfdet");
     await page.getByRole("button", { name: /register detector/i }).click();
     await page.waitForURL(/\/detectors\/[0-9a-f-]+/);
   } else {
@@ -3463,8 +3946,12 @@ test("register upxelfdet + trigger build + wait for success", async ({ page }) =
   await page.getByRole("button", { name: /^Build$/ }).click();
 
   // Wait for the newly-triggered build row to reach "Success"
-  await expect(page.getByRole("cell", { name: /v0\.5\.0/ }).first()).toBeVisible();
-  await expect(page.getByText(/Success/i).first()).toBeVisible({ timeout: 8 * 60_000 });
+  await expect(
+    page.getByRole("cell", { name: /v0\.5\.0/ }).first(),
+  ).toBeVisible();
+  await expect(page.getByText(/Success/i).first()).toBeVisible({
+    timeout: 8 * 60_000,
+  });
 });
 ```
 
@@ -3492,6 +3979,7 @@ git commit -m "test(frontend): E2E detector registration + build"
 ## Task 23: Datasets query hooks + list route
 
 **Files:**
+
 - Create: `frontend/src/api/queries/datasets.ts`
 - Create: `frontend/src/routes/_authed.datasets._index.tsx`
 
@@ -3508,7 +3996,8 @@ export type Dataset = components["schemas"]["DatasetConfigRead"];
 
 export const datasetsKeys = {
   all: ["datasets"] as const,
-  list: (visibility: string) => [...datasetsKeys.all, "list", visibility] as const,
+  list: (visibility: string) =>
+    [...datasetsKeys.all, "list", visibility] as const,
   detail: (id: string) => [...datasetsKeys.all, "detail", id] as const,
 };
 
@@ -3575,7 +4064,13 @@ import { useDatasets, type Dataset } from "@/api/queries/datasets";
 import { DataTable } from "@/components/tables/DataTable";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatRelative } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Plus } from "lucide-react";
@@ -3584,40 +4079,73 @@ export const handle = { breadcrumb: "Datasets" };
 
 const columns: ColumnDef<Dataset>[] = [
   { accessorKey: "name", header: "Name" },
-  { accessorKey: "visibility", header: "Visibility",
-    cell: ({ row }) => <Badge variant={row.original.visibility === "public" ? "default" : "secondary"}>{row.original.visibility}</Badge> },
+  {
+    accessorKey: "visibility",
+    header: "Visibility",
+    cell: ({ row }) => (
+      <Badge
+        variant={row.original.visibility === "public" ? "default" : "secondary"}
+      >
+        {row.original.visibility}
+      </Badge>
+    ),
+  },
   { accessorKey: "sample_count", header: "Samples" },
-  { accessorKey: "size_bytes", header: "Size",
-    cell: ({ row }) => `${(row.original.size_bytes / 1024).toFixed(1)} KB` },
-  { accessorKey: "created_at", header: "Created",
-    cell: ({ row }) => formatRelative(row.original.created_at) },
+  {
+    accessorKey: "size_bytes",
+    header: "Size",
+    cell: ({ row }) => `${(row.original.size_bytes / 1024).toFixed(1)} KB`,
+  },
+  {
+    accessorKey: "created_at",
+    header: "Created",
+    cell: ({ row }) => formatRelative(row.original.created_at),
+  },
 ];
 
 export default function DatasetsListPage() {
-  const [visibility, setVisibility] = useState<"public" | "private" | "all">("all");
+  const [visibility, setVisibility] = useState<"public" | "private" | "all">(
+    "all",
+  );
   const { data, isLoading } = useDatasets(visibility);
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Datasets</h1>
         <div className="flex items-center gap-2">
-          <Select value={visibility} onValueChange={(v) => setVisibility(v as typeof visibility)}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <Select
+            value={visibility}
+            onValueChange={(v) => setVisibility(v as typeof visibility)}
+          >
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="public">Public</SelectItem>
               <SelectItem value="private">Mine (private)</SelectItem>
             </SelectContent>
           </Select>
-          <Button asChild><Link to="/datasets/new"><Plus className="mr-2 h-4 w-4" />Upload</Link></Button>
+          <Button asChild>
+            <Link to="/datasets/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Upload
+            </Link>
+          </Button>
         </div>
       </div>
-      {isLoading ? <p className="text-muted-foreground">Loading…</p> : (
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : (
         <DataTable
-          data={((data as { items?: Dataset[] })?.items) ?? (data as Dataset[]) ?? []}
+          data={
+            (data as { items?: Dataset[] })?.items ?? (data as Dataset[]) ?? []
+          }
           columns={columns}
           emptyMessage="No datasets yet."
-          onRowClick={(d) => { window.location.href = `/datasets/${d.id}`; }}
+          onRowClick={(d) => {
+            window.location.href = `/datasets/${d.id}`;
+          }}
         />
       )}
     </div>
@@ -3638,6 +4166,7 @@ git commit -m "feat(frontend): datasets list page"
 ## Task 24: Dataset upload form + route
 
 **Files:**
+
 - Create: `frontend/src/components/forms/DatasetUploadForm.tsx`
 - Create: `frontend/src/routes/_authed.datasets.new.tsx`
 - Create: `frontend/tests/unit/components/DatasetUploadForm.test.tsx`
@@ -3648,7 +4177,10 @@ Write `frontend/tests/unit/components/DatasetUploadForm.test.tsx`:
 
 ```tsx
 import { describe, it, expect } from "vitest";
-import { checkCsvSize, MAX_CSV_BYTES } from "@/components/forms/DatasetUploadForm.logic";
+import {
+  checkCsvSize,
+  MAX_CSV_BYTES,
+} from "@/components/forms/DatasetUploadForm.logic";
 
 describe("checkCsvSize", () => {
   it("accepts small CSV", () => {
@@ -3717,7 +4249,14 @@ type Values = z.infer<typeof schema>;
 export function DatasetUploadForm() {
   const nav = useNavigate();
   const mut = useCreateDataset();
-  const { register, handleSubmit, setValue, setError, watch, formState: { errors, isSubmitting } } = useForm<Values>({
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    setError,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: { visibility: "public" },
   });
@@ -3737,7 +4276,11 @@ export function DatasetUploadForm() {
   function runPreview(text: string) {
     setParseError(null);
     const sizeErr = checkCsvSize(text);
-    if (sizeErr) { setParseError(sizeErr); setPreview(null); return; }
+    if (sizeErr) {
+      setParseError(sizeErr);
+      setPreview(null);
+      return;
+    }
     try {
       setPreview(parseCsvPreview(text, 10));
     } catch (e) {
@@ -3748,7 +4291,10 @@ export function DatasetUploadForm() {
 
   const onSubmit = handleSubmit(async (v) => {
     const sizeErr = checkCsvSize(v.csv_content);
-    if (sizeErr) { setError("csv_content", { message: sizeErr }); return; }
+    if (sizeErr) {
+      setError("csv_content", { message: sizeErr });
+      return;
+    }
     try {
       const ds = await mut.mutateAsync(v);
       nav(`/datasets/${ds.id}`);
@@ -3762,7 +4308,9 @@ export function DatasetUploadForm() {
       <div>
         <Label htmlFor="name">Name</Label>
         <Input id="name" placeholder="upx-train-v3" {...register("name")} />
-        {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+        {errors.name && (
+          <p className="text-xs text-destructive">{errors.name.message}</p>
+        )}
       </div>
       <div>
         <Label htmlFor="description">Description</Label>
@@ -3770,7 +4318,11 @@ export function DatasetUploadForm() {
       </div>
       <div>
         <Label htmlFor="visibility">Visibility</Label>
-        <select id="visibility" className="block w-full rounded-md border p-2" {...register("visibility")}>
+        <select
+          id="visibility"
+          className="block w-full rounded-md border p-2"
+          {...register("visibility")}
+        >
           <option value="public">Public (all lab members)</option>
           <option value="private">Private (me + admin)</option>
         </select>
@@ -3791,13 +4343,22 @@ export function DatasetUploadForm() {
               rows={8}
               placeholder="file_name,label,family&#10;abc…,Malware,mirai"
               value={content ?? ""}
-              onChange={(e) => { setValue("csv_content", e.target.value); runPreview(e.target.value); }}
+              onChange={(e) => {
+                setValue("csv_content", e.target.value);
+                runPreview(e.target.value);
+              }}
             />
           </TabsContent>
         </Tabs>
-        {errors.csv_content && <p className="text-xs text-destructive">{errors.csv_content.message}</p>}
+        {errors.csv_content && (
+          <p className="text-xs text-destructive">
+            {errors.csv_content.message}
+          </p>
+        )}
         {parseError && (
-          <Alert variant="destructive"><AlertDescription>{parseError}</AlertDescription></Alert>
+          <Alert variant="destructive">
+            <AlertDescription>{parseError}</AlertDescription>
+          </Alert>
         )}
         {preview && (
           <div className="rounded border p-2 text-xs">
@@ -3805,10 +4366,24 @@ export function DatasetUploadForm() {
               Preview ({preview.rows.length} of {preview.totalRows} rows)
             </p>
             <table className="w-full">
-              <thead><tr>{preview.columns.map((c) => <th key={c} className="text-left">{c}</th>)}</tr></thead>
+              <thead>
+                <tr>
+                  {preview.columns.map((c) => (
+                    <th key={c} className="text-left">
+                      {c}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
                 {preview.rows.map((r, i) => (
-                  <tr key={i}>{preview.columns.map((c) => <td key={c} className="truncate">{r[c]}</td>)}</tr>
+                  <tr key={i}>
+                    {preview.columns.map((c) => (
+                      <td key={c} className="truncate">
+                        {r[c]}
+                      </td>
+                    ))}
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -3816,7 +4391,9 @@ export function DatasetUploadForm() {
         )}
       </div>
 
-      <Button type="submit" disabled={isSubmitting || !!parseError}>Upload dataset</Button>
+      <Button type="submit" disabled={isSubmitting || !!parseError}>
+        Upload dataset
+      </Button>
     </form>
   );
 }
@@ -3830,7 +4407,12 @@ Write `frontend/src/routes/_authed.datasets.new.tsx`:
 import { DatasetUploadForm } from "@/components/forms/DatasetUploadForm";
 export const handle = { breadcrumb: "New dataset" };
 export default function NewDatasetPage() {
-  return <div className="space-y-4"><h1 className="text-2xl font-semibold">Upload dataset</h1><DatasetUploadForm /></div>;
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold">Upload dataset</h1>
+      <DatasetUploadForm />
+    </div>
+  );
 }
 ```
 
@@ -3849,6 +4431,7 @@ git commit -m "feat(frontend): dataset upload form with client-side CSV preview"
 ## Task 25: Dataset detail + charts + delete
 
 **Files:**
+
 - Create: `frontend/src/components/charts/LabelDistribution.tsx`
 - Create: `frontend/src/components/charts/FamilyDistribution.tsx`
 - Create: `frontend/src/routes/_authed.datasets.$id.tsx`
@@ -3860,19 +4443,38 @@ git commit -m "feat(frontend): dataset upload form with client-side CSV preview"
 Write `frontend/src/components/charts/LabelDistribution.tsx`:
 
 ```tsx
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Legend,
+  Tooltip,
+} from "recharts";
 
 const COLORS = ["#dc2626", "#16a34a", "#f59e0b", "#0ea5e9", "#8b5cf6"];
 
 export function LabelDistribution({ data }: { data: Record<string, number> }) {
-  const entries = Object.entries(data).map(([name, value]) => ({ name, value }));
-  if (entries.length === 0) return <p className="text-muted-foreground">No label data.</p>;
+  const entries = Object.entries(data).map(([name, value]) => ({
+    name,
+    value,
+  }));
+  if (entries.length === 0)
+    return <p className="text-muted-foreground">No label data.</p>;
   return (
     <div style={{ width: "100%", height: 260 }}>
       <ResponsiveContainer>
         <PieChart>
-          <Pie data={entries} dataKey="value" nameKey="name" outerRadius={90} label>
-            {entries.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+          <Pie
+            data={entries}
+            dataKey="value"
+            nameKey="name"
+            outerRadius={90}
+            label
+          >
+            {entries.map((_, i) => (
+              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+            ))}
           </Pie>
           <Tooltip />
           <Legend />
@@ -3888,14 +4490,23 @@ export function LabelDistribution({ data }: { data: Record<string, number> }) {
 Write `frontend/src/components/charts/FamilyDistribution.tsx`:
 
 ```tsx
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
 
 export function FamilyDistribution({ data }: { data: Record<string, number> }) {
   const top = Object.entries(data)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 15)
     .map(([name, value]) => ({ name, value }));
-  if (top.length === 0) return <p className="text-muted-foreground">No family data.</p>;
+  if (top.length === 0)
+    return <p className="text-muted-foreground">No family data.</p>;
   return (
     <div style={{ width: "100%", height: 300 }}>
       <ResponsiveContainer>
@@ -3939,7 +4550,9 @@ export default function DatasetDetailPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{data.name}</h1>
-          <p className="text-sm text-muted-foreground">{data.description ?? "—"}</p>
+          <p className="text-sm text-muted-foreground">
+            {data.description ?? "—"}
+          </p>
         </div>
         <Button
           variant="destructive"
@@ -3954,25 +4567,54 @@ export default function DatasetDetailPage() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Metadata</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Metadata</CardTitle>
+        </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 text-sm">
-          <div><span className="text-muted-foreground">Visibility:</span> <Badge>{data.visibility}</Badge></div>
-          <div><span className="text-muted-foreground">Samples:</span> {data.sample_count.toLocaleString()}</div>
-          <div><span className="text-muted-foreground">Size:</span> {(data.size_bytes / 1024).toFixed(1)} KB</div>
-          <div><span className="text-muted-foreground">Created:</span> {formatRelative(data.created_at)}</div>
-          <div className="col-span-2"><span className="text-muted-foreground">Checksum:</span> <code className="text-xs">{data.csv_checksum}</code></div>
+          <div>
+            <span className="text-muted-foreground">Visibility:</span>{" "}
+            <Badge>{data.visibility}</Badge>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Samples:</span>{" "}
+            {data.sample_count.toLocaleString()}
+          </div>
+          <div>
+            <span className="text-muted-foreground">Size:</span>{" "}
+            {(data.size_bytes / 1024).toFixed(1)} KB
+          </div>
+          <div>
+            <span className="text-muted-foreground">Created:</span>{" "}
+            {formatRelative(data.created_at)}
+          </div>
+          <div className="col-span-2">
+            <span className="text-muted-foreground">Checksum:</span>{" "}
+            <code className="text-xs">{data.csv_checksum}</code>
+          </div>
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Label distribution</CardTitle></CardHeader>
-          <CardContent><LabelDistribution data={data.label_distribution as Record<string, number>} /></CardContent>
+          <CardHeader>
+            <CardTitle>Label distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <LabelDistribution
+              data={data.label_distribution as Record<string, number>}
+            />
+          </CardContent>
         </Card>
         {data.family_distribution && (
           <Card>
-            <CardHeader><CardTitle>Top 15 families</CardTitle></CardHeader>
-            <CardContent><FamilyDistribution data={data.family_distribution as Record<string, number>} /></CardContent>
+            <CardHeader>
+              <CardTitle>Top 15 families</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <FamilyDistribution
+                data={data.family_distribution as Record<string, number>}
+              />
+            </CardContent>
           </Card>
         )}
       </div>
@@ -4017,7 +4659,10 @@ test("upload dataset and see stats", async ({ page }) => {
   await page.goto("/datasets/new");
   await page.getByLabel(/^Name$/).fill(`e2e-${Date.now()}`);
   await page.getByRole("tab", { name: /file picker/i }).click();
-  await page.setInputFiles('input[type="file"]', path.resolve(__dirname, "fixtures/small-dataset.csv"));
+  await page.setInputFiles(
+    'input[type="file"]',
+    path.resolve(__dirname, "fixtures/small-dataset.csv"),
+  );
   await expect(page.getByText(/Preview \(3 of 3 rows\)/)).toBeVisible();
   await page.getByRole("button", { name: /upload dataset/i }).click();
   await page.waitForURL(/\/datasets\/[0-9a-f-]+/);
@@ -4038,6 +4683,7 @@ git commit -m "feat(frontend): dataset detail with charts + dataset-upload E2E"
 ## Task 26: Jobs query hooks + list route
 
 **Files:**
+
 - Create: `frontend/src/api/queries/jobs.ts`
 - Create: `frontend/src/routes/_authed.jobs._index.tsx`
 
@@ -4056,7 +4702,8 @@ export type JobType = "train" | "evaluate" | "predict";
 
 export const jobsKeys = {
   all: ["jobs"] as const,
-  list: (params: Record<string, unknown>) => [...jobsKeys.all, "list", params] as const,
+  list: (params: Record<string, unknown>) =>
+    [...jobsKeys.all, "list", params] as const,
   detail: (id: string) => [...jobsKeys.all, "detail", id] as const,
   logs: (id: string) => [...jobsKeys.all, "logs", id] as const,
 };
@@ -4064,15 +4711,19 @@ export const jobsKeys = {
 const isActive = (s: string | undefined) =>
   s ? (NON_TERMINAL_JOB_STATUSES as readonly string[]).includes(s) : false;
 
-export function useJobs(params: { type?: JobType; status?: string; owner?: "me" | "all" } = {}) {
+export function useJobs(
+  params: { type?: JobType; status?: string; owner?: "me" | "all" } = {},
+) {
   return useQuery({
     queryKey: jobsKeys.list(params),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/jobs", { params: { query: params } });
+      const { data, error } = await client.GET("/api/v1/jobs", {
+        params: { query: params },
+      });
       if (error) throw error;
       return data;
     },
-    refetchInterval: 5000,  // list: mild refresh for visible active jobs
+    refetchInterval: 5000, // list: mild refresh for visible active jobs
   });
 }
 
@@ -4086,7 +4737,10 @@ export function useJob(id: string) {
       if (error) throw error;
       return data as Job;
     },
-    refetchInterval: (q) => (isActive((q.state.data as { data?: Job } | undefined)?.data?.status) ? 2000 : false),
+    refetchInterval: (q) =>
+      isActive((q.state.data as { data?: Job } | undefined)?.data?.status)
+        ? 2000
+        : false,
   });
 }
 
@@ -4120,9 +4774,12 @@ export function useCancelJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data, error } = await client.POST("/api/v1/jobs/{job_id}/cancel", {
-        params: { path: { job_id: id } },
-      });
+      const { data, error } = await client.POST(
+        "/api/v1/jobs/{job_id}/cancel",
+        {
+          params: { path: { job_id: id } },
+        },
+      );
       if (error) throw error;
       return data;
     },
@@ -4143,7 +4800,13 @@ import { DataTable } from "@/components/tables/DataTable";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatRelative, formatDuration } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Plus } from "lucide-react";
@@ -4151,11 +4814,27 @@ import { Plus } from "lucide-react";
 export const handle = { breadcrumb: "Jobs" };
 
 const columns: ColumnDef<Job>[] = [
-  { accessorKey: "type", header: "Type", cell: ({ row }) => <Badge variant="outline">{row.original.type}</Badge> },
-  { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusBadge status={row.original.status} /> },
-  { accessorKey: "submitted_at", header: "Submitted", cell: ({ row }) => formatRelative(row.original.submitted_at) },
-  { id: "duration", header: "Duration",
-    cell: ({ row }) => formatDuration(row.original.started_at, row.original.finished_at) },
+  {
+    accessorKey: "type",
+    header: "Type",
+    cell: ({ row }) => <Badge variant="outline">{row.original.type}</Badge>,
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
+  },
+  {
+    accessorKey: "submitted_at",
+    header: "Submitted",
+    cell: ({ row }) => formatRelative(row.original.submitted_at),
+  },
+  {
+    id: "duration",
+    header: "Duration",
+    cell: ({ row }) =>
+      formatDuration(row.original.started_at, row.original.finished_at),
+  },
 ];
 
 export default function JobsListPage() {
@@ -4168,7 +4847,9 @@ export default function JobsListPage() {
         <h1 className="text-2xl font-semibold">Jobs</h1>
         <div className="flex items-center gap-2">
           <Select value={type} onValueChange={(v) => setType(v as typeof type)}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All types</SelectItem>
               <SelectItem value="train">Train</SelectItem>
@@ -4176,15 +4857,24 @@ export default function JobsListPage() {
               <SelectItem value="predict">Predict</SelectItem>
             </SelectContent>
           </Select>
-          <Button asChild><Link to="/jobs/new"><Plus className="mr-2 h-4 w-4" />Submit job</Link></Button>
+          <Button asChild>
+            <Link to="/jobs/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Submit job
+            </Link>
+          </Button>
         </div>
       </div>
-      {isLoading ? <p className="text-muted-foreground">Loading…</p> : (
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : (
         <DataTable
-          data={((data as { items?: Job[] })?.items) ?? (data as Job[]) ?? []}
+          data={(data as { items?: Job[] })?.items ?? (data as Job[]) ?? []}
           columns={columns}
           emptyMessage="No jobs yet."
-          onRowClick={(j) => { window.location.href = `/jobs/${j.id}`; }}
+          onRowClick={(j) => {
+            window.location.href = `/jobs/${j.id}`;
+          }}
         />
       )}
     </div>
@@ -4205,6 +4895,7 @@ git commit -m "feat(frontend): jobs list page"
 ## Task 27: RJSF config form component
 
 **Files:**
+
 - Create: `frontend/src/components/forms/RjsfConfigForm.tsx`
 
 - [ ] **Step 1: Install rjsf-tailwind theme**
@@ -4265,6 +4956,7 @@ git commit -m "feat(frontend): RJSF config form wrapper for dynamic detector par
 > **Prereq:** `JobSubmitForm` imports `useRegisteredModels` + `useModelVersions` from `@/api/queries/models`. That file is introduced in Task 35. Step 0 below creates a minimal stub so this task compiles now; Task 35 expands the file rather than recreating it.
 
 **Files:**
+
 - Create (stub expanded in Task 35): `frontend/src/api/queries/models.ts`
 - Create: `frontend/src/components/forms/JobSubmitForm.tsx`
 - Create: `frontend/src/routes/_authed.jobs.new.tsx`
@@ -4299,9 +4991,12 @@ export function useModelVersions(name: string) {
   return useQuery({
     queryKey: modelsKeys.versions(name),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/models/{name}/versions", {
-        params: { path: { name } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/models/{name}/versions",
+        {
+          params: { path: { name } },
+        },
+      );
       if (error) throw error;
       return data;
     },
@@ -4322,13 +5017,22 @@ import { requiredFieldsForType } from "@/components/forms/JobSubmitForm.logic";
 
 describe("requiredFieldsForType", () => {
   it("train needs train+test datasets", () => {
-    expect(requiredFieldsForType("train")).toEqual(["train_dataset_id", "test_dataset_id"]);
+    expect(requiredFieldsForType("train")).toEqual([
+      "train_dataset_id",
+      "test_dataset_id",
+    ]);
   });
   it("evaluate needs test+source_model", () => {
-    expect(requiredFieldsForType("evaluate")).toEqual(["test_dataset_id", "source_model_version_id"]);
+    expect(requiredFieldsForType("evaluate")).toEqual([
+      "test_dataset_id",
+      "source_model_version_id",
+    ]);
   });
   it("predict needs predict+source_model", () => {
-    expect(requiredFieldsForType("predict")).toEqual(["predict_dataset_id", "source_model_version_id"]);
+    expect(requiredFieldsForType("predict")).toEqual([
+      "predict_dataset_id",
+      "source_model_version_id",
+    ]);
   });
 });
 ```
@@ -4342,9 +5046,12 @@ import type { JobType } from "@/api/queries/jobs";
 
 export function requiredFieldsForType(type: JobType): string[] {
   switch (type) {
-    case "train":    return ["train_dataset_id", "test_dataset_id"];
-    case "evaluate": return ["test_dataset_id", "source_model_version_id"];
-    case "predict":  return ["predict_dataset_id", "source_model_version_id"];
+    case "train":
+      return ["train_dataset_id", "test_dataset_id"];
+    case "evaluate":
+      return ["test_dataset_id", "source_model_version_id"];
+    case "predict":
+      return ["predict_dataset_id", "source_model_version_id"];
   }
 }
 ```
@@ -4362,7 +5069,11 @@ Write `frontend/src/components/forms/JobSubmitForm.tsx`:
 ```tsx
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useDetectors, useDetectorVersions, useDetectorVersion } from "@/api/queries/detectors";
+import {
+  useDetectors,
+  useDetectorVersions,
+  useDetectorVersion,
+} from "@/api/queries/detectors";
 import { useDatasets } from "@/api/queries/datasets";
 import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
 import { useSubmitJob, useJob, type JobType } from "@/api/queries/jobs";
@@ -4370,7 +5081,13 @@ import { RjsfConfigForm } from "./RjsfConfigForm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { requiredFieldsForType } from "./JobSubmitForm.logic";
 
 const TYPES: JobType[] = ["train", "evaluate", "predict"];
@@ -4404,14 +5121,25 @@ export function JobSubmitForm() {
     setType(fromJob.type as JobType);
     if (fromJob.train_dataset_id) setTrainDatasetId(fromJob.train_dataset_id);
     if (fromJob.test_dataset_id) setTestDatasetId(fromJob.test_dataset_id);
-    if (fromJob.predict_dataset_id) setPredictDatasetId(fromJob.predict_dataset_id);
-    if (fromJob.resolved_config) setConfig(fromJob.resolved_config as Record<string, unknown>);
+    if (fromJob.predict_dataset_id)
+      setPredictDatasetId(fromJob.predict_dataset_id);
+    if (fromJob.resolved_config)
+      setConfig(fromJob.resolved_config as Record<string, unknown>);
   }, [fromJob]);
 
-  const datasetsArr = ((datasets as { items?: { id: string; name: string }[] })?.items) ?? (datasets as { id: string; name: string }[]) ?? [];
-  const versionsArr = (versions as { tag: string; status: string }[] | undefined) ?? [];
+  const datasetsArr =
+    (datasets as { items?: { id: string; name: string }[] })?.items ??
+    (datasets as { id: string; name: string }[]) ??
+    [];
+  const versionsArr =
+    (versions as { tag: string; status: string }[] | undefined) ?? [];
   const modelsArr = (models as { name: string }[] | undefined) ?? [];
-  const modelVersionsArr = (modelVersions as { items?: { id: string; mlflow_version: number; current_stage: string }[] })?.items ?? [];
+  const modelVersionsArr =
+    (
+      modelVersions as {
+        items?: { id: string; mlflow_version: number; current_stage: string }[];
+      }
+    )?.items ?? [];
 
   const mut = useSubmitJob();
   const nav = useNavigate();
@@ -4422,22 +5150,29 @@ export function JobSubmitForm() {
     if (need.includes("train_dataset_id") && !trainDatasetId) return false;
     if (need.includes("test_dataset_id") && !testDatasetId) return false;
     if (need.includes("predict_dataset_id") && !predictDatasetId) return false;
-    if (need.includes("source_model_version_id") && !sourceModelVersionId) return false;
+    if (need.includes("source_model_version_id") && !sourceModelVersionId)
+      return false;
     return true;
   })();
 
   async function submit() {
     setSubmitError(null);
-    const versionId = (versions as { id: string; tag: string }[] | undefined)?.find((v) => v.tag === versionTag)?.id;
+    const versionId = (
+      versions as { id: string; tag: string }[] | undefined
+    )?.find((v) => v.tag === versionTag)?.id;
     if (!versionId) return;
     try {
       const job = await mut.mutateAsync({
         type,
         detector_version_id: versionId,
         train_dataset_id: type === "train" ? trainDatasetId : null,
-        test_dataset_id: ["train", "evaluate"].includes(type) ? testDatasetId : null,
+        test_dataset_id: ["train", "evaluate"].includes(type)
+          ? testDatasetId
+          : null,
         predict_dataset_id: type === "predict" ? predictDatasetId : null,
-        source_model_version_id: ["evaluate", "predict"].includes(type) ? sourceModelVersionId : null,
+        source_model_version_id: ["evaluate", "predict"].includes(type)
+          ? sourceModelVersionId
+          : null,
         params: config,
       } as unknown as import("@/api/schema.gen").components["schemas"]["JobCreate"]);
       nav(`/jobs/${job.id}`);
@@ -4449,11 +5184,17 @@ export function JobSubmitForm() {
   return (
     <div className="space-y-6 max-w-3xl">
       <Card>
-        <CardHeader><CardTitle>Job type</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Job type</CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="flex gap-2">
             {TYPES.map((t) => (
-              <Button key={t} variant={t === type ? "default" : "outline"} onClick={() => setType(t)}>
+              <Button
+                key={t}
+                variant={t === type ? "default" : "outline"}
+                onClick={() => setType(t)}
+              >
                 {t.charAt(0).toUpperCase() + t.slice(1)}
               </Button>
             ))}
@@ -4462,27 +5203,51 @@ export function JobSubmitForm() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Detector</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Detector</CardTitle>
+        </CardHeader>
         <CardContent className="space-y-3">
           <div>
             <Label>Detector</Label>
-            <Select value={detectorId} onValueChange={(v) => { setDetectorId(v); setVersionTag(""); }}>
-              <SelectTrigger><SelectValue placeholder="Pick detector" /></SelectTrigger>
+            <Select
+              value={detectorId}
+              onValueChange={(v) => {
+                setDetectorId(v);
+                setVersionTag("");
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Pick detector" />
+              </SelectTrigger>
               <SelectContent>
-                {((detectors as { id: string; display_name: string }[]) ?? []).map((d) => (
-                  <SelectItem key={d.id} value={d.id}>{d.display_name}</SelectItem>
+                {(
+                  (detectors as { id: string; display_name: string }[]) ?? []
+                ).map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.display_name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div>
             <Label>Version</Label>
-            <Select value={versionTag} onValueChange={setVersionTag} disabled={!detectorId}>
-              <SelectTrigger><SelectValue placeholder="Pick version" /></SelectTrigger>
+            <Select
+              value={versionTag}
+              onValueChange={setVersionTag}
+              disabled={!detectorId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Pick version" />
+              </SelectTrigger>
               <SelectContent>
-                {versionsArr.filter((v) => v.status === "active").map((v) => (
-                  <SelectItem key={v.tag} value={v.tag}>{v.tag}</SelectItem>
-                ))}
+                {versionsArr
+                  .filter((v) => v.status === "active")
+                  .map((v) => (
+                    <SelectItem key={v.tag} value={v.tag}>
+                      {v.tag}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
@@ -4490,35 +5255,75 @@ export function JobSubmitForm() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Data</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Data</CardTitle>
+        </CardHeader>
         <CardContent className="space-y-3">
           {type === "train" && (
             <>
-              <DatasetField label="Train dataset" value={trainDatasetId} onChange={setTrainDatasetId} options={datasetsArr} />
-              <DatasetField label="Test dataset" value={testDatasetId} onChange={setTestDatasetId} options={datasetsArr} />
+              <DatasetField
+                label="Train dataset"
+                value={trainDatasetId}
+                onChange={setTrainDatasetId}
+                options={datasetsArr}
+              />
+              <DatasetField
+                label="Test dataset"
+                value={testDatasetId}
+                onChange={setTestDatasetId}
+                options={datasetsArr}
+              />
             </>
           )}
           {type === "evaluate" && (
-            <DatasetField label="Test dataset" value={testDatasetId} onChange={setTestDatasetId} options={datasetsArr} />
+            <DatasetField
+              label="Test dataset"
+              value={testDatasetId}
+              onChange={setTestDatasetId}
+              options={datasetsArr}
+            />
           )}
           {type === "predict" && (
-            <DatasetField label="Predict dataset" value={predictDatasetId} onChange={setPredictDatasetId} options={datasetsArr} />
+            <DatasetField
+              label="Predict dataset"
+              value={predictDatasetId}
+              onChange={setPredictDatasetId}
+              options={datasetsArr}
+            />
           )}
           {["evaluate", "predict"].includes(type) && (
             <>
               <div>
                 <Label>Source model</Label>
-                <Select value={sourceModelName} onValueChange={(v) => { setSourceModelName(v); setSourceModelVersionId(""); }}>
-                  <SelectTrigger><SelectValue placeholder="Pick model" /></SelectTrigger>
+                <Select
+                  value={sourceModelName}
+                  onValueChange={(v) => {
+                    setSourceModelName(v);
+                    setSourceModelVersionId("");
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick model" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {modelsArr.map((m) => <SelectItem key={m.name} value={m.name}>{m.name}</SelectItem>)}
+                    {modelsArr.map((m) => (
+                      <SelectItem key={m.name} value={m.name}>
+                        {m.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label>Model version</Label>
-                <Select value={sourceModelVersionId} onValueChange={setSourceModelVersionId} disabled={!sourceModelName}>
-                  <SelectTrigger><SelectValue placeholder="Pick version" /></SelectTrigger>
+                <Select
+                  value={sourceModelVersionId}
+                  onValueChange={setSourceModelVersionId}
+                  disabled={!sourceModelName}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick version" />
+                  </SelectTrigger>
                   <SelectContent>
                     {modelVersionsArr.map((mv) => (
                       <SelectItem key={mv.id} value={mv.id}>
@@ -4534,7 +5339,9 @@ export function JobSubmitForm() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Hyperparameters</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Hyperparameters</CardTitle>
+        </CardHeader>
         <CardContent>
           {versionDetail?.config_schema ? (
             <RjsfConfigForm
@@ -4543,30 +5350,50 @@ export function JobSubmitForm() {
               onChange={setConfig}
             />
           ) : (
-            <p className="text-sm text-muted-foreground">Pick a detector + version to load its config schema.</p>
+            <p className="text-sm text-muted-foreground">
+              Pick a detector + version to load its config schema.
+            </p>
           )}
         </CardContent>
       </Card>
 
       {submitError && <p className="text-sm text-destructive">{submitError}</p>}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={() => nav(-1)}>Cancel</Button>
-        <Button disabled={!canSubmit || mut.isPending} onClick={submit}>Submit job</Button>
+        <Button variant="ghost" onClick={() => nav(-1)}>
+          Cancel
+        </Button>
+        <Button disabled={!canSubmit || mut.isPending} onClick={submit}>
+          Submit job
+        </Button>
       </div>
     </div>
   );
 }
 
 function DatasetField({
-  label, value, onChange, options,
-}: { label: string; value: string; onChange: (v: string) => void; options: { id: string; name: string }[] }) {
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { id: string; name: string }[];
+}) {
   return (
     <div>
       <Label>{label}</Label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger><SelectValue placeholder="Pick dataset" /></SelectTrigger>
+        <SelectTrigger>
+          <SelectValue placeholder="Pick dataset" />
+        </SelectTrigger>
         <SelectContent>
-          {options.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+          {options.map((d) => (
+            <SelectItem key={d.id} value={d.id}>
+              {d.name}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     </div>
@@ -4582,7 +5409,12 @@ Write `frontend/src/routes/_authed.jobs.new.tsx`:
 import { JobSubmitForm } from "@/components/forms/JobSubmitForm";
 export const handle = { breadcrumb: "New job" };
 export default function NewJobPage() {
-  return <div className="space-y-4"><h1 className="text-2xl font-semibold">Submit job</h1><JobSubmitForm /></div>;
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold">Submit job</h1>
+      <JobSubmitForm />
+    </div>
+  );
 }
 ```
 
@@ -4599,6 +5431,7 @@ git commit -m "feat(frontend): job submit form (single-page progressive disclosu
 ## Task 29: Artifact tree + MetricCards + ConfusionMatrix
 
 **Files:**
+
 - Create: `frontend/src/components/common/ArtifactTree.tsx`
 - Create: `frontend/src/components/charts/MetricCards.tsx`
 - Create: `frontend/src/components/charts/ConfusionMatrix.tsx`
@@ -4616,14 +5449,21 @@ export function MetricCards({ metrics }: { metrics: Record<string, number> }) {
   const entries = keys
     .map((k) => [k, metrics[k]] as const)
     .filter(([, v]) => typeof v === "number");
-  if (entries.length === 0) return <p className="text-muted-foreground text-sm">No metrics recorded yet.</p>;
+  if (entries.length === 0)
+    return (
+      <p className="text-muted-foreground text-sm">No metrics recorded yet.</p>
+    );
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
       {entries.map(([k, v]) => (
         <Card key={k}>
           <CardContent className="p-4">
-            <div className="text-xs uppercase text-muted-foreground">{k.replace("_score", "")}</div>
-            <div className="text-2xl font-semibold">{(v as number).toFixed(4)}</div>
+            <div className="text-xs uppercase text-muted-foreground">
+              {k.replace("_score", "")}
+            </div>
+            <div className="text-2xl font-semibold">
+              {(v as number).toFixed(4)}
+            </div>
           </CardContent>
         </Card>
       ))}
@@ -4660,7 +5500,11 @@ import { cn } from "@/lib/cn";
 
 export type CellTone = "success" | "warn";
 
-export function cellColor(row: number, col: number, onDiagonal: boolean): CellTone {
+export function cellColor(
+  row: number,
+  col: number,
+  onDiagonal: boolean,
+): CellTone {
   return onDiagonal ? "success" : "warn";
 }
 
@@ -4671,28 +5515,45 @@ const TONE_CLASSES: Record<CellTone, string> = {
 
 interface Props {
   labels: string[];
-  matrix: number[][];   // row = true label, col = predicted
+  matrix: number[][]; // row = true label, col = predicted
 }
 
 export function ConfusionMatrix({ labels, matrix }: Props) {
   return (
     <div className="inline-block">
-      <div className="grid gap-1" style={{ gridTemplateColumns: `auto repeat(${labels.length}, minmax(4rem, 1fr))` }}>
+      <div
+        className="grid gap-1"
+        style={{
+          gridTemplateColumns: `auto repeat(${labels.length}, minmax(4rem, 1fr))`,
+        }}
+      >
         <div />
         {labels.map((l) => (
-          <div key={`col-${l}`} className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">
+          <div
+            key={`col-${l}`}
+            className="px-2 py-1 text-center text-xs font-medium text-muted-foreground"
+          >
             Pred {l}
           </div>
         ))}
         {matrix.map((row, i) => (
           <>
-            <div key={`row-${labels[i]}`} className="px-2 py-1 text-right text-xs font-medium text-muted-foreground">
+            <div
+              key={`row-${labels[i]}`}
+              className="px-2 py-1 text-right text-xs font-medium text-muted-foreground"
+            >
               True {labels[i]}
             </div>
             {row.map((v, j) => {
               const tone = cellColor(i, j, i === j);
               return (
-                <div key={`cell-${i}-${j}`} className={cn("rounded px-3 py-2 text-center font-mono text-sm", TONE_CLASSES[tone])}>
+                <div
+                  key={`cell-${i}-${j}`}
+                  className={cn(
+                    "rounded px-3 py-2 text-center font-mono text-sm",
+                    TONE_CLASSES[tone],
+                  )}
+                >
                   {v}
                 </div>
               );
@@ -4716,27 +5577,45 @@ import { useQuery } from "@tanstack/react-query";
 import { Folder, FileText, Download } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-interface Entry { path: string; is_dir: boolean; file_size: number }
+interface Entry {
+  path: string;
+  is_dir: boolean;
+  file_size: number;
+}
 
 function useArtifacts(runId: string, path: string | null) {
   return useQuery({
     queryKey: ["runs", runId, "artifacts", path ?? ""],
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/runs/{run_id}/artifacts", {
-        params: { path: { run_id: runId }, query: path ? { path } : {} },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/runs/{run_id}/artifacts",
+        {
+          params: { path: { run_id: runId }, query: path ? { path } : {} },
+        },
+      );
       if (error) throw error;
       return (data as { files?: Entry[] }).files ?? [];
     },
   });
 }
 
-function TreeLevel({ runId, path, depth }: { runId: string; path: string | null; depth: number }) {
+function TreeLevel({
+  runId,
+  path,
+  depth,
+}: {
+  runId: string;
+  path: string | null;
+  depth: number;
+}) {
   const { data, isLoading } = useArtifacts(runId, path);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  if (isLoading) return <p className="ml-4 text-xs text-muted-foreground">Loading…</p>;
-  if (!data || data.length === 0) return <p className="ml-4 text-xs text-muted-foreground">(empty)</p>;
-  if (depth >= 10) return <p className="ml-4 text-xs text-destructive">(tree too deep)</p>;
+  if (isLoading)
+    return <p className="ml-4 text-xs text-muted-foreground">Loading…</p>;
+  if (!data || data.length === 0)
+    return <p className="ml-4 text-xs text-muted-foreground">(empty)</p>;
+  if (depth >= 10)
+    return <p className="ml-4 text-xs text-destructive">(tree too deep)</p>;
 
   return (
     <ul className="space-y-1">
@@ -4749,11 +5628,13 @@ function TreeLevel({ runId, path, depth }: { runId: string; path: string | null;
               {e.is_dir ? (
                 <button
                   className="flex items-center gap-1 text-sm hover:underline"
-                  onClick={() => setExpanded((s) => {
-                    const n = new Set(s);
-                    n.has(e.path) ? n.delete(e.path) : n.add(e.path);
-                    return n;
-                  })}
+                  onClick={() =>
+                    setExpanded((s) => {
+                      const n = new Set(s);
+                      n.has(e.path) ? n.delete(e.path) : n.add(e.path);
+                      return n;
+                    })
+                  }
                 >
                   <Folder className="h-4 w-4" /> {name}
                 </button>
@@ -4765,12 +5646,15 @@ function TreeLevel({ runId, path, depth }: { runId: string; path: string | null;
                     className="inline-flex items-center text-xs text-primary hover:underline"
                     href={`${import.meta.env.VITE_API_BASE}/runs/${runId}/artifacts/download?path=${encodeURIComponent(e.path)}`}
                   >
-                    <Download className="mr-1 h-3 w-3" />download
+                    <Download className="mr-1 h-3 w-3" />
+                    download
                   </a>
                 </>
               )}
             </div>
-            {e.is_dir && isExpanded && <TreeLevel runId={runId} path={e.path} depth={depth + 1} />}
+            {e.is_dir && isExpanded && (
+              <TreeLevel runId={runId} path={e.path} depth={depth + 1} />
+            )}
           </li>
         );
       })}
@@ -4797,6 +5681,7 @@ git commit -m "feat(frontend): metric cards + confusion matrix + artifact tree"
 ## Task 30: Job detail route (Summary / Logs / Artifacts)
 
 **Files:**
+
 - Create: `frontend/src/routes/_authed.jobs.$id.tsx`
 
 - [ ] **Step 1: Detail route**
@@ -4829,20 +5714,31 @@ export default function JobDetailPage() {
   if (!job) return <p className="text-muted-foreground">Loading…</p>;
 
   const sm = (job.summary_metrics ?? {}) as Record<string, unknown>;
-  const metrics = (typeof sm.metrics === "object" && sm.metrics) ? sm.metrics as Record<string, number> : {};
-  const cm = (sm.confusion_matrix as { labels?: string[]; matrix?: number[][] } | undefined);
+  const metrics =
+    typeof sm.metrics === "object" && sm.metrics
+      ? (sm.metrics as Record<string, number>)
+      : {};
+  const cm = sm.confusion_matrix as
+    | { labels?: string[]; matrix?: number[][] }
+    | undefined;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">{job.type} — {id.slice(0, 8)}</h1>
+          <h1 className="text-2xl font-semibold">
+            {job.type} — {id.slice(0, 8)}
+          </h1>
           <StatusBadge status={job.status} />
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => nav(`/jobs/new?from=${id}`)}>Clone</Button>
+          <Button variant="ghost" onClick={() => nav(`/jobs/new?from=${id}`)}>
+            Clone
+          </Button>
           {!isTerminal(job.status) && (
-            <Button variant="destructive" onClick={() => cancel.mutate(id)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => cancel.mutate(id)}>
+              Cancel
+            </Button>
           )}
         </div>
       </div>
@@ -4851,37 +5747,69 @@ export default function JobDetailPage() {
         <TabsList>
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
-          <TabsTrigger value="artifacts" disabled={!job.mlflow_run_id}>Artifacts</TabsTrigger>
+          <TabsTrigger value="artifacts" disabled={!job.mlflow_run_id}>
+            Artifacts
+          </TabsTrigger>
           {job.mlflow_run_id && (
             <TabsTrigger value="mlflow" asChild>
-              <Link to={`/runs/${job.mlflow_experiment_id}/${job.mlflow_run_id}`}>Open run ↗</Link>
+              <Link
+                to={`/runs/${job.mlflow_experiment_id}/${job.mlflow_run_id}`}
+              >
+                Open run ↗
+              </Link>
             </TabsTrigger>
           )}
         </TabsList>
 
         <TabsContent value="summary" className="space-y-4">
           <Card>
-            <CardHeader><CardTitle>Metadata</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Metadata</CardTitle>
+            </CardHeader>
             <CardContent className="grid grid-cols-2 gap-2 text-sm">
-              <div><span className="text-muted-foreground">Submitted:</span> {formatRelative(job.submitted_at)}</div>
-              <div><span className="text-muted-foreground">Duration:</span> {formatDuration(job.started_at, job.finished_at)}</div>
-              <div><span className="text-muted-foreground">MLflow run:</span> <code>{job.mlflow_run_id ?? "—"}</code></div>
-              <div><span className="text-muted-foreground">Failure reason:</span> {job.failure_reason ?? "—"}</div>
+              <div>
+                <span className="text-muted-foreground">Submitted:</span>{" "}
+                {formatRelative(job.submitted_at)}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Duration:</span>{" "}
+                {formatDuration(job.started_at, job.finished_at)}
+              </div>
+              <div>
+                <span className="text-muted-foreground">MLflow run:</span>{" "}
+                <code>{job.mlflow_run_id ?? "—"}</code>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Failure reason:</span>{" "}
+                {job.failure_reason ?? "—"}
+              </div>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Metrics</CardTitle></CardHeader>
-            <CardContent><MetricCards metrics={metrics} /></CardContent>
+            <CardHeader>
+              <CardTitle>Metrics</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MetricCards metrics={metrics} />
+            </CardContent>
           </Card>
           {cm?.labels && cm.matrix && (
             <Card>
-              <CardHeader><CardTitle>Confusion matrix</CardTitle></CardHeader>
-              <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
+              <CardHeader>
+                <CardTitle>Confusion matrix</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ConfusionMatrix labels={cm.labels} matrix={cm.matrix} />
+              </CardContent>
             </Card>
           )}
           <Card>
-            <CardHeader><CardTitle>Resolved config</CardTitle></CardHeader>
-            <CardContent><JsonViewer value={job.resolved_config} /></CardContent>
+            <CardHeader>
+              <CardTitle>Resolved config</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <JsonViewer value={job.resolved_config} />
+            </CardContent>
           </Card>
         </TabsContent>
 
@@ -4893,7 +5821,9 @@ export default function JobDetailPage() {
           {job.mlflow_run_id ? (
             <ArtifactTree runId={job.mlflow_run_id} />
           ) : (
-            <p className="text-muted-foreground">No MLflow run recorded for this job.</p>
+            <p className="text-muted-foreground">
+              No MLflow run recorded for this job.
+            </p>
           )}
         </TabsContent>
       </Tabs>
@@ -4924,6 +5854,7 @@ git commit -m "feat(frontend): job detail (summary + logs + artifacts)"
 ## Task 31: Job train E2E
 
 **Files:**
+
 - Create: `frontend/tests/e2e/job-train.spec.ts`
 
 - [ ] **Step 1: Spec**
@@ -4941,19 +5872,30 @@ test("submit train job and see it succeed", async ({ page }) => {
   await page.goto("/jobs/new");
 
   // Type (default = train)
-  await expect(page.getByRole("button", { name: /^Train$/ })).toHaveAttribute("data-state", /active|selected|default/);
+  await expect(page.getByRole("button", { name: /^Train$/ })).toHaveAttribute(
+    "data-state",
+    /active|selected|default/,
+  );
 
   // Pick detector + version (require upxelfdet v0.5.0 built — from Task 22)
-  await page.getByText(/^Detector$/).locator("..").getByRole("combobox").click();
+  await page
+    .getByText(/^Detector$/)
+    .locator("..")
+    .getByRole("combobox")
+    .click();
   await page.getByRole("option", { name: /UPX ELF Detector/i }).click();
-  await page.getByText(/^Version$/).locator("..").getByRole("combobox").click();
+  await page
+    .getByText(/^Version$/)
+    .locator("..")
+    .getByRole("combobox")
+    .click();
   await page.getByRole("option", { name: /v0\.5\.0/ }).click();
 
   // Pick datasets (the E2E dataset uploaded in Task 25)
   const datasetPickers = page.locator('[id^="radix"][role="combobox"]');
-  await datasetPickers.nth(2).click();  // train dataset
+  await datasetPickers.nth(2).click(); // train dataset
   await page.getByRole("option").first().click();
-  await datasetPickers.nth(3).click();  // test dataset
+  await datasetPickers.nth(3).click(); // test dataset
   await page.getByRole("option").first().click();
 
   // Submit (RJSF form defaults should satisfy schema)
@@ -4961,7 +5903,9 @@ test("submit train job and see it succeed", async ({ page }) => {
   await page.waitForURL(/\/jobs\/[0-9a-f-]+/);
 
   // Wait for succeeded
-  await expect(page.getByText(/succeeded/i).first()).toBeVisible({ timeout: 8 * 60_000 });
+  await expect(page.getByText(/succeeded/i).first()).toBeVisible({
+    timeout: 8 * 60_000,
+  });
 });
 ```
 
@@ -4985,6 +5929,7 @@ git commit -m "test(frontend): E2E train-job happy path"
 ## Task 32: Runs query hooks + experiment list
 
 **Files:**
+
 - Create: `frontend/src/api/queries/runs.ts`
 - Create: `frontend/src/routes/_authed.runs._index.tsx`
 
@@ -4998,9 +5943,11 @@ import { client } from "@/api/client";
 
 export const runsKeys = {
   experiments: ["runs", "experiments"] as const,
-  experimentRuns: (expId: string) => ["runs", "experiment", expId, "runs"] as const,
+  experimentRuns: (expId: string) =>
+    ["runs", "experiment", expId, "runs"] as const,
   run: (runId: string) => ["runs", "run", runId] as const,
-  artifacts: (runId: string, path: string | null) => ["runs", "run", runId, "artifacts", path ?? ""] as const,
+  artifacts: (runId: string, path: string | null) =>
+    ["runs", "run", runId, "artifacts", path ?? ""] as const,
 };
 
 export function useExperiments() {
@@ -5009,7 +5956,11 @@ export function useExperiments() {
     queryFn: async () => {
       const { data, error } = await client.GET("/api/v1/experiments");
       if (error) throw error;
-      return data as { experiment_id: string; name: string; artifact_location?: string }[];
+      return data as {
+        experiment_id: string;
+        name: string;
+        artifact_location?: string;
+      }[];
     },
   });
 }
@@ -5018,13 +5969,22 @@ export function useExperimentRuns(expId: string) {
   return useQuery({
     queryKey: runsKeys.experimentRuns(expId),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/experiments/{experiment_id}/runs", {
-        params: { path: { experiment_id: expId } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/experiments/{experiment_id}/runs",
+        {
+          params: { path: { experiment_id: expId } },
+        },
+      );
       if (error) throw error;
       return data as {
-        run_id: string; run_name?: string; status: string; start_time?: number; end_time?: number;
-        metrics?: Record<string, number>; params?: Record<string, string>; tags?: Record<string, string>;
+        run_id: string;
+        run_name?: string;
+        status: string;
+        start_time?: number;
+        end_time?: number;
+        metrics?: Record<string, number>;
+        params?: Record<string, string>;
+        tags?: Record<string, string>;
       }[];
     },
     enabled: Boolean(expId),
@@ -5068,7 +6028,9 @@ export default function ExperimentsListPage() {
           <Link key={exp.experiment_id} to={`/runs/${exp.experiment_id}`}>
             <Card className="transition hover:border-primary">
               <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">#{exp.experiment_id}</div>
+                <div className="text-xs text-muted-foreground">
+                  #{exp.experiment_id}
+                </div>
                 <div className="text-lg font-medium">{exp.name}</div>
               </CardContent>
             </Card>
@@ -5093,6 +6055,7 @@ git commit -m "feat(frontend): experiments list page"
 ## Task 33: Runs list (per experiment)
 
 **Files:**
+
 - Create: `frontend/src/routes/_authed.runs.$expId.tsx`
 
 - [ ] **Step 1: Route**
@@ -5110,9 +6073,13 @@ import type { ColumnDef } from "@tanstack/react-table";
 export const handle = { breadcrumb: "Experiment" };
 
 interface Row {
-  run_id: string; run_name?: string; status: string;
-  start_time?: number; end_time?: number;
-  metrics?: Record<string, number>; tags?: Record<string, string>;
+  run_id: string;
+  run_name?: string;
+  status: string;
+  start_time?: number;
+  end_time?: number;
+  metrics?: Record<string, number>;
+  tags?: Record<string, string>;
 }
 
 export default function RunsListPage() {
@@ -5120,27 +6087,64 @@ export default function RunsListPage() {
   const { data, isLoading } = useExperimentRuns(expId);
 
   const columns: ColumnDef<Row>[] = [
-    { accessorKey: "run_id", header: "Run",
+    {
+      accessorKey: "run_id",
+      header: "Run",
       cell: ({ row }) => (
-        <Link to={`/runs/${expId}/${row.original.run_id}`} className="font-mono text-sm hover:underline">
+        <Link
+          to={`/runs/${expId}/${row.original.run_id}`}
+          className="font-mono text-sm hover:underline"
+        >
           {row.original.run_id.slice(0, 10)}
         </Link>
-      ) },
+      ),
+    },
     { accessorKey: "run_name", header: "Name" },
-    { accessorKey: "status", header: "Status",
-      cell: ({ row }) => <StatusBadge status={row.original.status.toLowerCase()} /> },
-    { id: "duration", header: "Duration",
-      cell: ({ row }) => row.original.start_time && row.original.end_time
-        ? formatDuration(new Date(row.original.start_time).toISOString(), new Date(row.original.end_time).toISOString())
-        : "—" },
-    { id: "accuracy", header: "Accuracy",
-      cell: ({ row }) => row.original.metrics?.accuracy?.toFixed(4) ?? "—" },
-    { id: "f1", header: "F1",
-      cell: ({ row }) => (row.original.metrics?.f1 ?? row.original.metrics?.f1_score)?.toFixed(4) ?? "—" },
-    { id: "job", header: "Job",
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <StatusBadge status={row.original.status.toLowerCase()} />
+      ),
+    },
+    {
+      id: "duration",
+      header: "Duration",
+      cell: ({ row }) =>
+        row.original.start_time && row.original.end_time
+          ? formatDuration(
+              new Date(row.original.start_time).toISOString(),
+              new Date(row.original.end_time).toISOString(),
+            )
+          : "—",
+    },
+    {
+      id: "accuracy",
+      header: "Accuracy",
+      cell: ({ row }) => row.original.metrics?.accuracy?.toFixed(4) ?? "—",
+    },
+    {
+      id: "f1",
+      header: "F1",
+      cell: ({ row }) =>
+        (row.original.metrics?.f1 ?? row.original.metrics?.f1_score)?.toFixed(
+          4,
+        ) ?? "—",
+    },
+    {
+      id: "job",
+      header: "Job",
       cell: ({ row }) => {
-        const jobId = row.original.tags?.["lolday.job_id"] ?? row.original.tags?.lolday_job_id;
-        return jobId ? <Link to={`/jobs/${jobId}`} className="text-primary hover:underline">↗</Link> : "—";
+        const jobId =
+          row.original.tags?.["lolday.job_id"] ??
+          row.original.tags?.lolday_job_id;
+        return jobId ? (
+          <Link to={`/jobs/${jobId}`} className="text-primary hover:underline">
+            ↗
+          </Link>
+        ) : (
+          "—"
+        );
       },
     },
   ];
@@ -5149,7 +6153,11 @@ export default function RunsListPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Runs</h1>
-      <DataTable data={data ?? []} columns={columns} emptyMessage="No runs yet." />
+      <DataTable
+        data={data ?? []}
+        columns={columns}
+        emptyMessage="No runs yet."
+      />
     </div>
   );
 }
@@ -5168,6 +6176,7 @@ git commit -m "feat(frontend): per-experiment runs list"
 ## Task 34: Run detail with confusion matrix
 
 **Files:**
+
 - Create: `frontend/src/routes/_authed.runs.$expId.$runId.tsx`
 
 - [ ] **Step 1: Route**
@@ -5197,7 +6206,9 @@ function useConfusionMatrix(runId: string) {
         );
         if (!resp.ok) return null;
         return (await resp.json()) as { labels: string[]; matrix: number[][] };
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     },
     retry: false,
   });
@@ -5209,34 +6220,59 @@ export default function RunDetailPage() {
   const { data: cm } = useConfusionMatrix(runId);
   if (!data) return <p className="text-muted-foreground">Loading…</p>;
   const run = data as unknown as {
-    run_id: string; status: string; start_time?: number; end_time?: number;
-    metrics?: Record<string, number>; params?: Record<string, unknown>; tags?: Record<string, string>;
+    run_id: string;
+    status: string;
+    start_time?: number;
+    end_time?: number;
+    metrics?: Record<string, number>;
+    params?: Record<string, unknown>;
+    tags?: Record<string, string>;
   };
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Run {runId.slice(0, 10)}</h1>
       <Card>
-        <CardHeader><CardTitle>Metrics</CardTitle></CardHeader>
-        <CardContent><MetricCards metrics={run.metrics ?? {}} /></CardContent>
+        <CardHeader>
+          <CardTitle>Metrics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MetricCards metrics={run.metrics ?? {}} />
+        </CardContent>
       </Card>
       {cm && (
         <Card>
-          <CardHeader><CardTitle>Confusion matrix</CardTitle></CardHeader>
-          <CardContent><ConfusionMatrix labels={cm.labels} matrix={cm.matrix} /></CardContent>
+          <CardHeader>
+            <CardTitle>Confusion matrix</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ConfusionMatrix labels={cm.labels} matrix={cm.matrix} />
+          </CardContent>
         </Card>
       )}
       <Card>
-        <CardHeader><CardTitle>Params</CardTitle></CardHeader>
-        <CardContent><JsonViewer value={run.params ?? {}} /></CardContent>
+        <CardHeader>
+          <CardTitle>Params</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <JsonViewer value={run.params ?? {}} />
+        </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>Tags</CardTitle></CardHeader>
-        <CardContent><JsonViewer value={run.tags ?? {}} /></CardContent>
+        <CardHeader>
+          <CardTitle>Tags</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <JsonViewer value={run.tags ?? {}} />
+        </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>Artifacts</CardTitle></CardHeader>
-        <CardContent><ArtifactTree runId={runId} /></CardContent>
+        <CardHeader>
+          <CardTitle>Artifacts</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ArtifactTree runId={runId} />
+        </CardContent>
       </Card>
     </div>
   );
@@ -5256,6 +6292,7 @@ git commit -m "feat(frontend): MLflow run detail (metrics, CM, params, artifacts
 ## Task 35: Models query hooks (full) + list
 
 **Files:**
+
 - Modify (replace stub from Task 28): `frontend/src/api/queries/models.ts`
 - Create: `frontend/src/routes/_authed.models._index.tsx`
 
@@ -5294,7 +6331,9 @@ export function useModelDetail(name: string) {
   return useQuery({
     queryKey: modelsKeys.detail(name),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/models/{name}", { params: { path: { name } } });
+      const { data, error } = await client.GET("/api/v1/models/{name}", {
+        params: { path: { name } },
+      });
       if (error) throw error;
       return data as RegisteredModel;
     },
@@ -5306,9 +6345,12 @@ export function useModelVersions(name: string) {
   return useQuery({
     queryKey: modelsKeys.versions(name),
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/models/{name}/versions", {
-        params: { path: { name } },
-      });
+      const { data, error } = await client.GET(
+        "/api/v1/models/{name}/versions",
+        {
+          params: { path: { name } },
+        },
+      );
       if (error) throw error;
       return data;
     },
@@ -5319,10 +6361,17 @@ export function useModelVersions(name: string) {
 export function useTransitionModel(name: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { version: number; target_stage: Stage; comment?: string }) => {
+    mutationFn: async (args: {
+      version: number;
+      target_stage: Stage;
+      comment?: string;
+    }) => {
       const { data, error } = await client.POST(
         "/api/v1/models/{name}/versions/{version}/transition",
-        { params: { path: { name, version: args.version } }, body: { target_stage: args.target_stage, comment: args.comment } },
+        {
+          params: { path: { name, version: args.version } },
+          body: { target_stage: args.target_stage, comment: args.comment },
+        },
       );
       if (error) throw error;
       return data;
@@ -5338,7 +6387,10 @@ Write `frontend/src/routes/_authed.models._index.tsx`:
 
 ```tsx
 import { Link } from "react-router";
-import { useRegisteredModels, type RegisteredModel } from "@/api/queries/models";
+import {
+  useRegisteredModels,
+  type RegisteredModel,
+} from "@/api/queries/models";
 import { DataTable } from "@/components/tables/DataTable";
 import { Badge } from "@/components/ui/badge";
 import { formatRelative } from "@/lib/date";
@@ -5347,19 +6399,46 @@ import type { ColumnDef } from "@tanstack/react-table";
 export const handle = { breadcrumb: "Models" };
 
 const columns: ColumnDef<RegisteredModel>[] = [
-  { accessorKey: "name", header: "Name",
-    cell: ({ row }) => <Link to={`/models/${encodeURIComponent(row.original.name)}`} className="font-medium hover:underline">{row.original.name}</Link> },
+  {
+    accessorKey: "name",
+    header: "Name",
+    cell: ({ row }) => (
+      <Link
+        to={`/models/${encodeURIComponent(row.original.name)}`}
+        className="font-medium hover:underline"
+      >
+        {row.original.name}
+      </Link>
+    ),
+  },
   { accessorKey: "latest_version", header: "Latest version" },
-  { id: "staging", header: "Staging",
-    cell: ({ row }) => row.original.staging_version != null
-      ? <Badge variant="secondary">v{row.original.staging_version}</Badge>
-      : <span className="text-muted-foreground">—</span> },
-  { id: "prod", header: "Production",
-    cell: ({ row }) => row.original.production_version != null
-      ? <Badge className="bg-emerald-600">v{row.original.production_version}</Badge>
-      : <span className="text-muted-foreground">—</span> },
-  { accessorKey: "last_transitioned_at", header: "Last change",
-    cell: ({ row }) => formatRelative(row.original.last_transitioned_at) },
+  {
+    id: "staging",
+    header: "Staging",
+    cell: ({ row }) =>
+      row.original.staging_version != null ? (
+        <Badge variant="secondary">v{row.original.staging_version}</Badge>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
+  },
+  {
+    id: "prod",
+    header: "Production",
+    cell: ({ row }) =>
+      row.original.production_version != null ? (
+        <Badge className="bg-emerald-600">
+          v{row.original.production_version}
+        </Badge>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
+  },
+  {
+    accessorKey: "last_transitioned_at",
+    header: "Last change",
+    cell: ({ row }) => formatRelative(row.original.last_transitioned_at),
+  },
 ];
 
 export default function ModelsListPage() {
@@ -5368,7 +6447,11 @@ export default function ModelsListPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Models</h1>
-      <DataTable data={data ?? []} columns={columns} emptyMessage="No models registered yet." />
+      <DataTable
+        data={data ?? []}
+        columns={columns}
+        emptyMessage="No models registered yet."
+      />
     </div>
   );
 }
@@ -5387,6 +6470,7 @@ git commit -m "feat(frontend): models list page"
 ## Task 36: Model detail with stage transitions + E2E
 
 **Files:**
+
 - Create: `frontend/src/components/forms/ModelTransitionDialog.tsx`
 - Create: `frontend/src/routes/_authed.models.$name.tsx`
 - Create: `frontend/tests/e2e/model-transition.spec.ts`
@@ -5399,8 +6483,21 @@ Write `frontend/src/components/forms/ModelTransitionDialog.tsx`:
 import { useState } from "react";
 import { useTransitionModel, type Stage } from "@/api/queries/models";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -5412,23 +6509,36 @@ interface Props {
   hasExistingProd: boolean;
 }
 
-export function ModelTransitionDialog({ modelName, version, currentStage, hasExistingProd }: Props) {
+export function ModelTransitionDialog({
+  modelName,
+  version,
+  currentStage,
+  hasExistingProd,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<Stage>("Production");
   const [comment, setComment] = useState("");
   const mut = useTransitionModel(modelName);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button size="sm" variant="outline">Transition</Button></DialogTrigger>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          Transition
+        </Button>
+      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Transition v{version} from {currentStage}</DialogTitle>
+          <DialogTitle>
+            Transition v{version} from {currentStage}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div>
             <Label>Target stage</Label>
             <Select value={target} onValueChange={(v) => setTarget(v as Stage)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="Staging">Staging</SelectItem>
                 <SelectItem value="Production">Production</SelectItem>
@@ -5438,21 +6548,31 @@ export function ModelTransitionDialog({ modelName, version, currentStage, hasExi
           </div>
           <div>
             <Label>Comment (optional)</Label>
-            <Textarea rows={3} value={comment} onChange={(e) => setComment(e.target.value)} />
+            <Textarea
+              rows={3}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+            />
           </div>
           {target === "Production" && hasExistingProd && (
             <Alert>
               <AlertDescription>
-                Another version is currently Production. It will be auto-archived when this one is promoted.
+                Another version is currently Production. It will be
+                auto-archived when this one is promoted.
               </AlertDescription>
             </Alert>
           )}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
           <Button
             disabled={mut.isPending}
-            onClick={async () => { await mut.mutateAsync({ version, target_stage: target, comment }); setOpen(false); }}
+            onClick={async () => {
+              await mut.mutateAsync({ version, target_stage: target, comment });
+              setOpen(false);
+            }}
           >
             Confirm
           </Button>
@@ -5469,7 +6589,11 @@ Write `frontend/src/routes/_authed.models.$name.tsx`:
 
 ```tsx
 import { Link, useParams } from "react-router";
-import { useModelDetail, useModelVersions, type ModelVersion } from "@/api/queries/models";
+import {
+  useModelDetail,
+  useModelVersions,
+  type ModelVersion,
+} from "@/api/queries/models";
 import { DataTable } from "@/components/tables/DataTable";
 import { Badge } from "@/components/ui/badge";
 import { ModelTransitionDialog } from "@/components/forms/ModelTransitionDialog";
@@ -5483,15 +6607,25 @@ export default function ModelDetailPage() {
   const name = decodeURIComponent(params.name ?? "");
   const { data: model } = useModelDetail(name);
   const { data: versionsData } = useModelVersions(name);
-  const versionsArr = ((versionsData as { items?: ModelVersion[] })?.items) ?? [];
-  const existingProd = versionsArr.find((v) => v.current_stage === "Production");
+  const versionsArr = (versionsData as { items?: ModelVersion[] })?.items ?? [];
+  const existingProd = versionsArr.find(
+    (v) => v.current_stage === "Production",
+  );
 
   const columns: ColumnDef<ModelVersion>[] = [
-    { accessorKey: "mlflow_version", header: "Version",
-      cell: ({ row }) => `v${row.original.mlflow_version}` },
-    { accessorKey: "current_stage", header: "Stage",
-      cell: ({ row }) => <Badge>{row.original.current_stage}</Badge> },
-    { id: "run", header: "Source run",
+    {
+      accessorKey: "mlflow_version",
+      header: "Version",
+      cell: ({ row }) => `v${row.original.mlflow_version}`,
+    },
+    {
+      accessorKey: "current_stage",
+      header: "Stage",
+      cell: ({ row }) => <Badge>{row.original.current_stage}</Badge>,
+    },
+    {
+      id: "run",
+      header: "Source run",
       cell: ({ row }) => (
         <Link
           to={`/runs/.../${row.original.mlflow_run_id}`}
@@ -5499,16 +6633,27 @@ export default function ModelDetailPage() {
         >
           {row.original.mlflow_run_id.slice(0, 10)}
         </Link>
-      ) },
-    { accessorKey: "created_at", header: "Created",
-      cell: ({ row }) => formatRelative(row.original.created_at) },
-    { id: "actions", header: "",
+      ),
+    },
+    {
+      accessorKey: "created_at",
+      header: "Created",
+      cell: ({ row }) => formatRelative(row.original.created_at),
+    },
+    {
+      id: "actions",
+      header: "",
       cell: ({ row }) => (
         <ModelTransitionDialog
           modelName={name}
           version={row.original.mlflow_version}
-          currentStage={row.original.current_stage as "Staging" | "Production" | "Archived"}
-          hasExistingProd={Boolean(existingProd && existingProd.mlflow_version !== row.original.mlflow_version)}
+          currentStage={
+            row.original.current_stage as "Staging" | "Production" | "Archived"
+          }
+          hasExistingProd={Boolean(
+            existingProd &&
+            existingProd.mlflow_version !== row.original.mlflow_version,
+          )}
         />
       ),
     },
@@ -5518,7 +6663,11 @@ export default function ModelDetailPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">{name}</h1>
-      <DataTable data={versionsArr} columns={columns} emptyMessage="No versions registered." />
+      <DataTable
+        data={versionsArr}
+        columns={columns}
+        emptyMessage="No versions registered."
+      />
     </div>
   );
 }
@@ -5541,7 +6690,9 @@ test("promote a Staging model to Production", async ({ page }) => {
   await firstModel.click();
   await page.waitForURL(/\/models\//);
 
-  const transitionBtn = page.getByRole("button", { name: /transition/i }).first();
+  const transitionBtn = page
+    .getByRole("button", { name: /transition/i })
+    .first();
   await transitionBtn.click();
   await page.getByRole("combobox").click();
   await page.getByRole("option", { name: /Production/i }).click();
@@ -5570,6 +6721,7 @@ git commit -m "feat(frontend): model detail with stage transitions + E2E"
 ## Task 37: Dockerfile + nginx.conf
 
 **Files:**
+
 - Create: `frontend/Dockerfile`
 - Create: `frontend/nginx.conf`
 
@@ -5662,6 +6814,7 @@ git commit -m "feat(frontend): Dockerfile (nginx-unprivileged) + nginx SPA confi
 ## Task 38: Helm chart — frontend Deployment + Service
 
 **Files:**
+
 - Modify: `charts/lolday/values.yaml`
 - Create: `charts/lolday/templates/frontend.yaml`
 
@@ -5676,7 +6829,7 @@ frontend:
   replicas: 1
   resources:
     requests: { cpu: 10m, memory: 32Mi }
-    limits:   { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 100m, memory: 128Mi }
 ```
 
 - [ ] **Step 2: Frontend Deployment + Service template**
@@ -5688,17 +6841,17 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: {{ .Release.Namespace }}
+  namespace: { { .Release.Namespace } }
   labels: { app: frontend }
 spec:
-  replicas: {{ .Values.frontend.replicas }}
+  replicas: { { .Values.frontend.replicas } }
   selector: { matchLabels: { app: frontend } }
   template:
     metadata: { labels: { app: frontend } }
     spec:
       containers:
         - name: nginx
-          image: {{ .Values.frontend.image | quote }}
+          image: { { .Values.frontend.image | quote } }
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -5708,8 +6861,7 @@ spec:
           livenessProbe:
             httpGet: { path: /healthz, port: 8080 }
             periodSeconds: 10
-          resources:
-            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          resources: { { - toYaml .Values.frontend.resources | nindent 12 } }
           securityContext:
             runAsNonRoot: true
             readOnlyRootFilesystem: true
@@ -5729,7 +6881,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend
-  namespace: {{ .Release.Namespace }}
+  namespace: { { .Release.Namespace } }
 spec:
   selector: { app: frontend }
   ports:
@@ -5758,6 +6910,7 @@ git commit -m "feat(chart): frontend Deployment + Service"
 ## Task 39: Traefik IngressRoute
 
 **Files:**
+
 - Create: `charts/lolday/templates/ingress.yaml`
 
 - [ ] **Step 1: Verify Traefik CRD is available**
@@ -5777,7 +6930,7 @@ apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: lolday
-  namespace: {{ .Release.Namespace }}
+  namespace: { { .Release.Namespace } }
 spec:
   entryPoints: [web]
   routes:
@@ -5813,6 +6966,7 @@ git commit -m "feat(chart): Traefik IngressRoute routing /api/v1 → backend, / 
 ## Task 40: deploy.sh — accept FRONTEND_IMAGE
 
 **Files:**
+
 - Modify: `scripts/deploy.sh`
 
 - [ ] **Step 1: Add env handle**
@@ -5987,4 +7141,3 @@ Phase 5 is complete when:
 - **`Secure` cookie in dev:** dev uses HTTP (`http://localhost:5173`). Set `COOKIE_SECURE=false` in the backend's dev env before Task 6 E2E, or tests will see no cookie. Production / deployed cluster sets `true`.
 - **Type drift** between frontend `schema.gen.ts` and backend: if you add a field to a backend Pydantic model, re-run `pnpm run gen-api-types` and fix any type errors that surface. Don't hand-edit `schema.gen.ts`.
 - **shadcn/ui component names** may drift. If `pnpm dlx shadcn add <name>` can't find a component, check the latest names at https://ui.shadcn.com/docs/components.
-

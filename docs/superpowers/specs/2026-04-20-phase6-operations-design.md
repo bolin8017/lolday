@@ -10,6 +10,7 @@ Phase 6 makes lolday reachable from the outside world and observable on the insi
 **Goal:** After Phase 6, a lab member at home opens `https://lolday.connlabai.com`, signs in with their NTUST Google account, logs into lolday, runs the full Phase 4 E2E flow (register detector → build → upload dataset → submit job → download predictions → promote model). On the same cluster, the admin port-forwards Grafana and sees live metrics from all platform components, GPUs included.
 
 **Constraints:**
+
 - SSH on server30 (port 9453) must keep working at every step. Cloudflare Tunnel adds nothing to the host firewall; cloudflared only dials outbound.
 - User-land only. One bootstrap `sudo mkdir` for `/mnt/ssd500g/lolday-monitoring` (the admin has already done this during brainstorming).
 - Backup, notifications, Volcano, NFS CSI, and Trivy Operator are deferred to Phase 7+ (see §11 Out of Scope).
@@ -142,6 +143,7 @@ External user (laptop / phone, any network)
 **Chart template:** `charts/lolday/templates/cloudflared.yaml` already exists from Phase 1 scaffolding (gated by `cloudflare.enabled`). Phase 6 flips `cloudflare.enabled: true` and supplies the token.
 
 **Deployment:**
+
 - Image: `cloudflare/cloudflared:2026.3.0` (pin an explicit tag; auto-`latest` is a supply-chain risk).
 - Replicas: 2 (HA — losing one does not interrupt users).
 - Runs `tunnel --no-autoupdate run --token $TUNNEL_TOKEN`; the token identifies the tunnel, configures public hostnames, and carries routing rules (managed in Cloudflare dashboard, not in YAML).
@@ -150,6 +152,7 @@ External user (laptop / phone, any network)
 - SecurityContext: `runAsNonRoot`, `readOnlyRootFilesystem`, drop `ALL` capabilities, `allowPrivilegeEscalation: false`.
 
 **NetworkPolicy (`templates/netpol-cloudflared.yaml`):**
+
 - Egress allowed only to:
   - `kube-system/traefik` Service (port 80).
   - `kube-dns` (port 53 UDP/TCP).
@@ -158,6 +161,7 @@ External user (laptop / phone, any network)
 - Even if cloudflared is compromised, it cannot reach backend / PostgreSQL / MLflow directly; all traffic still flows through Traefik's route policy.
 
 **Cloudflare dashboard configuration (manual, one-time):**
+
 - Zero Trust → Access → Tunnels → Create tunnel → Name `lolday-server30`.
 - Copy the tunnel token; paste into `~/.lolday-secrets.env` as `TUNNEL_TOKEN`.
 - Public Hostnames:
@@ -172,6 +176,7 @@ External user (laptop / phone, any network)
 **Purpose:** Gate the Tunnel entry at Cloudflare's edge so only authenticated NTUST members reach the cluster. Two layers of auth (Access + lolday login) = defense in depth.
 
 **Configuration (Cloudflare dashboard, one-time):**
+
 - Zero Trust → Settings → Authentication → Login methods → add Google as an IdP.
 - Access → Applications → Add a self-hosted app.
   - Application name: `lolday`
@@ -201,23 +206,23 @@ External user (laptop / phone, any network)
 **Sub-values (`values.yaml` keys under `kube-prometheus-stack:`):**
 
 ```yaml
-namespaceOverride: monitoring     # chart lives here, ns created separately via our template
-fullnameOverride: kps             # short prefix keeps names readable
+namespaceOverride: monitoring # chart lives here, ns created separately via our template
+fullnameOverride: kps # short prefix keeps names readable
 
 prometheus:
   prometheusSpec:
     retention: 15d
-    retentionSize: 18GiB          # ~10 % under PVC size to leave head-room
+    retentionSize: 18GiB # ~10 % under PVC size to leave head-room
     storageSpec:
       volumeClaimTemplate:
         spec:
           storageClassName: monitoring-local
           resources: { requests: { storage: 20Gi } }
-    serviceMonitorSelectorNilUsesHelmValues: false   # scrape ALL ServiceMonitors regardless of release label
+    serviceMonitorSelectorNilUsesHelmValues: false # scrape ALL ServiceMonitors regardless of release label
     podMonitorSelectorNilUsesHelmValues: false
     resources:
       requests: { cpu: 500m, memory: 2Gi }
-      limits:   { cpu: 2,    memory: 8Gi }
+      limits: { cpu: 2, memory: 8Gi }
 
 alertmanager:
   alertmanagerSpec:
@@ -228,12 +233,12 @@ alertmanager:
           resources: { requests: { storage: 2Gi } }
   config:
     route:
-      receiver: 'null'            # empty on purpose; Phase 7 wires Resend
+      receiver: "null" # empty on purpose; Phase 7 wires Resend
       group_wait: 10s
       group_interval: 5m
       repeat_interval: 12h
     receivers:
-      - name: 'null'
+      - name: "null"
 
 grafana:
   persistence:
@@ -250,10 +255,10 @@ grafana:
     datasources: { enabled: true }
   resources:
     requests: { cpu: 100m, memory: 256Mi }
-    limits:   { cpu: 500m, memory: 1Gi }
+    limits: { cpu: 500m, memory: 1Gi }
 
 kubeStateMetrics: { enabled: true }
-nodeExporter:     { enabled: true }
+nodeExporter: { enabled: true }
 ```
 
 **Secret `grafana-admin`:** created by `scripts/deploy.sh` from `GRAFANA_ADMIN_PASSWORD` in `~/.lolday-secrets.env`. Two keys: `admin-user=admin`, `admin-password=<random>`.
@@ -267,12 +272,12 @@ nodeExporter:     { enabled: true }
 ```yaml
 loki:
   commonConfig:
-    replication_factor: 1         # single-binary, no HA needed for lab scale
+    replication_factor: 1 # single-binary, no HA needed for lab scale
   storage:
     type: filesystem
   auth_enabled: false
   limits_config:
-    retention_period: 168h        # 7 days
+    retention_period: 168h # 7 days
 singleBinary:
   replicas: 1
   persistence:
@@ -281,9 +286,9 @@ singleBinary:
     size: 30Gi
   resources:
     requests: { cpu: 200m, memory: 512Mi }
-    limits:   { cpu: 1,    memory: 2Gi }
-read:    { replicas: 0 }
-write:   { replicas: 0 }
+    limits: { cpu: 1, memory: 2Gi }
+read: { replicas: 0 }
+write: { replicas: 0 }
 backend: { replicas: 0 }
 ```
 
@@ -310,35 +315,38 @@ config:
           - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
             target_label: component
 resources:
-  requests: { cpu: 50m,  memory: 64Mi }
-  limits:   { cpu: 200m, memory: 256Mi }
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 200m, memory: 256Mi }
 ```
 
 ### 6. PostgreSQL exporter
 
 **Deployment `postgres-exporter`** (`templates/monitoring/postgres-exporter.yaml`):
+
 - Image: `quay.io/prometheuscommunity/postgres-exporter:v0.17.0`.
 - Env `DATA_SOURCE_NAME: postgresql://postgres_exporter:<pw>@postgresql.lolday.svc:5432/lolday?sslmode=disable`.
 - Service on port 9187.
 - Resources: 20 m / 64 Mi / 100 m / 128 Mi.
 
 **DB user:** `scripts/deploy.sh` runs on first deploy:
+
 ```sql
 CREATE USER postgres_exporter WITH PASSWORD '<random>';
 GRANT pg_monitor TO postgres_exporter;
 ```
+
 Password goes to `~/.lolday-secrets.env` as `PG_EXPORTER_PASSWORD`.
 
 **ServiceMonitor** selects `app.kubernetes.io/name=postgres-exporter`, path `/metrics`, interval 30s.
 
 ### 7. ServiceMonitors (manual list)
 
-| target | namespace | path | port |
-|---|---|---|---|
-| backend | lolday | /metrics | 8000 |
-| traefik | kube-system | /metrics | traefik (the Prometheus endpoint is enabled by default in K3s Traefik; verify and enable if not) |
-| harbor | lolday | /metrics | selected Harbor services expose `/metrics` (core, jobservice, registry) |
-| postgres-exporter | lolday | /metrics | 9187 |
+| target            | namespace   | path     | port                                                                                             |
+| ----------------- | ----------- | -------- | ------------------------------------------------------------------------------------------------ |
+| backend           | lolday      | /metrics | 8000                                                                                             |
+| traefik           | kube-system | /metrics | traefik (the Prometheus endpoint is enabled by default in K3s Traefik; verify and enable if not) |
+| harbor            | lolday      | /metrics | selected Harbor services expose `/metrics` (core, jobservice, registry)                          |
+| postgres-exporter | lolday      | /metrics | 9187                                                                                             |
 
 DCGM exporter is not a custom ServiceMonitor: the NVIDIA GPU Operator already provides `ServiceMonitor/nvidia-dcgm-exporter` in the `gpu-operator` namespace, and kube-prometheus-stack (with our `serviceMonitorSelectorNilUsesHelmValues: false`) picks it up automatically.
 
@@ -392,6 +400,7 @@ With empty Alertmanager receivers, these fire into the Alertmanager UI (visible 
 ConfigMap `grafana-dashboards` (`templates/monitoring/grafana-dashboards.yaml`) holds the JSON. Labels `grafana_dashboard: "1"` trigger the Grafana sidecar to load them.
 
 Sources:
+
 - Kubernetes + Nodes + Cluster: bundled with kube-prometheus-stack.
 - NVIDIA DCGM Exporter: grafana.com id `12239`.
 - Traefik: grafana.com id `17346`.
@@ -403,11 +412,13 @@ Admin fetches each JSON once during plan execution and checks them in alongside 
 ### 10. Backend `/metrics`
 
 `backend/requirements.txt` gains one line:
+
 ```
 prometheus-fastapi-instrumentator==7.*
 ```
 
 `backend/app/main.py` gains three lines after the app is constructed:
+
 ```python
 from prometheus_fastapi_instrumentator import Instrumentator
 Instrumentator().instrument(app).expose(
@@ -484,16 +495,16 @@ grafana (Explore → Loki datasource → LogQL)
 
 ### Attack surfaces and how they're covered
 
-| Attack | Mitigation layer |
-|---|---|
-| Port scan on server30 public IP | No public IP is opened by Phase 6; Tunnel dials out. SSH on 9453 stays as-is (pre-existing admin responsibility). |
-| DDoS | Cloudflare edge absorbs volumetric attacks before they reach the tunnel. |
-| Brute-force on lolday login | Attacker cannot reach the login page — Cloudflare Access requires `@mail.ntust.edu.tw` Google SSO first. |
-| Random Google account (not NTUST) tries to pass Access | Cloudflare Access policy denies — user sees Access Denied, not lolday login. |
-| NTUST account with phished Google password | Attacker still needs lolday platform credentials (FastAPI Users). Two layers must both fail. |
-| cloudflared container RCE | NetworkPolicy restricts egress to Traefik, DNS, Cloudflare edge. Cannot pivot to backend / DB directly. SecurityContext drops all capabilities. |
-| Compromise of backend with /metrics exposed | `/metrics` has no privileged data (pure Prometheus counters); `include_in_schema=False` so not in OpenAPI. |
-| Grafana public exposure | Grafana is not in the Cloudflare Tunnel routes; unreachable from outside. Admin ports-forwards it. |
+| Attack                                                 | Mitigation layer                                                                                                                                |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Port scan on server30 public IP                        | No public IP is opened by Phase 6; Tunnel dials out. SSH on 9453 stays as-is (pre-existing admin responsibility).                               |
+| DDoS                                                   | Cloudflare edge absorbs volumetric attacks before they reach the tunnel.                                                                        |
+| Brute-force on lolday login                            | Attacker cannot reach the login page — Cloudflare Access requires `@mail.ntust.edu.tw` Google SSO first.                                        |
+| Random Google account (not NTUST) tries to pass Access | Cloudflare Access policy denies — user sees Access Denied, not lolday login.                                                                    |
+| NTUST account with phished Google password             | Attacker still needs lolday platform credentials (FastAPI Users). Two layers must both fail.                                                    |
+| cloudflared container RCE                              | NetworkPolicy restricts egress to Traefik, DNS, Cloudflare edge. Cannot pivot to backend / DB directly. SecurityContext drops all capabilities. |
+| Compromise of backend with /metrics exposed            | `/metrics` has no privileged data (pure Prometheus counters); `include_in_schema=False` so not in OpenAPI.                                      |
+| Grafana public exposure                                | Grafana is not in the Cloudflare Tunnel routes; unreachable from outside. Admin ports-forwards it.                                              |
 
 ### Residual risks (accepted for Phase 6)
 
@@ -506,6 +517,7 @@ grafana (Explore → Loki datasource → LogQL)
 ### Secrets
 
 New entries in `~/.lolday-secrets.env`:
+
 ```bash
 export TUNNEL_TOKEN="eyJhIjoi..."                          # Cloudflare Tunnel token
 export GRAFANA_ADMIN_PASSWORD="$(openssl rand -base64 32 | tr -d '=+/')"
@@ -564,6 +576,7 @@ Pure Cloudflare-side configuration. No cluster change.
 ### Per-sub-phase exit criteria
 
 **6-1 exit:**
+
 - All pods in `monitoring` ns `Running`, no `CrashLoopBackOff`.
 - Grafana reachable via port-forward, login works.
 - Dashboards "Kubernetes / Compute Resources / Cluster" and "NVIDIA DCGM Exporter" populated within 2 minutes of deploy.
@@ -572,10 +585,12 @@ Pure Cloudflare-side configuration. No cluster change.
 - Alertmanager UI at port-forward 9093 shows the 4 baseline rules as `inactive`.
 
 **6-2 exit:**
+
 - Cloudflare dashboard: `lolday` application exists with policy "Allow @mail.ntust.edu.tw" active.
 - `cloudflared access login https://lolday.connlabai.com` (admin's local laptop) returns a token after Google SSO.
 
 **6-3 exit:**
+
 - `kubectl -n lolday get pod -l app.kubernetes.io/component=cloudflared` shows 2/2 Ready.
 - Cloudflared logs on both replicas include `Registered tunnel connection connIndex=0` and `connIndex=1`.
 - Anonymous `curl -I https://lolday.connlabai.com` redirects (302) to `*.cloudflareaccess.com`.

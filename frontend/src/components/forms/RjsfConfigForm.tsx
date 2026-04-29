@@ -32,7 +32,9 @@ function normalizeSchema(node: unknown): unknown {
 
   if (typeof out.$ref === "string") {
     const { $ref, ...rest } = out;
-    const hasSiblings = Object.keys(rest).some((k) => !NON_WRAPPING_SIBLINGS.has(k));
+    const hasSiblings = Object.keys(rest).some(
+      (k) => !NON_WRAPPING_SIBLINGS.has(k),
+    );
     if (hasSiblings) {
       return { allOf: [{ $ref }], ...rest };
     }
@@ -42,7 +44,10 @@ function normalizeSchema(node: unknown): unknown {
 }
 
 export function RjsfConfigForm({ schema, value, onChange }: Props) {
-  const normalizedSchema = useMemo(() => normalizeSchema(schema) as RJSFSchema, [schema]);
+  const normalizedSchema = useMemo(
+    () => normalizeSchema(schema) as RJSFSchema,
+    [schema],
+  );
   return (
     <div className="rjsf-wrap rounded-md border bg-card p-4 text-sm">
       <Form

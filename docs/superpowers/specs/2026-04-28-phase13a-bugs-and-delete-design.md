@@ -41,15 +41,15 @@ Phase 13a fixes all five at root cause and adds the missing delete UX. No displa
 
 ### Layered impact
 
-| Layer | A1 manifest | A2 logs | A3 sidebar | A4 delete | A5 evaluate metrics |
-|---|---|---|---|---|---|
-| Backend schema/model | ✓ (`VersionDetailRead.manifest` nullable) | — | — | ✓ (`DetectorVersionStatus.DELETED` enum) | possibly |
-| Backend endpoint | — | — | — | ✓ (new `DELETE .../versions/{tag}`) | possibly |
-| Backend reconciler | — | ✓ (rewrite log capture) | — | — | possibly |
-| DB migration | — | — | — | ✓ (enum value add) | — |
-| Frontend route | ✓ (`detectors.$id.tsx`) | — | ✓ (`_authed.tsx`) | ✓ (multiple routes) | — |
-| Frontend component | ✓ (manifest fallback) | — | ✓ (`Sidebar.tsx` no change needed) | ✓ (`<DeleteConfirmDialog>` new) | — |
-| External (maldet) | — | — | — | — | possibly (stage_end emit on evaluate) |
+| Layer                | A1 manifest                               | A2 logs                 | A3 sidebar                         | A4 delete                                | A5 evaluate metrics                   |
+| -------------------- | ----------------------------------------- | ----------------------- | ---------------------------------- | ---------------------------------------- | ------------------------------------- |
+| Backend schema/model | ✓ (`VersionDetailRead.manifest` nullable) | —                       | —                                  | ✓ (`DetectorVersionStatus.DELETED` enum) | possibly                              |
+| Backend endpoint     | —                                         | —                       | —                                  | ✓ (new `DELETE .../versions/{tag}`)      | possibly                              |
+| Backend reconciler   | —                                         | ✓ (rewrite log capture) | —                                  | —                                        | possibly                              |
+| DB migration         | —                                         | —                       | —                                  | ✓ (enum value add)                       | —                                     |
+| Frontend route       | ✓ (`detectors.$id.tsx`)                   | —                       | ✓ (`_authed.tsx`)                  | ✓ (multiple routes)                      | —                                     |
+| Frontend component   | ✓ (manifest fallback)                     | —                       | ✓ (`Sidebar.tsx` no change needed) | ✓ (`<DeleteConfirmDialog>` new)          | —                                     |
+| External (maldet)    | —                                         | —                       | —                                  | —                                        | possibly (stage_end emit on evaluate) |
 
 ### Why a single phase
 
@@ -141,6 +141,7 @@ async def _capture_job_log_tail(j: Job) -> str:              # line 1071
 ```
 
 Issues:
+
 - Build pod's main container is `"buildkit"`, not `"kaniko"`. K8s API returns 404, bare except swallows the error, log is empty.
 - Both functions only read the main container. When a build/job dies in an init container (`clone`/`validate` for builds, `config-writer`/`model-fetcher` for jobs), the main container never starts and main-only log capture returns empty.
 
@@ -252,6 +253,7 @@ Use `unittest.mock.patch` on `core_v1().read_namespaced_pod_log` and `list_names
 ```
 
 Changes:
+
 - Parent: `min-h-screen` → `h-screen overflow-hidden`.
 - Middle column: add `overflow-hidden`.
 - Main: `overflow-auto` → `overflow-y-auto` (explicit Y-only).
@@ -399,10 +401,10 @@ async def delete_detector(
 
 ### 4.3 Frontend — entry points
 
-| Location | Action |
-|---|---|
-| `_authed.detectors._index.tsx` (each row) | Add row dropdown menu with "Delete detector" item |
-| `_authed.detectors.$id.tsx` header (right of `← back`) | Red destructive `Delete` button |
+| Location                                                | Action                                                  |
+| ------------------------------------------------------- | ------------------------------------------------------- |
+| `_authed.detectors._index.tsx` (each row)               | Add row dropdown menu with "Delete detector" item       |
+| `_authed.detectors.$id.tsx` header (right of `← back`)  | Red destructive `Delete` button                         |
 | `_authed.detectors.$id.tsx` Versions tab `actions` cell | After `View manifest` button: ghost-red `Delete` button |
 
 ### 4.4 Frontend — `<DeleteConfirmDialog>` reusable component
@@ -415,7 +417,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   title: string;
   description: React.ReactNode;
-  confirmText: string;            // exact string the user must type
+  confirmText: string; // exact string the user must type
   onConfirm: () => Promise<void>;
   pending: boolean;
   errorBanner?: { code?: string; message?: string } | null;
@@ -521,6 +523,7 @@ Diagnose by following the pipeline backward.
 #### Branch 1 — `summary_metrics IS NULL`
 
 Projection never ran. Check:
+
 - `BACKEND_ERRORS{stage="summary_projection"}` Prometheus counter.
 - Reconciler logs around the job's `finished_at` for projection exception traces.
 - Whether the job actually went through `_handle_job_succeeded` (status transition events, k8s_job_name set).
@@ -540,7 +543,7 @@ WHERE job_id = '<job-id>' ORDER BY ts;
   - Detector exited before event-tailer flushed buffered jsonl lines.
   - `events.jsonl` not at the path the tailer expects (path mismatch between maldet output and tailer input).
   - HTTP POST to internal endpoint failing (auth, network).
-- **Some rows but no `metric`/`confusion_matrix` kinds**: maldet's evaluate runner did not call `logger.log_metric` / `logger.log_event("confusion_matrix")`. Confirm by reading `maldet/src/maldet/evaluators/binary.py` — *as of this spec*, it does emit those, but version drift is possible.
+- **Some rows but no `metric`/`confusion_matrix` kinds**: maldet's evaluate runner did not call `logger.log_metric` / `logger.log_event("confusion_matrix")`. Confirm by reading `maldet/src/maldet/evaluators/binary.py` — _as of this spec_, it does emit those, but version drift is possible.
 
 #### Branch 3 — `summary_metrics.metrics` populated but UI shows empty
 
@@ -567,6 +570,7 @@ Cannot pre-write tests until root cause is known. Plan includes:
 - Once root cause known, a regression test specific to that path.
 
 If the fix is in event-tailer flush:
+
 - Integration test: spin up a pod with detector container that exits within 100ms of writing 5 metric events; assert event-tailer captured all 5 and POSTed them.
 
 ### 5.5 Files touched
@@ -607,14 +611,14 @@ A1 needs the schema change deployed before any clicks happen on legacy versions 
 
 ### Unit (pytest, vitest)
 
-| Area | Coverage |
-|---|---|
-| `_capture_pod_logs` | All four branches: hint, main success, fallback, all-fail |
-| `delete_version` endpoint | 6 cases listed in 4.6 |
-| `delete_detector` endpoint | New in-flight check |
-| `<DeleteConfirmDialog>` | Disabled / enabled / 409 banner / exact-match logic |
-| `<ManifestView>` | null branch and tree-view branch |
-| `summary_metrics` projection | Existing tests; A5 may add one regression test |
+| Area                         | Coverage                                                  |
+| ---------------------------- | --------------------------------------------------------- |
+| `_capture_pod_logs`          | All four branches: hint, main success, fallback, all-fail |
+| `delete_version` endpoint    | 6 cases listed in 4.6                                     |
+| `delete_detector` endpoint   | New in-flight check                                       |
+| `<DeleteConfirmDialog>`      | Disabled / enabled / 409 banner / exact-match logic       |
+| `<ManifestView>`             | null branch and tree-view branch                          |
+| `summary_metrics` projection | Existing tests; A5 may add one regression test            |
 
 ### Integration (pytest + minikube/kind, optional)
 
@@ -671,10 +675,10 @@ Cross-check with `frontend/src/lib/status.ts:NON_TERMINAL_JOB_STATUSES` — nami
 
 ## Appendix B — Confirmed root causes summary
 
-| # | File:line | Root cause |
-|---|---|---|
-| A1 | `backend/app/schemas/detector.py` `VersionDetailRead.manifest` | non-nullable, legacy rows have NULL → 500 |
-| A2 | `backend/app/reconciler.py:613` | hard-coded `container="kaniko"`, real name `"buildkit"` |
-| A3 | `frontend/src/routes/_authed.tsx` | `min-h-screen` lets parent grow past viewport |
-| A4 | (no bug) | feature missing — UI not wired, no version delete endpoint |
-| A5 | TBD via investigation | most likely event-tailer flush on short-lived evaluate pods |
+| #   | File:line                                                      | Root cause                                                  |
+| --- | -------------------------------------------------------------- | ----------------------------------------------------------- |
+| A1  | `backend/app/schemas/detector.py` `VersionDetailRead.manifest` | non-nullable, legacy rows have NULL → 500                   |
+| A2  | `backend/app/reconciler.py:613`                                | hard-coded `container="kaniko"`, real name `"buildkit"`     |
+| A3  | `frontend/src/routes/_authed.tsx`                              | `min-h-screen` lets parent grow past viewport               |
+| A4  | (no bug)                                                       | feature missing — UI not wired, no version delete endpoint  |
+| A5  | TBD via investigation                                          | most likely event-tailer flush on short-lived evaluate pods |

@@ -1,8 +1,8 @@
 import httpx
 import pytest
 import respx
-
 from app.services.mlflow_client import MlflowClient, MlflowError
+
 from tests.fixtures.sample_mlflow_responses import (
     EXPERIMENT_CREATED,
     EXPERIMENT_GET,
@@ -33,7 +33,10 @@ async def test_get_or_create_experiment_reuses_existing():
     respx.post("http://mlflow/api/2.0/mlflow/experiments/create").mock(
         return_value=httpx.Response(
             400,
-            json={"error_code": "RESOURCE_ALREADY_EXISTS", "message": "experiment exists"},
+            json={
+                "error_code": "RESOURCE_ALREADY_EXISTS",
+                "message": "experiment exists",
+            },
         )
     )
     respx.get("http://mlflow/api/2.0/mlflow/experiments/get-by-name").mock(
@@ -74,16 +77,18 @@ async def test_create_model_version_returns_version():
         return_value=httpx.Response(200, json=MODEL_VERSION_CREATED)
     )
     c = MlflowClient("http://mlflow")
-    mv = await c.create_model_version("upxelfdet", "runs:/abc123def456/model", "abc123def456")
+    mv = await c.create_model_version(
+        "upxelfdet", "runs:/abc123def456/model", "abc123def456"
+    )
     assert mv["version"] == "1"
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_transition_stage_calls_correct_endpoint():
-    route = respx.post("http://mlflow/api/2.0/mlflow/model-versions/transition-stage").mock(
-        return_value=httpx.Response(200, json=MODEL_VERSION_TRANSITIONED)
-    )
+    route = respx.post(
+        "http://mlflow/api/2.0/mlflow/model-versions/transition-stage"
+    ).mock(return_value=httpx.Response(200, json=MODEL_VERSION_TRANSITIONED))
     c = MlflowClient("http://mlflow")
     mv = await c.transition_model_version_stage(
         "upxelfdet", "1", "Production", archive_existing_versions=True
@@ -119,7 +124,9 @@ async def test_search_model_versions_uses_get_with_query_params():
         return_value=httpx.Response(200, json=MODEL_VERSIONS_SEARCH)
     )
     c = MlflowClient("http://mlflow")
-    versions = await c.search_model_versions(filter_string="name = 'upxelfdet'", max_results=200)
+    versions = await c.search_model_versions(
+        filter_string="name = 'upxelfdet'", max_results=200
+    )
 
     assert route.called
     sent = route.calls.last.request
@@ -135,7 +142,9 @@ async def test_search_model_versions_uses_get_with_query_params():
 @respx.mock
 async def test_http_error_raises_mlflow_error():
     respx.post("http://mlflow/api/2.0/mlflow/experiments/create").mock(
-        return_value=httpx.Response(500, json={"error_code": "INTERNAL_ERROR", "message": "boom"})
+        return_value=httpx.Response(
+            500, json={"error_code": "INTERNAL_ERROR", "message": "boom"}
+        )
     )
     c = MlflowClient("http://mlflow")
     with pytest.raises(MlflowError, match="INTERNAL_ERROR"):

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from app.services.jobs_params_validate import (
     UserParamsRejected,
     validate_user_params,

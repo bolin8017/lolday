@@ -117,12 +117,16 @@ def main() -> int:
     print(f"[2/4] Reading {args.malware_manifest} …")
     malware_all = _load_manifest(args.malware_manifest, "Malware")
     malware_candidates = [sha for sha in malware_all if sha in on_disk]
-    print(f"      {len(malware_all):,} Malware rows → {len(malware_candidates):,} present on disk")
+    print(
+        f"      {len(malware_all):,} Malware rows → {len(malware_candidates):,} present on disk"
+    )
 
     print(f"[3/4] Reading {args.benign_manifest} …")
     benign_all = _load_manifest(args.benign_manifest, "Benignware")
     benign_candidates = [sha for sha in benign_all if sha in on_disk]
-    print(f"      {len(benign_all):,} Benignware rows → {len(benign_candidates):,} present on disk")
+    print(
+        f"      {len(benign_all):,} Benignware rows → {len(benign_candidates):,} present on disk"
+    )
 
     if len(malware_candidates) < args.per_class:
         raise SystemExit(
@@ -159,9 +163,16 @@ def main() -> int:
     print()
     print("Next step — upload to lolday (requires $TOKEN):")
     print("  curl -X POST http://localhost:8000/api/v1/datasets \\")
-    print("    -H \"Authorization: Bearer $TOKEN\" \\")
-    print("    -H \"Content-Type: application/json\" \\")
-    print("    -d \"{\\\"name\\\":\\\"elf-text256-train\\\",\\\"csv_content\\\":\\\"$(python3 -c 'import sys,json;print(json.dumps(open(sys.argv[1]).read())[1:-1])' %s)\\\"}\"" % train_csv)
+    print('    -H "Authorization: Bearer $TOKEN" \\')
+    print('    -H "Content-Type: application/json" \\')
+    _cmd = (
+        '    -d "{\\"name\\":\\"elf-text256-train\\",'
+        '\\"csv_content\\":\\"$(python3 -c'
+        " 'import sys,json;print(json.dumps(open(sys.argv[1]).read())[1:-1])' "
+        + train_csv
+        + ')\\""'
+    )
+    print(_cmd)
     return 0
 
 

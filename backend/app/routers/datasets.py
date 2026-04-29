@@ -1,10 +1,11 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.config import settings
 from app.db import get_async_session
@@ -29,7 +30,11 @@ async def _get_readable_dataset(
     ds = await session.get(DatasetConfig, ds_id)
     if ds is None or ds.deleted_at is not None:
         raise HTTPException(status_code=404, detail="dataset not found")
-    if ds.visibility == DatasetVisibility.PRIVATE and ds.owner_id != user.id and user.role.value != "admin":
+    if (
+        ds.visibility == DatasetVisibility.PRIVATE
+        and ds.owner_id != user.id
+        and user.role.value != "admin"
+    ):
         raise HTTPException(status_code=404, detail="dataset not found")
     return ds
 
@@ -58,7 +63,7 @@ async def create_dataset(
     try:
         parsed = parse_csv(body.csv_content)
     except DatasetValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     stmt = select(DatasetConfig).where(
         DatasetConfig.owner_id == user.id,
@@ -67,7 +72,9 @@ async def create_dataset(
     )
     existing = (await session.execute(stmt)).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(status_code=409, detail=f"dataset name '{body.name}' already in use")
+        raise HTTPException(
+            status_code=409, detail=f"dataset name '{body.name}' already in use"
+        )
 
     ds = DatasetConfig(
         name=body.name,
@@ -97,13 +104,15 @@ async def list_datasets(
     visibility: DatasetVisibility | None = None,
     search: str | None = None,
 ) -> DatasetConfigList:
-    filters = [DatasetConfig.deleted_at.is_(None)]
+    filters: list[ColumnElement[bool]] = [DatasetConfig.deleted_at.is_(None)]
 
     if user.role.value != "admin":
-        filters.append(or_(
-            DatasetConfig.visibility == DatasetVisibility.PUBLIC,
-            DatasetConfig.owner_id == user.id,
-        ))
+        filters.append(
+            or_(
+                DatasetConfig.visibility == DatasetVisibility.PUBLIC,
+                DatasetConfig.owner_id == user.id,
+            )
+        )
 
     if owner_id is not None:
         filters.append(DatasetConfig.owner_id == owner_id)
@@ -185,7 +194,11 @@ async def update_dataset(
     return DatasetConfigRead.model_validate(ds)
 
 
-@router.post("/{ds_id}/clone", status_code=status.HTTP_201_CREATED, response_model=DatasetConfigRead)
+@router.post(
+    "/{ds_id}/clone",
+    status_code=status.HTTP_201_CREATED,
+    response_model=DatasetConfigRead,
+)
 async def clone_dataset(
     ds_id: uuid.UUID,
     session: Annotated[AsyncSession, Depends(get_async_session)],
@@ -233,18 +246,25 @@ async def delete_dataset(
 ) -> Response:
     ds = await _get_writable_dataset(ds_id, session, user)
 
-    stmt = select(func.count()).select_from(Job).where(
-        Job.status.in_(NON_TERMINAL_STATUSES),
-        or_(
-            Job.train_dataset_id == ds.id,
-            Job.test_dataset_id == ds.id,
-            Job.predict_dataset_id == ds.id,
-        ),
+    stmt = (
+        select(func.count())
+        .select_from(Job)
+        .where(
+            Job.status.in_(NON_TERMINAL_STATUSES),
+            or_(
+                Job.train_dataset_id == ds.id,
+                Job.test_dataset_id == ds.id,
+                Job.predict_dataset_id == ds.id,
+            ),
+        )
     )
     in_flight = (await session.execute(stmt)).scalar_one()
     if in_flight > 0:
-        raise HTTPException(status_code=409, detail=f"{in_flight} in-flight job(s) reference this dataset")
+        raise HTTPException(
+            status_code=409,
+            detail=f"{in_flight} in-flight job(s) reference this dataset",
+        )
 
-    ds.deleted_at = datetime.now(timezone.utc)
+    ds.deleted_at = datetime.now(UTC)
     await session.commit()
     return Response(status_code=204)

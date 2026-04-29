@@ -1,0 +1,63 @@
+# .pre-commit-config.yaml — repo-wide hygiene gate.
+# Activate with: pre-commit install (runs in scripts/install-tools.sh).
+# After cloning, run once: pre-commit run --all-files
+#
+# Prerequisites for the `local` hooks below:
+#   - frontend/node_modules — run `pnpm install` in frontend/ so the
+#     prettier and eslint binaries exist at frontend/node_modules/.bin/.
+#   - backend/.venv with mypy — run `cd backend && uv sync` so
+#     `uv run --project backend mypy` resolves.
+# install-tools.sh installs pre-commit but not these per-language venvs;
+# they're set up the same way you'd set up to run tests.
+
+minimum_pre_commit_version: "4.0.0"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+        exclude: ^charts/lolday/dashboards/
+      - id: end-of-file-fixer
+        exclude: ^charts/lolday/dashboards/
+      - id: check-yaml
+        exclude: ^charts/lolday/templates/
+      - id: check-toml
+      - id: check-json
+        exclude: ^frontend/test-results/
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.2
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (backend)
+        language: system
+        entry: uv run --project backend mypy --config-file mypy.ini
+        pass_filenames: false
+        require_serial: true
+        files: ^backend/app/.*\.py$
+
+      - id: prettier
+        name: prettier
+        language: system
+        entry: frontend/node_modules/.bin/prettier --write --ignore-unknown
+        files: \.(ts|tsx|js|jsx|cjs|mjs|css|html|json|md|mdx|yaml|yml)$
+
+      - id: eslint
+        name: eslint
+        language: system
+        entry: frontend/node_modules/.bin/eslint --config frontend/eslint.config.js --fix --no-warn-ignored
+        files: ^frontend/.*\.(ts|tsx|js|cjs|mjs)$

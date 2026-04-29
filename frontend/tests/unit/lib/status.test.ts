@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { statusTone, isTerminal, NON_TERMINAL_JOB_STATUSES } from "@/lib/status";
+import {
+  statusTone,
+  isTerminal,
+  NON_TERMINAL_JOB_STATUSES,
+} from "@/lib/status";
 
 describe("statusTone", () => {
   it("maps success-ish statuses to success", () => {
@@ -21,7 +25,8 @@ describe("statusTone", () => {
 
 describe("isTerminal", () => {
   it("returns false for running-ish statuses", () => {
-    for (const s of NON_TERMINAL_JOB_STATUSES) expect(isTerminal(s)).toBe(false);
+    for (const s of NON_TERMINAL_JOB_STATUSES)
+      expect(isTerminal(s)).toBe(false);
   });
   it("returns true for succeeded / failed / cancelled / timeout", () => {
     expect(isTerminal("succeeded")).toBe(true);

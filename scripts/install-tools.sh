@@ -10,7 +10,7 @@ echo ""
 # -------------------------------------------------------
 # kubectl
 # -------------------------------------------------------
-echo "[1/3] kubectl..."
+echo "[1/4] kubectl..."
 if command -v kubectl &>/dev/null; then
   echo "  Already installed: $(kubectl version --client --short 2>/dev/null || kubectl version --client 2>&1 | head -1)"
 else
@@ -24,7 +24,7 @@ fi
 # -------------------------------------------------------
 # helm
 # -------------------------------------------------------
-echo "[2/3] helm..."
+echo "[2/4] helm..."
 if command -v helm &>/dev/null; then
   echo "  Already installed: $(helm version --short 2>/dev/null)"
 else
@@ -35,7 +35,7 @@ fi
 # -------------------------------------------------------
 # k9s
 # -------------------------------------------------------
-echo "[3/3] k9s..."
+echo "[3/4] k9s..."
 if command -v k9s &>/dev/null; then
   echo "  Already installed: $(k9s version --short 2>/dev/null || echo 'yes')"
 else
@@ -43,6 +43,30 @@ else
   curl -sL "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_Linux_amd64.tar.gz" | \
     tar xz -C "${INSTALL_DIR}" k9s
   echo "  Installed: ${K9S_VERSION}"
+fi
+
+# -------------------------------------------------------
+# pre-commit (engineering hygiene)
+# -------------------------------------------------------
+echo "[4/4] pre-commit..."
+if ! command -v uv &>/dev/null; then
+  echo "  ERROR: uv is required to install pre-commit. Install uv first: https://docs.astral.sh/uv/" >&2
+  exit 1
+fi
+
+if command -v pre-commit &>/dev/null; then
+  echo "  Already installed: $(pre-commit --version)"
+else
+  uv tool install pre-commit
+  echo "  Installed: $(pre-commit --version)"
+fi
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -f "${REPO_ROOT}/.pre-commit-config.yaml" ]; then
+  (cd "$REPO_ROOT" && pre-commit install)
+  echo "  Hook installed at ${REPO_ROOT}/.git/hooks/pre-commit"
+else
+  echo "  No .pre-commit-config.yaml at repo root; skipping hook activation"
 fi
 
 echo ""

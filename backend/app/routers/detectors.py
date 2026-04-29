@@ -1,17 +1,17 @@
 import asyncio
+import contextlib
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
 import tomllib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from kubernetes.client import ApiException
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,9 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_async_session
 from app.deps import require_detector_access, require_role
-from app.services.rate_limit import rate_limit_user
 from app.metrics import BACKEND_ERRORS
-from app.models import Job, NON_TERMINAL_STATUSES, Role, User
+from app.models import NON_TERMINAL_STATUSES, Job, Role, User
 from app.models.credential import UserGitCredential
 from app.models.detector import (
     Detector,
@@ -30,8 +29,6 @@ from app.models.detector import (
     DetectorVersion,
     DetectorVersionStatus,
 )
-
-logger = logging.getLogger(__name__)
 from app.schemas.detector import (
     AvailableTag,
     BuildCreate,
@@ -57,8 +54,11 @@ from app.services.git import (
 )
 from app.services.harbor import HarborClient
 from app.services.k8s import batch_v1, core_v1
+from app.services.rate_limit import rate_limit_user
 from app.services.validator import StaticValidationError, validate_repo_static
 from app.users import current_active_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -120,13 +120,13 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
         )
         try:
             _, err = await asyncio.wait_for(proc.communicate(), timeout=60)
-        except asyncio.TimeoutError:
+        except TimeoutError as e:
             proc.kill()
             await proc.wait()
             raise HTTPException(
                 status_code=400,
                 detail={"code": "git_clone_timeout", "message": "clone exceeded 60s"},
-            )
+            ) from e
         if proc.returncode != 0:
             raise HTTPException(
                 status_code=400,
@@ -140,7 +140,7 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
         except StaticValidationError as e:
             raise HTTPException(
                 status_code=400, detail={"code": e.code, "message": e.message}
-            )
+            ) from e
         data = tomllib.loads(
             (Path(tmpdir) / "pyproject.toml").read_text(encoding="utf-8")
         )
@@ -204,7 +204,7 @@ async def register(
     except ValueError as e:
         raise HTTPException(
             status_code=422, detail={"code": "invalid_git_url", "message": str(e)}
-        )
+        ) from e
 
     dup = await session.execute(
         select(Detector).where(
@@ -238,7 +238,7 @@ async def register(
     session.add(d)
     try:
         await session.commit()
-    except IntegrityError:
+    except IntegrityError as e:
         await session.rollback()
         raise HTTPException(
             status_code=409,
@@ -246,7 +246,7 @@ async def register(
                 "code": "name_conflict",
                 "message": f"detector name '{name}' already exists",
             },
-        )
+        ) from e
     await session.refresh(d)
     return DetectorRead.model_validate(d)
 
@@ -311,17 +311,21 @@ async def delete_detector(
         .where(
             DetectorVersion.detector_id == detector.id,
             Job.status.in_(NON_TERMINAL_STATUSES),
-        ).limit(1)
+        )
+        .limit(1)
     )
     if in_flight.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail={
-            "code": "detector_has_in_flight_jobs",
-            "message": "Cancel running jobs for this detector before deleting it.",
-        })
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "detector_has_in_flight_jobs",
+                "message": "Cancel running jobs for this detector before deleting it.",
+            },
+        )
 
     detector_name = detector.name
     detector_id = detector.id
-    detector.deleted_at = datetime.now(timezone.utc)
+    detector.deleted_at = datetime.now(UTC)
     await session.commit()
     # Best-effort Harbor cleanup (soft delete already succeeded; keep going on errors)
     try:
@@ -361,22 +365,30 @@ async def delete_version(
         raise HTTPException(status_code=404, detail="version not found")
 
     if version.status != DetectorVersionStatus.ACTIVE:
-        raise HTTPException(status_code=409, detail={
-            "code": "version_not_active",
-            "message": f"version is in status {version.status.value}, cannot delete",
-        })
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "version_not_active",
+                "message": f"version is in status {version.status.value}, cannot delete",
+            },
+        )
 
     in_flight = await session.execute(
-        select(Job.id).where(
+        select(Job.id)
+        .where(
             Job.detector_version_id == version.id,
             Job.status.in_(NON_TERMINAL_STATUSES),
-        ).limit(1)
+        )
+        .limit(1)
     )
     if in_flight.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail={
-            "code": "version_has_in_flight_jobs",
-            "message": "Cancel running jobs that use this version before deleting it.",
-        })
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "version_has_in_flight_jobs",
+                "message": "Cancel running jobs that use this version before deleting it.",
+            },
+        )
 
     version.status = DetectorVersionStatus.DELETED
     await session.commit()
@@ -389,7 +401,9 @@ async def delete_version(
                 settings.HARBOR_ADMIN_PASSWORD,
             )
             await harbor.delete_artifact(
-                "detectors", detector.name, version.image_digest,
+                "detectors",
+                detector.name,
+                version.image_digest,
             )
         except Exception:
             BACKEND_ERRORS.labels(stage="version_delete_harbor").inc()
@@ -501,11 +515,9 @@ async def _create_k8s_resources(
     try:
         await loop.run_in_executor(None, _create_job)
     except Exception:
-        # Rollback Secret on any error
-        try:
+        # Rollback Secret on any error — best-effort, don't mask original exception
+        with contextlib.suppress(Exception):
             await loop.run_in_executor(None, _delete_secret)
-        except Exception:
-            pass  # best-effort; don't mask original exception
         raise
     return job_name
 
@@ -539,7 +551,7 @@ async def create_build(
             DetectorBuild.status.in_(in_flight_statuses),
         )
     )
-    in_flight = user_in_flight.scalar()
+    in_flight = user_in_flight.scalar() or 0
     if in_flight >= settings.BUILD_CONCURRENCY_PER_USER:
         from app.schemas.errors import ConcurrencyLimitDetail
 
@@ -610,7 +622,7 @@ async def create_build(
                 "message": f"failed to launch build job: {type(exc).__name__}",
                 "build_id": str(build.id),
             },
-        )
+        ) from exc
 
     build.k8s_job_name = job_name
     build.status = DetectorBuildStatus.CLONING
@@ -680,7 +692,7 @@ async def cancel_build(
         )
 
     build.status = DetectorBuildStatus.CANCELLED
-    build.finished_at = datetime.now(timezone.utc)
+    build.finished_at = datetime.now(UTC)
 
     # Best-effort K8s job deletion
     if build.k8s_job_name:

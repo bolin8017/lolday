@@ -14,7 +14,6 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.auth.cf_access import get_or_create_user_by_email
 from app.models import Role, User
 from app.reconciler import _fire_job_failed_notify, _user_context
@@ -191,6 +190,7 @@ async def seed_job(db_session, seed_detector_version, seed_dataset, seed_user):
         await db_session.commit()
         await db_session.refresh(j)
         return j
+
     return _seed
 
 
@@ -205,7 +205,8 @@ async def test_reconcile_build_manifest_missing_skips_service_token(db_session):
     typo that flips ``if ctx is not None:`` on one of the seven manifest-
     pipeline callsites inside reconcile_build.
     """
-    from unittest.mock import AsyncMock, MagicMock, patch as mpatch
+    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import patch as mpatch
 
     from app.models import User
     from app.models.detector import (
@@ -250,9 +251,11 @@ async def test_reconcile_build_manifest_missing_skips_service_token(db_session):
 
     from app.services.harbor import ScanResult, ScanStatus
 
-    with mpatch("app.reconciler.batch_v1") as bv, \
-         mpatch("app.reconciler.HarborClient") as hc, \
-         mpatch("app.reconciler.notify_build_failed", new=AsyncMock()) as m:
+    with (
+        mpatch("app.reconciler.batch_v1") as bv,
+        mpatch("app.reconciler.HarborClient") as hc,
+        mpatch("app.reconciler.notify_build_failed", new=AsyncMock()) as m,
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:abc")
         hc.return_value.get_scan = AsyncMock(

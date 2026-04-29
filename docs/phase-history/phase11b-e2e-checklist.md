@@ -4,6 +4,7 @@ Verifies the Phase 11b detector-contract rewrite end-to-end on server30.
 Run after `bash scripts/deploy.sh` completes.
 
 **Prerequisites:**
+
 - Phase 11b PR merged to `main` (commit on main with Chart 0.13.0 + backend phase11b + job-helper v3)
 - `maldet` >= 1.0 installed in operator's local venv (`pip install maldet`)
 - `~/.lolday-secrets.env` sourced

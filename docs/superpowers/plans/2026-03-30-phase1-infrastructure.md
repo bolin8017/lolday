@@ -32,6 +32,7 @@ lolday/
 ```
 
 **Design decisions:**
+
 - Cluster-level components (Cilium, GPU Operator, Volcano) are installed separately via `setup-cluster.sh` because they have their own lifecycle and manage cluster-wide resources.
 - Application-level dependencies (Harbor, NFS CSI, Cloudflared, and future app services) are managed as Helm sub-chart dependencies in the umbrella chart.
 - This split means `setup-cluster.sh` runs once per cluster, while `helm upgrade lolday` handles app-level changes.
@@ -41,6 +42,7 @@ lolday/
 ### Task 1: Project Structure and .gitignore
 
 **Files:**
+
 - Create: `.gitignore`
 - Create: `README.md`
 
@@ -82,7 +84,7 @@ Thumbs.db
 
 - [ ] **Step 2: Create README.md**
 
-```markdown
+````markdown
 # Lolday
 
 Internal ML platform for ISLab malware detector management.
@@ -105,19 +107,21 @@ Internal ML platform for ISLab malware detector management.
 # 3. Teardown (removes everything)
 ./scripts/teardown.sh
 ```
+````
 
 ## Documentation
 
 - [Design Spec](docs/superpowers/specs/2026-03-30-lolday-platform-design.md)
 - [Phase 1: Infrastructure](docs/superpowers/plans/2026-03-30-phase1-infrastructure.md)
-```
+
+````
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add .gitignore README.md
 git commit -m "chore: add .gitignore and README"
-```
+````
 
 ---
 
@@ -142,6 +146,7 @@ cilium status --wait
 ```
 
 Expected output includes:
+
 ```
     /¯¯\
  /¯¯\__/¯¯\    Cilium:          OK
@@ -156,6 +161,7 @@ kubectl get nodes
 ```
 
 Expected:
+
 ```
 NAME       STATUS   ROLES           AGE   VERSION
 server30   Ready    control-plane   ...   v1.34.5+k3s1
@@ -217,6 +223,7 @@ kubectl -n gpu-operator get pods -w
 ```
 
 Wait until all pods show `Running` or `Completed`. Key pods:
+
 - `nvidia-device-plugin-daemonset-*` — must be Running
 - `nvidia-container-toolkit-daemonset-*` — must be Running
 - `gpu-operator-*` — must be Running
@@ -229,6 +236,7 @@ kubectl get nodes -o jsonpath='{.items[0].status.allocatable}' | python3 -m json
 ```
 
 Expected:
+
 ```
 "nvidia.com/gpu": "2"
 ```
@@ -274,6 +282,7 @@ kubectl -n volcano-system get pods
 ```
 
 Expected: All pods Running:
+
 - `volcano-admission-*`
 - `volcano-controllers-manager-*`
 - `volcano-scheduler-*`
@@ -332,6 +341,7 @@ kubectl delete vcjob test-volcano-gpu
 ### Task 5: Create Helm Umbrella Chart Skeleton
 
 **Files:**
+
 - Create: `charts/lolday/Chart.yaml`
 - Create: `charts/lolday/values.yaml`
 - Create: `charts/lolday/templates/_helpers.tpl`
@@ -400,8 +410,8 @@ nfs:
 
 nfs-subdir-external-provisioner:
   nfs:
-    server: ""       # Set via --set, e.g., 140.118.155.x
-    path: ""         # Set via --set, e.g., /mnt/datasets
+    server: "" # Set via --set, e.g., 140.118.155.x
+    path: "" # Set via --set, e.g., /mnt/datasets
     mountOptions:
       - nfsvers=4
       - ro
@@ -417,12 +427,12 @@ nfs-subdir-external-provisioner:
 # Cloudflare Tunnel (deployed in later task)
 # =============================================================================
 cloudflare:
-  enabled: false     # Enable after domain is purchased
-  tunnelToken: ""    # Set via --set, NEVER commit
+  enabled: false # Enable after domain is purchased
+  tunnelToken: "" # Set via --set, NEVER commit
   replicas: 2
 ```
 
-- [ ] **Step 3: Create templates/_helpers.tpl**
+- [ ] **Step 3: Create templates/\_helpers.tpl**
 
 ```yaml
 {{/*
@@ -450,9 +460,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.global.namespace }}
-  labels:
-    {{- include "lolday.labels" . | nindent 4 }}
+  name: { { .Values.global.namespace } }
+  labels: { { - include "lolday.labels" . | nindent 4 } }
 ```
 
 - [ ] **Step 5: Build dependencies**
@@ -508,6 +517,7 @@ helm install lolday charts/lolday \
 ```
 
 Note: If NFS is not yet available, disable it for now:
+
 ```bash
 helm install lolday charts/lolday \
   -n lolday --create-namespace \
@@ -523,6 +533,7 @@ kubectl -n lolday get pods -l app=harbor
 ```
 
 Expected: All Harbor pods Running:
+
 - `harbor-core-*`
 - `harbor-database-*`
 - `harbor-jobservice-*`
@@ -541,6 +552,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8080
 Expected: `200`
 
 Kill the port-forward after verifying:
+
 ```bash
 kill %1
 ```
@@ -633,6 +645,7 @@ kubectl -n lolday delete pod nfs-test
 ### Task 8: Create Deployment Scripts
 
 **Files:**
+
 - Create: `scripts/setup-cluster.sh`
 - Create: `scripts/deploy.sh`
 - Create: `scripts/teardown.sh`
@@ -813,6 +826,7 @@ git commit -m "feat: add cluster setup, deploy, and teardown scripts"
 ### Task 9: Cloudflare Tunnel Configuration
 
 **Files:**
+
 - Create: `charts/lolday/templates/cloudflared-deployment.yaml`
 - Create: `charts/lolday/templates/cloudflared-secret.yaml`
 - Modify: `charts/lolday/values.yaml`

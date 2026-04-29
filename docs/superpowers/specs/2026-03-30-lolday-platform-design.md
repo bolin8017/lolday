@@ -5,6 +5,7 @@
 Lolday is an internal ML platform for ISLab (Information Security Lab) that manages, trains, and runs malware detectors built on the [maldet](https://github.com/bolin8017/islab-malware-detector) spec. Lab members register detectors via Git repos, and the platform provides a web UI for training, evaluating, and predicting with those detectors on shared malware datasets.
 
 **Core goals:**
+
 - Collect all lab members' detectors in one place
 - Provide a web UI to train, evaluate, and predict without touching CLI
 - GPU scheduling and fair resource sharing
@@ -12,6 +13,7 @@ Lolday is an internal ML platform for ISLab (Information Security Lab) that mana
 - Docker-based deployment, easy to migrate or scale
 
 **Design principles:**
+
 - Use open-source, actively maintained projects over custom code
 - Only write custom code for the maldet-spec glue layer and platform-specific logic
 - Every component should be independently replaceable
@@ -22,20 +24,20 @@ Lolday is an internal ML platform for ISLab (Information Security Lab) that mana
 
 Three roles with increasing privilege:
 
-| Operation | Admin | Developer | User |
-|-----------|:-----:|:---------:|:----:|
-| Manage user accounts | ✅ | ❌ | ❌ |
-| Manage platform settings | ✅ | ❌ | ❌ |
-| View system monitoring (Grafana) | ✅ | ❌ | ❌ |
-| Register detector (Git URL) | ✅ | ✅ | ❌ |
-| Update/delete own detector | ✅ | ✅ | ❌ |
-| Trigger detector build | ✅ | ✅ | ❌ |
-| Create dataset config | ✅ | ✅ | ✅ |
-| Run train / evaluate / predict | ✅ | ✅ | ✅ |
-| View public experiments/models | ✅ | ✅ | ✅ |
-| Mark own models/experiments private | ✅ | ✅ | ✅ |
-| Download prediction results | ✅ | ✅ | ✅ |
-| Manage Model Registry state (Staging→Production) | ✅ | ✅ (own) | ❌ |
+| Operation                                        | Admin | Developer | User |
+| ------------------------------------------------ | :---: | :-------: | :--: |
+| Manage user accounts                             |  ✅   |    ❌     |  ❌  |
+| Manage platform settings                         |  ✅   |    ❌     |  ❌  |
+| View system monitoring (Grafana)                 |  ✅   |    ❌     |  ❌  |
+| Register detector (Git URL)                      |  ✅   |    ✅     |  ❌  |
+| Update/delete own detector                       |  ✅   |    ✅     |  ❌  |
+| Trigger detector build                           |  ✅   |    ✅     |  ❌  |
+| Create dataset config                            |  ✅   |    ✅     |  ✅  |
+| Run train / evaluate / predict                   |  ✅   |    ✅     |  ✅  |
+| View public experiments/models                   |  ✅   |    ✅     |  ✅  |
+| Mark own models/experiments private              |  ✅   |    ✅     |  ✅  |
+| Download prediction results                      |  ✅   |    ✅     |  ✅  |
+| Manage Model Registry state (Staging→Production) |  ✅   | ✅ (own)  |  ❌  |
 
 Authentication: FastAPI Users with JWT (bcrypt password hashing, token expiry + refresh rotation).
 
@@ -43,44 +45,44 @@ Authentication: FastAPI Users with JWT (bcrypt password hashing, token expiry + 
 
 ## 2. Tech Stack
 
-| Category | Component | Tool |
-|----------|-----------|------|
-| Frontend | Web UI | React |
-| | Dynamic config forms | react-jsonschema-form |
-| Backend | API server | FastAPI |
-| | Auth & user management | FastAPI Users (JWT + RBAC) |
-| | Rate limiting | slowapi |
-| | API versioning | `/api/v1/` prefix |
-| Job Queue | Broker | Redis |
-| | Workers | Celery (3 separate queues: train, eval, predict) |
-| Database | Primary | PostgreSQL |
-| ML Tracking | Experiment tracking | MLflow |
-| | Model registry | MLflow Model Registry (Staging → Production → Archived) |
-| Container Registry | Image storage | Harbor |
-| GPU & Scheduling | GPU management | NVIDIA GPU Operator |
-| | Batch scheduling | Volcano (fair-share, queue-based) |
-| Container Orchestration | Cluster | K3s |
-| | Package management | Helm |
-| Network | CNI (NetworkPolicy support) | Cilium (replaces Flannel) |
-| | Ingress | Traefik (K3s built-in) |
-| | External access | Cloudflare Tunnel |
-| | Access control | Cloudflare Access (Zero Trust) |
-| | Domain & DNS | Cloudflare Registrar |
-| | HTTPS | Cloudflare (automatic) |
-| Monitoring | Metrics collection | Prometheus |
-| | Alerting | Alertmanager |
-| | Dashboards | Grafana |
-| | GPU metrics | DCGM Exporter |
-| | Log aggregation | Loki |
-| Security | Image scanning | Trivy Operator |
-| | Container hardening | K8s SecurityContext + Seccomp |
-| | Network isolation | Cilium NetworkPolicy |
-| | Secrets | K8s Secrets + etcd encryption at rest |
-| Notifications | Email | Resend (free tier: 3,000/month) |
-| | Future | Discord webhook |
-| Backup | DB backup | pg_dump CronJob → Cloudflare R2 |
-| | K8s state | k3s etcd-snapshot → Cloudflare R2 |
-| | ML artifacts | rsync CronJob → Cloudflare R2 |
+| Category                | Component                   | Tool                                                    |
+| ----------------------- | --------------------------- | ------------------------------------------------------- |
+| Frontend                | Web UI                      | React                                                   |
+|                         | Dynamic config forms        | react-jsonschema-form                                   |
+| Backend                 | API server                  | FastAPI                                                 |
+|                         | Auth & user management      | FastAPI Users (JWT + RBAC)                              |
+|                         | Rate limiting               | slowapi                                                 |
+|                         | API versioning              | `/api/v1/` prefix                                       |
+| Job Queue               | Broker                      | Redis                                                   |
+|                         | Workers                     | Celery (3 separate queues: train, eval, predict)        |
+| Database                | Primary                     | PostgreSQL                                              |
+| ML Tracking             | Experiment tracking         | MLflow                                                  |
+|                         | Model registry              | MLflow Model Registry (Staging → Production → Archived) |
+| Container Registry      | Image storage               | Harbor                                                  |
+| GPU & Scheduling        | GPU management              | NVIDIA GPU Operator                                     |
+|                         | Batch scheduling            | Volcano (fair-share, queue-based)                       |
+| Container Orchestration | Cluster                     | K3s                                                     |
+|                         | Package management          | Helm                                                    |
+| Network                 | CNI (NetworkPolicy support) | Cilium (replaces Flannel)                               |
+|                         | Ingress                     | Traefik (K3s built-in)                                  |
+|                         | External access             | Cloudflare Tunnel                                       |
+|                         | Access control              | Cloudflare Access (Zero Trust)                          |
+|                         | Domain & DNS                | Cloudflare Registrar                                    |
+|                         | HTTPS                       | Cloudflare (automatic)                                  |
+| Monitoring              | Metrics collection          | Prometheus                                              |
+|                         | Alerting                    | Alertmanager                                            |
+|                         | Dashboards                  | Grafana                                                 |
+|                         | GPU metrics                 | DCGM Exporter                                           |
+|                         | Log aggregation             | Loki                                                    |
+| Security                | Image scanning              | Trivy Operator                                          |
+|                         | Container hardening         | K8s SecurityContext + Seccomp                           |
+|                         | Network isolation           | Cilium NetworkPolicy                                    |
+|                         | Secrets                     | K8s Secrets + etcd encryption at rest                   |
+| Notifications           | Email                       | Resend (free tier: 3,000/month)                         |
+|                         | Future                      | Discord webhook                                         |
+| Backup                  | DB backup                   | pg_dump CronJob → Cloudflare R2                         |
+|                         | K8s state                   | k3s etcd-snapshot → Cloudflare R2                       |
+|                         | ML artifacts                | rsync CronJob → Cloudflare R2                           |
 
 ---
 
@@ -189,19 +191,19 @@ Pydantic v2 generates JSON Schema Draft 2020-12; react-jsonschema-form supports 
 
 ### 5.2 Dataset Config Data Model (PostgreSQL)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| id | UUID | Primary key |
-| name | string | User-assigned name, e.g., "UPX-ELF-v3-balanced" |
-| description | text | Description |
-| owner_id | FK → User | Creator |
-| visibility | enum | public (default) / private |
-| csv_content | text | Raw CSV content (file_name, label, family) |
-| file_count | int | Auto-computed sample count |
-| label_distribution | JSON | Auto-computed label distribution |
-| checksum | string | SHA256 of the CSV content |
-| created_at | timestamp | Creation time |
-| updated_at | timestamp | Last update time |
+| Field              | Type      | Description                                     |
+| ------------------ | --------- | ----------------------------------------------- |
+| id                 | UUID      | Primary key                                     |
+| name               | string    | User-assigned name, e.g., "UPX-ELF-v3-balanced" |
+| description        | text      | Description                                     |
+| owner_id           | FK → User | Creator                                         |
+| visibility         | enum      | public (default) / private                      |
+| csv_content        | text      | Raw CSV content (file_name, label, family)      |
+| file_count         | int       | Auto-computed sample count                      |
+| label_distribution | JSON      | Auto-computed label distribution                |
+| checksum           | string    | SHA256 of the CSV content                       |
+| created_at         | timestamp | Creation time                                   |
+| updated_at         | timestamp | Last update time                                |
 
 ### 5.3 User Operations
 
@@ -278,12 +280,12 @@ Pydantic v2 generates JSON Schema Draft 2020-12; react-jsonschema-form supports 
 
 Every job automatically records:
 
-| Category | Content |
-|----------|---------|
+| Category   | Content                                                      |
+| ---------- | ------------------------------------------------------------ |
 | Parameters | Hyperparams, detector version, commit SHA, dataset config ID |
-| Metrics | Accuracy, Precision, Recall, F1, Confusion Matrix |
-| Artifacts | Model files, prediction CSV, feature vectors |
-| Tags | Executor, job type, duration, GPU model |
+| Metrics    | Accuracy, Precision, Recall, F1, Confusion Matrix            |
+| Artifacts  | Model files, prediction CSV, feature vectors                 |
+| Tags       | Executor, job type, duration, GPU model                      |
 
 ### 7.2 Model Registry Lifecycle
 
@@ -325,23 +327,23 @@ helm install lolday ./charts/lolday
 
 ### 8.2 Helm Chart Contents
 
-| Category | Component | K8s Resource Type |
-|----------|-----------|-------------------|
-| Application | FastAPI Backend | Deployment + Service |
-| | React Frontend | Deployment + Service |
-| | Celery Workers (×3 queues) | Deployment |
-| Data | PostgreSQL | StatefulSet + PV |
-| | Redis | Deployment |
-| | MLflow Server | Deployment + PV |
-| | Harbor Registry | Helm sub-chart |
-| GPU & Scheduling | NVIDIA GPU Operator | Helm sub-chart |
-| | Volcano Scheduler | Helm sub-chart |
-| Network | Cloudflared Tunnel | Deployment (replicas: 2) |
-| Monitoring | kube-prometheus-stack | Helm sub-chart (Prometheus + Alertmanager + Grafana) |
-| | DCGM Exporter | DaemonSet |
-| | Loki | Helm sub-chart |
-| Security | Trivy Operator | Helm sub-chart |
-| Storage | NFS CSI Driver | Helm sub-chart |
+| Category         | Component                  | K8s Resource Type                                    |
+| ---------------- | -------------------------- | ---------------------------------------------------- |
+| Application      | FastAPI Backend            | Deployment + Service                                 |
+|                  | React Frontend             | Deployment + Service                                 |
+|                  | Celery Workers (×3 queues) | Deployment                                           |
+| Data             | PostgreSQL                 | StatefulSet + PV                                     |
+|                  | Redis                      | Deployment                                           |
+|                  | MLflow Server              | Deployment + PV                                      |
+|                  | Harbor Registry            | Helm sub-chart                                       |
+| GPU & Scheduling | NVIDIA GPU Operator        | Helm sub-chart                                       |
+|                  | Volcano Scheduler          | Helm sub-chart                                       |
+| Network          | Cloudflared Tunnel         | Deployment (replicas: 2)                             |
+| Monitoring       | kube-prometheus-stack      | Helm sub-chart (Prometheus + Alertmanager + Grafana) |
+|                  | DCGM Exporter              | DaemonSet                                            |
+|                  | Loki                       | Helm sub-chart                                       |
+| Security         | Trivy Operator             | Helm sub-chart                                       |
+| Storage          | NFS CSI Driver             | Helm sub-chart                                       |
 
 ### 8.3 Scaling to Multiple Nodes
 
@@ -366,22 +368,22 @@ curl -sfL https://get.k3s.io | K3S_URL=https://<master-ip>:6443 \
 
 ### 9.1 Security Layers
 
-| Layer | Measure | Implementation |
-|-------|---------|----------------|
-| Network entry | Cloudflare Access Zero Trust | IP range / email domain restriction + DDoS |
-| Transport | HTTPS | Cloudflare automatic |
-| Authentication | JWT + bcrypt | FastAPI Users, token expiry + refresh rotation |
-| Authorization | RBAC (3 roles) | Custom middleware on FastAPI |
-| API protection | Rate limiting | slowapi middleware |
-| Build isolation | Sandbox Pod | Isolated Pod with restricted network + resources |
-| Image scanning | Trivy Operator | Post-build scan; Critical/High CVE blocks Harbor push |
-| Container runtime | SecurityContext | non-root, read-only fs, drop ALL capabilities, no privilege escalation |
-| Syscall restriction | Seccomp profile | Restrict available system calls |
-| Network isolation | Cilium NetworkPolicy | Training Pods: no external access, no K8s API, no DNS tunneling |
-| NFS protection | Mount options | read-only + noexec (prevent malware execution) |
-| Secrets | K8s Secrets + etcd encryption | Encryption at rest enabled |
-| Service accounts | Disable automount | Training Pods do not receive SA tokens |
-| Audit | Operation logs | Login, role changes, job submit/complete, model state changes → Loki |
+| Layer               | Measure                       | Implementation                                                         |
+| ------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| Network entry       | Cloudflare Access Zero Trust  | IP range / email domain restriction + DDoS                             |
+| Transport           | HTTPS                         | Cloudflare automatic                                                   |
+| Authentication      | JWT + bcrypt                  | FastAPI Users, token expiry + refresh rotation                         |
+| Authorization       | RBAC (3 roles)                | Custom middleware on FastAPI                                           |
+| API protection      | Rate limiting                 | slowapi middleware                                                     |
+| Build isolation     | Sandbox Pod                   | Isolated Pod with restricted network + resources                       |
+| Image scanning      | Trivy Operator                | Post-build scan; Critical/High CVE blocks Harbor push                  |
+| Container runtime   | SecurityContext               | non-root, read-only fs, drop ALL capabilities, no privilege escalation |
+| Syscall restriction | Seccomp profile               | Restrict available system calls                                        |
+| Network isolation   | Cilium NetworkPolicy          | Training Pods: no external access, no K8s API, no DNS tunneling        |
+| NFS protection      | Mount options                 | read-only + noexec (prevent malware execution)                         |
+| Secrets             | K8s Secrets + etcd encryption | Encryption at rest enabled                                             |
+| Service accounts    | Disable automount             | Training Pods do not receive SA tokens                                 |
+| Audit               | Operation logs                | Login, role changes, job submit/complete, model state changes → Loki   |
 
 ### 9.2 Malware-Specific Considerations
 
@@ -395,27 +397,27 @@ curl -sfL https://get.k3s.io | K3S_URL=https://<master-ip>:6443 \
 
 ### 10.1 Tool Stack
 
-| Tool | Purpose | Audience |
-|------|---------|----------|
-| Prometheus | Metrics collection | System |
-| Alertmanager | Alert notifications | Admin (via email) |
-| Grafana | Dashboards | Admin |
-| DCGM Exporter | GPU metrics | Admin |
-| Loki | Log aggregation | Admin + Users (own job logs) |
+| Tool          | Purpose             | Audience                     |
+| ------------- | ------------------- | ---------------------------- |
+| Prometheus    | Metrics collection  | System                       |
+| Alertmanager  | Alert notifications | Admin (via email)            |
+| Grafana       | Dashboards          | Admin                        |
+| DCGM Exporter | GPU metrics         | Admin                        |
+| Loki          | Log aggregation     | Admin + Users (own job logs) |
 
 ### 10.2 Alert Rules
 
-| Alert | Condition | Severity |
-|-------|-----------|----------|
-| Node disk almost full | > 85% | Critical |
-| GPU temperature too high | > 85°C | Critical |
-| PostgreSQL down | health check fail | Critical |
-| NFS mount failure | mount point unreadable | Critical |
-| Cloudflare Tunnel disconnected | both replicas down | Critical |
-| Backup job failed | CronJob exit ≠ 0 | High |
-| PV usage high | > 80% | High |
-| Job queued too long | > 2 hours | Warning |
-| Harbor storage low | > 80% | Warning |
+| Alert                          | Condition              | Severity |
+| ------------------------------ | ---------------------- | -------- |
+| Node disk almost full          | > 85%                  | Critical |
+| GPU temperature too high       | > 85°C                 | Critical |
+| PostgreSQL down                | health check fail      | Critical |
+| NFS mount failure              | mount point unreadable | Critical |
+| Cloudflare Tunnel disconnected | both replicas down     | Critical |
+| Backup job failed              | CronJob exit ≠ 0       | High     |
+| PV usage high                  | > 80%                  | High     |
+| Job queued too long            | > 2 hours              | Warning  |
+| Harbor storage low             | > 80%                  | Warning  |
 
 ### 10.3 User-Facing UI
 
@@ -435,14 +437,14 @@ curl -sfL https://get.k3s.io | K3S_URL=https://<master-ip>:6443 \
 
 ## 11. Notifications
 
-| Event | Recipient | Channel |
-|-------|-----------|---------|
-| Job completed | Submitter | Email (Resend) |
-| Job failed | Submitter | Email (Resend) |
-| Detector build completed/failed | Developer | Email (Resend) |
-| Trivy scan blocked | Developer | Email (Resend) |
-| System alert | Admin | Email (Alertmanager) |
-| Future expansion | All | Discord webhook |
+| Event                           | Recipient | Channel              |
+| ------------------------------- | --------- | -------------------- |
+| Job completed                   | Submitter | Email (Resend)       |
+| Job failed                      | Submitter | Email (Resend)       |
+| Detector build completed/failed | Developer | Email (Resend)       |
+| Trivy scan blocked              | Developer | Email (Resend)       |
+| System alert                    | Admin     | Email (Alertmanager) |
+| Future expansion                | All       | Discord webhook      |
 
 ---
 
@@ -450,14 +452,14 @@ curl -sfL https://get.k3s.io | K3S_URL=https://<master-ip>:6443 \
 
 ### 12.1 Backup Strategy
 
-| Data | Method | Frequency | Retention | Destination |
-|------|--------|-----------|-----------|-------------|
-| PostgreSQL | pg_dump CronJob | Every 6 hours | 7 days | Cloudflare R2 |
-| etcd / K3s state | k3s etcd-snapshot CronJob | Daily | 7 days | Cloudflare R2 |
-| MLflow artifacts | rsync CronJob | Daily | 14 days | Cloudflare R2 |
-| Harbor images | Not backed up (rebuild from Git) | — | — | — |
-| Helm chart | Git repo (natural backup) | — | — | GitHub |
-| NFS dataset | Not managed by lolday | — | — | — |
+| Data             | Method                           | Frequency     | Retention | Destination   |
+| ---------------- | -------------------------------- | ------------- | --------- | ------------- |
+| PostgreSQL       | pg_dump CronJob                  | Every 6 hours | 7 days    | Cloudflare R2 |
+| etcd / K3s state | k3s etcd-snapshot CronJob        | Daily         | 7 days    | Cloudflare R2 |
+| MLflow artifacts | rsync CronJob                    | Daily         | 14 days   | Cloudflare R2 |
+| Harbor images    | Not backed up (rebuild from Git) | —             | —         | —             |
+| Helm chart       | Git repo (natural backup)        | —             | —         | GitHub        |
+| NFS dataset      | Not managed by lolday            | —             | —         | —             |
 
 ### 12.2 Disaster Recovery (Full Server Loss)
 
@@ -480,27 +482,27 @@ Monthly manual restore test to a temporary environment to confirm backups are us
 
 ### Already Available
 
-| Tool | Version |
-|------|---------|
-| Docker | 29.3.1 |
-| Python | 3.12.7 |
-| uv | 0.11.2 |
-| Node.js | 24.14.1 |
-| npm | 11.11.0 |
-| gh (GitHub CLI) | 2.89.0 |
+| Tool            | Version |
+| --------------- | ------- |
+| Docker          | 29.3.1  |
+| Python          | 3.12.7  |
+| uv              | 0.11.2  |
+| Node.js         | 24.14.1 |
+| npm             | 11.11.0 |
+| gh (GitHub CLI) | 2.89.0  |
 
 ### Installed for This Project
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| kubectl | 1.35.3 | K8s CLI |
-| Helm | 3.17.3 | K8s package management |
-| K3s | 1.34.5 | Kubernetes cluster |
-| Cilium CLI | 0.19.2 | CNI with NetworkPolicy |
-| k9s | 0.50.18 | K8s terminal UI |
-| Trivy | 0.69.3 | Image vulnerability scanning |
-| Cloudflared | 2026.3.0 | Cloudflare Tunnel |
-| pnpm | 10.33.0 | Node.js package management |
+| Tool        | Version  | Purpose                      |
+| ----------- | -------- | ---------------------------- |
+| kubectl     | 1.35.3   | K8s CLI                      |
+| Helm        | 3.17.3   | K8s package management       |
+| K3s         | 1.34.5   | Kubernetes cluster           |
+| Cilium CLI  | 0.19.2   | CNI with NetworkPolicy       |
+| k9s         | 0.50.18  | K8s terminal UI              |
+| Trivy       | 0.69.3   | Image vulnerability scanning |
+| Cloudflared | 2026.3.0 | Cloudflare Tunnel            |
+| pnpm        | 10.33.0  | Node.js package management   |
 
 ---
 

@@ -113,7 +113,7 @@ PLATFORM SIDE (lolday phase11e)
    manifest schema → backend validation → frontend form. There is no
    second source; manifest is canonical.
 2. **Run-time metrics**: `job_events` is canonical. `job.summary_metrics`
-   is a *materialized read model* with a single writer (the reconciler's
+   is a _materialized read model_ with a single writer (the reconciler's
    `stage_end` projection). Re-running the projection produces identical
    output (idempotent).
 3. **MLflow** remains the long-term metric history store but is **not**
@@ -150,6 +150,7 @@ hydra-zen must wrap them into a single root class. This is the cost of
 typing the contract; the rest of phase 11e relies on it.
 
 Behavior:
+
 1. Load `maldet.toml`; for each declared stage, locate the stage's root
    Hydra config file (e.g. `configs/train.yaml`).
 2. Resolve that root config's `_target_` to a Python class — this is the
@@ -186,6 +187,7 @@ logger.log_event(
 ### `maldet check` lint additions
 
 `maldet check` now fails on:
+
 - A stage whose top-level config class is not a `pydantic.BaseModel` (e.g.
   hydra-zen-built dataclass without explicit conversion).
 - A stage whose top-level config class has `extra != "forbid"`.
@@ -196,19 +198,20 @@ and class. CI for elfrfdet / elfcnndet gates on this.
 ### Templates
 
 `templates/sklearn_basic/` and `templates/lightning_cnn/` updated:
+
 - Stage config classes are explicit `pydantic.BaseModel` subclasses with
   `model_config = ConfigDict(extra="forbid")`.
 - Hydra-zen `ZenStore` registrations point at these classes.
 
 ### Tests
 
-| File | Coverage |
-|---|---|
-| `tests/test_manifest_v11.py` | Old manifest (no `params_schema`) → `model_validate` raises. New manifest with valid schema → loads. |
-| `tests/test_introspect_schema.py` | Sample Pydantic class (nested + Literal + Optional) → JSON Schema with correct properties / required / additionalProperties=False. |
-| `tests/test_check_lints_strict.py` | `extra="allow"` config → check fails. dataclass-only config → check fails. |
-| `tests/events/test_kinds_confusion_matrix.py` | Valid `confusion_matrix` event passes; missing `labels` or `matrix` raises. |
-| `tests/integration/test_e2e_*` (existing) | Re-run; verify produced `manifest.json` contains `params_schema`. |
+| File                                          | Coverage                                                                                                                           |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/test_manifest_v11.py`                  | Old manifest (no `params_schema`) → `model_validate` raises. New manifest with valid schema → loads.                               |
+| `tests/test_introspect_schema.py`             | Sample Pydantic class (nested + Literal + Optional) → JSON Schema with correct properties / required / additionalProperties=False. |
+| `tests/test_check_lints_strict.py`            | `extra="allow"` config → check fails. dataclass-only config → check fails.                                                         |
+| `tests/events/test_kinds_confusion_matrix.py` | Valid `confusion_matrix` event passes; missing `labels` or `matrix` raises.                                                        |
+| `tests/integration/test_e2e_*` (existing)     | Re-run; verify produced `manifest.json` contains `params_schema`.                                                                  |
 
 Coverage target: ≥ 80% (current 88%, new modules brought up to ≥ 80%).
 
@@ -297,6 +300,7 @@ def validate_user_params(
 ```
 
 Caller in `routers/jobs.py:create_job`:
+
 ```python
 schema = manifest_model.stages[body.type.value].params_schema
 try:
@@ -362,12 +366,12 @@ populate.
 
 ### Tests
 
-| File | Coverage |
-|---|---|
-| `tests/test_jsonschema_validate_params.py` | Valid params pass; extras → 422 with `/path`; type mismatch → 422; out-of-range (`minimum`/`maximum`) → 422. |
+| File                                          | Coverage                                                                                                                                                             |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/test_jsonschema_validate_params.py`    | Valid params pass; extras → 422 with `/path`; type mismatch → 422; out-of-range (`minimum`/`maximum`) → 422.                                                         |
 | `tests/test_reconciler_summary_projection.py` | Insert metric+confusion_matrix events → trigger projection → assert shape. Re-run → idempotent. Job with no metric events → `{metrics: {}, confusion_matrix: None}`. |
-| `tests/test_jobs_create_v11e.py` | Mock detector with valid manifest+schema → submit valid params → 202. Submit invalid → 422 with JSON Pointer. Mock manifest missing schema → 400 (pre-flight). |
-| `tests/test_schemas_version_detail_read.py` | `VersionDetailRead.model_fields` includes `manifest`; large schema serializes. |
+| `tests/test_jobs_create_v11e.py`              | Mock detector with valid manifest+schema → submit valid params → 202. Submit invalid → 422 with JSON Pointer. Mock manifest missing schema → 400 (pre-flight).       |
+| `tests/test_schemas_version_detail_read.py`   | `VersionDetailRead.model_fields` includes `manifest`; large schema serializes.                                                                                       |
 
 ---
 
@@ -380,7 +384,9 @@ populate.
 const stageSchema = versionDetail?.manifest?.stages?.[type]?.params_schema;
 
 <Card>
-  <CardHeader><CardTitle>Hyperparameters</CardTitle></CardHeader>
+  <CardHeader>
+    <CardTitle>Hyperparameters</CardTitle>
+  </CardHeader>
   <CardContent>
     {stageSchema ? (
       <RjsfConfigForm
@@ -390,11 +396,12 @@ const stageSchema = versionDetail?.manifest?.stages?.[type]?.params_schema;
       />
     ) : (
       <p className="text-sm text-destructive">
-        Selected detector version has no params schema; rebuild with maldet ≥ 1.1.
+        Selected detector version has no params schema; rebuild with maldet ≥
+        1.1.
       </p>
     )}
   </CardContent>
-</Card>
+</Card>;
 ```
 
 - `paramsText` state, `parseParams` helper, JSON textarea — all removed.
@@ -410,10 +417,14 @@ full manifest:
 ```tsx
 <Sheet>
   <SheetTrigger asChild>
-    <Button variant="ghost" size="sm">View manifest</Button>
+    <Button variant="ghost" size="sm">
+      View manifest
+    </Button>
   </SheetTrigger>
   <SheetContent>
-    <SheetHeader><SheetTitle>Manifest: {tag}</SheetTitle></SheetHeader>
+    <SheetHeader>
+      <SheetTitle>Manifest: {tag}</SheetTitle>
+    </SheetHeader>
     <JsonViewer value={data.manifest} />
   </SheetContent>
 </Sheet>
@@ -483,12 +494,12 @@ the running `/openapi.json`. Picks up `VersionDetailRead.manifest` and
 
 ### Tests
 
-| File | Coverage |
-|---|---|
-| `tests/unit/components/JobSubmitForm.test.tsx` | Mock `versionDetail.manifest.stages.train.params_schema` (epochs:int, lr:number, nested.dim:int) → RJSF renders fields → edit + submit → `useSubmitJob` sees nested typed `params`. Schema absent → "rebuild" message. |
-| `tests/unit/components/JobsList.test.tsx` | summary_metrics with metrics → tile + `+N more`. summary_metrics null → dash. |
-| `tests/unit/hooks/useJobEvents.test.ts` (existing) | unchanged. |
-| `tests/e2e/phase11e-full-flow.spec.ts` | Opt-in `PHASE11E_VERIFY=1`. service token login → /jobs/new → pick v3.0.0 detector → RJSF renders → edit field → submit → wait stage_end → /jobs/:id sees chart + summary card → /jobs list sees tile. |
+| File                                               | Coverage                                                                                                                                                                                                               |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/unit/components/JobSubmitForm.test.tsx`     | Mock `versionDetail.manifest.stages.train.params_schema` (epochs:int, lr:number, nested.dim:int) → RJSF renders fields → edit + submit → `useSubmitJob` sees nested typed `params`. Schema absent → "rebuild" message. |
+| `tests/unit/components/JobsList.test.tsx`          | summary_metrics with metrics → tile + `+N more`. summary_metrics null → dash.                                                                                                                                          |
+| `tests/unit/hooks/useJobEvents.test.ts` (existing) | unchanged.                                                                                                                                                                                                             |
+| `tests/e2e/phase11e-full-flow.spec.ts`             | Opt-in `PHASE11E_VERIFY=1`. service token login → /jobs/new → pick v3.0.0 detector → RJSF renders → edit field → submit → wait stage_end → /jobs/:id sees chart + summary card → /jobs list sees tile.                 |
 
 ---
 
@@ -531,10 +542,10 @@ Strict ordering — each step blocks the next:
 
 ### Risk windows
 
-| Window | Duration | Effect | Mitigation |
-|---|---|---|---|
-| Step 4 push complete → Step 6 helm done | ~10 min | Old v2.0.6/v2.1.0 detector job submission rejected (manifest missing schema). | Don't submit during window. |
-| Step 6 helm rolling | ~30 sec | One backend pod still phase11d2 while frontend phase11e — old backend can't return `manifest` field, frontend shows "rebuild detector" message. | helm rollingUpdate default; tolerable. |
+| Window                                  | Duration | Effect                                                                                                                                          | Mitigation                             |
+| --------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Step 4 push complete → Step 6 helm done | ~10 min  | Old v2.0.6/v2.1.0 detector job submission rejected (manifest missing schema).                                                                   | Don't submit during window.            |
+| Step 6 helm rolling                     | ~30 sec  | One backend pod still phase11d2 while frontend phase11e — old backend can't return `manifest` field, frontend shows "rebuild detector" message. | helm rollingUpdate default; tolerable. |
 
 ### Rollback
 
@@ -562,11 +573,11 @@ rebuild + backend redeploy. Same path as 11a/11d patches; established.
 
 ### Per-layer coverage targets
 
-| Layer | Target | Current |
-|---|---|---|
-| maldet | ≥ 80% | 88% (will drop slightly with new modules; brought back ≥ 80%) |
-| lolday backend | every new module ≥ 80% | overall ~404 tests today, +12-15 in 11e |
-| lolday frontend | every new module ≥ 80% | 36 unit + 1 opt-in e2e today, → ~45 unit + 2 opt-in e2e |
+| Layer           | Target                 | Current                                                       |
+| --------------- | ---------------------- | ------------------------------------------------------------- |
+| maldet          | ≥ 80%                  | 88% (will drop slightly with new modules; brought back ≥ 80%) |
+| lolday backend  | every new module ≥ 80% | overall ~404 tests today, +12-15 in 11e                       |
+| lolday frontend | every new module ≥ 80% | 36 unit + 1 opt-in e2e today, → ~45 unit + 2 opt-in e2e       |
 
 ### TDD order
 
@@ -586,15 +597,15 @@ a deployed cluster.
 
 ### Smoke checkpoints (gating each deploy step)
 
-| Step | Gate |
-|---|---|
-| 1 | `pip install maldet==1.1.0` + `maldet check elfrfdet/maldet.toml` exit 0 |
-| 2 | Both detector repos' CI green + tags pushed |
-| 3 | `psql -tAc "SELECT manifest->'stages'->'train'->'params_schema' FROM detector_version WHERE git_tag='v3.0.0'"` non-null |
-| 4 | `pytest` all green + image push OK |
-| 5 | `pnpm test` + `pnpm build` + image push OK |
-| 6 | `kubectl rollout status deploy/{backend,frontend}` ready |
-| 7 | Smoke (RJSF render, summary_metrics populated, tile visible) all pass |
+| Step | Gate                                                                                                                    |
+| ---- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1    | `pip install maldet==1.1.0` + `maldet check elfrfdet/maldet.toml` exit 0                                                |
+| 2    | Both detector repos' CI green + tags pushed                                                                             |
+| 3    | `psql -tAc "SELECT manifest->'stages'->'train'->'params_schema' FROM detector_version WHERE git_tag='v3.0.0'"` non-null |
+| 4    | `pytest` all green + image push OK                                                                                      |
+| 5    | `pnpm test` + `pnpm build` + image push OK                                                                              |
+| 6    | `kubectl rollout status deploy/{backend,frontend}` ready                                                                |
+| 7    | Smoke (RJSF render, summary_metrics populated, tile visible) all pass                                                   |
 
 ---
 
@@ -623,9 +634,9 @@ revisiting this spec.
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "n_estimators": {"type": "integer", "minimum": 1, "default": 100},
-          "max_depth":    {"type": ["integer", "null"], "default": null},
-          "random_state": {"type": "integer", "default": 42}
+          "n_estimators": { "type": "integer", "minimum": 1, "default": 100 },
+          "max_depth": { "type": ["integer", "null"], "default": null },
+          "random_state": { "type": "integer", "default": 42 }
         }
       }
     },
@@ -635,12 +646,17 @@ revisiting this spec.
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "threshold": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.5}
+          "threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.5
+          }
         }
       }
     }
   },
-  "lifecycle": {"supports_distributed": false}
+  "lifecycle": { "supports_distributed": false }
 }
 ```
 
@@ -655,7 +671,10 @@ revisiting this spec.
   },
   "confusion_matrix": {
     "labels": ["benign", "malware"],
-    "matrix": [[480, 12], [8, 292]]
+    "matrix": [
+      [480, 12],
+      [8, 292]
+    ]
   }
 }
 ```

@@ -13,6 +13,7 @@
 **Server:** server30 (Ubuntu 24.04, K3s v1.34.6+k3s1, 2× RTX 2080 Ti)
 
 **Constraints:**
+
 - `bolin8017` has no persistent sudo; give sudo commands to user to run
 - CLI tools in `~/.local/bin/`; do NOT system-install anything without explicit approval
 - SSH (port 9453) must never be disrupted; K3s must remain running after every step
@@ -130,6 +131,7 @@ upxelfdet/
 ## Task 1: Backend Scaffolding — Dependencies, Models/Schemas Split
 
 **Files:**
+
 - Modify: `backend/pyproject.toml`
 - Create: `backend/app/models/dataset.py` (placeholder)
 - Create: `backend/app/models/job.py` (placeholder)
@@ -317,6 +319,7 @@ git commit -m "feat(backend): phase 4 scaffolding — deps + placeholder model/s
 ## Task 2: Phase 4 Data Model + Alembic Migration
 
 **Files:**
+
 - Modify: `backend/app/models/detector.py` (add `mlflow_experiment_id` column)
 - Modify: `backend/app/models/dataset.py`
 - Modify: `backend/app/models/job.py`
@@ -601,12 +604,14 @@ cd backend && uv run alembic revision --autogenerate -m "add phase 4 tables (dat
 ```
 
 Review generated file under `backend/alembic/versions/`; verify it includes:
+
 - `CREATE TYPE` for each new enum
 - `CREATE TABLE dataset_config`, `job`, `model_version`, `model_transition_log`
 - All FK constraints and indexes
 - `ALTER TABLE detector_version ADD COLUMN mlflow_experiment_id`
 
 **Common issues to fix manually in the migration:**
+
 - Alembic autogenerate sometimes misses `postgresql_where` clauses on partial indexes. Open the migration file and add them explicitly where needed.
 - `SAEnum` reuse (`model_stage_enum` is used by two tables): Alembic may try to `CREATE TYPE` twice. Use `checkfirst=True` on the second usage or keep a single `op.execute("CREATE TYPE ...")` at the top.
 - Table creation order: `job` references `model_version`; `model_version` references `job`. This is a circular FK. Break it by:
@@ -681,6 +686,7 @@ git commit -m "feat(backend): add phase 4 data model + alembic migration"
 ## Task 3: MLflow Client Service
 
 **Files:**
+
 - Create: `backend/app/services/mlflow_client.py`
 - Create: `backend/tests/fixtures/sample_mlflow_responses.py`
 - Create: `backend/tests/test_services_mlflow_client.py`
@@ -1187,6 +1193,7 @@ git commit -m "feat(backend): add async MLflow REST client service"
 ## Task 4: Dataset Service — CSV Parsing, Checksum, Sample Integrity
 
 **Files:**
+
 - Create: `backend/app/services/dataset.py`
 - Create: `backend/tests/fixtures/sample_dataset.csv`
 - Create: `backend/tests/test_services_dataset.py`
@@ -1593,6 +1600,7 @@ git commit -m "feat(backend): add dataset CSV parser + spot-check service"
 ## Task 5: Dataset Schemas + Router (CRUD)
 
 **Files:**
+
 - Modify: `backend/app/schemas/dataset.py`
 - Create: `backend/app/routers/datasets.py`
 - Create: `backend/tests/test_datasets.py`
@@ -2206,6 +2214,7 @@ git commit -m "feat(backend): add dataset CRUD endpoints"
 ## Task 6: Job Token Service + Config Rendering
 
 **Files:**
+
 - Create: `backend/app/services/job_tokens.py`
 - Create: `backend/app/services/job_config.py`
 - Create: `backend/tests/test_services_job_tokens.py`
@@ -2567,6 +2576,7 @@ git commit -m "feat(backend): add job token + config rendering services"
 ## Task 7: K8s Job Spec Generator
 
 **Files:**
+
 - Create: `backend/app/services/job_spec.py`
 - Create: `backend/tests/test_services_job_spec.py`
 - Modify: `backend/app/config.py`
@@ -3023,6 +3033,7 @@ git commit -m "feat(backend): add K8s Job manifest generator for detector runs"
 ## Task 8: Model Registry Service
 
 **Files:**
+
 - Create: `backend/app/services/model_registry.py`
 - Create: `backend/tests/test_services_model_registry.py`
 
@@ -3237,6 +3248,7 @@ git commit -m "feat(backend): add model registry transition rule validation"
 ## Task 9: Job Schemas + Router + Internal Config Endpoint
 
 **Files:**
+
 - Modify: `backend/app/schemas/job.py`
 - Modify: `backend/app/schemas/__init__.py`
 - Create: `backend/app/routers/jobs.py`
@@ -4188,6 +4200,7 @@ git commit -m "feat(backend): add job CRUD + internal config endpoint"
 ## Task 10: Model Registry Router + MLflow Proxy Router
 
 **Files:**
+
 - Modify: `backend/app/schemas/model_registry.py`
 - Modify: `backend/app/schemas/__init__.py`
 - Create: `backend/app/routers/models_registry.py`
@@ -4953,6 +4966,7 @@ git commit -m "feat(backend): add model registry + MLflow proxy routers"
 ## Task 11: Reconciler Extension — Jobs + Model Sync
 
 **Files:**
+
 - Modify: `backend/app/reconciler.py`
 - Create: `backend/tests/test_reconciler_jobs.py`
 
@@ -5460,6 +5474,7 @@ git commit -m "feat(backend): extend reconciler for job lifecycle + model sync"
 ## Task 12: Job Helper Image (write_config + fetch_model)
 
 **Files:**
+
 - Create: `charts/lolday/helpers/job-helper/Dockerfile`
 - Create: `charts/lolday/helpers/job-helper/pyproject.toml`
 - Create: `charts/lolday/helpers/job-helper/job_helper/__init__.py`
@@ -5773,6 +5788,7 @@ git commit -m "feat(helpers): add job-helper init-container image (write_config 
 ## Task 13: Helm — Sample PVs + PVCs
 
 **Files:**
+
 - Create: `charts/lolday/templates/samples-pv.yaml`
 - Create: `charts/lolday/templates/samples-pvc.yaml`
 - Modify: `charts/lolday/values.yaml`
@@ -5909,6 +5925,7 @@ git commit -m "feat(chart): add sample PVs (hostPath) + PVCs for malware + benig
 ## Task 14: Helm — MLflow Deployment + PVC + Service + DB Init Hook
 
 **Files:**
+
 - Create: `charts/lolday/templates/mlflow.yaml`
 - Create: `charts/lolday/templates/mlflow-db-init-job.yaml`
 - Create: `charts/lolday/templates/mlflow-secret.yaml`
@@ -5928,7 +5945,7 @@ mlflow:
     port: 5000
   resources:
     requests: { cpu: 200m, memory: 512Mi }
-    limits:   { cpu: 2, memory: 4Gi }
+    limits: { cpu: 2, memory: 4Gi }
   # DB password injected via --set at deploy time (NEVER commit):
   db:
     username: mlflow
@@ -6146,6 +6163,7 @@ git commit -m "feat(chart): add MLflow server deployment + PVC + DB init hook"
 ## Task 15: Helm — Job NetworkPolicy + Backend Env + RBAC
 
 **Files:**
+
 - Create: `charts/lolday/templates/job-networkpolicy.yaml`
 - Modify: `charts/lolday/templates/backend.yaml`
 - Modify: `charts/lolday/templates/backend-rbac.yaml`
@@ -6239,12 +6257,12 @@ spec:
 Edit `charts/lolday/templates/backend-rbac.yaml`. Add to the existing Role's rules (if not already present — Phase 3 should have most):
 
 ```yaml
-  - apiGroups: [""]
-    resources: [persistentvolumeclaims]
-    verbs: [get, list, watch]
-  - apiGroups: [""]
-    resources: [pods/log]
-    verbs: [get, list]
+- apiGroups: [""]
+  resources: [persistentvolumeclaims]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [pods/log]
+  verbs: [get, list]
 ```
 
 Phase 3 already grants jobs/secrets/configmaps verbs; verify by reading the existing file first.
@@ -6254,24 +6272,24 @@ Phase 3 already grants jobs/secrets/configmaps verbs; verify by reading the exis
 Edit `charts/lolday/templates/backend.yaml`, look for the `env:` section under the backend container. Ensure these new vars are added (if not already defined via `values.backend.env`):
 
 ```yaml
-        - name: MLFLOW_TRACKING_URI
-          value: {{ .Values.backend.env.MLFLOW_TRACKING_URI | quote }}
-        - name: DATASET_CSV_MAX_BYTES
-          value: {{ .Values.backend.env.DATASET_CSV_MAX_BYTES | quote }}
-        - name: JOB_HELPER_IMAGE
-          value: {{ .Values.backend.env.JOB_HELPER_IMAGE | quote }}
-        - name: JOB_PER_USER_CONCURRENCY
-          value: {{ .Values.backend.env.JOB_PER_USER_CONCURRENCY | quote }}
-        - name: JOB_IDEMPOTENCY_WINDOW_SECONDS
-          value: {{ .Values.backend.env.JOB_IDEMPOTENCY_WINDOW_SECONDS | quote }}
-        - name: JOB_BACKEND_URL
-          value: {{ .Values.backend.env.JOB_BACKEND_URL | quote }}
-        - name: SAMPLES_ROOT
-          value: {{ .Values.backend.env.SAMPLES_ROOT | quote }}
-        - name: SAMPLES_LOCAL_ROOT
-          value: {{ .Values.backend.env.SAMPLES_LOCAL_ROOT | quote }}
-        - name: JOB_NODE_SELECTOR_HOSTNAME
-          value: {{ .Values.backend.env.JOB_NODE_SELECTOR_HOSTNAME | quote }}
+- name: MLFLOW_TRACKING_URI
+  value: { { .Values.backend.env.MLFLOW_TRACKING_URI | quote } }
+- name: DATASET_CSV_MAX_BYTES
+  value: { { .Values.backend.env.DATASET_CSV_MAX_BYTES | quote } }
+- name: JOB_HELPER_IMAGE
+  value: { { .Values.backend.env.JOB_HELPER_IMAGE | quote } }
+- name: JOB_PER_USER_CONCURRENCY
+  value: { { .Values.backend.env.JOB_PER_USER_CONCURRENCY | quote } }
+- name: JOB_IDEMPOTENCY_WINDOW_SECONDS
+  value: { { .Values.backend.env.JOB_IDEMPOTENCY_WINDOW_SECONDS | quote } }
+- name: JOB_BACKEND_URL
+  value: { { .Values.backend.env.JOB_BACKEND_URL | quote } }
+- name: SAMPLES_ROOT
+  value: { { .Values.backend.env.SAMPLES_ROOT | quote } }
+- name: SAMPLES_LOCAL_ROOT
+  value: { { .Values.backend.env.SAMPLES_LOCAL_ROOT | quote } }
+- name: JOB_NODE_SELECTOR_HOSTNAME
+  value: { { .Values.backend.env.JOB_NODE_SELECTOR_HOSTNAME | quote } }
 ```
 
 If the Phase 3 backend.yaml already uses a loop like `{{ range $k, $v := .Values.backend.env }}`, no manual addition needed — `values.yaml` populates it.
@@ -6304,6 +6322,7 @@ git commit -m "feat(chart): add job NetworkPolicy + backend MLflow/jobs env"
 **Repo:** `islab-malware-detector` (upstream on GitHub; user owns it)
 
 **Files in that repo:**
+
 - Modify: `pyproject.toml`
 - Modify: `src/maldet/cli.py`
 - Create: `tests/test_cli_mlflow.py`
@@ -6729,13 +6748,14 @@ pip install "islab-malware-detector[mlflow]"
 ```markdown
 Environment variables:
 
-| Variable                | Effect |
-|-------------------------|--------|
-| `MLFLOW_TRACKING_URI`   | When set, enables MLflow tracking |
-| `MLFLOW_RUN_ID`         | Reuse an existing run (lolday creates it) |
-| `MLFLOW_MODEL_NAME`     | Name used when registering models (default: detector class name) |
+| Variable              | Effect                                                           |
+| --------------------- | ---------------------------------------------------------------- |
+| `MLFLOW_TRACKING_URI` | When set, enables MLflow tracking                                |
+| `MLFLOW_RUN_ID`       | Reuse an existing run (lolday creates it)                        |
+| `MLFLOW_MODEL_NAME`   | Name used when registering models (default: detector class name) |
 
 Logged artifacts per action:
+
 - `train`: flattened config params, `config.json`, model directory under `model/`
 - `evaluate`: numeric metrics, `metrics.json`
 - `predict`: prediction file under `prediction/`
@@ -6847,6 +6867,7 @@ Note: lolday Phase 3 build pipeline rebuilds the detector image when a new tag i
 ## Task 18: Deploy Scripts Update
 
 **Files:**
+
 - Modify: `scripts/deploy.sh`
 - Create: `scripts/phase4-pre-deploy-check.sh`
 
@@ -7005,18 +7026,20 @@ git push origin --tags
 ## Task 20: E2E Smoke Test
 
 **Files:**
+
 - Create: `docs/phase4-e2e-checklist.md`
 
 - [ ] **Step 1: Write the checklist document**
 
 Create `docs/phase4-e2e-checklist.md`:
 
-```markdown
+````markdown
 # Phase 4 E2E Smoke Test Checklist
 
 **Purpose:** Validate end-to-end dataset + job + MLflow + Model Registry pipeline.
 
 **Prerequisites:**
+
 - Phase 3 deploy + E2E passed (upxelfdet successfully built to Harbor)
 - Sample directories populated at `/data/malware-samples/` and `/data/benign-samples/`
   (at least ~10 malware + ~10 benign samples matching file_names in the test dataset)
@@ -7030,6 +7053,7 @@ Port-forward to reach backend from dev machine:
 ```bash
 kubectl -n lolday port-forward svc/backend 8000:8000 &
 ```
+````
 
 ---
 
@@ -7096,9 +7120,10 @@ kubectl -n lolday port-forward svc/mlflow 5000:5000 &
 ```
 
 Expected: experiment `detector:<upxelfdet-id>:v0.5.0` has 1 FINISHED run, with:
-  - flat params (model.type, vectorize.method, etc.)
-  - metrics (if autolog caught sklearn's SVM fit)
-  - artifacts: `config.json`, `model/` with pickled model files
+
+- flat params (model.type, vectorize.method, etc.)
+- metrics (if autolog caught sklearn's SVM fit)
+- artifacts: `config.json`, `model/` with pickled model files
 
 - [ ] Verify model_version row created:
 
@@ -7261,14 +7286,15 @@ Expected: `active`.
 - [ ] SSH unaffected
 
 On successful sign-off, Phase 4 is ready to squash-merge to `main`.
-```
+
+````
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add docs/phase4-e2e-checklist.md
 git commit -m "docs: phase 4 E2E smoke test checklist"
-```
+````
 
 - [ ] **Step 3: Execute the checklist**
 
@@ -7310,31 +7336,32 @@ git push origin main
 
 ## Spec Coverage Summary
 
-| Spec section                               | Implementing task(s) |
-|--------------------------------------------|----------------------|
-| §Dataset Storage (PVs, layout)             | Task 13              |
-| §Dataset Config CRUD                       | Tasks 4, 5           |
-| §Data Model                                | Task 2               |
-| §API Endpoints: Datasets                   | Task 5               |
-| §API Endpoints: Jobs                       | Task 9               |
-| §API Endpoints: MLflow Proxy               | Task 10              |
-| §API Endpoints: Model Registry             | Task 10              |
-| §Job Submission & Lifecycle                | Task 9, Task 11      |
-| §Job Pod Specification                     | Task 7               |
-| §NetworkPolicy                             | Task 15              |
-| §MLflow Deployment                         | Task 14              |
-| §maldet Framework Changes (PR)             | Task 16              |
-| §Job Helper Image                          | Task 12              |
-| §Model Registry UX                         | Task 10              |
-| §Security Summary                          | Tasks 7, 9, 15 (mechanisms); Task 20 (verification) |
-| §Testing Strategy (unit)                   | Tasks 3, 4, 6, 7, 8, 9, 10, 11, 12 |
-| §Testing Strategy (integration)            | Tasks 5, 9, 10       |
-| §Testing Strategy (E2E)                    | Task 20              |
-| §Helm / Deployment                         | Tasks 13, 14, 15, 18 |
-| §Decisions & Amendments A8-A16             | (design-only, carried through Tasks 7, 9, 13, 14, 15) |
-| §Open Questions                            | Task 20 (benign samples layout verified during E2E); Task 9 (detector CLI discovery via `detector.name`); Task 9 (test_dataset optional resolution) |
+| Spec section                    | Implementing task(s)                                                                                                                                |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §Dataset Storage (PVs, layout)  | Task 13                                                                                                                                             |
+| §Dataset Config CRUD            | Tasks 4, 5                                                                                                                                          |
+| §Data Model                     | Task 2                                                                                                                                              |
+| §API Endpoints: Datasets        | Task 5                                                                                                                                              |
+| §API Endpoints: Jobs            | Task 9                                                                                                                                              |
+| §API Endpoints: MLflow Proxy    | Task 10                                                                                                                                             |
+| §API Endpoints: Model Registry  | Task 10                                                                                                                                             |
+| §Job Submission & Lifecycle     | Task 9, Task 11                                                                                                                                     |
+| §Job Pod Specification          | Task 7                                                                                                                                              |
+| §NetworkPolicy                  | Task 15                                                                                                                                             |
+| §MLflow Deployment              | Task 14                                                                                                                                             |
+| §maldet Framework Changes (PR)  | Task 16                                                                                                                                             |
+| §Job Helper Image               | Task 12                                                                                                                                             |
+| §Model Registry UX              | Task 10                                                                                                                                             |
+| §Security Summary               | Tasks 7, 9, 15 (mechanisms); Task 20 (verification)                                                                                                 |
+| §Testing Strategy (unit)        | Tasks 3, 4, 6, 7, 8, 9, 10, 11, 12                                                                                                                  |
+| §Testing Strategy (integration) | Tasks 5, 9, 10                                                                                                                                      |
+| §Testing Strategy (E2E)         | Task 20                                                                                                                                             |
+| §Helm / Deployment              | Tasks 13, 14, 15, 18                                                                                                                                |
+| §Decisions & Amendments A8-A16  | (design-only, carried through Tasks 7, 9, 13, 14, 15)                                                                                               |
+| §Open Questions                 | Task 20 (benign samples layout verified during E2E); Task 9 (detector CLI discovery via `detector.name`); Task 9 (test_dataset optional resolution) |
 
 **Self-review notes:**
+
 - `test_dataset` optionality: spec §Data Model marks it as nullable but type-matrix requires it for train. JobCreate schema requires it strictly; relax to optional only if a real detector needs it (deferred per spec Open Q3).
 - Backend image is rebuilt in Task 19; Alembic migration applied on startup assumes lifespan runs `alembic upgrade head` (verify during Task 2; if Phase 3 doesn't, add it as a Task 2 sub-step).
 - `dv.detector` lazy loading: requires SQLAlchemy relationship; documented in Task 9 Step 7 as a one-line addition. If Phase 3's `Detector` model lacks the back_populates, add it there without renaming.
@@ -7351,4 +7378,3 @@ Plan complete and saved to `docs/superpowers/plans/2026-04-17-phase4-dataset-job
 **2. Inline Execution** — execute tasks in this session using executing-plans, batch execution with checkpoints for review.
 
 Which approach?
-

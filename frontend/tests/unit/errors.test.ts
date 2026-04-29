@@ -29,7 +29,8 @@ describe("parseError", () => {
     const err = parseError(409, {
       detail: {
         code: "version_has_in_flight_jobs",
-        message: "Cancel running jobs that use this version before deleting it.",
+        message:
+          "Cancel running jobs that use this version before deleting it.",
       },
     });
     expect(err.status).toBe(409);
@@ -39,7 +40,9 @@ describe("parseError", () => {
       extra: undefined,
     });
     // .detail is the human-readable string (message), not "HTTP 409"
-    expect(err.detail).toBe("Cancel running jobs that use this version before deleting it.");
+    expect(err.detail).toBe(
+      "Cancel running jobs that use this version before deleting it.",
+    );
   });
 
   it("parses object detail with code only (no message)", () => {
@@ -86,7 +89,10 @@ describe("LoldayApiError", () => {
   });
 
   it("structuredDetail is preserved when constructed with one", () => {
-    const err = new LoldayApiError(409, "msg", [], { code: "x", message: "msg" });
+    const err = new LoldayApiError(409, "msg", [], {
+      code: "x",
+      message: "msg",
+    });
     expect(err.structuredDetail).toEqual({ code: "x", message: "msg" });
   });
 });

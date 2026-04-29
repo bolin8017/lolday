@@ -16,12 +16,11 @@ import asyncio
 import logging
 import sys
 
-from sqlalchemy import select
-
 from app.db import async_session_maker
 from app.models import Job
 from app.models.job import NON_TERMINAL_STATUSES
 from app.reconciler import _project_summary_metrics
+from sqlalchemy import select
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 _log = logging.getLogger("backfill")
@@ -29,14 +28,22 @@ _log = logging.getLogger("backfill")
 
 async def main() -> int:
     async with async_session_maker() as session:
-        terminal_with_null = (await session.execute(
-            select(Job.id).where(
-                ~Job.status.in_(NON_TERMINAL_STATUSES),
-                Job.summary_metrics.is_(None),
+        terminal_with_null = (
+            (
+                await session.execute(
+                    select(Job.id).where(
+                        ~Job.status.in_(NON_TERMINAL_STATUSES),
+                        Job.summary_metrics.is_(None),
+                    )
+                )
             )
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
 
-    _log.info("found %d terminal jobs with null summary_metrics", len(terminal_with_null))
+    _log.info(
+        "found %d terminal jobs with null summary_metrics", len(terminal_with_null)
+    )
     failures = 0
     for jid in terminal_with_null:
         async with async_session_maker() as session:

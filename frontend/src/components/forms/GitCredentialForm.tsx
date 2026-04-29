@@ -2,14 +2,20 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useGitCredential, useSetGitCredential, useDeleteGitCredential } from "@/api/queries/users";
+import {
+  useGitCredential,
+  useSetGitCredential,
+  useDeleteGitCredential,
+} from "@/api/queries/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 
-const schema = z.object({ token: z.string().min(20, "Looks too short for a PAT") });
+const schema = z.object({
+  token: z.string().min(20, "Looks too short for a PAT"),
+});
 type Values = z.infer<typeof schema>;
 
 export function GitCredentialForm() {
@@ -18,7 +24,12 @@ export function GitCredentialForm() {
   const clearCred = useDeleteGitCredential();
   const [editing, setEditing] = useState(false);
   const { toast } = useToast();
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Values>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<Values>({
     resolver: zodResolver(schema),
   });
 
@@ -33,10 +44,15 @@ export function GitCredentialForm() {
           </AlertDescription>
         </Alert>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setEditing(true)}>Update</Button>
+          <Button variant="secondary" onClick={() => setEditing(true)}>
+            Update
+          </Button>
           <Button
             variant="destructive"
-            onClick={async () => { await clearCred.mutateAsync(); toast({ title: "Credential cleared." }); }}
+            onClick={async () => {
+              await clearCred.mutateAsync();
+              toast({ title: "Credential cleared." });
+            }}
           >
             Clear
           </Button>
@@ -57,12 +73,29 @@ export function GitCredentialForm() {
     >
       <div>
         <Label htmlFor="tok">GitHub PAT</Label>
-        <Input id="tok" type="password" autoComplete="off" {...register("token")} />
-        {errors.token && <p className="text-xs text-destructive">{errors.token.message}</p>}
+        <Input
+          id="tok"
+          type="password"
+          autoComplete="off"
+          {...register("token")}
+        />
+        {errors.token && (
+          <p className="text-xs text-destructive">{errors.token.message}</p>
+        )}
       </div>
       <div className="flex gap-2">
-        <Button type="submit" disabled={isSubmitting}>Save</Button>
-        {editing && <Button type="button" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>}
+        <Button type="submit" disabled={isSubmitting}>
+          Save
+        </Button>
+        {editing && (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setEditing(false)}
+          >
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   );

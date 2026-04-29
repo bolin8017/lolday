@@ -9,6 +9,7 @@
 **Tech Stack:** Python 3.12 (maldet, lolday backend), TypeScript / React (frontend), Pydantic v2, jsonschema (Draft 2020-12), `@rjsf/core`, FastAPI, SQLAlchemy/PostgreSQL, Alembic, Volcano, Helm.
 
 **Repos involved:**
+
 - `/home/bolin8017/Documents/repositories/maldet` (PyPI release, github `bolin8017/maldet`)
 - `/home/bolin8017/Documents/repositories/elfrfdet` (github `bolin8017/elfrfdet`)
 - `/home/bolin8017/Documents/repositories/elfcnndet` (github `bolin8017/elfcnndet`)
@@ -21,6 +22,7 @@
 ## File Structure (which file does what)
 
 ### maldet 1.1.0
+
 - `src/maldet/events/kinds.py` — add `CONFUSION_MATRIX` event kind + required fields
 - `src/maldet/evaluators/binary.py` — emit `confusion_matrix` event
 - `src/maldet/manifest.py` — `StageSpec` adds `config_class: str` (required) + `params_schema: dict[str, Any]` (required)
@@ -37,6 +39,7 @@
 - `CHANGELOG.md` — new entry
 
 ### elfrfdet 3.0.0
+
 - `src/elfrfdet/configs.py` — new: `TrainConfig`, `EvaluateConfig`, `PredictConfig` (Pydantic BaseModel)
 - `maldet.toml` — `[stages.train].config_class`, `[stages.evaluate].config_class`, `[stages.predict].config_class`; bump version
 - `pyproject.toml` — bump maldet pin to `>=1.1,<2.0`
@@ -45,9 +48,11 @@
 - `CHANGELOG.md` — 3.0.0 BREAKING entry
 
 ### elfcnndet 3.0.0
+
 - (same shape as elfrfdet, with Lightning-specific fields)
 
 ### Lolday backend phase11e
+
 - `backend/app/schemas/detector.py` — `VersionDetailRead.manifest`
 - `backend/app/schemas/job.py` — `JobSummary.summary_metrics`
 - `backend/app/services/jobs_params_validate.py` — new (jsonschema-based)
@@ -63,6 +68,7 @@
 - `lolday/scripts/deploy.sh` — bump default tags
 
 ### Lolday frontend phase11e
+
 - `frontend/src/api/schema.gen.ts` — regenerate
 - `frontend/src/components/forms/JobSubmitForm.tsx` — RJSF replaces textarea
 - `frontend/src/components/forms/JobSubmitForm.logic.ts` — drop `parseParams`
@@ -83,12 +89,14 @@
 ## Task 1.1: Add `confusion_matrix` event kind
 
 **Files:**
+
 - Modify: `src/maldet/events/kinds.py`
 - Test: `tests/events/test_kinds_confusion_matrix.py`
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/events/test_kinds_confusion_matrix.py`:
+
 ```python
 """confusion_matrix event kind — emitted by evaluators after MetricReport."""
 
@@ -121,11 +129,13 @@ def test_confusion_matrix_rejects_missing_matrix():
 cd /home/bolin8017/Documents/repositories/maldet
 uv run pytest tests/events/test_kinds_confusion_matrix.py -v
 ```
+
 Expected: FAIL with `AttributeError: CONFUSION_MATRIX` or `KeyError`.
 
 - [ ] **Step 3: Add CONFUSION_MATRIX to kinds**
 
 Edit `src/maldet/events/kinds.py`:
+
 ```python
 class EventKind(StrEnum):
     STAGE_BEGIN = "stage_begin"
@@ -161,6 +171,7 @@ _REQUIRED_FIELDS: dict[EventKind, tuple[str, ...]] = {
 ```bash
 uv run pytest tests/events/test_kinds_confusion_matrix.py -v
 ```
+
 Expected: 4 passed.
 
 - [ ] **Step 5: Commit**
@@ -175,12 +186,14 @@ git commit -m "feat(events): add confusion_matrix event kind"
 ## Task 1.2: BinaryClassification emits confusion_matrix
 
 **Files:**
+
 - Modify: `src/maldet/evaluators/binary.py`
 - Test: `tests/evaluators/test_binary_emits_confusion_matrix.py`
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/evaluators/test_binary_emits_confusion_matrix.py`:
+
 ```python
 """Evaluator emits confusion_matrix event after metrics are computed."""
 
@@ -245,16 +258,19 @@ def test_evaluate_emits_confusion_matrix(tmp_path):
 ```bash
 uv run pytest tests/evaluators/test_binary_emits_confusion_matrix.py -v
 ```
+
 Expected: FAIL — no `confusion_matrix` record in events.
 
 - [ ] **Step 3: Read existing evaluator and add the emit call**
 
 First read the current implementation:
+
 ```bash
 cat src/maldet/evaluators/binary.py
 ```
 
 Add the following to `BinaryClassification.evaluate`, immediately after `MetricReport` is constructed and the per-metric `log_metric` calls:
+
 ```python
 from sklearn.metrics import confusion_matrix as sk_confusion_matrix
 
@@ -280,6 +296,7 @@ logger.log_event(
 uv run pytest tests/evaluators/test_binary_emits_confusion_matrix.py -v
 uv run pytest tests/evaluators/ -v
 ```
+
 Expected: new test passes; existing evaluator tests still pass.
 
 - [ ] **Step 5: Commit**
@@ -294,12 +311,14 @@ git commit -m "feat(evaluators): emit confusion_matrix event from BinaryClassifi
 ## Task 1.3: StageSpec adds `config_class` and `params_schema`
 
 **Files:**
+
 - Modify: `src/maldet/manifest.py`
 - Modify: `tests/test_manifest.py`
 
 - [ ] **Step 1: Write the failing test**
 
 Add to `tests/test_manifest.py`:
+
 ```python
 def test_stage_requires_config_class():
     """Phase 11e: each stage in maldet.toml must declare config_class import path."""
@@ -347,11 +366,13 @@ def test_stage_accepts_config_class_and_params_schema():
 ```bash
 uv run pytest tests/test_manifest.py::test_stage_requires_config_class tests/test_manifest.py::test_stage_accepts_config_class_and_params_schema -v
 ```
+
 Expected: FAIL — `StageSpec` has neither field.
 
 - [ ] **Step 3: Add the fields to `StageSpec`**
 
 Edit `src/maldet/manifest.py`:
+
 ```python
 class StageSpec(_Frozen):
     reader: str | None = None
@@ -372,7 +393,9 @@ Required fields (no defaults) — Pydantic raises on missing.
 ```bash
 uv run pytest tests/test_manifest.py -v
 ```
+
 Expected: both new tests pass; existing tests may FAIL because their fixtures lack `config_class`/`params_schema`. Update those fixtures to include the new fields with placeholder values:
+
 ```python
 "config_class": "x.configs:TrainConfig",
 "params_schema": {"type": "object"},
@@ -392,6 +415,7 @@ git commit -m "feat(manifest): require config_class + params_schema on Stage"
 ## Task 1.4: `maldet introspect-schema` subcommand
 
 **Files:**
+
 - Create: `src/maldet/commands/introspect_schema.py`
 - Modify: `src/maldet/cli.py`
 - Test: `tests/test_introspect_schema.py`
@@ -399,6 +423,7 @@ git commit -m "feat(manifest): require config_class + params_schema on Stage"
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_introspect_schema.py`:
+
 ```python
 """maldet introspect-schema — derive JSON Schema from a stage's config_class."""
 
@@ -477,11 +502,13 @@ def test_introspect_rejects_extra_allow(tmp_path, monkeypatch):
 ```bash
 uv run pytest tests/test_introspect_schema.py -v
 ```
+
 Expected: FAIL — command does not exist.
 
 - [ ] **Step 3: Create the command module**
 
 `src/maldet/commands/introspect_schema.py`:
+
 ```python
 """``maldet introspect-schema`` — auto-derive a stage's JSON Schema from its Pydantic config class.
 
@@ -538,6 +565,7 @@ def introspect_schema(
 - [ ] **Step 4: Wire up the CLI**
 
 Edit `src/maldet/cli.py`:
+
 ```python
 from maldet.commands import introspect_schema as _introspect
 
@@ -551,6 +579,7 @@ app.command("introspect-schema")(_introspect.introspect_schema)
 uv run pytest tests/test_introspect_schema.py -v
 uv run pytest tests/test_cli.py -v
 ```
+
 Expected: all pass.
 
 - [ ] **Step 6: Commit**
@@ -565,12 +594,14 @@ git commit -m "feat(cli): add maldet introspect-schema for auto-derived params_s
 ## Task 1.5: `maldet check` enforces `extra="forbid"` lint
 
 **Files:**
+
 - Modify: `src/maldet/commands/check.py`
 - Test: `tests/test_check_strict_lint.py`
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_check_strict_lint.py`:
+
 ```python
 """maldet check fails when stage config_class doesn't set extra='forbid'."""
 
@@ -634,11 +665,13 @@ def test_check_rejects_loose_config_class(repo):
 ```bash
 uv run pytest tests/test_check_strict_lint.py -v
 ```
+
 Expected: FAIL — current `check` does not validate extra.
 
 - [ ] **Step 3: Add the lint to `check.py`**
 
 Edit `src/maldet/commands/check.py` — after manifest is loaded and per-stage symbols resolved, add:
+
 ```python
 import importlib
 
@@ -685,6 +718,7 @@ if errors:
 ```bash
 uv run pytest tests/test_check_strict_lint.py tests/ -v
 ```
+
 Expected: new test passes; older check tests may need their manifest fixtures updated to use `extra='forbid'` on any stub Pydantic class.
 
 - [ ] **Step 5: Commit**
@@ -699,6 +733,7 @@ git commit -m "feat(check): lint stage config_class for extra='forbid'"
 ## Task 1.6: scaffold templates carry the new contract
 
 **Files:**
+
 - Create: `src/maldet/templates/sklearn_basic/configs.py.j2`
 - Modify: `src/maldet/templates/sklearn_basic/maldet.toml.j2`
 - Create: `src/maldet/templates/lightning_cnn/configs.py.j2`
@@ -708,6 +743,7 @@ git commit -m "feat(check): lint stage config_class for extra='forbid'"
 - [ ] **Step 1: Write the failing test**
 
 Add to `tests/test_scaffold_templates.py` (or create):
+
 ```python
 def test_scaffold_sklearn_template_emits_strict_configs(tmp_path):
     """Scaffolded sklearn_basic detector has Pydantic configs with extra='forbid'."""
@@ -741,11 +777,13 @@ def test_scaffold_sklearn_template_emits_config_class_in_manifest(tmp_path):
 ```bash
 uv run pytest tests/test_scaffold_templates.py -v
 ```
+
 Expected: FAIL — scaffolded files lack the new structure.
 
 - [ ] **Step 3: Update scaffold templates**
 
 Create `src/maldet/templates/sklearn_basic/configs.py.j2`:
+
 ```python
 """Auto-scaffolded Pydantic config classes for {{ name }}."""
 
@@ -771,13 +809,16 @@ class PredictConfig(_Strict):
 ```
 
 Modify `src/maldet/templates/sklearn_basic/maldet.toml.j2` so each `[stages.{stage}]` block includes:
+
 ```
 config_class = "{{ name }}.configs:TrainConfig"
 params_schema = {}
 ```
+
 (The empty `params_schema = {}` is a placeholder; `maldet build` will populate it via introspect-schema. Never ship this empty in a release.)
 
 Same for `lightning_cnn` template (CNN-specific fields):
+
 ```python
 class TrainConfig(_Strict):
     epochs: int = Field(default=10, ge=1)
@@ -793,6 +834,7 @@ class TrainConfig(_Strict):
 uv run pytest tests/test_scaffold_templates.py -v
 uv run pytest tests/ -v
 ```
+
 Expected: all pass.
 
 - [ ] **Step 5: Commit**
@@ -807,12 +849,14 @@ git commit -m "feat(scaffold): templates emit Pydantic configs with extra='forbi
 ## Task 1.7: bump version, CHANGELOG, tag, release
 
 **Files:**
+
 - Modify: `pyproject.toml`
 - Modify: `CHANGELOG.md`
 
 - [ ] **Step 1: Bump version**
 
 Edit `pyproject.toml` (or `src/maldet/_version.py` if dynamic version is keyed there). Find the line `__version__ = "1.0.8"` (or equivalent) and change to:
+
 ```python
 __version__ = "1.1.0"
 ```
@@ -820,6 +864,7 @@ __version__ = "1.1.0"
 - [ ] **Step 2: Add CHANGELOG entry**
 
 Prepend to `CHANGELOG.md`:
+
 ```markdown
 ## 1.1.0 — 2026-04-27
 
@@ -836,6 +881,7 @@ Prepend to `CHANGELOG.md`:
 ### Migration
 
 Detector authors:
+
 1. Define Pydantic config classes per stage (`extra="forbid"`).
 2. In `maldet.toml` each `[stages.{stage}]` set `config_class = "package.configs:MyConfig"`.
 3. Update build pipeline / CI to call `maldet build` which populates `params_schema` automatically.
@@ -846,6 +892,7 @@ Detector authors:
 ```bash
 uv run pytest --cov=src/maldet -q
 ```
+
 Expected: 80%+ coverage; all tests pass.
 
 - [ ] **Step 4: Tag and push**
@@ -864,6 +911,7 @@ git push origin v1.1.0
 sleep 60   # wait for GitHub Actions / publish workflow
 pip index versions maldet 2>&1 | grep 1.1.0
 ```
+
 Expected: `1.1.0` appears.
 
 If the release workflow hasn't been triggered automatically, run the manual publish (`uv build && uv publish` or whatever the project uses).
@@ -877,12 +925,14 @@ If the release workflow hasn't been triggered automatically, run the manual publ
 ## Task 2.1: Define Pydantic config classes
 
 **Files:**
+
 - Create: `src/elfrfdet/configs.py`
 - Test: `tests/test_configs.py`
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_configs.py`:
+
 ```python
 """Pydantic config classes for elfrfdet stages — used by maldet 1.1 introspect-schema."""
 
@@ -926,11 +976,13 @@ def test_predict_config_defaults():
 cd /home/bolin8017/Documents/repositories/elfrfdet
 uv run pytest tests/test_configs.py -v
 ```
+
 Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Create configs.py**
 
 `src/elfrfdet/configs.py`:
+
 ```python
 """Pydantic config classes for elfrfdet stages.
 
@@ -965,6 +1017,7 @@ class PredictConfig(_Strict):
 ```bash
 uv run pytest tests/test_configs.py -v
 ```
+
 Expected: all pass.
 
 - [ ] **Step 5: Commit**
@@ -979,12 +1032,14 @@ git commit -m "feat(configs): add Pydantic stage configs for phase 11e contract"
 ## Task 2.2: Update `maldet.toml` for phase 11e contract
 
 **Files:**
+
 - Modify: `maldet.toml`
 - Test: `tests/test_manifest_v3.py` (new)
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_manifest_v3.py`:
+
 ```python
 """Manifest carries config_class for each stage; introspect-schema produces a real schema."""
 
@@ -1025,11 +1080,13 @@ def test_introspect_schema_for_train_config_returns_valid_schema(tmp_path):
 ```bash
 uv run pytest tests/test_manifest_v3.py -v
 ```
+
 Expected: FAIL — version is still 2.0.6, no config_class in manifest yet.
 
 - [ ] **Step 3: Update `maldet.toml`**
 
 Edit `maldet.toml`:
+
 - Set `[detector] version = "3.0.0"`
 - Add to `[stages.train]`:
   ```toml
@@ -1043,6 +1100,7 @@ Edit `maldet.toml`:
 ```bash
 uv run pytest tests/ -v
 ```
+
 Expected: all pass.
 
 - [ ] **Step 5: Commit**
@@ -1057,12 +1115,14 @@ git commit -m "feat(manifest): wire config_class for each stage; bump 3.0.0"
 ## Task 2.3: Bump maldet pin, run check, tag v3.0.0
 
 **Files:**
+
 - Modify: `pyproject.toml`
 - Modify: `CHANGELOG.md`
 
 - [ ] **Step 1: Bump maldet pin**
 
 Edit `pyproject.toml`:
+
 ```toml
 [project]
 dependencies = [
@@ -1078,11 +1138,13 @@ uv lock
 uv sync
 uv run maldet check
 ```
+
 Expected: `maldet check` passes (because we already updated configs to `extra="forbid"` in Task 2.1).
 
 - [ ] **Step 3: Add CHANGELOG entry**
 
 Prepend to `CHANGELOG.md`:
+
 ```markdown
 ## 3.0.0 — 2026-04-27
 
@@ -1118,12 +1180,14 @@ git push origin v3.0.0
 ## Task 3.1: Define Pydantic config classes
 
 **Files:**
+
 - Create: `src/elfcnndet/configs.py`
 - Test: `tests/test_configs.py`
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_configs.py`:
+
 ```python
 import pytest
 from pydantic import ValidationError
@@ -1166,11 +1230,13 @@ def test_evaluate_predict_configs_have_defaults():
 cd /home/bolin8017/Documents/repositories/elfcnndet
 uv run pytest tests/test_configs.py -v
 ```
+
 Expected: FAIL — module missing.
 
 - [ ] **Step 3: Create configs.py**
 
 `src/elfcnndet/configs.py`:
+
 ```python
 """Pydantic config classes for elfcnndet stages."""
 
@@ -1204,6 +1270,7 @@ class PredictConfig(_Strict):
 ```bash
 uv run pytest tests/test_configs.py -v
 ```
+
 Expected: all pass.
 
 - [ ] **Step 5: Commit**
@@ -1246,12 +1313,14 @@ git commit -m "feat(configs): add Pydantic stage configs"
 ## Task 4.1: Expose `manifest` on `VersionDetailRead`
 
 **Files:**
+
 - Modify: `app/schemas/detector.py`
 - Test: `tests/test_schemas_version_detail_read.py` (new)
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_schemas_version_detail_read.py`:
+
 ```python
 """VersionDetailRead exposes the full manifest for typed-form rendering."""
 
@@ -1294,6 +1363,7 @@ uv run pytest tests/test_schemas_version_detail_read.py -v
 - [ ] **Step 3: Add the field**
 
 Edit `app/schemas/detector.py`:
+
 ```python
 from typing import Any
 
@@ -1319,12 +1389,14 @@ git commit -m "feat(schemas): expose manifest on VersionDetailRead"
 ## Task 4.2: Expose `summary_metrics` on `JobSummary`
 
 **Files:**
+
 - Modify: `app/schemas/job.py`
 - Test: extend `tests/test_jobs_*.py` or new `tests/test_schemas_job_summary.py`
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_schemas_job_summary.py`:
+
 ```python
 from app.schemas.job import JobSummary
 
@@ -1364,6 +1436,7 @@ uv run pytest tests/test_schemas_job_summary.py -v
 - [ ] **Step 3: Add the field**
 
 Edit `app/schemas/job.py` `JobSummary`:
+
 ```python
 from typing import Any
 
@@ -1386,6 +1459,7 @@ git commit -m "feat(schemas): expose summary_metrics on JobSummary"
 ## Task 4.3: jsonschema-based `validate_user_params`
 
 **Files:**
+
 - Create: `app/services/jobs_params_validate.py`
 - Delete: `app/services/jobs_params_guard.py`
 - Delete: `tests/test_services_jobs_params_guard.py`
@@ -1395,6 +1469,7 @@ git commit -m "feat(schemas): expose summary_metrics on JobSummary"
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_jsonschema_validate_params.py`:
+
 ```python
 """jsonschema-based user params validation — replaces phase 11c hand-rolled guard."""
 
@@ -1448,6 +1523,7 @@ def test_empty_params_pass():
 - [ ] **Step 3: Create the new module**
 
 `app/services/jobs_params_validate.py`:
+
 ```python
 """Phase 11e: validate user-supplied job params against the manifest's params_schema.
 
@@ -1492,6 +1568,7 @@ def validate_user_params(*, params: dict[str, Any], schema: dict[str, Any]) -> N
 - [ ] **Step 5: Wire into `routers/jobs.py` and delete the old guard**
 
 In `app/routers/jobs.py:create_job`, find the existing `validate_user_params(body.params)` call (or `UserParamsRejected` import) and replace with:
+
 ```python
 from app.services.jobs_params_validate import (
     UserParamsRejected,
@@ -1507,6 +1584,7 @@ except UserParamsRejected as e:
 ```
 
 Delete:
+
 ```bash
 git rm app/services/jobs_params_guard.py tests/test_services_jobs_params_guard.py
 ```
@@ -1516,6 +1594,7 @@ git rm app/services/jobs_params_guard.py tests/test_services_jobs_params_guard.p
 ```bash
 uv run pytest -q
 ```
+
 Expected: all pass except the deleted-test file (already removed). Net: ≥ 404 - 1 deleted + 5 new = 408 tests.
 
 - [ ] **Step 7: Add `jsonschema` to backend deps if not already present**
@@ -1538,12 +1617,14 @@ git commit -m "feat(jobs): jsonschema-based user_params validation; drop hand-ro
 ## Task 4.4: Reconciler projects events into `summary_metrics`
 
 **Files:**
+
 - Modify: `app/reconciler.py`
 - Test: `tests/test_reconciler_summary_projection.py` (new)
 
 - [ ] **Step 1: Write the failing test**
 
 `tests/test_reconciler_summary_projection.py`:
+
 ```python
 """On stage_end, reconciler aggregates last-per-name metric events into summary_metrics."""
 
@@ -1626,6 +1707,7 @@ async def test_projection_idempotent(db_session, terminal_job):
 - [ ] **Step 3: Implement `_project_summary_metrics`**
 
 Append to `app/reconciler.py`:
+
 ```python
 import logging
 from sqlalchemy import select
@@ -1669,6 +1751,7 @@ async def _project_summary_metrics(session, job_id) -> None:
 ```
 
 Then in the existing reconciler logic that handles `stage_end` events with a successful or terminal status, call:
+
 ```python
 try:
     await _project_summary_metrics(session, job.id)
@@ -1698,11 +1781,13 @@ git commit -m "feat(reconciler): project events into summary_metrics on stage_en
 ## Task 4.5: Backfill script (optional one-shot)
 
 **Files:**
+
 - Create: `scripts/backfill-summary-metrics.py`
 
 - [ ] **Step 1: Write the script**
 
 `scripts/backfill-summary-metrics.py`:
+
 ```python
 """Phase 11e one-shot backfill — populate summary_metrics for terminal jobs.
 
@@ -1759,6 +1844,7 @@ if __name__ == "__main__":
 ```bash
 uv run python scripts/backfill-summary-metrics.py
 ```
+
 Expected: clean exit; "found 0 terminal jobs".
 
 - [ ] **Step 3: Commit**
@@ -1773,11 +1859,13 @@ git commit -m "feat(scripts): one-shot summary_metrics backfill for phase 11e"
 ## Task 4.6: Build + push backend phase11e image
 
 **Files:**
+
 - Modify: `lolday/scripts/deploy.sh` (default tag)
 
 - [ ] **Step 1: Bump default backend tag**
 
 Edit `scripts/deploy.sh`:
+
 ```bash
 BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase11e}
 ```
@@ -1788,6 +1876,7 @@ BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase1
 cd /home/bolin8017/Documents/repositories/lolday
 docker build -t harbor.lolday.svc.cluster.local:80/lolday/lolday-backend:phase11e backend
 ```
+
 Expected: build succeeds; image tagged.
 
 - [ ] **Step 3: Push**
@@ -1795,6 +1884,7 @@ Expected: build succeeds; image tagged.
 ```bash
 docker push harbor.lolday.svc.cluster.local:80/lolday/lolday-backend:phase11e
 ```
+
 Expected: layers pushed; digest printed.
 
 - [ ] **Step 4: Verify image is in Harbor**
@@ -1805,6 +1895,7 @@ kubectl -n lolday exec deploy/lolday-harbor-core -- \
   'http://harbor.lolday.svc/api/v2.0/projects/lolday/repositories/lolday-backend/artifacts?with_tag=true' \
   | head -c 400
 ```
+
 Expected: response includes `phase11e` tag.
 
 - [ ] **Step 5: Commit deploy.sh change**
@@ -1823,6 +1914,7 @@ git commit -m "chore(deploy): bump backend default to phase11e"
 ## Task 5.1: Regenerate `schema.gen.ts` against deployed phase11e backend
 
 **Files:**
+
 - Modify: `frontend/src/api/schema.gen.ts` (regenerated)
 
 - [ ] **Step 1: Port-forward backend (deploy phase11e first if not yet)**
@@ -1834,6 +1926,7 @@ kubectl port-forward -n lolday deploy/backend 18000:8000 > /tmp/pf-backend.log 2
 sleep 3
 curl -s http://localhost:18000/openapi.json | head -c 200
 ```
+
 Expected: openapi.json fetched.
 
 - [ ] **Step 2: Regenerate**
@@ -1842,6 +1935,7 @@ Expected: openapi.json fetched.
 cd /home/bolin8017/Documents/repositories/lolday/frontend
 SCHEMA_URL=http://localhost:18000/openapi.json bash scripts/gen-api-types.sh
 ```
+
 Expected: "Generated src/api/schema.gen.ts".
 
 - [ ] **Step 3: Verify new fields present**
@@ -1849,6 +1943,7 @@ Expected: "Generated src/api/schema.gen.ts".
 ```bash
 grep -E '"manifest"|summary_metrics' src/api/schema.gen.ts | head -10
 ```
+
 Expected: hits in both `VersionDetailRead` and `JobSummary`.
 
 - [ ] **Step 4: Run typecheck — expect surfaced regressions**
@@ -1856,6 +1951,7 @@ Expected: hits in both `VersionDetailRead` and `JobSummary`.
 ```bash
 pnpm typecheck
 ```
+
 Expected: passes (the next tasks add new code that uses the new fields; they shouldn't break existing).
 
 - [ ] **Step 5: Commit**
@@ -1870,6 +1966,7 @@ git commit -m "chore(frontend): regen schema.gen.ts for phase11e backend"
 ## Task 5.2: `JobSubmitForm` — RJSF replaces JSON textarea
 
 **Files:**
+
 - Modify: `frontend/src/components/forms/JobSubmitForm.tsx`
 - Modify: `frontend/src/components/forms/JobSubmitForm.logic.ts` (drop `parseParams`)
 - Modify: `frontend/tests/unit/components/JobSubmitForm.test.tsx` (replace tests)
@@ -1877,6 +1974,7 @@ git commit -m "chore(frontend): regen schema.gen.ts for phase11e backend"
 - [ ] **Step 1: Write the failing test**
 
 Rewrite `tests/unit/components/JobSubmitForm.test.tsx`:
+
 ```tsx
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -1887,13 +1985,22 @@ import { requiredFieldsForType } from "@/components/forms/JobSubmitForm.logic";
 
 describe("requiredFieldsForType", () => {
   it("train needs train+test datasets", () => {
-    expect(requiredFieldsForType("train")).toEqual(["train_dataset_id", "test_dataset_id"]);
+    expect(requiredFieldsForType("train")).toEqual([
+      "train_dataset_id",
+      "test_dataset_id",
+    ]);
   });
   it("evaluate needs test+source_model", () => {
-    expect(requiredFieldsForType("evaluate")).toEqual(["test_dataset_id", "source_model_version_id"]);
+    expect(requiredFieldsForType("evaluate")).toEqual([
+      "test_dataset_id",
+      "source_model_version_id",
+    ]);
   });
   it("predict needs predict+source_model", () => {
-    expect(requiredFieldsForType("predict")).toEqual(["predict_dataset_id", "source_model_version_id"]);
+    expect(requiredFieldsForType("predict")).toEqual([
+      "predict_dataset_id",
+      "source_model_version_id",
+    ]);
   });
 });
 
@@ -1916,6 +2023,7 @@ describe("phase 11e — JSON textarea path removed", () => {
 ```bash
 pnpm test -- tests/unit/components/JobSubmitForm.test.tsx
 ```
+
 Expected: FAIL on `parseParams`-export check (it still exists).
 
 - [ ] **Step 3: Drop `parseParams` from logic**
@@ -1925,10 +2033,15 @@ Edit `src/components/forms/JobSubmitForm.logic.ts` — remove the `parseParams` 
 - [ ] **Step 4: Replace JSON textarea with RJSF**
 
 Edit `src/components/forms/JobSubmitForm.tsx`:
+
 ```tsx
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { useDetectors, useDetectorVersions, useDetectorVersion } from "@/api/queries/detectors";
+import {
+  useDetectors,
+  useDetectorVersions,
+  useDetectorVersion,
+} from "@/api/queries/detectors";
 import { useDatasets } from "@/api/queries/datasets";
 import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
 import { useSubmitJob, useJob, type JobType } from "@/api/queries/jobs";
@@ -1936,7 +2049,13 @@ import { RjsfConfigForm } from "./RjsfConfigForm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { requiredFieldsForType } from "./JobSubmitForm.logic";
 
 const TYPES: JobType[] = ["train", "evaluate", "predict"];
@@ -1969,15 +2088,25 @@ export function JobSubmitForm() {
     setType(fromJob.type as JobType);
     if (fromJob.train_dataset_id) setTrainDatasetId(fromJob.train_dataset_id);
     if (fromJob.test_dataset_id) setTestDatasetId(fromJob.test_dataset_id);
-    if (fromJob.predict_dataset_id) setPredictDatasetId(fromJob.predict_dataset_id);
+    if (fromJob.predict_dataset_id)
+      setPredictDatasetId(fromJob.predict_dataset_id);
   }, [fromJob]);
 
-  const datasetsArr = ((datasets as { items?: { id: string; name: string }[] })?.items) ?? [];
-  const versionsArr = ((versions as { items?: { id: string; git_tag: string; status: string }[] })?.items) ?? [];
+  const datasetsArr =
+    (datasets as { items?: { id: string; name: string }[] })?.items ?? [];
+  const versionsArr =
+    (versions as { items?: { id: string; git_tag: string; status: string }[] })
+      ?.items ?? [];
   const modelsArr = (models as { name: string }[] | undefined) ?? [];
-  const modelVersionsArr = (modelVersions as { items?: { id: string; mlflow_version: number; current_stage: string }[] })?.items ?? [];
+  const modelVersionsArr =
+    (
+      modelVersions as {
+        items?: { id: string; mlflow_version: number; current_stage: string }[];
+      }
+    )?.items ?? [];
 
-  const stageSchema = (versionDetail as any)?.manifest?.stages?.[type]?.params_schema;
+  const stageSchema = (versionDetail as any)?.manifest?.stages?.[type]
+    ?.params_schema;
 
   const mut = useSubmitJob();
   const nav = useNavigate();
@@ -1988,7 +2117,8 @@ export function JobSubmitForm() {
     if (need.includes("train_dataset_id") && !trainDatasetId) return false;
     if (need.includes("test_dataset_id") && !testDatasetId) return false;
     if (need.includes("predict_dataset_id") && !predictDatasetId) return false;
-    if (need.includes("source_model_version_id") && !sourceModelVersionId) return false;
+    if (need.includes("source_model_version_id") && !sourceModelVersionId)
+      return false;
     return true;
   })();
 
@@ -2001,9 +2131,13 @@ export function JobSubmitForm() {
         type,
         detector_version_id: versionId,
         train_dataset_id: type === "train" ? trainDatasetId : null,
-        test_dataset_id: ["train", "evaluate"].includes(type) ? testDatasetId : null,
+        test_dataset_id: ["train", "evaluate"].includes(type)
+          ? testDatasetId
+          : null,
         predict_dataset_id: type === "predict" ? predictDatasetId : null,
-        source_model_version_id: ["evaluate", "predict"].includes(type) ? sourceModelVersionId : null,
+        source_model_version_id: ["evaluate", "predict"].includes(type)
+          ? sourceModelVersionId
+          : null,
         params: config,
       } as unknown as import("@/api/schema.gen").components["schemas"]["JobCreate"]);
       nav(`/jobs/${job.id}`);
@@ -2018,24 +2152,37 @@ export function JobSubmitForm() {
       {/* …copy from existing JobSubmitForm.tsx… */}
 
       <Card>
-        <CardHeader><CardTitle>Hyperparameters</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Hyperparameters</CardTitle>
+        </CardHeader>
         <CardContent>
           {stageSchema ? (
-            <RjsfConfigForm schema={stageSchema as object} value={config} onChange={setConfig} />
+            <RjsfConfigForm
+              schema={stageSchema as object}
+              value={config}
+              onChange={setConfig}
+            />
           ) : versionTag ? (
             <p className="text-sm text-destructive">
-              Selected detector version has no params schema; rebuild with maldet ≥ 1.1.
+              Selected detector version has no params schema; rebuild with
+              maldet ≥ 1.1.
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground">Pick a detector + version to load its hyperparameter form.</p>
+            <p className="text-sm text-muted-foreground">
+              Pick a detector + version to load its hyperparameter form.
+            </p>
           )}
         </CardContent>
       </Card>
 
       {submitError && <p className="text-sm text-destructive">{submitError}</p>}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={() => nav(-1)}>Cancel</Button>
-        <Button disabled={!canSubmit || mut.isPending} onClick={submit}>Submit job</Button>
+        <Button variant="ghost" onClick={() => nav(-1)}>
+          Cancel
+        </Button>
+        <Button disabled={!canSubmit || mut.isPending} onClick={submit}>
+          Submit job
+        </Button>
       </div>
     </div>
   );
@@ -2050,6 +2197,7 @@ export function JobSubmitForm() {
 pnpm test
 pnpm typecheck
 ```
+
 Expected: all pass.
 
 - [ ] **Step 6: Commit**
@@ -2064,17 +2212,20 @@ git commit -m "feat(jobs): RJSF form replaces JSON textarea using manifest param
 ## Task 5.3: Detector page — restore "View manifest" sheet
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.detectors.$id.tsx`
 
 - [ ] **Step 1: Re-add the column action + sheet**
 
 Edit `_authed.detectors.$id.tsx`:
+
 1. Re-import: `JsonViewer`, `useDetectorVersion`.
 2. Re-introduce `openSchemaTag` state (rename to `openManifestTag`).
 3. Add a `View manifest` button cell to the versions table.
 4. Add the `Sheet` block showing `<JsonViewer value={data.manifest} />`.
 
 Code:
+
 ```tsx
 import { useDetectorVersion } from "@/api/queries/detectors";
 import { JsonViewer } from "@/components/common/JsonViewer";
@@ -2117,6 +2268,7 @@ function ManifestView({ detectorId, tag }: { detectorId: string; tag: string }) 
 pnpm typecheck
 pnpm test
 ```
+
 Expected: pass.
 
 - [ ] **Step 3: Commit**
@@ -2131,6 +2283,7 @@ git commit -m "feat(detectors): restore View manifest sheet (manifest is now the
 ## Task 5.4: Job list — Final metrics tile column
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.jobs.tsx` (or whatever the list route is)
 - Test: `frontend/tests/unit/components/JobsList.test.tsx` (new)
 
@@ -2139,11 +2292,13 @@ git commit -m "feat(detectors): restore View manifest sheet (manifest is now the
 ```bash
 grep -rln 'useJobs' src/routes/ | head -3
 ```
+
 Identify the file (likely `_authed.jobs.tsx` or `_authed.jobs._index.tsx`).
 
 - [ ] **Step 2: Write the failing test**
 
 `tests/unit/components/JobsList.test.tsx` (or a focused test on a tile component):
+
 ```tsx
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -2156,20 +2311,28 @@ describe("FinalMetricsTile", () => {
   });
 
   it("renders first two metrics + +N more", () => {
-    render(<FinalMetricsTile summaryMetrics={{
-      metrics: { acc: 0.987, f1: 0.94, precision: 0.99, recall: 0.92 },
-      confusion_matrix: null,
-    }} />);
+    render(
+      <FinalMetricsTile
+        summaryMetrics={{
+          metrics: { acc: 0.987, f1: 0.94, precision: 0.99, recall: 0.92 },
+          confusion_matrix: null,
+        }}
+      />,
+    );
     expect(screen.getByText(/acc:/)).toBeInTheDocument();
     expect(screen.getByText(/f1:/)).toBeInTheDocument();
     expect(screen.getByText(/\+2/)).toBeInTheDocument();
   });
 
   it("renders all metrics inline if 2 or fewer", () => {
-    render(<FinalMetricsTile summaryMetrics={{
-      metrics: { acc: 0.99 },
-      confusion_matrix: null,
-    }} />);
+    render(
+      <FinalMetricsTile
+        summaryMetrics={{
+          metrics: { acc: 0.99 },
+          confusion_matrix: null,
+        }}
+      />,
+    );
     expect(screen.queryByText(/\+\d/)).toBeNull();
   });
 });
@@ -2180,11 +2343,13 @@ describe("FinalMetricsTile", () => {
 ```bash
 pnpm test -- tests/unit/components/JobsList.test.tsx
 ```
+
 Expected: FAIL — component does not exist.
 
 - [ ] **Step 4: Create the component**
 
 `src/components/jobs/FinalMetricsTile.tsx`:
+
 ```tsx
 type SummaryMetrics = {
   metrics?: Record<string, number>;
@@ -2198,7 +2363,8 @@ export function FinalMetricsTile({
 }) {
   const metrics = summaryMetrics?.metrics ?? {};
   const entries = Object.entries(metrics);
-  if (entries.length === 0) return <span className="text-muted-foreground">—</span>;
+  if (entries.length === 0)
+    return <span className="text-muted-foreground">—</span>;
   const shown = entries.slice(0, 2);
   const more = entries.length - shown.length;
   return (
@@ -2217,6 +2383,7 @@ export function FinalMetricsTile({
 - [ ] **Step 5: Wire into the list route**
 
 In the jobs list route file, add a column to the table:
+
 ```tsx
 import { FinalMetricsTile } from "@/components/jobs/FinalMetricsTile";
 
@@ -2247,11 +2414,13 @@ git commit -m "feat(jobs): Final metrics tile column on /jobs list"
 ## Task 5.5: Live metrics chart visibility — `hasTimeSeries`
 
 **Files:**
+
 - Modify: `frontend/src/routes/_authed.jobs.$id.tsx`
 
 - [ ] **Step 1: Compute `hasTimeSeries` and gate the chart**
 
 Edit `_authed.jobs.$id.tsx`. After `const { events, error: eventsError } = useJobEvents(id, isLive);`:
+
 ```tsx
 const hasTimeSeries = events.some(
   (e) => e.kind === "metric" && typeof e.step === "number" && e.step >= 1,
@@ -2259,16 +2428,23 @@ const hasTimeSeries = events.some(
 ```
 
 Replace the existing `(events.length > 0 || eventsError) && …` chart-card guard with:
+
 ```tsx
-{(hasTimeSeries || eventsError) && (
-  <Card>
-    <CardHeader><CardTitle>Live metrics</CardTitle></CardHeader>
-    <CardContent>
-      {eventsError && <p className="text-sm text-destructive">{eventsError}</p>}
-      {hasTimeSeries && <JobMetricChart events={events} />}
-    </CardContent>
-  </Card>
-)}
+{
+  (hasTimeSeries || eventsError) && (
+    <Card>
+      <CardHeader>
+        <CardTitle>Live metrics</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {eventsError && (
+          <p className="text-sm text-destructive">{eventsError}</p>
+        )}
+        {hasTimeSeries && <JobMetricChart events={events} />}
+      </CardContent>
+    </Card>
+  );
+}
 ```
 
 - [ ] **Step 2: Run typecheck + tests**
@@ -2290,6 +2466,7 @@ git commit -m "feat(jobs): hide Live metrics card unless events have step ≥ 1"
 ## Task 5.6: Phase 11e e2e smoke spec (opt-in)
 
 **Files:**
+
 - Create: `frontend/tests/e2e/phase11e-full-flow.spec.ts`
 
 - [ ] **Step 1: Write the spec**
@@ -2325,22 +2502,36 @@ test("phase 11e — RJSF → submit → list-page tile", async ({ page }) => {
   await page.goto("/jobs/new", { waitUntil: "domcontentloaded" });
 
   // Pick detector + version
-  await page.getByText(/^Detector$/).locator("..").getByRole("combobox").click();
+  await page
+    .getByText(/^Detector$/)
+    .locator("..")
+    .getByRole("combobox")
+    .click();
   await page.getByRole("option", { name: new RegExp(DETECTOR_NAME) }).click();
-  await page.getByText(/^Version$/).locator("..").getByRole("combobox").click();
+  await page
+    .getByText(/^Version$/)
+    .locator("..")
+    .getByRole("combobox")
+    .click();
   await page.getByRole("option", { name: new RegExp(DETECTOR_TAG) }).click();
 
   // Confirm RJSF rendered (look for a known field name)
-  await expect(page.getByLabel(/n_estimators|epochs/i)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByLabel(/n_estimators|epochs/i)).toBeVisible({
+    timeout: 10_000,
+  });
 
   // Smoke only — not actually submitting (would consume cluster resources)
   await page.screenshot({ path: "/tmp/phase11e-rjsf.png" });
 });
 
-test("phase 11e — list page renders Final metrics tile for terminal jobs", async ({ page }) => {
+test("phase 11e — list page renders Final metrics tile for terminal jobs", async ({
+  page,
+}) => {
   test.skip(!ENABLED, "set PHASE11E_VERIFY=1 to enable");
   await page.goto("/jobs", { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("Final metrics")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("Final metrics")).toBeVisible({
+    timeout: 10_000,
+  });
 });
 ```
 
@@ -2363,11 +2554,13 @@ git commit -m "test(e2e): phase 11e full-flow smoke spec (opt-in)"
 ## Task 5.7: Build + push frontend phase11e image
 
 **Files:**
+
 - Modify: `lolday/scripts/deploy.sh` (default tag)
 
 - [ ] **Step 1: Bump default tag**
 
 Edit `scripts/deploy.sh`:
+
 ```bash
 FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase11e}
 ```
@@ -2416,6 +2609,7 @@ curl -s -X POST \
   -d '{"git_tag":"v3.0.0"}' \
   "https://lolday.connlabai.com/api/v1/detectors/$DETECTOR_ID_RFDET/builds"
 ```
+
 Expected: build row created.
 
 - [ ] **Step 2: Same for elfcnndet v3.0.0**
@@ -2437,9 +2631,11 @@ curl -s -X POST \
 - [ ] **Step 3: Wait for both builds → succeeded**
 
 Poll:
+
 ```bash
 watch -n 10 'curl -s -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" "https://lolday.connlabai.com/api/v1/detectors/$DETECTOR_ID_RFDET/builds" | jq ".items[] | select(.git_tag==\"v3.0.0\") | .status"'
 ```
+
 Expected: `"succeeded"` for both, ~10-15 minutes each.
 
 - [ ] **Step 4: Verify manifest in DB**
@@ -2448,12 +2644,14 @@ Expected: `"succeeded"` for both, ~10-15 minutes each.
 kubectl -n lolday exec postgresql-0 -- psql -U lolday -d lolday -tAc \
   "SELECT manifest->'stages'->'train'->>'config_class' FROM detector_version WHERE git_tag='v3.0.0' ORDER BY built_at DESC LIMIT 5;"
 ```
+
 Expected: rows with `elfrfdet.configs:TrainConfig` or `elfcnndet.configs:TrainConfig`.
 
 ```bash
 kubectl -n lolday exec postgresql-0 -- psql -U lolday -d lolday -tAc \
   "SELECT (manifest->'stages'->'train'->'params_schema') IS NOT NULL FROM detector_version WHERE git_tag='v3.0.0';"
 ```
+
 Expected: `t` (true) for both rows.
 
 - [ ] **Step 5: Save build IDs for reference (optional)**
@@ -2475,6 +2673,7 @@ helm -n lolday upgrade lolday /home/bolin8017/Documents/repositories/lolday/char
   --set frontend.image=harbor.lolday.svc:80/lolday/lolday-frontend:phase11e \
   --wait --timeout 5m
 ```
+
 Expected: `STATUS: deployed`; new helm rev printed.
 
 - [ ] **Step 2: Verify rollout**
@@ -2484,7 +2683,9 @@ kubectl -n lolday rollout status deploy/backend --timeout=120s
 kubectl -n lolday rollout status deploy/frontend --timeout=120s
 kubectl -n lolday get deploy backend frontend -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
 ```
+
 Expected:
+
 ```
 backend  harbor.lolday.svc:80/lolday/lolday-backend:phase11e
 frontend harbor.lolday.svc:80/lolday/lolday-frontend:phase11e
@@ -2503,6 +2704,7 @@ curl -s \
   "https://lolday.connlabai.com/api/v1/detectors/$DETECTOR_ID_RFDET/versions/v3.0.0" \
   | jq '.manifest.stages.train.params_schema | keys'
 ```
+
 Expected: includes `properties`.
 
 - [ ] **Step 2: Playwright e2e smoke**
@@ -2512,6 +2714,7 @@ cd /home/bolin8017/Documents/repositories/lolday/frontend
 source ~/.lolday-cf-svctoken.env
 PHASE11E_VERIFY=1 E2E_BASE_URL=https://lolday.connlabai.com pnpm exec playwright test phase11e-full-flow --reporter=line
 ```
+
 Expected: 2 passed.
 
 - [ ] **Step 3: Submit a small evaluate job (against an existing trained model)**
@@ -2526,6 +2729,7 @@ curl -s -X POST \
   -d '{"type":"evaluate","detector_version_id":"<uuid>","test_dataset_id":"<uuid>","source_model_version_id":"<uuid>","params":{"threshold":0.5},"resource_profile":"cpu"}' \
   https://lolday.connlabai.com/api/v1/jobs
 ```
+
 Expected: 202 with the new job's id.
 
 - [ ] **Step 4: Wait stage_end → check summary_metrics**
@@ -2536,6 +2740,7 @@ JOB_ID=<uuid-from-step-3>
 kubectl -n lolday exec postgresql-0 -- psql -U lolday -d lolday -tAc \
   "SELECT summary_metrics FROM job WHERE id='$JOB_ID';"
 ```
+
 Expected: non-null JSON with `metrics` and `confusion_matrix` keys.
 
 - [ ] **Step 5: Visit `/jobs` list and confirm tile**
@@ -2551,6 +2756,7 @@ Either via Playwright run output (Task 6.3 step 2) or manually open browser (use
 ```bash
 kubectl -n lolday exec deploy/backend -- uv run python /app/scripts/backfill-summary-metrics.py
 ```
+
 Expected: log line per terminal job with null summary_metrics; clean exit.
 
 - [ ] **Step 2: Spot-check one of the historical jobs**
@@ -2559,6 +2765,7 @@ Expected: log line per terminal job with null summary_metrics; clean exit.
 kubectl -n lolday exec postgresql-0 -- psql -U lolday -d lolday -tAc \
   "SELECT id, summary_metrics FROM job WHERE id='b4430357-00a8-439c-881e-a45f470363ee';"
 ```
+
 Expected: `summary_metrics` populated with the CNN train job's final metrics.
 
 ---
@@ -2566,11 +2773,13 @@ Expected: `summary_metrics` populated with the CNN train job's final metrics.
 ## Task 6.5: Update Phase 11 progress memory
 
 **Files:**
+
 - Modify: `/home/bolin8017/.claude/projects/-home-bolin8017-Documents-repositories-lolday/memory/project_phase11_progress.md`
 
 - [ ] **Step 1: Add phase 11e section**
 
 Document:
+
 - maldet 1.1.0 release commit + PyPI version
 - elfrfdet 3.0.0 + elfcnndet 3.0.0 commit / image digests
 - Lolday backend phase11e + frontend phase11e digests + helm rev

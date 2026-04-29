@@ -79,47 +79,47 @@ C4Container
 
 ### Platform
 
-| 元件 | 技術 | 進入點 | 主要責任 | 對應 rules / specs |
-|------|------|--------|----------|--------------------|
-| backend | FastAPI 0.115 + Py3.12 + uv | `backend/app/main.py` | REST API + reconciler loop | `.claude/rules/backend.md` |
-| frontend | Vite + React 18 + TS 5.5 + nginx-unprivileged | `frontend/src/main.tsx` | SPA UI; pulls API via TanStack Query | `.claude/rules/frontend.md` |
-| reconciler | in-process within backend | `backend/app/reconciler.py` (57KB) | Watch vcjob events; sync DB; tail event manifests; orphan cleanup | phase11b/12 specs |
-| Volcano queue | volcano `~1.14.1` sub-chart | `charts/lolday/templates/volcano-queue.yaml` | GPU batch scheduling | `.claude/rules/charts-and-helm.md` |
-| Harbor | harbor `1.18.3` sub-chart | `charts/lolday/charts/harbor-1.18.3.tgz` | OCI registry for detector images | `scripts/recover-harbor.sh` |
-| MLflow | mlflow-skinny 2.20 + custom server image | `charts/lolday/helpers/mlflow-server/` | Experiment tracking + model registry | `backend/app/services/mlflow_client.py` |
-| PostgreSQL | bitnami sub-chart | `charts/lolday/templates/postgresql.yaml` | Primary DB | `backend/migrations/` |
-| Redis | bitnami sub-chart | `charts/lolday/templates/redis.yaml` | Rate limit, event-tail buffer | `backend/app/services/rate_limit.py` |
-| Cloudflared | (no sub-chart) | `charts/lolday/templates/cloudflared.yaml` | SSO tunnel | `backend/app/auth/cf_access.py` |
-| kube-prometheus-stack | kps `~84.3.0` | (sub-chart) | Prom + Grafana + Alertmanager | `charts/lolday/templates/monitoring/` |
-| Loki + Alloy | `~7.0.0` + `~1.8.0` | (sub-charts) | Log aggregation + collector | — |
-| Trivy operator | `~0.32.1` | (sub-chart) | Image vuln scan | — |
-| GPU operator | upstream NVIDIA chart (NOT in this repo) | installed via README setup | NVIDIA driver + DCGM exporter | `README.md` |
+| 元件                  | 技術                                          | 進入點                                       | 主要責任                                                          | 對應 rules / specs                      |
+| --------------------- | --------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------- |
+| backend               | FastAPI 0.115 + Py3.12 + uv                   | `backend/app/main.py`                        | REST API + reconciler loop                                        | `.claude/rules/backend.md`              |
+| frontend              | Vite + React 18 + TS 5.5 + nginx-unprivileged | `frontend/src/main.tsx`                      | SPA UI; pulls API via TanStack Query                              | `.claude/rules/frontend.md`             |
+| reconciler            | in-process within backend                     | `backend/app/reconciler.py` (57KB)           | Watch vcjob events; sync DB; tail event manifests; orphan cleanup | phase11b/12 specs                       |
+| Volcano queue         | volcano `~1.14.1` sub-chart                   | `charts/lolday/templates/volcano-queue.yaml` | GPU batch scheduling                                              | `.claude/rules/charts-and-helm.md`      |
+| Harbor                | harbor `1.18.3` sub-chart                     | `charts/lolday/charts/harbor-1.18.3.tgz`     | OCI registry for detector images                                  | `scripts/recover-harbor.sh`             |
+| MLflow                | mlflow-skinny 2.20 + custom server image      | `charts/lolday/helpers/mlflow-server/`       | Experiment tracking + model registry                              | `backend/app/services/mlflow_client.py` |
+| PostgreSQL            | bitnami sub-chart                             | `charts/lolday/templates/postgresql.yaml`    | Primary DB                                                        | `backend/migrations/`                   |
+| Redis                 | bitnami sub-chart                             | `charts/lolday/templates/redis.yaml`         | Rate limit, event-tail buffer                                     | `backend/app/services/rate_limit.py`    |
+| Cloudflared           | (no sub-chart)                                | `charts/lolday/templates/cloudflared.yaml`   | SSO tunnel                                                        | `backend/app/auth/cf_access.py`         |
+| kube-prometheus-stack | kps `~84.3.0`                                 | (sub-chart)                                  | Prom + Grafana + Alertmanager                                     | `charts/lolday/templates/monitoring/`   |
+| Loki + Alloy          | `~7.0.0` + `~1.8.0`                           | (sub-charts)                                 | Log aggregation + collector                                       | —                                       |
+| Trivy operator        | `~0.32.1`                                     | (sub-chart)                                  | Image vuln scan                                                   | —                                       |
+| GPU operator          | upstream NVIDIA chart (NOT in this repo)      | installed via README setup                   | NVIDIA driver + DCGM exporter                                     | `README.md`                             |
 
 ### Helpers (`charts/lolday/helpers/`)
 
-| Helper | Tech | What it does |
-|--------|------|--------------|
-| build-helper | Python (own `pyproject.toml` + `uv.lock`) | Validates a built detector matches the maldet spec via `maldet_validator.py`. Used by the build pipeline. |
-| job-helper | Python module + tests | vcjob entrypoint. Fetches detector code, calls `maldet`, logs to MLflow, posts events to backend. |
-| mlflow-server | Dockerfile only | Custom mlflow tracking server image. |
-| pytorch-cu12-base | Dockerfile only | GPU base image (CUDA 12 + PyTorch). |
+| Helper            | Tech                                      | What it does                                                                                              |
+| ----------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| build-helper      | Python (own `pyproject.toml` + `uv.lock`) | Validates a built detector matches the maldet spec via `maldet_validator.py`. Used by the build pipeline. |
+| job-helper        | Python module + tests                     | vcjob entrypoint. Fetches detector code, calls `maldet`, logs to MLflow, posts events to backend.         |
+| mlflow-server     | Dockerfile only                           | Custom mlflow tracking server image.                                                                      |
+| pytorch-cu12-base | Dockerfile only                           | GPU base image (CUDA 12 + PyTorch).                                                                       |
 
 ### Monitoring (`charts/lolday/templates/monitoring/`)
 
-| Resource | Purpose |
-|----------|---------|
-| `alertmanager-rules.yaml` + `alertmanager-config-discord.yaml` | Prom rules + Discord receiver |
+| Resource                                                                | Purpose                                                                                  |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `alertmanager-rules.yaml` + `alertmanager-config-discord.yaml`          | Prom rules + Discord receiver                                                            |
 | `deadmans-switch.yaml` + `charts/lolday/files/deadmans_switch/check.py` | CronJob heartbeat to an independent Discord webhook (fail-fast on missing `DISCORD_URL`) |
-| `grafana-admin-secret.yaml` + `grafana-dashboards.yaml` | Grafana wiring + dashboards |
-| `postgres-exporter-initjob.yaml` + `postgres-exporter.yaml` | Postgres metrics exporter |
-| `servicemonitor-{backend,dcgm,postgres,traefik,trivy,volcano}.yaml` | ServiceMonitors × 6 |
+| `grafana-admin-secret.yaml` + `grafana-dashboards.yaml`                 | Grafana wiring + dashboards                                                              |
+| `postgres-exporter-initjob.yaml` + `postgres-exporter.yaml`             | Postgres metrics exporter                                                                |
+| `servicemonitor-{backend,dcgm,postgres,traefik,trivy,volcano}.yaml`     | ServiceMonitors × 6                                                                      |
 
 ### Notifications
 
-| Channel | Code path | Pattern |
-|---------|-----------|---------|
+| Channel                | Code path                                                                                 | Pattern                                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Discord events webhook | `backend/app/services/discord.py` (embed builders) + `services/notify.py` (HTTP delivery) | Fire-and-forget; `asyncio.create_task(notify_*(...))`; errors counted to `BACKEND_ERRORS{stage="discord_notify"}` |
-| Deadmans-switch | `charts/lolday/files/deadmans_switch/check.py` | Independent webhook (`DISCORD_URL` env); fail-fast on missing |
+| Deadmans-switch        | `charts/lolday/files/deadmans_switch/check.py`                                            | Independent webhook (`DISCORD_URL` env); fail-fast on missing                                                     |
 
 ## 4. Data flows
 
@@ -174,10 +174,10 @@ Grouped:
 
 ### 5.2 Operator-local env files (repo root, gitignored)
 
-| File | Mode | Used by |
-|------|------|---------|
-| `.lolday-secrets.env` | 600 | `scripts/deploy.sh`, `recover-harbor.sh`, `harbor-inventory.sh`, `fix-lolday-project-public.sh`, `diag-backend-401.sh`, `phase6-pre-deploy-check.sh`. Required keys (see `.lolday-secrets.env.example` for the canonical list with comments): `GRAFANA_ADMIN_PASSWORD`, `PG_EXPORTER_PASSWORD`, `CF_ENABLED`, `CF_TUNNEL_TOKEN`, `DISCORD_WEBHOOK_URL_{EVENTS,WARNING,CRITICAL}`, `HARBOR_ADMIN_PASSWORD`, `PG_PASSWORD`, `MLFLOW_DB_PASSWORD`, `FERNET_KEY`, plus `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` (machine-principal service token; sourced manually for `/users/me` svctoken debug — see `docs/phase-history/phase12.1-role-enum-bug.md`). |
-| `.lolday-cloudflare-access-backups/` | dir | JSON snapshots of Cloudflare Access app/policy state (audit backups). Created ad-hoc, not consumed by any script. |
+| File                                 | Mode | Used by                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.lolday-secrets.env`                | 600  | `scripts/deploy.sh`, `recover-harbor.sh`, `harbor-inventory.sh`, `fix-lolday-project-public.sh`, `diag-backend-401.sh`, `phase6-pre-deploy-check.sh`. Required keys (see `.lolday-secrets.env.example` for the canonical list with comments): `GRAFANA_ADMIN_PASSWORD`, `PG_EXPORTER_PASSWORD`, `CF_ENABLED`, `CF_TUNNEL_TOKEN`, `DISCORD_WEBHOOK_URL_{EVENTS,WARNING,CRITICAL}`, `HARBOR_ADMIN_PASSWORD`, `PG_PASSWORD`, `MLFLOW_DB_PASSWORD`, `FERNET_KEY`, plus `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` (machine-principal service token; sourced manually for `/users/me` svctoken debug — see `docs/phase-history/phase12.1-role-enum-bug.md`). |
+| `.lolday-cloudflare-access-backups/` | dir  | JSON snapshots of Cloudflare Access app/policy state (audit backups). Created ad-hoc, not consumed by any script.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Template: `.lolday-secrets.env.example` at repo root (committed).
 
@@ -185,10 +185,10 @@ Template: `.lolday-secrets.env.example` at repo root (committed).
 
 Two host names point at Harbor; they are **not interchangeable**:
 
-| Name | Resolved by | Used for |
-|------|-------------|----------|
-| `harbor.harbor.svc[.cluster.local]` | K8s in-cluster DNS (CoreDNS) — Harbor's Service in the `harbor` namespace | HTTP API calls from inside a pod (e.g. backend → Harbor REST) |
-| `harbor.lolday.svc[.cluster.local]` | server30 host-level setup: `/etc/hosts` entry + K3s containerd registry mirror (`/etc/rancher/k3s/registries.yaml`, see `scripts/patch-k3s-registries.sh`) — both point at Harbor's ClusterIP | Image pulls (containerd at the kubelet / docker level) |
+| Name                                | Resolved by                                                                                                                                                                                   | Used for                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `harbor.harbor.svc[.cluster.local]` | K8s in-cluster DNS (CoreDNS) — Harbor's Service in the `harbor` namespace                                                                                                                     | HTTP API calls from inside a pod (e.g. backend → Harbor REST) |
+| `harbor.lolday.svc[.cluster.local]` | server30 host-level setup: `/etc/hosts` entry + K3s containerd registry mirror (`/etc/rancher/k3s/registries.yaml`, see `scripts/patch-k3s-registries.sh`) — both point at Harbor's ClusterIP | Image pulls (containerd at the kubelet / docker level)        |
 
 **Defaults in `backend/app/config.py`** all use the K8s native form (`harbor.harbor.svc`) — appropriate for tests and as a sentinel.
 
@@ -258,27 +258,27 @@ cd frontend && pnpm typecheck && pnpm lint
 
 > The `phaseN-X` numbering convention is **retired** as of 2026-04-29 — see `docs/conventions.md` §4. The table below is the historical record of work done under the old convention. New work uses `YYYY-MM-DD-<short-kebab-desc>` filenames; trace it via `docs/superpowers/specs|plans/` listings sorted by date.
 
-| Phase (legacy) | Spec / Plan | Summary |
-|-------|-------------|---------|
-| 1 | `specs/2026-03-30-lolday-platform-design.md` + `plans/2026-03-30-phase1-infrastructure.md` | Initial platform design + K3s/Helm baseline |
-| 2 | `specs/2026-04-13-phase2-backend-core-design.md` + plan | Backend core (FastAPI + DB + auth scaffold) |
-| 3 | `specs/2026-04-14-phase3-detector-lifecycle-design.md` + plan | Detector CRUD + build pipeline + Harbor |
-| 4 | `specs/2026-04-17-phase4-dataset-jobs-design.md` + plan | Dataset upload + Volcano vcjob + MLflow |
-| 5 | `specs/2026-04-19-phase5-frontend-design.md` + plan | Frontend SPA |
-| 6 | `specs/2026-04-20-phase6-operations-design.md` + plan | Monitoring stack + Cloudflare tunnel + alerting |
-| 7 / 7.5 | (no spec; baseline migration) | Alembic baseline + Phase 7.4 Discord notify + UI cluster status + rate limit |
-| 8 | (no spec; ops) | GPU2 profile, ephemeral-to-SSD migration |
-| 9.6 | (no spec; ops) | Root-LV PVC migration. See `docs/phase-history/phase11d-*` and `scripts/migrate-*` |
-| 10 | (no spec; ops) | Cloudflare Access SSO. fastapi-users password flow stripped. |
-| 11a | `specs/2026-04-24-phase11-detector-framework-v1-design.md` + `plans/2026-04-24-phase11a-maldet-framework.md` | maldet framework v1 split out |
-| 11b | (spec embedded in 11a) + `plans/2026-04-24-phase11b-lolday-backend-contract.md` | Backend contract for typed detectors + events/manifest |
-| 11c | `plans/2026-04-26-phase11c-template-detectors-v2.md` | Template detectors v2 + drop v0 schema |
-| 11d | (no spec; retirement) | v0 retirement findings in `docs/phase-history/phase11d-retirement-findings.md` |
-| 11e | `specs/2026-04-27-phase11e-typed-detector-contract-design.md` + plan | Typed detector contract |
-| 12 | (no spec) | Orphan-vcjob reconciler, chart hygiene, service-token notify skip |
-| 12.1–12.3 | (migration history) | role_enum patches; see `docs/phase-history/phase12.1-role-enum-bug.md` |
-| 13a | `specs/2026-04-28-phase13a-bugs-and-delete-design.md` + plan | Bug fixes + delete UX + log capture refactor |
-| 13b | `specs/2026-04-28-phase13b-job-runs-ux-redesign-design.md` + plan | Per-type Job Detail Summary tab |
+| Phase (legacy) | Spec / Plan                                                                                                  | Summary                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| 1              | `specs/2026-03-30-lolday-platform-design.md` + `plans/2026-03-30-phase1-infrastructure.md`                   | Initial platform design + K3s/Helm baseline                                        |
+| 2              | `specs/2026-04-13-phase2-backend-core-design.md` + plan                                                      | Backend core (FastAPI + DB + auth scaffold)                                        |
+| 3              | `specs/2026-04-14-phase3-detector-lifecycle-design.md` + plan                                                | Detector CRUD + build pipeline + Harbor                                            |
+| 4              | `specs/2026-04-17-phase4-dataset-jobs-design.md` + plan                                                      | Dataset upload + Volcano vcjob + MLflow                                            |
+| 5              | `specs/2026-04-19-phase5-frontend-design.md` + plan                                                          | Frontend SPA                                                                       |
+| 6              | `specs/2026-04-20-phase6-operations-design.md` + plan                                                        | Monitoring stack + Cloudflare tunnel + alerting                                    |
+| 7 / 7.5        | (no spec; baseline migration)                                                                                | Alembic baseline + Phase 7.4 Discord notify + UI cluster status + rate limit       |
+| 8              | (no spec; ops)                                                                                               | GPU2 profile, ephemeral-to-SSD migration                                           |
+| 9.6            | (no spec; ops)                                                                                               | Root-LV PVC migration. See `docs/phase-history/phase11d-*` and `scripts/migrate-*` |
+| 10             | (no spec; ops)                                                                                               | Cloudflare Access SSO. fastapi-users password flow stripped.                       |
+| 11a            | `specs/2026-04-24-phase11-detector-framework-v1-design.md` + `plans/2026-04-24-phase11a-maldet-framework.md` | maldet framework v1 split out                                                      |
+| 11b            | (spec embedded in 11a) + `plans/2026-04-24-phase11b-lolday-backend-contract.md`                              | Backend contract for typed detectors + events/manifest                             |
+| 11c            | `plans/2026-04-26-phase11c-template-detectors-v2.md`                                                         | Template detectors v2 + drop v0 schema                                             |
+| 11d            | (no spec; retirement)                                                                                        | v0 retirement findings in `docs/phase-history/phase11d-retirement-findings.md`     |
+| 11e            | `specs/2026-04-27-phase11e-typed-detector-contract-design.md` + plan                                         | Typed detector contract                                                            |
+| 12             | (no spec)                                                                                                    | Orphan-vcjob reconciler, chart hygiene, service-token notify skip                  |
+| 12.1–12.3      | (migration history)                                                                                          | role_enum patches; see `docs/phase-history/phase12.1-role-enum-bug.md`             |
+| 13a            | `specs/2026-04-28-phase13a-bugs-and-delete-design.md` + plan                                                 | Bug fixes + delete UX + log capture refactor                                       |
+| 13b            | `specs/2026-04-28-phase13b-job-runs-ux-redesign-design.md` + plan                                            | Per-type Job Detail Summary tab                                                    |
 
 Operational checklists & retrospective findings: `docs/phase-history/`.
 
@@ -288,12 +288,26 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 2. **No CI/CD.** No GitHub Actions, no automated build/test, no release pipeline. `scripts/deploy.sh` is manual.
 3. **Single `values.yaml`** (~27KB). No dev/prod overlay system.
 4. **Helper images built by hand.** No automated build/push of `build-helper:vN` / `job-helper:vN`.
-5. **No pre-commit / husky / lint-staged / prettier / `.editorconfig`.** No automated formatting discipline.
-6. **No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.** Caches exist but settings are default.
+5. ~~**No pre-commit / husky / lint-staged / prettier / `.editorconfig`.**~~ — resolved 2026-04-29 in `chore/engineering-hygiene`: pre-commit framework wired up at repo root with hooks for ruff (lint+format), mypy, prettier, eslint, and `pre-commit-hooks` built-ins. `.editorconfig` added. See `docs/superpowers/specs/2026-04-29-engineering-hygiene-design.md`.
+6. ~~**No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.**~~ — resolved 2026-04-29 in `chore/engineering-hygiene`: config moved to repo-root `ruff.toml` and `mypy.ini` (mainstream pattern for monorepos with multiple Python project boundaries). `backend/pyproject.toml` deliberately does not host `[tool.ruff]` / `[tool.mypy]` to avoid shadowing the root config.
 7. ~~**fastapi-users vestige**~~ — resolved 2026-04-29 in `chore/drop-hashed-password`: User model + schema no longer inherit from fastapi-users base classes; `hashed_password` was dropped along with three other unused booleans (`is_active` / `is_superuser` / `is_verified`). The phase 7.5 baseline migration was edited to use SQLAlchemy 2.0 native `sa.Uuid()` instead of `fastapi_users_db_sqlalchemy.generics.GUID()` (schema-equivalent type swap), allowing both `fastapi-users` and `fastapi-users-db-sqlalchemy` to be removed from the venv entirely. PyJWT (previously a transitive dep) is now declared directly.
 8. **Helper image versions hardcoded** — `BUILD_IMAGE_HELPER=v3`, `JOB_HELPER_IMAGE=v4` in `config.py`. No versioning strategy.
 9. ~~**Secrets path inconsistency**~~ — resolved 2026-04-29: all script callers follow the canonical fallback pattern (`recover-harbor.sh` is the model). See `.claude/rules/scripts-and-ops.md`.
 10. ~~**Harbor URL inconsistency**~~ — resolved 2026-04-29: the two forms (`harbor.harbor.svc` for K8s in-cluster API, `harbor.lolday.svc` for image pulls via host-level setup) are intentional. See §5.3. The lone outlier in `config.py` defaults was fixed.
+11. **mypy module overrides (`[mypy-<module>] ignore_errors = true`)** — First-wave mypy is intentionally lenient (`strict = false`, only `warn_*` flags + `check_untyped_defs`). Modules below are overridden at module level; each entry must be removed when the corresponding phase refactors that file.
+    - **`app.reconciler`** — activated 2026-04-29 in Phase 4 of `chore/engineering-hygiene`. 20 `union-attr` / `arg-type` errors across the 57KB reconciler (all `Optional`-handling issues); root-cause fix deferred to the phase that refactors `reconciler.py` (see #1). Entry: `[mypy-app.reconciler] ignore_errors = true` in `mypy.ini`.
+
+    Removal procedure (for the future reconciler-refactor phase):
+
+    ```bash
+    # 1. Remove the override block from mypy.ini.
+    # 2. Run mypy without the SKIP machinery to surface the errors:
+    uv run --project backend mypy --config-file mypy.ini
+    # 3. Fix each union-attr / arg-type finding at root cause (typically
+    #    a missing `if X is None: continue` or `assert X is not None`).
+    # 4. Re-run; expect "Success: no issues found".
+    # 5. pre-commit run --all-files; expect exit 0.
+    ```
 
 ## 10. Common gotchas
 

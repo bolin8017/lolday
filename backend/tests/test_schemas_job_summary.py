@@ -19,7 +19,7 @@ def _base_payload() -> dict:
         "mlflow_run_id": None,
         "k8s_job_name": None,
         "failure_reason": None,
-        "submitted_at": _dt.datetime.now(_dt.timezone.utc),
+        "submitted_at": _dt.datetime.now(_dt.UTC),
         "started_at": None,
         "finished_at": None,
     }

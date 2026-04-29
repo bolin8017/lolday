@@ -12,10 +12,25 @@ export interface CrumbMatch {
 export function useBreadcrumb(): CrumbMatch[] {
   const matches = useMatches();
   return matches
-    .filter((m): m is typeof m & { handle: { breadcrumb: string | ((d: unknown) => string) } } =>
-      Boolean(m.handle && typeof m.handle === "object" && m.handle !== null && "breadcrumb" in m.handle))
+    .filter(
+      (
+        m,
+      ): m is typeof m & {
+        handle: { breadcrumb: string | ((d: unknown) => string) };
+      } =>
+        Boolean(
+          m.handle &&
+          typeof m.handle === "object" &&
+          m.handle !== null &&
+          "breadcrumb" in m.handle,
+        ),
+    )
     .map((m) => {
-      const b = (m.handle as { breadcrumb: string | ((d: unknown) => string) }).breadcrumb;
-      return { pathname: m.pathname, label: typeof b === "function" ? b(m.data) : b };
+      const b = (m.handle as { breadcrumb: string | ((d: unknown) => string) })
+        .breadcrumb;
+      return {
+        pathname: m.pathname,
+        label: typeof b === "function" ? b(m.data) : b,
+      };
     });
 }

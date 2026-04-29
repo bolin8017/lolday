@@ -1,11 +1,11 @@
 """Tests for app.services.cluster_status — GPU allocation + Volcano queue queries."""
 
 from contextlib import contextmanager
+from datetime import UTC
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-
 from app.services import cluster_status
 
 
@@ -42,11 +42,13 @@ def _patched_core(nodes, pods):
     class Stub:
         def list_node(self):
             return SimpleNamespace(items=nodes)
+
         def list_namespaced_pod(self, namespace=None):
             # Phase 7.5: get_gpu_allocation now reads only from the job
             # namespace. The stub returns the seeded list regardless of the
             # namespace arg since tests don't exercise cross-ns filtering.
             return SimpleNamespace(items=pods)
+
     with patch("app.services.cluster_status.core_v1", return_value=Stub()):
         yield
 
@@ -56,6 +58,7 @@ def _patched_volcano(items):
     class Stub:
         def list_namespaced_custom_object(self, **kwargs):
             return {"items": items}
+
     with patch("app.services.cluster_status.volcano_v1alpha1", return_value=Stub()):
         yield
 
@@ -70,6 +73,7 @@ def _vjob(name: str, queue: str, phase: str | None, created: str):
 
 
 # --- GPU allocation ---
+
 
 def test_get_gpu_allocation_sums_node_allocatable():
     with _patched_core([_node("2"), _node("1")], []):
@@ -122,6 +126,7 @@ def test_get_gpu_allocation_idle_clamped_non_negative():
 
 # --- Queue depth ---
 
+
 def test_get_queue_depth_skips_terminal_phases():
     items = [
         _vjob("a", "lolday-training", "Running", "2026-04-21T01:00:00Z"),
@@ -155,10 +160,11 @@ def test_get_queue_depth_updates_stale_gauge():
     """Pending jobs older than VOLCANO_STALE_SECONDS are reflected in the
     lolday_volcano_pending_stale gauge so an alert can fire on scheduler
     hangs."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
+
     from app.metrics import VOLCANO_PENDING_STALE
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     fresh = (now - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
     stale = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = [
@@ -175,12 +181,13 @@ def test_get_queue_depth_updates_stale_gauge():
 def test_stale_gauge_drops_to_zero_when_no_stale_pending():
     """Gauge must reset to 0 when the stale condition clears — `.set(0)`
     must be reached on the happy path, not short-circuited."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
+
     from app.metrics import VOLCANO_PENDING_STALE
 
     # Seed a non-zero value first (simulate "earlier tick said 3 stale").
     VOLCANO_PENDING_STALE.set(3)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     fresh = (now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = [
         _vjob("a", "lolday-training", "Pending", fresh),
@@ -195,10 +202,11 @@ def test_stale_gauge_survives_bad_creationtimestamp():
     """A single malformed timestamp in the Volcano CR list must NOT crash
     get_queue_depth — else the gauge would stick at its previous value and
     the alert could falsely fire or falsely silence."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
+
     from app.metrics import VOLCANO_PENDING_STALE
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stale = (now - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = [
         _vjob("good", "lolday-training", "Pending", stale),
@@ -226,6 +234,7 @@ def test_parse_iso8601_returns_none_on_bad_input():
 
 
 # --- Queue position ---
+
 
 def test_get_job_queue_position_1indexed_by_creation_order():
     items = [

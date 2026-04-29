@@ -9,8 +9,12 @@ describe("applyFieldErrorsToForm", () => {
       { field: "email", message: "Not a valid email" },
       { field: "password", message: "Too short" },
     ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- vi.fn() satisfies the generic but TS can't prove it
     applyFieldErrorsToForm(err, setError as any);
     expect(setError).toHaveBeenCalledTimes(2);
-    expect(setError).toHaveBeenCalledWith("email", { type: "server", message: "Not a valid email" });
+    expect(setError).toHaveBeenCalledWith("email", {
+      type: "server",
+      message: "Not a valid email",
+    });
   });
 });

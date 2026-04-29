@@ -51,6 +51,31 @@ The production frontend is served by `nginxinc/nginx-unprivileged` with CSP `def
 
 If something works in `pnpm dev` but breaks in the built container, suspect CSP first. Test against the built image, not just the dev server.
 
+## Format 紀律
+
+Tooling: **Prettier** owns formatting; **ESLint** owns lint. They do not overlap (`eslint-config-prettier/flat` is appended to `eslint.config.js` to disable formatting rules in ESLint).
+
+Config: `.prettierrc.json` and `.prettierignore` at repo root.
+
+Manual commands from `frontend/`:
+
+```bash
+pnpm format          # write
+pnpm format:check    # check (exits 1 if dirty)
+pnpm lint            # ESLint
+pnpm typecheck       # tsc --noEmit
+```
+
+### Forbidden additions
+
+- `stylelint`, `husky`, `lint-staged`, `commitlint`, `prettier-eslint` — unnecessary integration layers.
+
+### Rules
+
+- Do not re-enable formatting rules in ESLint (Prettier owns formatting; doing so creates a fight between the two).
+- Do not change `proseWrap` from `"preserve"` — Markdown paragraphs should not be auto-wrapped.
+- The CSP `'self'` hard rule is unchanged.
+
 ## Tests
 
 - `pnpm test` — vitest, unit + component (`frontend/tests/unit/`).

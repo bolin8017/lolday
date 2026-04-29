@@ -5,6 +5,7 @@
 Tests the full detector lifecycle against the real `upxelfdet` repo (github.com/bolin8017/upxelfdet). Uses `kubectl port-forward` — no external DNS/TLS required.
 
 **Required env vars from Task 17:**
+
 - `HARBOR_ADMIN_PASSWORD`
 - `ADMIN_EMAIL` + `ADMIN_PASSWORD`
 - A valid GitHub PAT for `bolin8017` with `public_repo` scope (repo is public, PAT just avoids GitHub 60req/hr rate limit)
@@ -108,6 +109,7 @@ curl -s http://localhost:8000/api/v1/detectors/$DETECTOR_ID/available-tags \
 ```
 
 **If empty:** upxelfdet has no tags yet. Create one:
+
 ```bash
 cd /home/bolin8017/Documents/repositories/upxelfdet
 git tag v0.1.0 && git push --tags
@@ -149,6 +151,7 @@ watch -n 5 "curl -s http://localhost:8000/api/v1/detectors/$DETECTOR_ID/builds/$
 ```
 
 Expected transitions (may take 5-15 minutes total):
+
 1. `cloning` (~10s) — git clone in init container
 2. `validating` (~1-3min) — pip install + reflection checks in build-helper image
 3. `building` (~3-10min) — Kaniko builds Dockerfile, pushes to Harbor
@@ -156,6 +159,7 @@ Expected transitions (may take 5-15 minutes total):
 5. **Terminal:** `succeeded` (trivy_critical=0, high=0) OR `cve_blocked` (if the base image has CVEs) OR `failed` (if validate/build errored)
 
 **Simultaneously monitor K8s Job:**
+
 ```bash
 kubectl -n lolday get jobs -l app=lolday-build
 kubectl -n lolday logs -l app=lolday-build --all-containers=true --tail=100
@@ -182,6 +186,7 @@ curl -s http://localhost:8000/api/v1/detectors/$DETECTOR_ID/versions/$TAG \
 ```
 
 **Pass criteria:**
+
 - Version exists with `status: active`
 - `harbor_image` = `harbor.harbor.svc:80/detectors/upxelfdet:$TAG`
 - `image_digest` starts with `sha256:`
@@ -204,6 +209,7 @@ kill $HB_PID
 ```
 
 **Pass criteria:**
+
 - Artifact with tag `$TAG` exists
 - `scan_overview` contains the vulnerability summary
 - `scan_status: Success`
@@ -241,6 +247,7 @@ kill $BE_PID 2>/dev/null || true
 ## Pass summary
 
 All 8 tests passing = Phase 3 end-to-end working. You can then:
+
 1. Mark Task 18 complete
 2. Squash merge `dev` → `main` per project convention
 3. Proceed to Phase 4 design
@@ -260,6 +267,7 @@ ENTRYPOINT ["python", "-m", "upxelfdet"]
 ```
 
 Commit + tag + push:
+
 ```bash
 cd /home/bolin8017/Documents/repositories/upxelfdet
 git add Dockerfile && git commit -m "add Dockerfile for lolday build pipeline"
@@ -273,17 +281,20 @@ Retry Test 2.
 ## Appendix B — Debug techniques
 
 **Dump build logs from K8s Job:**
+
 ```bash
 kubectl -n lolday logs -l lolday.io/build-id=$BUILD_ID --all-containers=true
 ```
 
 **Exec into running init container (before it terminates):**
+
 ```bash
 kubectl -n lolday get pods -l lolday.io/build-id=$BUILD_ID
 kubectl -n lolday debug pod/<pod-name> -c validate --image=ubuntu --attach
 ```
 
 **Check Harbor scan status directly:**
+
 ```bash
 kubectl -n lolday exec deployment/backend -- python -c "
 import asyncio
@@ -299,6 +310,7 @@ asyncio.run(main())
 ```
 
 **Force a stuck build to fail:**
+
 ```bash
 BUILD_ID=<uuid>
 kubectl -n lolday delete job -l lolday.io/build-id=$BUILD_ID

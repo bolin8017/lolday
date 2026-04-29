@@ -25,10 +25,13 @@ export function useUpdateUserRole() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: { userId: string; role: Role }) => {
-      const { data, error } = await client.PATCH("/api/v1/admin/users/{user_id}", {
-        params: { path: { user_id: args.userId } },
-        body: { role: args.role },
-      });
+      const { data, error } = await client.PATCH(
+        "/api/v1/admin/users/{user_id}",
+        {
+          params: { path: { user_id: args.userId } },
+          body: { role: args.role },
+        },
+      );
       if (error) throw error;
       return data as User;
     },

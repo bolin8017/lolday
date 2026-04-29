@@ -20,32 +20,32 @@
 
 **Concrete v0 surfaces being deleted in this phase:**
 
-| File / surface | Action |
-|---|---|
-| `backend/app/services/validator.py::_check_base_detector_import` | delete; replaced by `_check_maldet_toml` |
-| `backend/app/routers/internal.py::submit_schema` (`POST /internal/builds/{build_id}/schema`) | delete; nothing POSTs schema in v2 |
-| `backend/app/models/detector.py::DetectorBuild.pending_schema` | drop column |
-| `backend/app/models/detector.py::DetectorVersion.config_schema` | drop column |
-| `backend/app/schemas/detector.py::DetectorVersionRead.config_schema` | drop field |
-| `backend/app/reconciler.py::_handle_succeeded` line `config_schema=b.pending_schema or {}` | drop kwarg |
-| `backend/app/routers/jobs.py::jsonschema.validate(body.params, dv.config_schema)` | delete; replaced by `validate_user_params(body.params)` |
-| `charts/lolday/helpers/build-helper/maldet_validator.py::_discover_via_ast` + AST `BaseDetector` walk + `_install_lightweight_deps` + `_load_config_class` + `_post_schema` | delete; replaced by `validate_manifest` (manifest-driven) + `write_build_args` |
-| `charts/lolday/helpers/build-helper/test_maldet_validator.py` | rewrite for the new validator |
-| `charts/lolday/helpers/build-helper/Dockerfile` | install `maldet[lightning] >= 1.0` so the validator can import the manifest module |
-| `backend/app/config.py::BUILD_IMAGE_HELPER = "...:v2"` | bump to `:v3` |
-| `charts/lolday/Chart.yaml::version` | `0.13.0` → `0.14.0`; `appVersion: phase11b` → `phase11c` |
-| Test fixtures across `backend/tests/*` passing `config_schema={...}` | drop the kwarg |
+| File / surface                                                                                                                                                              | Action                                                                             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `backend/app/services/validator.py::_check_base_detector_import`                                                                                                            | delete; replaced by `_check_maldet_toml`                                           |
+| `backend/app/routers/internal.py::submit_schema` (`POST /internal/builds/{build_id}/schema`)                                                                                | delete; nothing POSTs schema in v2                                                 |
+| `backend/app/models/detector.py::DetectorBuild.pending_schema`                                                                                                              | drop column                                                                        |
+| `backend/app/models/detector.py::DetectorVersion.config_schema`                                                                                                             | drop column                                                                        |
+| `backend/app/schemas/detector.py::DetectorVersionRead.config_schema`                                                                                                        | drop field                                                                         |
+| `backend/app/reconciler.py::_handle_succeeded` line `config_schema=b.pending_schema or {}`                                                                                  | drop kwarg                                                                         |
+| `backend/app/routers/jobs.py::jsonschema.validate(body.params, dv.config_schema)`                                                                                           | delete; replaced by `validate_user_params(body.params)`                            |
+| `charts/lolday/helpers/build-helper/maldet_validator.py::_discover_via_ast` + AST `BaseDetector` walk + `_install_lightweight_deps` + `_load_config_class` + `_post_schema` | delete; replaced by `validate_manifest` (manifest-driven) + `write_build_args`     |
+| `charts/lolday/helpers/build-helper/test_maldet_validator.py`                                                                                                               | rewrite for the new validator                                                      |
+| `charts/lolday/helpers/build-helper/Dockerfile`                                                                                                                             | install `maldet[lightning] >= 1.0` so the validator can import the manifest module |
+| `backend/app/config.py::BUILD_IMAGE_HELPER = "...:v2"`                                                                                                                      | bump to `:v3`                                                                      |
+| `charts/lolday/Chart.yaml::version`                                                                                                                                         | `0.13.0` → `0.14.0`; `appVersion: phase11b` → `phase11c`                           |
+| Test fixtures across `backend/tests/*` passing `config_schema={...}`                                                                                                        | drop the kwarg                                                                     |
 
 **v2 surfaces being introduced:**
 
-| File / surface | Purpose |
-|---|---|
-| `backend/app/services/validator.py::_check_maldet_toml(repo_root)` | parses `maldet.toml` via `maldet.manifest.load_manifest`; raises `StaticValidationError("manifest_invalid", …)` on failure |
-| `backend/app/services/jobs_params_guard.py` (new) `validate_user_params(params)` | rejects Hydra meta + platform-controlled prefixes |
-| `backend/app/services/build.py` `prep-buildargs` initContainer | reads `/workspace/src/maldet.toml`, writes `/workspace/build-args/*.env` |
-| `backend/app/services/build.py` buildkit container args | reads `/workspace/build-args/*.env` and emits `--opt build-arg:KEY=VAL` flags |
-| `charts/lolday/helpers/build-helper/maldet_validator.py::main()` (new shape) | `maldet check` + computes 5 build-args + writes them to `/workspace/build-args/*.env` |
-| New Alembic migration `phase_11c_drop_v0_schema_columns.py` | drops `detector_build.pending_schema` + `detector_version.config_schema` |
+| File / surface                                                                   | Purpose                                                                                                                    |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `backend/app/services/validator.py::_check_maldet_toml(repo_root)`               | parses `maldet.toml` via `maldet.manifest.load_manifest`; raises `StaticValidationError("manifest_invalid", …)` on failure |
+| `backend/app/services/jobs_params_guard.py` (new) `validate_user_params(params)` | rejects Hydra meta + platform-controlled prefixes                                                                          |
+| `backend/app/services/build.py` `prep-buildargs` initContainer                   | reads `/workspace/src/maldet.toml`, writes `/workspace/build-args/*.env`                                                   |
+| `backend/app/services/build.py` buildkit container args                          | reads `/workspace/build-args/*.env` and emits `--opt build-arg:KEY=VAL` flags                                              |
+| `charts/lolday/helpers/build-helper/maldet_validator.py::main()` (new shape)     | `maldet check` + computes 5 build-args + writes them to `/workspace/build-args/*.env`                                      |
+| New Alembic migration `phase_11c_drop_v0_schema_columns.py`                      | drops `detector_build.pending_schema` + `detector_version.config_schema`                                                   |
 
 **Branching:**
 
@@ -58,51 +58,51 @@
 
 ### `lolday` (this repo) — created/modified
 
-| Path | Change |
-|---|---|
-| `backend/app/services/validator.py` | drop `_check_base_detector_import`; add `_check_maldet_toml`; `validate_repo_static` calls the new check |
-| `backend/app/services/jobs_params_guard.py` | new — `validate_user_params(params)` |
-| `backend/app/services/build.py` | add `prep-buildargs` initContainer + buildkit `--opt build-arg` flags |
-| `backend/app/routers/internal.py` | delete `submit_schema` route |
-| `backend/app/routers/detectors.py` | unchanged caller of `validate_repo_static` (now manifest-driven via the rewritten function) |
-| `backend/app/routers/jobs.py` | drop `jsonschema.validate`; call `validate_user_params` |
-| `backend/app/reconciler.py` | drop `config_schema=b.pending_schema or {}` from `DetectorVersion(...)` constructor |
-| `backend/app/models/detector.py` | drop `DetectorBuild.pending_schema`, `DetectorVersion.config_schema` |
-| `backend/app/schemas/detector.py` | drop `config_schema` field from `DetectorVersionRead` (or whatever schema includes it) |
-| `backend/app/config.py` | `BUILD_IMAGE_HELPER` `:v2` → `:v3` |
-| `backend/migrations/versions/<rev>_phase_11c_drop_v0_schema_columns.py` | new |
-| `backend/tests/conftest.py` | drop `config_schema=…` kwargs from any `DetectorVersion(...)` factories |
-| `backend/tests/test_*.py` | drop `config_schema=…` from fixtures (8 occurrences identified at plan time) |
-| `backend/tests/test_services_validator.py` | new tests for `_check_maldet_toml` |
-| `backend/tests/test_services_jobs_params_guard.py` | new tests for `validate_user_params` |
-| `backend/tests/test_services_build_args.py` | new tests for prep-buildargs + buildkit args |
-| `backend/tests/test_internal_routes.py` | drop tests for the deleted schema route |
-| `charts/lolday/helpers/build-helper/maldet_validator.py` | full rewrite |
-| `charts/lolday/helpers/build-helper/test_maldet_validator.py` | full rewrite |
-| `charts/lolday/helpers/build-helper/pyproject.toml` | new — declares `maldet[lightning] >= 1.0` (dev: pytest) |
-| `charts/lolday/helpers/build-helper/Dockerfile` | install `maldet[lightning] >= 1.0` |
-| `charts/lolday/Chart.yaml` | version `0.13.0` → `0.14.0`; `appVersion: phase11b` → `phase11c` |
-| `charts/lolday/values.yaml` | bump build-helper image to `:v3` (if templated) |
-| `docs/superpowers/plans/2026-04-26-phase11c-template-detectors-v2.md` | this file |
+| Path                                                                    | Change                                                                                                   |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `backend/app/services/validator.py`                                     | drop `_check_base_detector_import`; add `_check_maldet_toml`; `validate_repo_static` calls the new check |
+| `backend/app/services/jobs_params_guard.py`                             | new — `validate_user_params(params)`                                                                     |
+| `backend/app/services/build.py`                                         | add `prep-buildargs` initContainer + buildkit `--opt build-arg` flags                                    |
+| `backend/app/routers/internal.py`                                       | delete `submit_schema` route                                                                             |
+| `backend/app/routers/detectors.py`                                      | unchanged caller of `validate_repo_static` (now manifest-driven via the rewritten function)              |
+| `backend/app/routers/jobs.py`                                           | drop `jsonschema.validate`; call `validate_user_params`                                                  |
+| `backend/app/reconciler.py`                                             | drop `config_schema=b.pending_schema or {}` from `DetectorVersion(...)` constructor                      |
+| `backend/app/models/detector.py`                                        | drop `DetectorBuild.pending_schema`, `DetectorVersion.config_schema`                                     |
+| `backend/app/schemas/detector.py`                                       | drop `config_schema` field from `DetectorVersionRead` (or whatever schema includes it)                   |
+| `backend/app/config.py`                                                 | `BUILD_IMAGE_HELPER` `:v2` → `:v3`                                                                       |
+| `backend/migrations/versions/<rev>_phase_11c_drop_v0_schema_columns.py` | new                                                                                                      |
+| `backend/tests/conftest.py`                                             | drop `config_schema=…` kwargs from any `DetectorVersion(...)` factories                                  |
+| `backend/tests/test_*.py`                                               | drop `config_schema=…` from fixtures (8 occurrences identified at plan time)                             |
+| `backend/tests/test_services_validator.py`                              | new tests for `_check_maldet_toml`                                                                       |
+| `backend/tests/test_services_jobs_params_guard.py`                      | new tests for `validate_user_params`                                                                     |
+| `backend/tests/test_services_build_args.py`                             | new tests for prep-buildargs + buildkit args                                                             |
+| `backend/tests/test_internal_routes.py`                                 | drop tests for the deleted schema route                                                                  |
+| `charts/lolday/helpers/build-helper/maldet_validator.py`                | full rewrite                                                                                             |
+| `charts/lolday/helpers/build-helper/test_maldet_validator.py`           | full rewrite                                                                                             |
+| `charts/lolday/helpers/build-helper/pyproject.toml`                     | new — declares `maldet[lightning] >= 1.0` (dev: pytest)                                                  |
+| `charts/lolday/helpers/build-helper/Dockerfile`                         | install `maldet[lightning] >= 1.0`                                                                       |
+| `charts/lolday/Chart.yaml`                                              | version `0.13.0` → `0.14.0`; `appVersion: phase11b` → `phase11c`                                         |
+| `charts/lolday/values.yaml`                                             | bump build-helper image to `:v3` (if templated)                                                          |
+| `docs/superpowers/plans/2026-04-26-phase11c-template-detectors-v2.md`   | this file                                                                                                |
 
 ### `bolin8017/elfrfdet` (full overwrite as v2.0.0)
 
-| Path | Source | Notes |
-|---|---|---|
-| `maldet.toml` | `maldet scaffold rf` | bump `[detector].version` to `2.0.0`; expand description |
-| `Dockerfile` | scaffold (verbatim) | already correct |
-| `pyproject.toml` | scaffold + specialization | `version=2.0.0`, description, license, authors, readme, classifiers, urls, dev extras, ruff, pytest |
-| `README.md` | new content | project doc |
-| `CHANGELOG.md` | new | v2.0.0 breaking change |
-| `LICENSE` | preserve | MIT, bolin8017 |
-| `.gitignore` | new | Python defaults |
+| Path                       | Source                                          | Notes                                                                                                  |
+| -------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `maldet.toml`              | `maldet scaffold rf`                            | bump `[detector].version` to `2.0.0`; expand description                                               |
+| `Dockerfile`               | scaffold (verbatim)                             | already correct                                                                                        |
+| `pyproject.toml`           | scaffold + specialization                       | `version=2.0.0`, description, license, authors, readme, classifiers, urls, dev extras, ruff, pytest    |
+| `README.md`                | new content                                     | project doc                                                                                            |
+| `CHANGELOG.md`             | new                                             | v2.0.0 breaking change                                                                                 |
+| `LICENSE`                  | preserve                                        | MIT, bolin8017                                                                                         |
+| `.gitignore`               | new                                             | Python defaults                                                                                        |
 | `src/elfrfdet/__init__.py` | scaffold (empty body) + `__version__ = "2.0.0"` | **no `import maldet` shim** — the new validator reads `maldet.toml`, not AST-scans for `import maldet` |
-| `src/elfrfdet/features.py` | scaffold (verbatim) | Text256Extractor with pyelftools try/except |
-| `src/elfrfdet/models.py` | scaffold (verbatim) | `make_rf` |
-| `tests/__init__.py` | new | empty |
-| `tests/test_features.py` | new | system ELF + truncated ELF + no-`.text` |
-| `tests/test_manifest.py` | new | `maldet.manifest.load_manifest` shape checks |
-| `.github/workflows/ci.yml` | new | py3.12 → install → `maldet check` → pytest + ruff |
+| `src/elfrfdet/features.py` | scaffold (verbatim)                             | Text256Extractor with pyelftools try/except                                                            |
+| `src/elfrfdet/models.py`   | scaffold (verbatim)                             | `make_rf`                                                                                              |
+| `tests/__init__.py`        | new                                             | empty                                                                                                  |
+| `tests/test_features.py`   | new                                             | system ELF + truncated ELF + no-`.text`                                                                |
+| `tests/test_manifest.py`   | new                                             | `maldet.manifest.load_manifest` shape checks                                                           |
+| `.github/workflows/ci.yml` | new                                             | py3.12 → install → `maldet check` → pytest + ruff                                                      |
 
 ### `bolin8017/elfcnndet` (full overwrite as v2.0.0)
 
@@ -121,6 +121,7 @@ Three independent workstreams that can run in parallel:
 After all three streams' PRs are merged + tags pushed, **operator** runs **Part J** (E2E via the now-fixed pipeline) and updates memory in **Part Z**.
 
 When dispatching subagents:
+
 - Use `superpowers:dispatching-parallel-agents` to launch L, R, C simultaneously.
 - Two-stage review per task: (1) compile/lint/type-check; (2) design review against this plan.
 - The detector streams (R, C2) have no dependency on Stream L being merged — they only need the detector repos cloned. Stream L's PR also has no dependency on the detector PRs.
@@ -200,6 +201,7 @@ git checkout -b phase-11c-impl
 ### Task B-1: Replace `_check_base_detector_import` with `_check_maldet_toml`
 
 **Files:**
+
 - Modify: `backend/app/services/validator.py`
 - Test: `backend/tests/test_services_validator.py` (new file)
 
@@ -472,6 +474,7 @@ git commit -m "feat(validator): phase 11c — replace BaseDetector AST scan with
 ### Task C-1: Delete `submit_schema` and its tests
 
 **Files:**
+
 - Modify: `backend/app/routers/internal.py`
 - Modify: `backend/tests/test_internal_routes.py` (search for `submit_schema` / `/builds/.*/schema` tests)
 
@@ -515,6 +518,7 @@ git commit -m "refactor: phase 11c — drop /internal/builds/{id}/schema route (
 ### Task C-2: Drop `DetectorBuild.pending_schema` field
 
 **Files:**
+
 - Modify: `backend/app/models/detector.py`
 - Modify: `backend/app/schemas/detector.py`
 - Modify: `backend/app/reconciler.py` (already covered in F-2; defer)
@@ -564,6 +568,7 @@ The Alembic migration that actually drops the database column lives in **Task F-
 ### Task D-1: Rewrite `maldet_validator.py` as manifest-driven
 
 **Files:**
+
 - Modify: `charts/lolday/helpers/build-helper/maldet_validator.py` (full rewrite)
 - Modify: `charts/lolday/helpers/build-helper/test_maldet_validator.py` (full rewrite)
 - Create: `charts/lolday/helpers/build-helper/pyproject.toml` (new — declarative deps)
@@ -863,6 +868,7 @@ git commit -m "feat(build-helper): phase 11c — manifest-driven validator + bui
 ### Task D-2: Update build-helper Dockerfile
 
 **Files:**
+
 - Modify: `charts/lolday/helpers/build-helper/Dockerfile`
 
 - [ ] **Step 1: Replace Dockerfile**
@@ -914,10 +920,12 @@ git commit -m "build(build-helper): phase 11c Dockerfile — install maldet, dro
 ### Task E-1: Add `prep-buildargs` shared volume + buildkit args
 
 **Files:**
+
 - Modify: `backend/app/services/build.py`
 - Test: `backend/tests/test_services_build_args.py` (new)
 
 Strategy: We don't need a separate `prep-buildargs` initContainer — the existing `validate` container already does the work after D-1. We just need to:
+
 1. Add a `build-args` `EmptyDir` volume.
 2. Mount it into the `validate` container at `/workspace/build-args` (writable).
 3. Mount it into the `buildkit` container at `/workspace/build-args` (read-only).
@@ -1110,6 +1118,7 @@ git commit -m "feat(build): phase 11c — emit MALDET_* build-args from validate
 ### Task F-1: Alembic migration to drop both columns
 
 **Files:**
+
 - Create: `backend/migrations/versions/<rev>_phase_11c_drop_v0_schema_columns.py`
 
 - [ ] **Step 1: Generate revision id**
@@ -1199,6 +1208,7 @@ git commit -m "db: phase 11c — drop detector_build.pending_schema + detector_v
 ### Task F-2: Drop ORM `config_schema` field + reconciler write site
 
 **Files:**
+
 - Modify: `backend/app/models/detector.py`
 - Modify: `backend/app/schemas/detector.py`
 - Modify: `backend/app/reconciler.py`
@@ -1259,6 +1269,7 @@ git commit -m "refactor: phase 11c — drop DetectorVersion.config_schema (v0 ca
 ### Task F-3: Drop `jsonschema.validate(body.params, dv.config_schema)` from jobs router
 
 **Files:**
+
 - Modify: `backend/app/routers/jobs.py`
 
 - [ ] **Step 1: Locate and remove**
@@ -1295,6 +1306,7 @@ git commit -m "refactor: phase 11c — drop jsonschema.validate(body.params, dv.
 ### Task F-4: Update test fixtures (`config_schema=…` purge)
 
 **Files:**
+
 - Modify: `backend/tests/conftest.py`
 - Modify: `backend/tests/test_services_events_tail.py`
 - Modify: `backend/tests/test_reconciler.py`
@@ -1346,6 +1358,7 @@ git commit -m "test: phase 11c — drop config_schema= kwargs from fixtures"
 ### Task G-1: `validate_user_params(params)`
 
 **Files:**
+
 - Create: `backend/app/services/jobs_params_guard.py`
 - Test: `backend/tests/test_services_jobs_params_guard.py` (new)
 
@@ -1527,6 +1540,7 @@ git commit -m "feat(jobs): phase 11c — Hydra-meta + platform-prefix user-param
 ### Task G-2: Wire into jobs router
 
 **Files:**
+
 - Modify: `backend/app/routers/jobs.py`
 - Modify: `backend/tests/test_routers_jobs.py` (or wherever the affected tests live)
 
@@ -1641,6 +1655,7 @@ docker push harbor.harbor.svc:80/lolday/build-helper:v3
 ### Task H-2: Bump references in lolday config
 
 **Files:**
+
 - Modify: `backend/app/config.py`
 - Modify: `charts/lolday/Chart.yaml`
 - Modify: `charts/lolday/values.yaml` (only if the build-helper image tag is templated there; otherwise skip)
@@ -1821,7 +1836,7 @@ git add -A
 git commit -m "feat: phase 11c step 1 — wipe v0 and scaffold rf template (elfrfdet)"
 ```
 
-### Task R-2: Specialize maldet.toml + pyproject.toml + __init__.py
+### Task R-2: Specialize maldet.toml + pyproject.toml + **init**.py
 
 **Files:** `maldet.toml`, `pyproject.toml`, `src/elfrfdet/__init__.py`.
 
@@ -1926,7 +1941,7 @@ git commit -m "feat: phase 11c step 2 — specialize manifest+pyproject+__init__
 
 - [ ] **Step 1: Overwrite `README.md`**
 
-```markdown
+````markdown
 # elfrfdet
 
 Random Forest malware detector for Linux ELF binaries. Feature = first 256 bytes of the `.text` section, as a `uint8` vector. Reference template for the [lolday](https://github.com/louiskyee/lolday) platform on the [maldet 1.0](https://github.com/bolin8017/maldet) framework.
@@ -1938,6 +1953,7 @@ pip install -e .[dev]
 maldet check
 maldet describe
 ```
+````
 
 ## CLI
 
@@ -1955,11 +1971,11 @@ stage: train
 paths:
   config_dir: ${oc.env:PWD}
   output_dir: /tmp/elfrfdet-out
-  samples_root: /path/to/samples           # <sha[:2]>/<sha> layout
+  samples_root: /path/to/samples # <sha[:2]>/<sha> layout
   source_model: /tmp/elfrfdet-out/model
 data:
-  train_csv: /path/to/train.csv            # columns: file_name,label[,family]
-  test_csv:  /path/to/test.csv
+  train_csv: /path/to/train.csv # columns: file_name,label[,family]
+  test_csv: /path/to/test.csv
   predict_csv: /path/to/predict.csv
 model:
   _target_: sklearn.ensemble.RandomForestClassifier
@@ -1973,7 +1989,7 @@ CSV with columns `file_name,label[,family]`. `file_name` is a SHA-256 hex string
 
 ## How it works
 
-1. **Feature extraction** (`src/elfrfdet/features.py::Text256Extractor`): open each ELF with `pyelftools`, read `.text.data()[:256]`, zero-pad to 256 bytes if shorter. Both the constructor *and* `get_section_by_name(...)` are wrapped in `try/except` because pyelftools lazy-parses the section-header string table — `ELFParseError` can fire on the section access, not on the `ELFFile(f)` call.
+1. **Feature extraction** (`src/elfrfdet/features.py::Text256Extractor`): open each ELF with `pyelftools`, read `.text.data()[:256]`, zero-pad to 256 bytes if shorter. Both the constructor _and_ `get_section_by_name(...)` are wrapped in `try/except` because pyelftools lazy-parses the section-header string table — `ELFParseError` can fire on the section access, not on the `ELFFile(f)` call.
 2. **Model** (`src/elfrfdet/models.py::make_rf`): `sklearn.ensemble.RandomForestClassifier`, default `n_estimators=100`.
 3. **Output**: `model/model.joblib`, `metrics.json`, `predictions.csv`, `events.jsonl` under `paths.output_dir`.
 
@@ -1990,7 +2006,8 @@ v2 is a full rewrite on the maldet 1.0 framework — incompatible with v0's `Bas
 ## License
 
 MIT
-```
+
+````
 
 - [ ] **Step 2: `CHANGELOG.md`**
 
@@ -2009,7 +2026,7 @@ MIT
 ## [0.1.1] - 2026-(prior)
 
 Final v0 release on the `islab-malware-detector` framework. Deprecated.
-```
+````
 
 - [ ] **Step 3: `.gitignore`**
 
@@ -2185,7 +2202,7 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -2296,7 +2313,7 @@ git add -A
 git commit -m "feat: phase 11c step 1 — wipe v0 and scaffold cnn template (elfcnndet)"
 ```
 
-### Task C2-2: Specialize maldet.toml + pyproject.toml + __init__.py
+### Task C2-2: Specialize maldet.toml + pyproject.toml + **init**.py
 
 `maldet.toml` `[detector]`:
 
@@ -2386,7 +2403,7 @@ git commit -m "feat: phase 11c step 2 — specialize manifest+pyproject+__init__
 
 `README.md`:
 
-```markdown
+````markdown
 # elfcnndet
 
 1D-CNN malware detector for Linux ELF binaries with PyTorch Lightning. Feature = first 256 bytes of the `.text` section, fed through a byte-embedding + conv stack. Multi-GPU training via Lightning **DDP** (replaces the v0 `nn.DataParallel` pattern). Reference template for the [lolday](https://github.com/louiskyee/lolday) platform on the [maldet 1.0](https://github.com/bolin8017/maldet) framework.
@@ -2398,6 +2415,7 @@ pip install -e .[dev]
 maldet check
 maldet describe
 ```
+````
 
 ## CLI
 
@@ -2438,7 +2456,8 @@ v2 is a full rewrite. v0 \`BaseDetector\`, \`ElfCnnDetectorConfig\`, per-detecto
 ## License
 
 MIT
-```
+
+````
 
 `CHANGELOG.md`:
 
@@ -2457,7 +2476,7 @@ MIT
 ## [0.2.1] - 2026-(prior)
 
 Final v0 release on \`islab-malware-detector\` + \`nn.DataParallel\`. Deprecated.
-```
+````
 
 `.gitignore`: same as elfrfdet (Task R-3 step 3 — copy verbatim).
 
@@ -2719,6 +2738,7 @@ Expect: HTTP 422.
 ### Task Z-1: Update memory
 
 **Files:**
+
 - Modify: `~/.claude/projects/-home-bolin8017-Documents-repositories-lolday/memory/project_phase11_progress.md`
 - Modify: `~/.claude/projects/-home-bolin8017-Documents-repositories-lolday/memory/project_elf_template_detectors.md`
 

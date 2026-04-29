@@ -1,0 +1,35 @@
+# ruff.toml — repo-wide Python lint + format config
+# Truth lives here, NOT in backend/pyproject.toml (would shadow this).
+
+target-version = "py312"
+line-length = 88
+
+extend-exclude = [
+    "backend/.venv",
+    "backend/migrations/versions",
+    "**/.venv",
+    "frontend",
+    "charts/lolday/charts",
+]
+
+[lint]
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM", "RUF"]
+ignore = [
+    "E501",   # line length is owned by ruff format
+    "B008",   # FastAPI Depends() default is intentional
+    "SIM108", # ternary often hurts readability
+]
+
+[lint.per-file-ignores]
+"backend/tests/**" = ["S101", "B017"]
+"scripts/**" = ["T20"]
+# Late imports here are an intentional code-organization pattern:
+# main.py    — register users_me router AFTER Instrumentator wires the app
+# reconciler — late imports keep each "Phase N" section self-contained
+# E402's intent is to flag accidental late imports, which doesn't apply
+# to these files. Per-file-ignore is cleaner than scattered inline noqa.
+"backend/app/main.py" = ["E402"]
+"backend/app/reconciler.py" = ["E402"]
+
+[format]
+# Defaults are black-compatible; do not override.

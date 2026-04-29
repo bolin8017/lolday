@@ -1,8 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { login } from "./helpers";
 
-test("register upxelfdet + trigger build + wait for success", async ({ page }) => {
-  test.setTimeout(10 * 60_000);   // builds can take a few minutes
+test("register upxelfdet + trigger build + wait for success", async ({
+  page,
+}) => {
+  test.setTimeout(10 * 60_000); // builds can take a few minutes
   await login(page);
 
   // Ensure PAT is set (precondition) — navigate to profile and wait for data
@@ -34,7 +36,9 @@ test("register upxelfdet + trigger build + wait for success", async ({ page }) =
     await page.getByRole("link", { name: /register/i }).click();
     await page.getByLabel(/^Name/i).fill("upxelfdet");
     await page.getByLabel(/Display name/i).fill("UPX ELF Detector");
-    await page.getByLabel(/Git URL/i).fill("https://github.com/bolin8017/upxelfdet");
+    await page
+      .getByLabel(/Git URL/i)
+      .fill("https://github.com/bolin8017/upxelfdet");
     await page.getByRole("button", { name: /register detector/i }).click();
     await page.waitForURL(/\/detectors\/[0-9a-f-]+/);
   } else {
@@ -51,12 +55,21 @@ test("register upxelfdet + trigger build + wait for success", async ({ page }) =
   // Dialog should close automatically after the mutation resolves; ensure it's
   // gone before asserting on the underlying table (Radix sets aria-hidden on
   // background content while the Dialog is open).
-  await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 15_000 }).catch(async () => {
-    await page.keyboard.press("Escape");
-    await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 5_000 });
-  });
+  await page
+    .getByRole("dialog")
+    .waitFor({ state: "hidden", timeout: 15_000 })
+    .catch(async () => {
+      await page.keyboard.press("Escape");
+      await page
+        .getByRole("dialog")
+        .waitFor({ state: "hidden", timeout: 5_000 });
+    });
 
   // Wait for the newly-triggered build row to reach "Success"
-  await expect(page.getByRole("cell", { name: /v0\.5\.0/ }).first()).toBeVisible();
-  await expect(page.getByText(/Succeeded/i).first()).toBeVisible({ timeout: 8 * 60_000 });
+  await expect(
+    page.getByRole("cell", { name: /v0\.5\.0/ }).first(),
+  ).toBeVisible();
+  await expect(page.getByText(/Succeeded/i).first()).toBeVisible({
+    timeout: 8 * 60_000,
+  });
 });

@@ -6,7 +6,8 @@ export type Dataset = components["schemas"]["DatasetConfigRead"];
 
 export const datasetsKeys = {
   all: ["datasets"] as const,
-  list: (visibility: string) => [...datasetsKeys.all, "list", visibility] as const,
+  list: (visibility: string) =>
+    [...datasetsKeys.all, "list", visibility] as const,
   detail: (id: string) => [...datasetsKeys.all, "detail", id] as const,
 };
 

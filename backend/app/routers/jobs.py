@@ -1,9 +1,10 @@
+import asyncio
+import contextlib
 import logging
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-import asyncio
 from fastapi import (
     APIRouter,
     Depends,
@@ -12,7 +13,6 @@ from fastapi import (
     Response,
     WebSocket,
     WebSocketDisconnect,
-    status,
 )
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,33 +21,34 @@ from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
 from app.config import settings
 from app.db import async_session_maker, get_async_session
 from app.metrics import BACKEND_ERRORS
-from app.users import current_active_user
 from app.models import DatasetConfig, DetectorVersion, Job, JobEvent, ModelVersion, User
 from app.models.dataset import DatasetVisibility
-from app.models.job import JobStatus, JobType, NON_TERMINAL_STATUSES
+from app.models.job import NON_TERMINAL_STATUSES, JobStatus, JobType
 from app.schemas.job import JobCreate, JobList, JobRead, JobSummary
 from app.schemas.job_event import JobEventOut, JobEventsPage
-from app.services.dataset import DatasetIntegrityError, spot_check_samples, parse_csv
+from app.services.cluster_status import get_job_queue_position
+from app.services.dataset import DatasetIntegrityError, parse_csv, spot_check_samples
 from app.services.events_tail import event_broker
 from app.services.job_config import (
     JobConfigRenderer,
     compute_idempotency_key,
     resolve_source_model_path,
 )
-from app.services.jobs_params_validate import UserParamsRejected, validate_user_params
-from app.services.validator import JobSubmissionError, validate_job_submission
 from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
 from app.services.job_tokens import generate_token, hash_token
-from app.services.cluster_status import get_job_queue_position
-from app.services.rate_limit import rate_limit_user
+from app.services.jobs_params_validate import UserParamsRejected, validate_user_params
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
     VOLCANO_JOB_PLURAL,
+    batch_v1,
     core_v1,
     volcano_v1alpha1,
 )
 from app.services.mlflow_client import MlflowClient
+from app.services.rate_limit import rate_limit_user
+from app.services.validator import JobSubmissionError, validate_job_submission
+from app.users import current_active_user
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +187,7 @@ async def create_job(
     try:
         validate_user_params(params=body.params, schema=stage_spec.params_schema)
     except UserParamsRejected as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     # 5. Idempotency
     idem_key = compute_idempotency_key(
@@ -199,7 +200,7 @@ async def create_job(
         source_model=str(source_model.id) if source_model else None,
         params=body.params,
     )
-    window_start = datetime.now(timezone.utc) - timedelta(
+    window_start = datetime.now(UTC) - timedelta(
         seconds=settings.JOB_IDEMPOTENCY_WINDOW_SECONDS
     )
     dup = (
@@ -253,7 +254,7 @@ async def create_job(
         except DatasetIntegrityError as e:
             raise HTTPException(
                 status_code=422, detail=f"dataset_integrity_failed: {e}"
-            )
+            ) from e
 
     # 8. MLflow experiment + run
     client = _get_mlflow_client()
@@ -338,13 +339,13 @@ async def create_job(
             body=manifest,
         )
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             core_v1().delete_namespaced_secret(
                 name=secret["metadata"]["name"], namespace=settings.JOB_NAMESPACE
             )
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail="failed to create K8s Job")
+        raise HTTPException(
+            status_code=500, detail="failed to create K8s Job"
+        ) from None
 
     job.k8s_job_name = manifest["metadata"]["name"]
     job.status = JobStatus.PREPARING
@@ -463,7 +464,7 @@ async def get_job_logs(
         raise HTTPException(status_code=404, detail="job not found")
     if job.status in NON_TERMINAL_STATUSES or job.finished_at is None:
         return _stream_live_logs(job)
-    age = datetime.now(timezone.utc) - job.finished_at.replace(tzinfo=timezone.utc)
+    age = datetime.now(UTC) - job.finished_at.replace(tzinfo=UTC)
     if age.total_seconds() > 86400:
         return Response(
             content=job.log_tail or "", status_code=410, media_type="text/plain"
@@ -540,7 +541,7 @@ async def cancel_job(
     job.failure_reason = (
         "cancelled_by_user" if job.owner_id == user.id else "cancelled_by_admin"
     )
-    job.finished_at = datetime.now(timezone.utc)
+    job.finished_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(job)
     return JobRead.model_validate(job)
@@ -619,13 +620,11 @@ async def _close_ws_session(holder) -> None:
     try:
         if hasattr(holder, "__anext__"):
             # Async-generator override: exhaust it so its `finally` runs.
-            try:
+            with contextlib.suppress(StopAsyncIteration):
                 await holder.__anext__()
-            except StopAsyncIteration:
-                pass
         elif hasattr(holder, "__aexit__"):
             await holder.__aexit__(None, None, None)
-    except Exception:  # noqa: BLE001 — defensive close; mirrors Depends()
+    except Exception:
         logger.debug("WS session close raised; ignoring", exc_info=True)
 
 
@@ -687,7 +686,7 @@ async def websocket_job_events(
     """
     try:
         user = await _resolve_user_from_ws(websocket)
-    except Exception:  # noqa: BLE001 — DB/network during auth: distinguish from 4401
+    except Exception:
         BACKEND_ERRORS.labels(stage="ws_auth").inc()
         logger.exception(
             "ws auth failed with unexpected error", extra={"job_id": str(job_id)}

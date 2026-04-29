@@ -281,11 +281,11 @@ user = User(
 
 被移除的 packages：
 
-| Package | 大小 | 原本提供 | 本次後 |
-|---|---|---|---|
-| `fastapi-users` 15.0.5 | 39KB whl | `schemas.BaseUser` / auth backends / UserManager / routers | **完全移除** |
-| `fastapi-users-db-sqlalchemy` 7.0.0 | 6.8KB whl | `generics.GUID` TypeDecorator | **完全移除**（baseline migration 改用 `sa.Uuid()`） |
-| Transitive: `pwdlib`, `argon2-cffi`, `bcrypt`, `makefun` | – | password hashing for fastapi-users | **完全移除** |
+| Package                                                  | 大小      | 原本提供                                                   | 本次後                                              |
+| -------------------------------------------------------- | --------- | ---------------------------------------------------------- | --------------------------------------------------- |
+| `fastapi-users` 15.0.5                                   | 39KB whl  | `schemas.BaseUser` / auth backends / UserManager / routers | **完全移除**                                        |
+| `fastapi-users-db-sqlalchemy` 7.0.0                      | 6.8KB whl | `generics.GUID` TypeDecorator                              | **完全移除**（baseline migration 改用 `sa.Uuid()`） |
+| Transitive: `pwdlib`, `argon2-cffi`, `bcrypt`, `makefun` | –         | password hashing for fastapi-users                         | **完全移除**                                        |
 
 執行 `cd backend && uv lock` 重新生成 `uv.lock`。
 
@@ -357,10 +357,10 @@ Phase 10 後生產資料的這四個欄位永遠是 sentinel / 固定布林（`'
 
 ### 9.5 對既有 migration tests 的影響
 
-| Test | 跑到哪 | 受影響 |
-|---|---|---|
-| `test_migrations_phase12.py::*` | `command.upgrade(cfg, target)`，target ∈ {12.1, 12.2} — 在新 migration **之前** | 否 |
-| `test_role_enum_roundtrip.py::*` | `command.upgrade(cfg, "head")` — 跑到新 migration **之後** | 是（見 §10.3） |
+| Test                             | 跑到哪                                                                          | 受影響         |
+| -------------------------------- | ------------------------------------------------------------------------------- | -------------- |
+| `test_migrations_phase12.py::*`  | `command.upgrade(cfg, target)`，target ∈ {12.1, 12.2} — 在新 migration **之前** | 否             |
+| `test_role_enum_roundtrip.py::*` | `command.upgrade(cfg, "head")` — 跑到新 migration **之後**                      | 是（見 §10.3） |
 
 ---
 
@@ -530,27 +530,27 @@ helm lint charts/lolday
 
 ## 15. 主流性驗證
 
-| 設計選擇 | 主流依據 |
-|---|---|
-| 停止繼承 `SQLAlchemyBaseUserTableUUID`，自定義 model | fastapi-users docs 假設你做 password flow；外部 SSO（OIDC、SAML、CF Access）拔殼是文件化的標準遷移路徑 |
-| `sa.Uuid(as_uuid=True)` 取代第三方 `GUID` TypeDecorator | SQLAlchemy 2.0 release notes 把 `Uuid` 列為 native primary type |
-| Pydantic v2 `BaseModel` + `ConfigDict(from_attributes=True)` | Pydantic v2 migration guide 標準 ORM-mode 寫法 |
-| `extra="forbid"` 防 smuggling | OWASP API Security #6（mass assignment）標準防禦 |
-| Migration drop column 用 `with op.batch_alter_table(...)` | Alembic 官方 SQLite 相容寫法 |
-| 完全移除 fastapi-users 系列 dep；baseline migration 用 SQLAlchemy 2.0 native `sa.Uuid()` 取代第三方 `GUID` TypeDecorator | SQLAlchemy 2.0 release notes 推薦 `sa.Uuid` 為 native primary type；schema-equivalent type swap 在編輯 applied migration 的 trade-off 下換取「fastapi-users 殘留完全消除」這個根本目標 |
-| 編輯 phase 7.5 baseline migration（schema-equivalent type swap） | 偏離主流 migration immutability 慣例，但本次是 schema-equivalent 改動（不影響 production 既有資料、不影響 fresh test DB），是真正消除 fastapi-users 殘留的唯一路徑。Trade-off 已於 §2 item 3 詳述 |
+| 設計選擇                                                                                                                 | 主流依據                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 停止繼承 `SQLAlchemyBaseUserTableUUID`，自定義 model                                                                     | fastapi-users docs 假設你做 password flow；外部 SSO（OIDC、SAML、CF Access）拔殼是文件化的標準遷移路徑                                                                                            |
+| `sa.Uuid(as_uuid=True)` 取代第三方 `GUID` TypeDecorator                                                                  | SQLAlchemy 2.0 release notes 把 `Uuid` 列為 native primary type                                                                                                                                   |
+| Pydantic v2 `BaseModel` + `ConfigDict(from_attributes=True)`                                                             | Pydantic v2 migration guide 標準 ORM-mode 寫法                                                                                                                                                    |
+| `extra="forbid"` 防 smuggling                                                                                            | OWASP API Security #6（mass assignment）標準防禦                                                                                                                                                  |
+| Migration drop column 用 `with op.batch_alter_table(...)`                                                                | Alembic 官方 SQLite 相容寫法                                                                                                                                                                      |
+| 完全移除 fastapi-users 系列 dep；baseline migration 用 SQLAlchemy 2.0 native `sa.Uuid()` 取代第三方 `GUID` TypeDecorator | SQLAlchemy 2.0 release notes 推薦 `sa.Uuid` 為 native primary type；schema-equivalent type swap 在編輯 applied migration 的 trade-off 下換取「fastapi-users 殘留完全消除」這個根本目標            |
+| 編輯 phase 7.5 baseline migration（schema-equivalent type swap）                                                         | 偏離主流 migration immutability 慣例，但本次是 schema-equivalent 改動（不影響 production 既有資料、不影響 fresh test DB），是真正消除 fastapi-users 殘留的唯一路徑。Trade-off 已於 §2 item 3 詳述 |
 
 ---
 
 ## 16. 風險與 mitigation
 
-| 風險 | 機率 | mitigation |
-|---|---|---|
-| 漏改某個 test 的 kwarg → pytest fail | 中 | `verification` 步驟 #5 直接抓出 |
-| 漏更新某處 `from fastapi_users import ...` → ImportError on boot | 低 | `verification` 步驟 #2 抓出（`import fastapi_users` 會失敗） |
-| frontend 某處意外 reference 到三個 boolean → typecheck fail | 極低（grep 已驗證 0 reference） | `verification` 步驟 #6 抓出 |
-| Pydantic v2 `from_attributes=True` 行為與 fastapi-users base 不一致 | 極低 | fastapi-users base 內部本來就用 Pydantic v2 `from_attributes`；行為等價 |
-| 生產 deploy 時 alembic-upgrade-hook 跑不起來 | 低 | 新 migration 為單純 drop column，無資料轉換；`_assert_schema_at_head()` 會在 boot 即時抓出 schema mismatch |
+| 風險                                                                | 機率                            | mitigation                                                                                                 |
+| ------------------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 漏改某個 test 的 kwarg → pytest fail                                | 中                              | `verification` 步驟 #5 直接抓出                                                                            |
+| 漏更新某處 `from fastapi_users import ...` → ImportError on boot    | 低                              | `verification` 步驟 #2 抓出（`import fastapi_users` 會失敗）                                               |
+| frontend 某處意外 reference 到三個 boolean → typecheck fail         | 極低（grep 已驗證 0 reference） | `verification` 步驟 #6 抓出                                                                                |
+| Pydantic v2 `from_attributes=True` 行為與 fastapi-users base 不一致 | 極低                            | fastapi-users base 內部本來就用 Pydantic v2 `from_attributes`；行為等價                                    |
+| 生產 deploy 時 alembic-upgrade-hook 跑不起來                        | 低                              | 新 migration 為單純 drop column，無資料轉換；`_assert_schema_at_head()` 會在 boot 即時抓出 schema mismatch |
 
 ---
 

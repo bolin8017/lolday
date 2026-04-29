@@ -21,7 +21,7 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  description: React.ReactNode;
+  description: ReactNode;
   confirmText: string;
   onConfirm: () => void | Promise<void>;
   pending: boolean;
@@ -65,7 +65,8 @@ export function DeleteConfirmDialog({
 
         <div className="space-y-2 py-2">
           <Label htmlFor="delete-confirm-input">
-            Type <span className="font-mono font-semibold">{confirmText}</span> to confirm
+            Type <span className="font-mono font-semibold">{confirmText}</span>{" "}
+            to confirm
           </Label>
           <Input
             id="delete-confirm-input"
@@ -78,7 +79,11 @@ export function DeleteConfirmDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={pending}
+          >
             Cancel
           </Button>
           <Button

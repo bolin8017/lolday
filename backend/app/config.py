@@ -28,10 +28,10 @@ class Settings(BaseSettings):
     # Phase 4: Dataset & Jobs (MLflow)
     JOB_NAMESPACE: str = "lolday"
     JOB_HELPER_IMAGE: str = "harbor.harbor.svc:80/lolday/job-helper:v4"
-    JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600      # 6h
-    JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800    # 30m
-    JOB_ACTIVE_DEADLINE_PREDICT_SECONDS: int = 3600     # 1h
-    JOB_TTL_SECONDS_AFTER_FINISHED: int = 604800        # 7d
+    JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600  # 6h
+    JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800  # 30m
+    JOB_ACTIVE_DEADLINE_PREDICT_SECONDS: int = 3600  # 1h
+    JOB_TTL_SECONDS_AFTER_FINISHED: int = 604800  # 7d
     JOB_NODE_SELECTOR_HOSTNAME: str = "server30"
     JOB_PER_USER_CONCURRENCY: int = 2
     JOB_IDEMPOTENCY_WINDOW_SECONDS: int = 300
@@ -42,11 +42,11 @@ class Settings(BaseSettings):
     MLFLOW_TRACKING_URI: str = "http://mlflow.lolday.svc:5000"
     MLFLOW_HTTP_TIMEOUT_SECONDS: float = 10.0
     MLFLOW_HTTP_RETRIES: int = 3
-    DATASET_CSV_MAX_BYTES: int = 10 * 1024 * 1024            # 10 MiB
-    DATASET_SPOT_CHECK_COUNT: int = 100                       # files per job dispatch
-    DATASET_SPOT_CHECK_MISSING_THRESHOLD: int = 1             # fail if >= this many missing
-    SAMPLES_ROOT: str = "/mnt/samples"                        # parent of malware/, benign/
-    SAMPLES_LOCAL_ROOT: str = "/data"                         # for backend-side validation (matches hostPath)
+    DATASET_CSV_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MiB
+    DATASET_SPOT_CHECK_COUNT: int = 100  # files per job dispatch
+    DATASET_SPOT_CHECK_MISSING_THRESHOLD: int = 1  # fail if >= this many missing
+    SAMPLES_ROOT: str = "/mnt/samples"  # parent of malware/, benign/
+    SAMPLES_LOCAL_ROOT: str = "/data"  # for backend-side validation (matches hostPath)
 
     # Phase 7.4: Discord user-event notifications + UI base URL for embed links
     DISCORD_WEBHOOK_URL_EVENTS: str = ""
@@ -54,11 +54,11 @@ class Settings(BaseSettings):
     LOLDAY_UI_BASE_URL: str = "https://lolday.connlabai.com"
 
     # Phase 10: Cloudflare Access SSO
-    CF_ACCESS_TEAM_DOMAIN: str = ""        # e.g. "bolin8017.cloudflareaccess.com"
-    CF_ACCESS_APP_AUD: str = ""            # Access App aud claim (64-char hex; NOT the uid)
+    CF_ACCESS_TEAM_DOMAIN: str = ""  # e.g. "bolin8017.cloudflareaccess.com"
+    CF_ACCESS_APP_AUD: str = ""  # Access App aud claim (64-char hex; NOT the uid)
     CF_ACCESS_JWKS_CACHE_TTL_SECONDS: int = 600
-    AUTH_DEV_MODE: bool = False            # bypass Cloudflare JWT for local dev
-    AUTH_DEV_EMAIL: str = ""               # synthetic user email when AUTH_DEV_MODE=true
+    AUTH_DEV_MODE: bool = False  # bypass Cloudflare JWT for local dev
+    AUTH_DEV_EMAIL: str = ""  # synthetic user email when AUTH_DEV_MODE=true
 
     # Deployment mode — helm ships "production"; tests / local dev override.
     # `validate_sso_config` only fails the boot when this is "production".

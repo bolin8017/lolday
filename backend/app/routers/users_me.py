@@ -3,6 +3,7 @@
 Replaces fastapi-users' get_users_router so that /me endpoints authenticate
 via Cloudflare Access SSO (cf_access_user) instead of a password-bearer JWT.
 """
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException

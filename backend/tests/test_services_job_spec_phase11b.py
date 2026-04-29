@@ -55,7 +55,8 @@ def test_has_event_tailer_sidecar() -> None:
 def test_sidecar_reads_internal_events_url_and_token() -> None:
     m = _build()
     sidecar = next(
-        c for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
+        c
+        for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
         if c["name"] == "event-tailer"
     )
     env = {e["name"]: e for e in sidecar["env"]}
@@ -113,7 +114,9 @@ def test_model_fetcher_init_on_evaluate() -> None:
         internal_events_url="http://backend:8000/internal/jobs/.../events",
         gpu_strategy="ddp",
     )
-    init_names = [c["name"] for c in m["spec"]["tasks"][0]["template"]["spec"]["initContainers"]]
+    init_names = [
+        c["name"] for c in m["spec"]["tasks"][0]["template"]["spec"]["initContainers"]
+    ]
     assert "model-fetcher" in init_names
 
 
@@ -178,7 +181,8 @@ def test_standard_profile_requests_zero_gpu() -> None:
     GPU-bearing profile today; any new one must update the map."""
     m = _build(resource_profile=ResourceProfile.STANDARD)
     detector = next(
-        c for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
+        c
+        for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
         if c["name"] == "detector"
     )
     assert detector["resources"]["limits"]["nvidia.com/gpu"] == 0
@@ -187,7 +191,8 @@ def test_standard_profile_requests_zero_gpu() -> None:
 def test_gpu2_profile_requests_two_gpus() -> None:
     m = _build(resource_profile=ResourceProfile.GPU2)
     detector = next(
-        c for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
+        c
+        for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
         if c["name"] == "detector"
     )
     assert detector["resources"]["limits"]["nvidia.com/gpu"] == 2
@@ -196,7 +201,8 @@ def test_gpu2_profile_requests_two_gpus() -> None:
 def test_manifest_has_samples_mounts_readonly() -> None:
     m = _build()
     detector = next(
-        c for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
+        c
+        for c in m["spec"]["tasks"][0]["template"]["spec"]["containers"]
         if c["name"] == "detector"
     )
     mounts = {vm["name"]: vm for vm in detector["volumeMounts"]}

@@ -5,7 +5,9 @@ import httpx
 
 from app.config import settings
 
-_GITHUB_SSH_RE = re.compile(r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", re.IGNORECASE)
+_GITHUB_SSH_RE = re.compile(
+    r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", re.IGNORECASE
+)
 _GITHUB_HTTPS_RE = re.compile(
     r"^https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", re.IGNORECASE
 )
@@ -21,7 +23,9 @@ def normalize_git_url(raw: str) -> str:
         raise ValueError("empty git url")
     raw = raw.strip()
     if "?" in raw or "#" in raw:
-        raise ValueError(f"unsupported or invalid git url (query/fragment not allowed): {raw}")
+        raise ValueError(
+            f"unsupported or invalid git url (query/fragment not allowed): {raw}"
+        )
 
     m = _GITHUB_SSH_RE.match(raw)
     if m:
@@ -60,12 +64,13 @@ async def list_remote_tags(owner: str, repo: str, pat: str | None = None) -> lis
     headers = {"Accept": "application/vnd.github+json"}
     if pat:
         headers["Authorization"] = f"Bearer {pat}"
-    async with httpx.AsyncClient(base_url=settings.GITHUB_API_URL, timeout=10) as client:
+    async with httpx.AsyncClient(
+        base_url=settings.GITHUB_API_URL, timeout=10
+    ) as client:
         resp = await client.get(f"/repos/{owner}/{repo}/tags", headers=headers)
         resp.raise_for_status()
         return [
-            {"name": t["name"], "commit_sha": t["commit"]["sha"]}
-            for t in resp.json()
+            {"name": t["name"], "commit_sha": t["commit"]["sha"]} for t in resp.json()
         ]
 
 
@@ -80,6 +85,8 @@ async def check_repo_accessible(owner: str, repo: str, pat: str | None = None) -
     headers = {"Accept": "application/vnd.github+json"}
     if pat:
         headers["Authorization"] = f"Bearer {pat}"
-    async with httpx.AsyncClient(base_url=settings.GITHUB_API_URL, timeout=10) as client:
+    async with httpx.AsyncClient(
+        base_url=settings.GITHUB_API_URL, timeout=10
+    ) as client:
         resp = await client.get(f"/repos/{owner}/{repo}", headers=headers)
         return resp.status_code == 200

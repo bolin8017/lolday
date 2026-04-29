@@ -7,6 +7,7 @@ Phase 5 delivers the first-class web UI that wraps the backend built in Phases 2
 **Goal:** A lab member visits `https://lolday.islab.local/`, logs in, and completes the full Phase 4 E2E flow (register detector → build → upload dataset → submit job → watch logs → download predictions → promote model) entirely through the browser.
 
 **Constraints:**
+
 - Must not break SSH on server30 (port 9453) — pure in-cluster work, no host-level changes beyond Traefik ingress wiring.
 - No custom code where an open-source tool exists (lolday principle).
 - Avoid China-origin component libraries and SaaS (Taiwan lab preference).
@@ -231,29 +232,30 @@ Each screen is listed with its route, primary components, data dependencies (Tan
 
 ## Tech Stack
 
-| Layer | Choice | Rationale |
-|-------|--------|-----------|
-| Build tool | Vite 5 | SPA standard; instant HMR |
-| Language | TypeScript 5.5 | Type safety end-to-end with codegen |
-| Package manager | pnpm 10 | Already on dev machine (master spec §13) |
-| UI framework | React 18 | Master spec §2 decision |
-| Router | React Router v7 (data APIs) | GitHub-mainstream; file-convention routes |
-| Data fetching | TanStack Query v5 | REST de-facto; cache + refetch + optimistic |
-| HTTP client + types | `openapi-fetch` + `openapi-typescript` | Types auto-synced with backend `openapi.json`; thin wrapper |
-| Component library | shadcn/ui (copy-paste, Tailwind + Radix) | Owned in-repo; no China-origin; GitHub-mainstream 2024-2026 |
-| Table | TanStack Table | Headless; W&B / Linear / GitHub use it |
-| Forms (static) | react-hook-form + zod | GitHub-mainstream; type-safe schemas |
-| Forms (dynamic) | `@rjsf/core` + `@rjsf/validator-ajv8` + `rjsf-tailwind` theme | Master spec §2 decision; schema comes from backend |
-| Charts | Recharts | ~25k★ React lib; bar / line / pie sufficient for metrics |
-| Styling | Tailwind CSS v4 | shadcn dependency |
-| Icons | `lucide-react` | shadcn default |
-| Dates | `date-fns` | Used for submitted_at, duration formatting |
-| i18n | `react-i18next` | `en.json` primary; `zh-TW.json` scaffold |
-| Testing (unit) | Vitest + React Testing Library | Vite-native |
-| Testing (E2E) | Playwright | One happy-path per screen; CI-friendly |
-| Container | nginx 1.27-alpine | Static file serving + SPA fallback |
+| Layer               | Choice                                                        | Rationale                                                   |
+| ------------------- | ------------------------------------------------------------- | ----------------------------------------------------------- |
+| Build tool          | Vite 5                                                        | SPA standard; instant HMR                                   |
+| Language            | TypeScript 5.5                                                | Type safety end-to-end with codegen                         |
+| Package manager     | pnpm 10                                                       | Already on dev machine (master spec §13)                    |
+| UI framework        | React 18                                                      | Master spec §2 decision                                     |
+| Router              | React Router v7 (data APIs)                                   | GitHub-mainstream; file-convention routes                   |
+| Data fetching       | TanStack Query v5                                             | REST de-facto; cache + refetch + optimistic                 |
+| HTTP client + types | `openapi-fetch` + `openapi-typescript`                        | Types auto-synced with backend `openapi.json`; thin wrapper |
+| Component library   | shadcn/ui (copy-paste, Tailwind + Radix)                      | Owned in-repo; no China-origin; GitHub-mainstream 2024-2026 |
+| Table               | TanStack Table                                                | Headless; W&B / Linear / GitHub use it                      |
+| Forms (static)      | react-hook-form + zod                                         | GitHub-mainstream; type-safe schemas                        |
+| Forms (dynamic)     | `@rjsf/core` + `@rjsf/validator-ajv8` + `rjsf-tailwind` theme | Master spec §2 decision; schema comes from backend          |
+| Charts              | Recharts                                                      | ~25k★ React lib; bar / line / pie sufficient for metrics    |
+| Styling             | Tailwind CSS v4                                               | shadcn dependency                                           |
+| Icons               | `lucide-react`                                                | shadcn default                                              |
+| Dates               | `date-fns`                                                    | Used for submitted_at, duration formatting                  |
+| i18n                | `react-i18next`                                               | `en.json` primary; `zh-TW.json` scaffold                    |
+| Testing (unit)      | Vitest + React Testing Library                                | Vite-native                                                 |
+| Testing (E2E)       | Playwright                                                    | One happy-path per screen; CI-friendly                      |
+| Container           | nginx 1.27-alpine                                             | Static file serving + SPA fallback                          |
 
 **Deliberately excluded:**
+
 - No Redux / Zustand — TanStack Query owns server state; react-hook-form owns form state; React Context covers user session. No Flux-style store needed at MVP scope.
 - No CSS-in-JS (Emotion, styled-components) — Tailwind covers styling.
 - No Storybook — component catalog is a deferral.
@@ -375,7 +377,8 @@ TanStack Query `refetchInterval` driven by a status predicate:
 ```ts
 useQuery({
   queryKey: jobsKeys.detail(id),
-  queryFn: () => client.GET("/jobs/{job_id}", { params: { path: { job_id: id } } }),
+  queryFn: () =>
+    client.GET("/jobs/{job_id}", { params: { path: { job_id: id } } }),
   refetchInterval: (query) =>
     isNonTerminalStatus(query.state.data?.data?.status) ? 2000 : false,
 });
@@ -388,7 +391,8 @@ Applies to: `jobs/:id`, `jobs/:id/logs`, `detectors/:id/builds`, `detectors/:id/
 ```ts
 useMutation({
   mutationFn: (body) => client.POST("/detectors", { body }),
-  onSuccess: () => queryClient.invalidateQueries({ queryKey: detectorsKeys.all }),
+  onSuccess: () =>
+    queryClient.invalidateQueries({ queryKey: detectorsKeys.all }),
 });
 ```
 
@@ -425,14 +429,14 @@ import { ThemeProvider } from "rjsf-tailwind";
 
 <ThemeProvider>
   <Form
-    schema={version.config_schema}   // fetched from backend detectorVersion detail
+    schema={version.config_schema} // fetched from backend detectorVersion detail
     validator={validator}
     formData={currentConfig}
-    onChange={({formData}) => setResolvedConfig(formData)}
-    onSubmit={null}                   // submission handled by parent
+    onChange={({ formData }) => setResolvedConfig(formData)}
+    onSubmit={null} // submission handled by parent
     uiSchema={{ "ui:submitButtonOptions": { norender: true } }}
   />
-</ThemeProvider>
+</ThemeProvider>;
 ```
 
 - The backend already normalizes Pydantic v2 Draft 2020-12 → Draft 7 during build (main spec §4.4), so `@rjsf/validator-ajv8` can consume the stored `config_schema` directly.
@@ -444,11 +448,11 @@ import { ThemeProvider } from "rjsf-tailwind";
 
 No SSE, no WebSocket. Polling only — matches backend `GET /jobs/{id}/logs` which already returns a snapshot (not a stream).
 
-| Resource | Interval | Stop condition |
-|----------|----------|----------------|
-| Job status / logs / individual | 2 s | Terminal: `succeeded / failed / cancelled / timeout` |
-| Build status / log tail | 2 s | Terminal: `success / failed / cancelled` |
-| Job list (filtered to non-terminal) | 5 s | None — always running when list is visible |
+| Resource                            | Interval | Stop condition                                       |
+| ----------------------------------- | -------- | ---------------------------------------------------- |
+| Job status / logs / individual      | 2 s      | Terminal: `succeeded / failed / cancelled / timeout` |
+| Build status / log tail             | 2 s      | Terminal: `success / failed / cancelled`             |
+| Job list (filtered to non-terminal) | 5 s      | None — always running when list is visible           |
 
 A custom hook `usePolling(queryKey, queryFn, isActive)` wraps this pattern.
 
@@ -626,14 +630,16 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: "{{ .Values.frontend.image }}"     # harbor.lolday.svc:80/lolday/lolday-frontend:phase5
+          image: "{{ .Values.frontend.image }}" # harbor.lolday.svc:80/lolday/lolday-frontend:phase5
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 8080 }]
-          readinessProbe: { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 5 }
-          livenessProbe:  { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 10 }
+          readinessProbe:
+            { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 5 }
+          livenessProbe:
+            { httpGet: { path: /healthz, port: 8080 }, periodSeconds: 10 }
           resources:
             requests: { cpu: 10m, memory: 32Mi }
-            limits:   { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 100m, memory: 128Mi }
           securityContext:
             runAsNonRoot: true
             readOnlyRootFilesystem: true
@@ -641,7 +647,7 @@ spec:
             capabilities: { drop: [ALL] }
             seccompProfile: { type: RuntimeDefault }
           volumeMounts:
-            - { name: tmp,      mountPath: /tmp }        # nginx-unprivileged writes pid + cache here
+            - { name: tmp, mountPath: /tmp } # nginx-unprivileged writes pid + cache here
       volumes:
         - { name: tmp, emptyDir: {} }
       imagePullSecrets:
@@ -664,7 +670,7 @@ apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata: { name: lolday, namespace: lolday }
 spec:
-  entryPoints: [web]                            # Phase 6 adds websecure
+  entryPoints: [web] # Phase 6 adds websecure
   routes:
     - kind: Rule
       match: "Host(`{{ .Values.frontend.host }}`) && PathPrefix(`/api/v1`)"
@@ -673,7 +679,7 @@ spec:
           name: backend
           port: 8000
     - kind: Rule
-      match: "Host(`{{ .Values.frontend.host }}`)"  # catch-all
+      match: "Host(`{{ .Values.frontend.host }}`)" # catch-all
       services:
         - kind: Service
           name: frontend
@@ -694,6 +700,7 @@ frontend:
 ### Build + push pipeline
 
 Same rhythm as Phase 3/4:
+
 ```bash
 docker build -t harbor.lolday.svc.cluster.local:80/lolday/lolday-frontend:phase5 frontend/
 docker push  harbor.lolday.svc.cluster.local:80/lolday/lolday-frontend:phase5
@@ -718,13 +725,13 @@ Target: ≥60% line coverage on `src/lib/**` and `src/hooks/**`. Visual componen
 
 Headless Chromium against a freshly deployed stack (local port-forward or in-cluster e2e). Each spec is a happy path — not exhaustive.
 
-| Spec | Flow |
-|------|------|
-| `login.spec.ts` | Visit `/`, redirected to `/login`, submit valid creds, land on detectors. |
-| `detector-build.spec.ts` | Register upxelfdet from its real GitHub repo → pick available tag `v0.5.0` → trigger build → poll until `success`. Reuses Phase 3 E2E's seed PAT. |
-| `dataset-upload.spec.ts` | Navigate to `/datasets/new`, upload a 200-row test CSV, verify detail page shows correct `sample_count` + pie chart. |
-| `job-train.spec.ts` | Submit a train job with seed dataset + detector version, wait for terminal status, verify MLflow run visible on `/runs/...`. |
-| `model-transition.spec.ts` | Pick an existing model version, transition Staging → Production, verify auto-archive of previous prod. |
+| Spec                       | Flow                                                                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `login.spec.ts`            | Visit `/`, redirected to `/login`, submit valid creds, land on detectors.                                                                         |
+| `detector-build.spec.ts`   | Register upxelfdet from its real GitHub repo → pick available tag `v0.5.0` → trigger build → poll until `success`. Reuses Phase 3 E2E's seed PAT. |
+| `dataset-upload.spec.ts`   | Navigate to `/datasets/new`, upload a 200-row test CSV, verify detail page shows correct `sample_count` + pie chart.                              |
+| `job-train.spec.ts`        | Submit a train job with seed dataset + detector version, wait for terminal status, verify MLflow run visible on `/runs/...`.                      |
+| `model-transition.spec.ts` | Pick an existing model version, transition Staging → Production, verify auto-archive of previous prod.                                            |
 
 E2E bootstrap reuses Phase 4 E2E seed (admin login via cookie flow + pre-seeded detector + dataset). Runs gated behind `E2E_ENABLED=true` — not part of default `pnpm test`.
 
@@ -736,19 +743,19 @@ Default: local dev machine against port-forwarded cluster — same pattern as Ph
 
 ## Security
 
-| Layer | Measure | Implementation |
-|-------|---------|----------------|
-| Auth | httpOnly cookie, SameSite=Lax | FastAPI Users `CookieTransport` |
-| Auth expiry | 12 h sliding | JWT + cookie lifetime |
-| CSRF | SameSite=Lax blocks cross-site POST | No additional CSRF token needed for same-origin internal |
-| XSS | React escapes by default; no `dangerouslySetInnerHTML` in core screens | Code review rule |
-| Content-Security-Policy | `default-src 'self'` + nonce for styles; no inline script | Set via nginx `add_header CSP` (Phase 6: refine with Cloudflare) |
-| Clickjacking | `X-Frame-Options: DENY` | nginx header |
-| MIME sniffing | `X-Content-Type-Options: nosniff` | nginx header |
-| Secrets in bundle | `import.meta.env` only surfaces `VITE_*` vars; no backend secrets | vite convention |
-| Dependency audit | `pnpm audit` in CI | ship if ≥1 high CVE |
-| Container | non-root, read-only FS, dropped caps, seccomp | As in Phase 4 jobs |
-| Network | frontend has no egress requirement; only serves static bundle | No NetworkPolicy needed beyond default deny-ingress-from-outside |
+| Layer                   | Measure                                                                | Implementation                                                   |
+| ----------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Auth                    | httpOnly cookie, SameSite=Lax                                          | FastAPI Users `CookieTransport`                                  |
+| Auth expiry             | 12 h sliding                                                           | JWT + cookie lifetime                                            |
+| CSRF                    | SameSite=Lax blocks cross-site POST                                    | No additional CSRF token needed for same-origin internal         |
+| XSS                     | React escapes by default; no `dangerouslySetInnerHTML` in core screens | Code review rule                                                 |
+| Content-Security-Policy | `default-src 'self'` + nonce for styles; no inline script              | Set via nginx `add_header CSP` (Phase 6: refine with Cloudflare) |
+| Clickjacking            | `X-Frame-Options: DENY`                                                | nginx header                                                     |
+| MIME sniffing           | `X-Content-Type-Options: nosniff`                                      | nginx header                                                     |
+| Secrets in bundle       | `import.meta.env` only surfaces `VITE_*` vars; no backend secrets      | vite convention                                                  |
+| Dependency audit        | `pnpm audit` in CI                                                     | ship if ≥1 high CVE                                              |
+| Container               | non-root, read-only FS, dropped caps, seccomp                          | As in Phase 4 jobs                                               |
+| Network                 | frontend has no egress requirement; only serves static bundle          | No NetworkPolicy needed beyond default deny-ingress-from-outside |
 
 Security posture defers Cloudflare Access / Tunnel to Phase 6; Phase 5 Ingress is internal-only on the lab network.
 
@@ -768,17 +775,17 @@ Localizable surfaces: all UI text, status labels, error messages. Not localized:
 
 ## Error Handling
 
-| Status | Behavior |
-|--------|----------|
-| 401 | `openapi-fetch` middleware clears QueryClient, navigates to `/login`. No toast (implicit). |
-| 403 | Toast: "You don't have permission for this action." Keep user on current page. |
-| 404 | If the whole page's primary resource 404s, render a 404 panel with back link. Query-level 404s render `Alert` inline. |
-| 409 | Toast with backend detail (e.g., "Job already completed"). |
-| 413 | Client-side pre-check catches 10 MB dataset upload; if server still 413s, inline alert on form. |
-| 422 | Parse `detail: List[{loc, msg}]` → `form.setError("field", msg)` for inputs; residual goes to form-level alert. |
-| 429 | Toast with "Rate limited, retry in N seconds." Disable affected action for 10 s (client heuristic). |
-| 5xx | Toast: "Server error — try again or contact admin." Error boundary captures unhandled exceptions + shows fallback page with reload button. |
-| Network (offline / DNS fail) | Toast: "Network error." Retry button where action is a mutation. |
+| Status                       | Behavior                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 401                          | `openapi-fetch` middleware clears QueryClient, navigates to `/login`. No toast (implicit).                                                 |
+| 403                          | Toast: "You don't have permission for this action." Keep user on current page.                                                             |
+| 404                          | If the whole page's primary resource 404s, render a 404 panel with back link. Query-level 404s render `Alert` inline.                      |
+| 409                          | Toast with backend detail (e.g., "Job already completed").                                                                                 |
+| 413                          | Client-side pre-check catches 10 MB dataset upload; if server still 413s, inline alert on form.                                            |
+| 422                          | Parse `detail: List[{loc, msg}]` → `form.setError("field", msg)` for inputs; residual goes to form-level alert.                            |
+| 429                          | Toast with "Rate limited, retry in N seconds." Disable affected action for 10 s (client heuristic).                                        |
+| 5xx                          | Toast: "Server error — try again or contact admin." Error boundary captures unhandled exceptions + shows fallback page with reload button. |
+| Network (offline / DNS fail) | Toast: "Network error." Retry button where action is a mutation.                                                                           |
 
 No Sentry / Rollbar in Phase 5. Structured client-side error logging is Phase 6 (via Loki + structured console log forwarder).
 
@@ -801,6 +808,7 @@ No Sentry / Rollbar in Phase 5. Structured client-side error logging is Phase 6 
 Already installed (master spec §13): Node.js 24, npm 11, pnpm 10, Docker 29, kubectl, Helm.
 
 To install / add during Phase 5:
+
 - Playwright browsers: `pnpm exec playwright install chromium` (~180 MB, one-time).
 - No new host-level dependencies.
 
@@ -828,6 +836,7 @@ Phase 5 is done when:
 ## Phase 5 → Phase 6 handoff
 
 Items deferred to Phase 6 that Phase 5 pre-wires:
+
 - `VITE_APP_VERSION` baked into bundle at build time (visible in sidebar footer) → enables Phase 6 version-based cache bust for Cloudflare.
 - CSP nginx headers scaffolded → Phase 6 tightens with Cloudflare.
 - `frontend.host` Helm value → Phase 6 swaps to `lolday.islab.example.com` with Cloudflare Tunnel + Access.

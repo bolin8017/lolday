@@ -45,8 +45,10 @@ export function parseError(status: number, body: unknown): LoldayApiError {
     const detail = (body as { detail: unknown }).detail;
     if (Array.isArray(detail)) {
       const fieldErrors: ValidationFieldError[] = detail
-        .filter((d): d is RawValidationItem =>
-          typeof d === "object" && d !== null && "loc" in d && "msg" in d)
+        .filter(
+          (d): d is RawValidationItem =>
+            typeof d === "object" && d !== null && "loc" in d && "msg" in d,
+        )
         .map((d) => ({
           field: d.loc.filter((p) => p !== "body").join("."),
           message: d.msg,

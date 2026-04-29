@@ -6,7 +6,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from app.services import validator as validator_mod
 from app.services.validator import StaticValidationError, validate_repo_static
 

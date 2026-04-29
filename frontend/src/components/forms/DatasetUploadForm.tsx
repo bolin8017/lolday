@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ChangeEvent, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -42,7 +42,7 @@ export function DatasetUploadForm() {
 
   const content = watch("csv_content");
 
-  async function onFilePick(ev: React.ChangeEvent<HTMLInputElement>) {
+  async function onFilePick(ev: ChangeEvent<HTMLInputElement>) {
     const file = ev.target.files?.[0];
     if (!file) return;
     const text = await file.text();
@@ -128,7 +128,9 @@ export function DatasetUploadForm() {
           </TabsContent>
         </Tabs>
         {errors.csv_content && (
-          <p className="text-xs text-destructive">{errors.csv_content.message}</p>
+          <p className="text-xs text-destructive">
+            {errors.csv_content.message}
+          </p>
         )}
         {parseError && (
           <Alert variant="destructive">

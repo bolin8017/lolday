@@ -1,7 +1,18 @@
-import { useAdminUsers, useUpdateUserRole, type Role, type User } from "@/api/queries/admin";
+import {
+  useAdminUsers,
+  useUpdateUserRole,
+  type Role,
+  type User,
+} from "@/api/queries/admin";
 import { useAuth } from "@/hooks/useAuth";
 import { DataTable } from "@/components/tables/DataTable";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { formatRelative } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -49,8 +60,8 @@ export default function AdminUsersPage() {
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold">Users</h1>
         <p className="text-sm text-muted-foreground">
-          Your account does not have admin permission. Ask the lolday operator to upgrade
-          your role (admin → <code>/admin/users</code>).
+          Your account does not have admin permission. Ask the lolday operator
+          to upgrade your role (admin → <code>/admin/users</code>).
         </p>
       </div>
     );
@@ -65,7 +76,9 @@ export default function AdminUsersPage() {
         <span>
           {row.original.email}
           {row.original.id === currentUser?.id && (
-            <Badge variant="secondary" className="ml-2">you</Badge>
+            <Badge variant="secondary" className="ml-2">
+              you
+            </Badge>
           )}
         </span>
       ),
@@ -95,8 +108,9 @@ export default function AdminUsersPage() {
       <div>
         <h1 className="text-2xl font-semibold">Users</h1>
         <p className="text-sm text-muted-foreground">
-          Promote lab members to <code>developer</code> (register detectors, submit jobs)
-          or <code>admin</code> (full access). New SSO arrivals default to <code>user</code>.
+          Promote lab members to <code>developer</code> (register detectors,
+          submit jobs) or <code>admin</code> (full access). New SSO arrivals
+          default to <code>user</code>.
         </p>
       </div>
       {isLoading ? (

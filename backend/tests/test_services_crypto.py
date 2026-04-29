@@ -1,7 +1,6 @@
 import pytest
-from cryptography.fernet import InvalidToken
-
 from app.services.crypto import TokenCipher
+from cryptography.fernet import InvalidToken
 
 
 def test_encrypt_decrypt_roundtrip():
@@ -22,6 +21,9 @@ def test_wrong_key_raises():
 
 
 def test_hint_shows_prefix_and_suffix():
-    assert TokenCipher.token_hint("ghp_abcdefghijklmnopqrstuvwxyz0123456789") == "ghp_...6789"
+    assert (
+        TokenCipher.token_hint("ghp_abcdefghijklmnopqrstuvwxyz0123456789")
+        == "ghp_...6789"
+    )
     assert TokenCipher.token_hint("short") == "sh...rt"
     assert TokenCipher.token_hint("a") == "a"

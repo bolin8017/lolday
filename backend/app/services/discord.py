@@ -45,12 +45,14 @@ def build_job_completed_embed(
         fields.append(_field("MLflow", f"[Open run]({mlflow_url})", inline=False))
     return {
         "content": _content_prefix(user_name, user_discord_id),
-        "embeds": [{
-            "title": f"✅ Job {job_type} completed",
-            "url": job_url,
-            "color": COLOR_SUCCESS,
-            "fields": fields,
-        }],
+        "embeds": [
+            {
+                "title": f"✅ Job {job_type} completed",
+                "url": job_url,
+                "color": COLOR_SUCCESS,
+                "fields": fields,
+            }
+        ],
     }
 
 
@@ -70,12 +72,14 @@ def build_job_failed_embed(
     fields.append(_field("Failure reason", failure_reason or "(unknown)", inline=False))
     return {
         "content": _content_prefix(user_name, user_discord_id),
-        "embeds": [{
-            "title": f"❌ Job {job_type} failed",
-            "url": job_url,
-            "color": COLOR_FAIL,
-            "fields": fields,
-        }],
+        "embeds": [
+            {
+                "title": f"❌ Job {job_type} failed",
+                "url": job_url,
+                "color": COLOR_FAIL,
+                "fields": fields,
+            }
+        ],
     }
 
 
@@ -90,15 +94,17 @@ def build_build_completed_embed(
 ) -> dict:
     return {
         "content": _content_prefix(user_name, user_discord_id),
-        "embeds": [{
-            "title": f"✅ Build completed — {detector_label}",
-            "url": build_url,
-            "color": COLOR_SUCCESS,
-            "fields": [
-                _field("Git tag", git_tag),
-                _field("Commit", commit_sha[:7]),
-            ],
-        }],
+        "embeds": [
+            {
+                "title": f"✅ Build completed — {detector_label}",
+                "url": build_url,
+                "color": COLOR_SUCCESS,
+                "fields": [
+                    _field("Git tag", git_tag),
+                    _field("Commit", commit_sha[:7]),
+                ],
+            }
+        ],
     }
 
 
@@ -113,15 +119,19 @@ def build_build_failed_embed(
 ) -> dict:
     return {
         "content": _content_prefix(user_name, user_discord_id),
-        "embeds": [{
-            "title": f"❌ Build failed — {detector_label}",
-            "url": build_url,
-            "color": COLOR_FAIL,
-            "fields": [
-                _field("Git tag", git_tag),
-                _field("Failure reason", failure_reason or "(unknown)", inline=False),
-            ],
-        }],
+        "embeds": [
+            {
+                "title": f"❌ Build failed — {detector_label}",
+                "url": build_url,
+                "color": COLOR_FAIL,
+                "fields": [
+                    _field("Git tag", git_tag),
+                    _field(
+                        "Failure reason", failure_reason or "(unknown)", inline=False
+                    ),
+                ],
+            }
+        ],
     }
 
 
@@ -136,13 +146,15 @@ def build_trivy_blocked_embed(
 ) -> dict:
     return {
         "content": _content_prefix(user_name, user_discord_id),
-        "embeds": [{
-            "title": f"⚠️ Trivy blocked — {detector_label}",
-            "url": build_url,
-            "color": COLOR_WARN,
-            "fields": [
-                _field("Git tag", git_tag),
-                _field("CVEs", cve_summary),
-            ],
-        }],
+        "embeds": [
+            {
+                "title": f"⚠️ Trivy blocked — {detector_label}",
+                "url": build_url,
+                "color": COLOR_WARN,
+                "fields": [
+                    _field("Git tag", git_tag),
+                    _field("CVEs", cve_summary),
+                ],
+            }
+        ],
     }
