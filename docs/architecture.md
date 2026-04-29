@@ -249,9 +249,11 @@ cd frontend && pnpm typecheck && pnpm lint
 - **maldet (PyPI)** — external detector framework. Pin `maldet>=1.1,<2`. Bumping requires reading the maldet repo CHANGELOG.
 - **NVIDIA GPU operator** — installed via upstream Helm chart (NOT lolday's chart). DCGM exporter feeds Prometheus.
 
-## 8. Phase progression
+## 8. Phase progression (legacy naming)
 
-| Phase | Spec / Plan | Summary |
+> The `phaseN-X` numbering convention is **retired** as of 2026-04-29 — see `docs/conventions.md` §4. The table below is the historical record of work done under the old convention. New work uses `YYYY-MM-DD-<short-kebab-desc>` filenames; trace it via `docs/superpowers/specs|plans/` listings sorted by date.
+
+| Phase (legacy) | Spec / Plan | Summary |
 |-------|-------------|---------|
 | 1 | `specs/2026-03-30-lolday-platform-design.md` + `plans/2026-03-30-phase1-infrastructure.md` | Initial platform design + K3s/Helm baseline |
 | 2 | `specs/2026-04-13-phase2-backend-core-design.md` + plan | Backend core (FastAPI + DB + auth scaffold) |
