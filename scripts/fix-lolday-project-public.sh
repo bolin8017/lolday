@@ -7,16 +7,16 @@
 # Fix: toggle the `lolday` project to public (same setting as `detectors`
 # per Phase 3 convention). No secret needed at containerd level.
 #
-# Read ~/.lolday-secrets.env for admin credentials. Runs as the invoking
-# user (not root) — only needs kubectl + port-forward.
+# Reads .lolday-secrets.env for admin credentials. Repo-root preferred,
+# $HOME as fallback. Runs as the invoking user (not root) — only needs
+# kubectl + port-forward.
 
 set -eu
 
-SECRETS=${SECRETS:-$HOME/.lolday-secrets.env}
-if [ ! -f "$SECRETS" ]; then
-  echo "ERROR: cannot find $SECRETS" >&2
-  exit 1
-fi
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SECRETS=${SECRETS:-${REPO_ROOT}/.lolday-secrets.env}
+[ -f "$SECRETS" ] || SECRETS="$HOME/.lolday-secrets.env"
+[ -f "$SECRETS" ] || { echo "ERROR: secrets file not found at ${REPO_ROOT}/.lolday-secrets.env or \$HOME/.lolday-secrets.env" >&2; exit 1; }
 # shellcheck disable=SC1090
 . "$SECRETS"
 

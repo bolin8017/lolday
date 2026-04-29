@@ -13,7 +13,11 @@
 # Port-forward is only used for admin API calls.
 set -euo pipefail
 
-SECRETS=${SECRETS:-$HOME/.lolday-secrets.env}
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SECRETS=${SECRETS:-${REPO_ROOT}/.lolday-secrets.env}
+[ -f "$SECRETS" ] || SECRETS="$HOME/.lolday-secrets.env"
+[ -f "$SECRETS" ] || { echo "secrets file not found at ${REPO_ROOT}/.lolday-secrets.env or \$HOME/.lolday-secrets.env" >&2; exit 1; }
+# shellcheck disable=SC1090
 . "$SECRETS"
 
 REPO=${REPO:-/home/bolin8017/Documents/repositories/lolday}

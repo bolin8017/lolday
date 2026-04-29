@@ -46,7 +46,7 @@ SECRETS=${SECRETS:-${REPO_ROOT}/.lolday-secrets.env}
 source "$SECRETS"
 ```
 
-`fix-lolday-project-public.sh`, `phase6-pre-deploy-check.sh`, and `recover-harbor.sh` (caller-overridable via `SECRETS=`) currently hardcode `~/.lolday-secrets.env` in places. Migrating them to the fallback pattern is a follow-up phase.
+All scripts that source `.lolday-secrets.env` follow this pattern as of 2026-04-29: `recover-harbor.sh`, `harbor-inventory.sh`, `fix-lolday-project-public.sh`, and (in spirit, with custom root-execution logic) `diag-backend-401.sh`. `phase6-pre-deploy-check.sh` doesn't source the file — it just verifies env vars are already exported — and its error messages now name `.lolday-secrets.env` without prejudging the location.
 
 ## Writing a new script
 
