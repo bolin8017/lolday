@@ -1,0 +1,64 @@
+---
+paths:
+  - "frontend/**/*.{ts,tsx,js,jsx,css,json}"
+---
+
+# Frontend rules (Vite + React + TS)
+
+## Stack
+
+- Vite 5, React 18, TypeScript 5.5, Tailwind 3.4, shadcn/ui (Radix primitives).
+- Routing: react-router 7, file-based routing under `src/routes/`.
+- Data: TanStack Query v5 + openapi-fetch + openapi-typescript (generates `src/api/schema.gen.ts`).
+- Forms: react-hook-form + zod + `@hookform/resolvers`. JSON-Schema forms via `@rjsf/core` + `@rjsf/utils` + `@rjsf/validator-ajv8`.
+- i18n: i18next + react-i18next + `i18next-browser-languagedetector`. zh-TW first-class; en is a translation. Do not introduce zh-CN.
+- Tables: `@tanstack/react-table`.
+- Charts: `recharts`.
+- Misc: `date-fns`, `lucide-react` (icons), `class-variance-authority`, `clsx`, `tailwind-merge`, `cmdk`, `vaul`.
+
+## File-based routing rules
+
+- Files under `src/routes/`. Filename convention encodes routing.
+- `_authed.*` prefix → requires login; layout is `_authed.tsx`.
+- `$param` segment → path parameter (e.g. `_authed.jobs.$id.tsx`).
+- `_index` → index route at that level.
+
+## API client convention
+
+- All API calls go through `src/api/client.ts` (openapi-fetch).
+- Types come from `src/api/schema.gen.ts`. Regenerate via `pnpm gen-api-types` (calls `frontend/scripts/gen-api-types.sh`, which hits the backend OpenAPI doc).
+- Do not hand-write `fetch`, `axios`, or SWR. Do not add a second HTTP client.
+
+## State convention
+
+- Server state → TanStack Query. Cache key conventions live in `src/api/queries/`.
+- URL state → react-router (search params, path params, navigate).
+- Form state → react-hook-form.
+- Global client state is intentionally minimal. Do not introduce Redux / Zustand / Jotai without a written justification — most cases are server state in disguise.
+
+## Component library discipline
+
+- shadcn/ui is the first choice. Check `src/components/ui/` before adding a new primitive.
+- Do not introduce Ant Design / Naive UI / ElementUI / Arco / TDesign (China-origin; see root `CLAUDE.md` hard rule).
+- Do not introduce a competing component library. If something is missing, add a shadcn/ui component (`pnpm dlx shadcn@latest add <component>`).
+
+## nginx CSP is strict (`script-src 'self'`)
+
+The production frontend is served by `nginxinc/nginx-unprivileged` with CSP `default-src 'self'; script-src 'self'`. Any inline `<script>` is blocked at runtime. This includes:
+
+- `dangerouslySetInnerHTML` for executable content.
+- Build-time inlined scripts that some libraries inject.
+
+If something works in `pnpm dev` but breaks in the built container, suspect CSP first. Test against the built image, not just the dev server.
+
+## Tests
+
+- `pnpm test` — vitest, unit + component (`frontend/tests/unit/`).
+- `pnpm playwright test` — E2E (`frontend/tests/e2e/`). Some tests require the backend running.
+- Run `pnpm typecheck && pnpm lint` before commit.
+
+## Duplicated config files (tech debt — DO NOT touch in this scope)
+
+`frontend/playwright.config.{ts,js,d.ts}`, `vite.config.{ts,js,d.ts}`, `vitest.config.{ts,js,d.ts}`, and `tailwind.config.{ts,js,d.ts}` each have three copies. The `.ts` is the source of truth. The `.js` and `.d.ts` are accidental build emit committed in error.
+
+When modifying config, edit the `.ts` only. The cleanup (delete the `.js` / `.d.ts` siblings, add the build-info file to `.gitignore`) is in a follow-up phase.
