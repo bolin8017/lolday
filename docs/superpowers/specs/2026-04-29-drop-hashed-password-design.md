@@ -44,7 +44,8 @@
 - `backend/app/schemas/user.py`
 - `backend/app/auth/cf_access.py`（僅移除已不適用的 kwargs 與 helper，無邏輯改動）
 - `backend/migrations/versions/<new_rev>_drop_fastapi_users_user_columns.py`（新增）
-- `backend/pyproject.toml` + `backend/uv.lock`（dep tightening）
+- `backend/pyproject.toml` + `backend/uv.lock`（remove fastapi-users family entirely; add PyJWT as direct dep — previously transitive of fastapi-users）
+- `backend/migrations/versions/d3f179666394_phase7_5_baseline.py`（schema-equivalent type swap：5 處 `fastapi_users_db_sqlalchemy.generics.GUID()` → `sa.Uuid()`）
 - `backend/tests/conftest.py` + 約 11 個 test 檔（移除 fastapi-users kwargs）
 - `frontend/src/api/schema.gen.ts`（regen，自動移除 3 個 boolean key）
 - `docs/architecture.md` §9 #7（標記 resolved）
@@ -445,9 +446,11 @@ cd frontend && pnpm typecheck && pnpm lint && pnpm test
    `chore/drop-hashed-password`: User model + schema no longer inherit from
    fastapi-users base classes; `hashed_password` was dropped along with three
    other unused booleans (`is_active` / `is_superuser` / `is_verified`). The
-   dep was tightened from `fastapi-users[sqlalchemy]` to
-   `fastapi-users-db-sqlalchemy` (the latter still feeds `generics.GUID()`
-   to the phase 7.5 baseline migration).
+   phase 7.5 baseline migration was edited to use SQLAlchemy 2.0 native
+   `sa.Uuid()` instead of `fastapi_users_db_sqlalchemy.generics.GUID()`
+   (schema-equivalent type swap), allowing both `fastapi-users` and
+   `fastapi-users-db-sqlalchemy` to be removed from the venv entirely.
+   PyJWT (previously a transitive dep) is now declared directly.
 ```
 
 ### 12.2 `.claude/rules/backend.md` Auth design 區塊
@@ -464,11 +467,11 @@ cd frontend && pnpm typecheck && pnpm lint && pnpm test
 改為：
 
 ```
-- Authentication is exclusively via `cf_access_user`. The `fastapi-users`
-  package itself is not installed; only `fastapi-users-db-sqlalchemy`
-  remains as a transitive dep for the phase 7.5 baseline migration's
-  `generics.GUID` type. Do not add new auth backends, do not reintroduce
-  `fastapi_users` imports.
+- Authentication is exclusively via `cf_access_user`. Neither
+  `fastapi-users` nor `fastapi-users-db-sqlalchemy` is installed —
+  the phase 7.5 baseline migration was rewritten to use SQLAlchemy 2.0
+  native `sa.Uuid()` directly. Do not add new auth backends, do not
+  reintroduce `fastapi_users` imports.
 ```
 
 ---

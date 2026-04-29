@@ -948,8 +948,8 @@ docs: mark fastapi-users vestige as resolved
 
 architecture.md §9 #7 strikethrough + resolved note. backend.md auth
 design bullet rewritten to reflect the current state: zero fastapi_users
-runtime imports; only fastapi-users-db-sqlalchemy remains as a
-transitive dep for the phase 7.5 baseline migration.
+runtime imports, neither fastapi-users nor fastapi-users-db-sqlalchemy
+installed (baseline migration uses sa.Uuid() directly).
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
