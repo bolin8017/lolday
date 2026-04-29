@@ -281,15 +281,12 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 2. **No CI/CD.** No GitHub Actions, no automated build/test, no release pipeline. `scripts/deploy.sh` is manual.
 3. **Single `values.yaml`** (~27KB). No dev/prod overlay system.
 4. **Helper images built by hand.** No automated build/push of `build-helper:vN` / `job-helper:vN`.
-5. **Frontend has duplicated config files.** `playwright/vite/vitest/tailwind.config` each has `.ts`, `.js`, and `.d.ts`. Source of truth is `.ts`. `.js`/`.d.ts` are accidental build emit committed in error.
-6. **`frontend/tsconfig.node.tsbuildinfo`** (52KB) is committed. Should be in `.gitignore`.
-7. **No pre-commit / husky / lint-staged / prettier / `.editorconfig`.** No automated formatting discipline.
-8. **No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.** Caches exist but settings are default.
-9. **`charts/lolday/Chart.yaml` `appVersion: "phase12"`** lags real progress (currently phase 13b).
-10. **fastapi-users vestige** — `User.hashed_password` column still present but unused since Phase 10 SSO migration.
-11. **Helper image versions hardcoded** — `BUILD_IMAGE_HELPER=v3`, `JOB_HELPER_IMAGE=v4` in `config.py`. No versioning strategy.
-12. **Secrets path inconsistency** — 4 scripts hardcode `~/.lolday-secrets.env`; should follow the fallback pattern (`recover-harbor.sh` is the model).
-13. **Harbor URL inconsistency** — three forms in `config.py`. `harbor.lolday.svc:80` looks like a typo for `harbor.harbor.svc:80`.
+5. **No pre-commit / husky / lint-staged / prettier / `.editorconfig`.** No automated formatting discipline.
+6. **No `[tool.ruff]` / `[tool.mypy]` config in `backend/pyproject.toml`.** Caches exist but settings are default.
+7. **fastapi-users vestige** — `User.hashed_password` column still present but unused since Phase 10 SSO migration.
+8. **Helper image versions hardcoded** — `BUILD_IMAGE_HELPER=v3`, `JOB_HELPER_IMAGE=v4` in `config.py`. No versioning strategy.
+9. **Secrets path inconsistency** — 4 scripts hardcode `~/.lolday-secrets.env`; should follow the fallback pattern (`recover-harbor.sh` is the model).
+10. **Harbor URL inconsistency** — three forms in `config.py`. `harbor.lolday.svc:80` looks like a typo for `harbor.harbor.svc:80`.
 
 ## 10. Common gotchas
 
