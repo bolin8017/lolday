@@ -161,6 +161,46 @@ async def db_session():
 
 
 @pytest.fixture(autouse=True)
+def _mock_k8s_load_config(monkeypatch):
+    """Skip loading real kubeconfig in tests.
+
+    Production code paths reach `app.services.k8s.load_config()` via service
+    helpers; tests already mock the downstream API calls. Without this no-op
+    patch, tests fail in CI (no in-cluster config, no ~/.kube/config) even
+    though they don't actually need cluster access.
+
+    We replace `app.services.k8s.load_config` with a variant that swallows
+    ConfigException so CI runners (no in-cluster config, no ~/.kube/config)
+    don't blow up.  On a local workstation with a real kubeconfig the wrapped
+    function still loads it; in CI it silently does nothing, and because
+    `mock_k8s_batch` already stubs the downstream API objects (batch_v1,
+    core_v1, volcano_v1alpha1) no real kubernetes traffic is attempted.
+
+    Note: we intentionally do NOT touch the lru_cache — if it is already warm
+    from a prior test the cached None result is fine.  If the cache is cold,
+    the wrapper below runs once and caches its result (None on success, or
+    None on ConfigException).
+    """
+    import contextlib
+
+    from kubernetes.config.config_exception import (
+        ConfigException as _KubeConfigException,
+    )
+
+    def _safe_load_config() -> None:
+        from kubernetes import config as _kube_config
+
+        try:
+            _kube_config.load_incluster_config()
+        except _KubeConfigException:
+            with contextlib.suppress(_KubeConfigException):
+                # CI: no kubeconfig available; tests mock downstream API calls
+                _kube_config.load_kube_config()
+
+    monkeypatch.setattr("app.services.k8s.load_config", _safe_load_config)
+
+
+@pytest.fixture(autouse=True)
 def fake_redis_for_rate_limit(monkeypatch):
     """Autouse fakeredis so rate_limit service uses an in-memory store per test."""
     from fakeredis.aioredis import FakeRedis
