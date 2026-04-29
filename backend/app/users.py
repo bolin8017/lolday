@@ -5,7 +5,7 @@
 Cloudflare Access JWT and get-or-creates the corresponding User row.
 
 The fastapi-users machinery was stripped in Phase 10; the User model and
-schema were rewritten as native SQLAlchemy 2.0 / Pydantic v2 in 2026-04-29
+schema were rewritten as native SQLAlchemy 2.0 / Pydantic v2 on 2026-04-29
 (`chore/drop-hashed-password`), and neither `fastapi-users` nor
 `fastapi-users-db-sqlalchemy` is installed.
 """
