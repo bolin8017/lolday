@@ -1,4 +1,4 @@
-FROM ghcr.io/mlflow/mlflow:v2.20.3
+FROM ghcr.io/mlflow/mlflow:v3.11.1
 
 # Upstream ghcr.io mlflow image is slim and omits Postgres driver.
 # Bake psycopg2-binary so the server can use the backend-store-uri
