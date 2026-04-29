@@ -10,7 +10,7 @@ paths:
 
 - `charts/lolday/Chart.yaml` is the umbrella chart.
 - `charts/lolday/values.yaml` (~27KB) is the single source of truth for configuration. There is no dev/prod overlay today (tracked tech debt).
-- `Chart.yaml.appVersion` is currently `phase12` and lags real progress (Phase 13 is in flight). Bump in a follow-up phase, not ad-hoc.
+- `Chart.yaml.appVersion` tracks the latest phase merged into main (currently `phase13b`). Bump it whenever a phase is merged; do not let it drift.
 - Sub-charts are vendored as `charts/lolday/charts/*.tgz`:
   - `harbor 1.18.3` — image registry
   - `kube-prometheus-stack ~84.3.0` — aliased `kps`; provides Prom + Grafana + Alertmanager
