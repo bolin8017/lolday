@@ -88,7 +88,7 @@ async def test_fire_job_failed_notify_skips_service_token(db_session, seed_job):
     j.owner_id = svc.id
     await db_session.commit()
 
-    with patch("app.reconciler.notify_job_failed", new=AsyncMock()) as m:
+    with patch("app.reconciler.notify.notify_job_failed", new=AsyncMock()) as m:
         await _fire_job_failed_notify(db_session, j, "test_reason")
     assert m.await_count == 0, (
         f"notify_job_failed must be skipped for service token, "

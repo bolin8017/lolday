@@ -25,7 +25,7 @@ from app.reconciler import (
 def _patch_notify():
     with (
         patch("app.reconciler.notify_job_completed", new=AsyncMock()) as jc,
-        patch("app.reconciler.notify_job_failed", new=AsyncMock()) as jf,
+        patch("app.reconciler.notify.notify_job_failed", new=AsyncMock()) as jf,
         patch("app.reconciler.notify_build_completed", new=AsyncMock()) as bc,
         patch("app.reconciler.notify_build_failed", new=AsyncMock()) as bf,
         patch("app.reconciler.notify_trivy_blocked", new=AsyncMock()) as tb,
