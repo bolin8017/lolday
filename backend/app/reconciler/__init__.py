@@ -32,6 +32,7 @@ from app.reconciler.log_capture import (
 from app.reconciler.log_capture import (
     _container_from_failure_reason as _container_from_failure_reason,
 )
+from app.reconciler.model_sync import sync_model_versions
 from app.reconciler.notify import (
     NotifyContext as NotifyContext,
 )
@@ -1117,31 +1118,3 @@ async def _cleanup_job_secret(j: Job) -> None:
                 j.id,
                 exc_info=True,
             )
-
-
-async def sync_model_versions(session: AsyncSession) -> None:
-    """Pull latest stages from MLflow; reflect transitions initiated outside lolday."""
-    client = MlflowClient(settings.MLFLOW_TRACKING_URI)
-    from app.models import ModelVersion
-    from app.models.model_registry import ModelVersionStage
-
-    all_local = (await session.execute(select(ModelVersion))).scalars().all()
-    if not all_local:
-        return
-
-    remote = await client.search_model_versions()
-    by_key = {(m["name"], int(m["version"])): m for m in remote}
-
-    for mv in all_local:
-        rem = by_key.get((mv.mlflow_name, mv.mlflow_version))
-        if rem is None:
-            continue
-        remote_stage = rem.get("current_stage", "None")
-        try:
-            stage_enum = ModelVersionStage(remote_stage)
-        except ValueError:
-            continue
-        if stage_enum != mv.current_stage:
-            mv.current_stage = stage_enum
-            mv.last_transitioned_at = datetime.now(UTC)
-    await session.commit()
