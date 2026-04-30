@@ -83,8 +83,8 @@ def _patched_k8s(pod_phase, job_succeeded, job_failed, exit_code=0):
             pass
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.jobs.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.jobs.core_v1", return_value=_CoreStub()),
     ):
         yield
 
@@ -103,7 +103,7 @@ async def mlflow_stub(monkeypatch):
         "version": "1",
         "run_id": "r",
     }
-    monkeypatch.setattr("app.reconciler.MlflowClient", lambda *a, **kw: stub)
+    monkeypatch.setattr("app.reconciler.jobs.MlflowClient", lambda *a, **kw: stub)
     return stub
 
 

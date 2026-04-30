@@ -306,7 +306,8 @@ def mock_k8s_batch(monkeypatch):
         ("app.services.cluster_status", ["core_v1", "volcano_v1alpha1"]),
         ("app.routers.detectors", ["batch_v1", "core_v1"]),
         ("app.routers.jobs", ["batch_v1", "core_v1", "volcano_v1alpha1"]),
-        ("app.reconciler", ["batch_v1", "core_v1", "volcano_v1alpha1"]),
+        ("app.reconciler", ["batch_v1", "core_v1"]),
+        ("app.reconciler.jobs", ["core_v1", "volcano_v1alpha1"]),
     ]:
         for _name in _names:
             if _name == "batch_v1":

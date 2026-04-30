@@ -84,11 +84,11 @@ async def test_reconcile_trusts_stage_end_success(db_session, monkeypatch) -> No
         calls.append("failed")
         j.status = JobStatus.FAILED
 
-    monkeypatch.setattr("app.reconciler._handle_job_succeeded", fake_succeeded)
-    monkeypatch.setattr("app.reconciler._handle_job_failed", fake_failed)
+    monkeypatch.setattr("app.reconciler.jobs._handle_job_succeeded", fake_succeeded)
+    monkeypatch.setattr("app.reconciler.jobs._handle_job_failed", fake_failed)
 
     monkeypatch.setattr(
-        "app.reconciler.volcano_v1alpha1",
+        "app.reconciler.jobs.volcano_v1alpha1",
         lambda: type(
             "_FV",
             (),
@@ -99,7 +99,7 @@ async def test_reconcile_trusts_stage_end_success(db_session, monkeypatch) -> No
             },
         )(),
     )
-    monkeypatch.setattr("app.reconciler._job_timed_out", lambda j, v: False)
+    monkeypatch.setattr("app.reconciler.jobs._job_timed_out", lambda j, v: False)
 
     await reconcile_job(db_session, job)
 
@@ -129,10 +129,10 @@ async def test_reconcile_trusts_stage_end_failure(db_session, monkeypatch) -> No
     async def fake_failed(session, j):
         calls.append("failed")
 
-    monkeypatch.setattr("app.reconciler._handle_job_succeeded", fake_succeeded)
-    monkeypatch.setattr("app.reconciler._handle_job_failed", fake_failed)
+    monkeypatch.setattr("app.reconciler.jobs._handle_job_succeeded", fake_succeeded)
+    monkeypatch.setattr("app.reconciler.jobs._handle_job_failed", fake_failed)
     monkeypatch.setattr(
-        "app.reconciler.volcano_v1alpha1",
+        "app.reconciler.jobs.volcano_v1alpha1",
         lambda: type(
             "_FV",
             (),
@@ -143,7 +143,7 @@ async def test_reconcile_trusts_stage_end_failure(db_session, monkeypatch) -> No
             },
         )(),
     )
-    monkeypatch.setattr("app.reconciler._job_timed_out", lambda j, v: False)
+    monkeypatch.setattr("app.reconciler.jobs._job_timed_out", lambda j, v: False)
 
     await reconcile_job(db_session, job)
     assert calls == ["failed"]
@@ -169,11 +169,11 @@ async def test_reconcile_falls_back_to_volcano_phase_when_no_events(
     async def fake_update(session, j):
         calls.append("progress")
 
-    monkeypatch.setattr("app.reconciler._handle_job_succeeded", fake_succeeded)
-    monkeypatch.setattr("app.reconciler._handle_job_failed", fake_failed)
-    monkeypatch.setattr("app.reconciler._update_job_progress", fake_update)
+    monkeypatch.setattr("app.reconciler.jobs._handle_job_succeeded", fake_succeeded)
+    monkeypatch.setattr("app.reconciler.jobs._handle_job_failed", fake_failed)
+    monkeypatch.setattr("app.reconciler.jobs._update_job_progress", fake_update)
     monkeypatch.setattr(
-        "app.reconciler.volcano_v1alpha1",
+        "app.reconciler.jobs.volcano_v1alpha1",
         lambda: type(
             "_FV",
             (),
@@ -184,7 +184,7 @@ async def test_reconcile_falls_back_to_volcano_phase_when_no_events(
             },
         )(),
     )
-    monkeypatch.setattr("app.reconciler._job_timed_out", lambda j, v: False)
+    monkeypatch.setattr("app.reconciler.jobs._job_timed_out", lambda j, v: False)
 
     await reconcile_job(db_session, job)
     assert calls == ["succeeded"]
@@ -226,11 +226,11 @@ async def test_reconcile_event_wins_against_volcano_failed_race(
         calls.append("failed")
         j.status = JobStatus.FAILED
 
-    monkeypatch.setattr("app.reconciler._handle_job_succeeded", fake_succeeded)
-    monkeypatch.setattr("app.reconciler._handle_job_failed", fake_failed)
+    monkeypatch.setattr("app.reconciler.jobs._handle_job_succeeded", fake_succeeded)
+    monkeypatch.setattr("app.reconciler.jobs._handle_job_failed", fake_failed)
     # Volcano reports Failed, but the event says success — event wins.
     monkeypatch.setattr(
-        "app.reconciler.volcano_v1alpha1",
+        "app.reconciler.jobs.volcano_v1alpha1",
         lambda: type(
             "_FV",
             (),
@@ -241,7 +241,7 @@ async def test_reconcile_event_wins_against_volcano_failed_race(
             },
         )(),
     )
-    monkeypatch.setattr("app.reconciler._job_timed_out", lambda j, v: False)
+    monkeypatch.setattr("app.reconciler.jobs._job_timed_out", lambda j, v: False)
 
     await reconcile_job(db_session, job)
     assert calls == ["succeeded"], (

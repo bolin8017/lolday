@@ -24,7 +24,7 @@ from app.reconciler import (
 @contextmanager
 def _patch_notify():
     with (
-        patch("app.reconciler.notify_job_completed", new=AsyncMock()) as jc,
+        patch("app.reconciler.jobs.notify_job_completed", new=AsyncMock()) as jc,
         patch("app.reconciler.notify.notify_job_failed", new=AsyncMock()) as jf,
         patch("app.reconciler.notify_build_completed", new=AsyncMock()) as bc,
         patch("app.reconciler.notify_build_failed", new=AsyncMock()) as bf,
@@ -54,7 +54,7 @@ async def test_handle_job_succeeded_calls_notify_completed(
         "version": "1",
         "run_id": "r",
     }
-    monkeypatch.setattr("app.reconciler.MlflowClient", lambda *a, **kw: stub)
+    monkeypatch.setattr("app.reconciler.jobs.MlflowClient", lambda *a, **kw: stub)
 
     dv_id = uuid.UUID(await seed_detector_version())
     tr = uuid.UUID(await seed_dataset(name="tr"))
@@ -404,8 +404,8 @@ async def test_reconcile_job_k8s_missing_fires_notify_failed(
             pass
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_Volcano()),
-        patch("app.reconciler.core_v1", return_value=_Core()),
+        patch("app.reconciler.jobs.volcano_v1alpha1", return_value=_Volcano()),
+        patch("app.reconciler.jobs.core_v1", return_value=_Core()),
         _patch_notify() as notify,
     ):
         await reconcile_job(db_session, job)
