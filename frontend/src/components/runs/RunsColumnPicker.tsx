@@ -85,7 +85,14 @@ export function loadColumnsFromStorage(
   try {
     const raw = localStorage.getItem(`runs.columns.${experimentId}`);
     if (!raw) return fallback;
-    return JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      Array.isArray(parsed) &&
+      parsed.every((item) => typeof item === "string")
+    ) {
+      return parsed;
+    }
+    return fallback;
   } catch {
     return fallback;
   }

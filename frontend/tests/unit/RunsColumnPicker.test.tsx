@@ -49,4 +49,12 @@ describe("RunsColumnPicker", () => {
     localStorage.setItem("runs.columns.x", JSON.stringify(["a", "b"]));
     expect(loadColumnsFromStorage("x", ["fallback"])).toEqual(["a", "b"]);
   });
+
+  it("loadColumnsFromStorage returns fallback when value is not a string array", () => {
+    localStorage.setItem(
+      "runs.columns.bad",
+      JSON.stringify({ wrong: "shape" }),
+    );
+    expect(loadColumnsFromStorage("bad", ["fallback"])).toEqual(["fallback"]);
+  });
 });
