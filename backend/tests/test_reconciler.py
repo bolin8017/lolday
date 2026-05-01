@@ -34,10 +34,10 @@ async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
     fake_job.status.succeeded = 1
     fake_job.status.failed = 0
 
-    with patch("app.reconciler.batch_v1") as bv:
+    with patch("app.reconciler.builds.batch_v1") as bv:
         bv.return_value.read_namespaced_job.return_value = fake_job
         # harbor scan pending
-        with patch("app.reconciler.HarborClient") as hc:
+        with patch("app.reconciler.builds.HarborClient") as hc:
             hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:abc")
             from app.services.harbor import ScanResult, ScanStatus
 
@@ -79,9 +79,9 @@ async def test_reconcile_cve_blocked(db_session):
     fake_job.status.failed = 0
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1") as _cv,
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1") as _cv,
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         from app.services.harbor import ScanResult, ScanStatus
@@ -123,7 +123,10 @@ async def test_reconcile_timeout(db_session):
     fake_job.status.succeeded = 0
     fake_job.status.failed = 0
 
-    with patch("app.reconciler.batch_v1") as bv, patch("app.reconciler.core_v1"):
+    with (
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.core_v1"),
+    ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         bv.return_value.delete_namespaced_job.return_value = None
         await reconcile_build(db_session, build)
@@ -173,8 +176,8 @@ async def test_reconcile_not_scanned_triggers_trivy_scan(db_session):
         trigger_calls.append((project, repo, digest))
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:new")
@@ -238,8 +241,8 @@ async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metr
         )
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:x")
@@ -302,8 +305,8 @@ async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_ses
     before_metric = BACKEND_ERRORS.labels(stage="harbor_scan_error_retry")._value.get()
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:errdigest")
@@ -383,9 +386,9 @@ async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
     fake_job.status.failed = 0
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1"),
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         bv.return_value.delete_namespaced_job.return_value = None
@@ -460,9 +463,9 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
     fake_job.status.failed = 0
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1"),
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         # Same digest as existing — idempotent replay, not divergence
@@ -540,9 +543,9 @@ async def test_reconcile_dedup_rejects_digest_divergence(db_session):
     )._value.get()
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1"),
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(

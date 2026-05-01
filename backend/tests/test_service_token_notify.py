@@ -252,9 +252,9 @@ async def test_reconcile_build_manifest_missing_skips_service_token(db_session):
     from app.services.harbor import ScanResult, ScanStatus
 
     with (
-        mpatch("app.reconciler.batch_v1") as bv,
-        mpatch("app.reconciler.HarborClient") as hc,
-        mpatch("app.reconciler.notify_build_failed", new=AsyncMock()) as m,
+        mpatch("app.reconciler.builds.batch_v1") as bv,
+        mpatch("app.reconciler.builds.HarborClient") as hc,
+        mpatch("app.reconciler.builds.notify_build_failed", new=AsyncMock()) as m,
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:abc")

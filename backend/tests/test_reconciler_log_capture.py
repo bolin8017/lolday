@@ -202,15 +202,21 @@ def test_both_build_handlers_capture_log_tail():
     it), so green builds shipped with log_tail=NULL and the UI showed
     '(no output)'. Both handlers must capture; this test makes sure
     nobody removes the call again.
+
+    After reconciler-split (2026-04-30), _handle_succeeded is a slim dispatcher
+    that delegates the post-scan-SUCCESS path to _finalize_clean_scan in
+    build_finalize.py.  log_tail capture lives there.  The regression guard now
+    checks _finalize_clean_scan instead of _handle_succeeded.
     """
     import inspect
 
-    from app.reconciler import _handle_failed, _handle_succeeded
+    from app.reconciler import _handle_failed
+    from app.reconciler.build_finalize import _finalize_clean_scan
 
-    succ_src = inspect.getsource(_handle_succeeded)
+    finalize_src = inspect.getsource(_finalize_clean_scan)
     fail_src = inspect.getsource(_handle_failed)
-    assert "_capture_log_tail(b)" in succ_src, (
-        "_handle_succeeded must capture build log_tail (phase 13a A2 fix)"
+    assert "_capture_log_tail(b)" in finalize_src, (
+        "_finalize_clean_scan must capture build log_tail (phase 13a A2 fix)"
     )
     assert "_capture_log_tail(b)" in fail_src, (
         "_handle_failed must capture build log_tail (pre-existing)"
