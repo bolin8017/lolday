@@ -43,6 +43,28 @@ describe("deriveUiSchemaFromSchema", () => {
       "ui:placeholder": "Default: 100",
     });
   });
+
+  it("recurses into nested object properties", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        optimizer: {
+          type: "object",
+          properties: {
+            lr: { type: "number", description: "Learning rate", default: 0.01 },
+          },
+        },
+      },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
+    const ui = deriveUiSchemaFromSchema(schema as any);
+    expect(ui.optimizer).toEqual({
+      lr: {
+        "ui:help": "Learning rate",
+        "ui:placeholder": "Default: 0.01",
+      },
+    });
+  });
 });
 
 describe("fillDefaults", () => {

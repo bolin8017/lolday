@@ -24,8 +24,8 @@ function walk(node: StrictRJSFSchema, ui: UiSchema): void {
     if (child.default !== undefined) {
       childUi["ui:placeholder"] = `Default: ${JSON.stringify(child.default)}`;
     }
-    if (Object.keys(childUi).length > 0) ui[k] = childUi;
     walk(child, childUi);
+    if (Object.keys(childUi).length > 0) ui[k] = childUi;
   }
 }
 
