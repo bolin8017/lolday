@@ -8,7 +8,7 @@ and malformed-base64 both must fail-closed (no DetectorVersion row created,
 build marked FAILED with a specific ``failure_reason``).
 
 Test mocking mirrors the existing ``test_reconciler.py`` pattern:
-``patch("app.reconciler.HarborClient")`` + ``AsyncMock`` for per-method stubs.
+``patch("app.reconciler.builds.HarborClient")`` + ``AsyncMock`` for per-method stubs.
 """
 
 from __future__ import annotations
@@ -75,9 +75,9 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
     }
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1"),
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:deadbeef")
@@ -152,9 +152,9 @@ async def test_reconcile_fails_when_manifest_label_missing(db_session):
     before = BACKEND_ERRORS.labels(stage="manifest_missing")._value.get()
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1"),
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:nomfst")
@@ -226,9 +226,9 @@ async def test_reconcile_fails_when_revision_label_missing(db_session):
     before = BACKEND_ERRORS.labels(stage="git_sha_label_missing")._value.get()
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1"),
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:norev")
@@ -298,9 +298,9 @@ async def test_reconcile_fails_when_manifest_label_malformed(db_session):
     before = BACKEND_ERRORS.labels(stage="manifest_invalid")._value.get()
 
     with (
-        patch("app.reconciler.batch_v1") as bv,
-        patch("app.reconciler.HarborClient") as hc,
-        patch("app.reconciler.core_v1"),
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:bad")

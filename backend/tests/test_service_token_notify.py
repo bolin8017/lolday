@@ -88,7 +88,7 @@ async def test_fire_job_failed_notify_skips_service_token(db_session, seed_job):
     j.owner_id = svc.id
     await db_session.commit()
 
-    with patch("app.reconciler.notify_job_failed", new=AsyncMock()) as m:
+    with patch("app.reconciler.notify.notify_job_failed", new=AsyncMock()) as m:
         await _fire_job_failed_notify(db_session, j, "test_reason")
     assert m.await_count == 0, (
         f"notify_job_failed must be skipped for service token, "
@@ -252,9 +252,9 @@ async def test_reconcile_build_manifest_missing_skips_service_token(db_session):
     from app.services.harbor import ScanResult, ScanStatus
 
     with (
-        mpatch("app.reconciler.batch_v1") as bv,
-        mpatch("app.reconciler.HarborClient") as hc,
-        mpatch("app.reconciler.notify_build_failed", new=AsyncMock()) as m,
+        mpatch("app.reconciler.builds.batch_v1") as bv,
+        mpatch("app.reconciler.builds.HarborClient") as hc,
+        mpatch("app.reconciler.builds.notify_build_failed", new=AsyncMock()) as m,
     ):
         bv.return_value.read_namespaced_job.return_value = fake_job
         hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:abc")

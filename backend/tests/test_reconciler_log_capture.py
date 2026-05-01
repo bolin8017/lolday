@@ -36,7 +36,7 @@ def _make_v1(pod, log_responses):
 async def test_capture_pod_logs_main_container_success(mock_k8s_pod):
     """Happy path: main container has logs, returned as-is."""
     v1 = _make_v1(mock_k8s_pod, {"buildkit": "BUILD OUTPUT\nfinal layer pushed"})
-    with patch("app.reconciler.core_v1", return_value=v1):
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
             label_selector="lolday.io/build-id=xyz",
@@ -63,7 +63,7 @@ async def test_capture_pod_logs_falls_back_to_init_when_main_missing(mock_k8s_po
             "clone": "fatal: could not read from remote repository",
         },
     )
-    with patch("app.reconciler.core_v1", return_value=v1):
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
             label_selector="lolday.io/build-id=xyz",
@@ -92,7 +92,7 @@ async def test_capture_pod_logs_uses_failure_reason_hint(mock_k8s_pod):
 
     v1.read_namespaced_pod_log.side_effect = read_log
 
-    with patch("app.reconciler.core_v1", return_value=v1):
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
             label_selector="lolday.io/build-id=xyz",
@@ -116,7 +116,7 @@ async def test_capture_pod_logs_returns_empty_when_all_fail(mock_k8s_pod):
             for c in ("buildkit", "clone", "validate")
         },
     )
-    with patch("app.reconciler.core_v1", return_value=v1):
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
             label_selector="lolday.io/build-id=xyz",
@@ -133,7 +133,7 @@ async def test_capture_pod_logs_no_pod_returns_empty(mock_k8s_pod):
     """list_namespaced_pod returns no items → empty."""
     v1 = MagicMock()
     v1.list_namespaced_pod.return_value = MagicMock(items=[])
-    with patch("app.reconciler.core_v1", return_value=v1):
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
             label_selector="lolday.io/build-id=xyz",
@@ -149,7 +149,7 @@ async def test_capture_pod_logs_no_pod_returns_empty(mock_k8s_pod):
 async def test_capture_pod_logs_truncates_to_tail_bytes(mock_k8s_pod):
     """tail_bytes truncates the result so we don't blow log_tail column."""
     v1 = _make_v1(mock_k8s_pod, {"buildkit": "X" * 10_000})
-    with patch("app.reconciler.core_v1", return_value=v1):
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
             label_selector="lolday.io/build-id=xyz",
@@ -173,7 +173,7 @@ async def test_capture_log_tail_uses_buildkit_container(mock_k8s_pod):
     build.failure_reason = None
 
     v1 = _make_v1(mock_k8s_pod, {"buildkit": "buildctl-daemonless: pushed sha256:abc"})
-    with patch("app.reconciler.core_v1", return_value=v1):
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
         result = await _capture_log_tail(build)
     assert "pushed sha256:abc" in result
     assert "[buildkit]" in result
@@ -184,7 +184,7 @@ async def test_capture_pod_logs_list_api_error_returns_empty():
     """list_namespaced_pod raising ApiException → return empty string."""
     v1 = MagicMock()
     v1.list_namespaced_pod.side_effect = ApiException(status=403, reason="Forbidden")
-    with patch("app.reconciler.core_v1", return_value=v1):
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
         result = await _capture_pod_logs(
             namespace="test-ns",
             label_selector="lolday.io/build-id=xyz",
@@ -202,15 +202,21 @@ def test_both_build_handlers_capture_log_tail():
     it), so green builds shipped with log_tail=NULL and the UI showed
     '(no output)'. Both handlers must capture; this test makes sure
     nobody removes the call again.
+
+    After reconciler-split (2026-04-30), _handle_succeeded is a slim dispatcher
+    that delegates the post-scan-SUCCESS path to _finalize_clean_scan in
+    build_finalize.py.  log_tail capture lives there.  The regression guard now
+    checks _finalize_clean_scan instead of _handle_succeeded.
     """
     import inspect
 
-    from app.reconciler import _handle_failed, _handle_succeeded
+    from app.reconciler import _handle_failed
+    from app.reconciler.build_finalize import _finalize_clean_scan
 
-    succ_src = inspect.getsource(_handle_succeeded)
+    finalize_src = inspect.getsource(_finalize_clean_scan)
     fail_src = inspect.getsource(_handle_failed)
-    assert "_capture_log_tail(b)" in succ_src, (
-        "_handle_succeeded must capture build log_tail (phase 13a A2 fix)"
+    assert "_capture_log_tail(b)" in finalize_src, (
+        "_finalize_clean_scan must capture build log_tail (phase 13a A2 fix)"
     )
     assert "_capture_log_tail(b)" in fail_src, (
         "_handle_failed must capture build log_tail (pre-existing)"

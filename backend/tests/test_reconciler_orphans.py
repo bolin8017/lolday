@@ -93,8 +93,8 @@ async def test_orphan_vcjob_is_deleted(db_session, seed_job):
             secret_delete_calls.append(kw["name"])
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
     ):
         await reconcile_orphan_vcjobs(db_session)
 
@@ -123,8 +123,8 @@ async def test_matched_vcjob_is_left_alone(db_session, seed_job):
             pass
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
     ):
         await reconcile_orphan_vcjobs(db_session)
 
@@ -148,8 +148,8 @@ async def test_unlabeled_vcjob_is_skipped(db_session):
             pass
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
     ):
         await reconcile_orphan_vcjobs(db_session)
 
@@ -176,8 +176,8 @@ async def test_secret_404_is_tolerated(db_session, seed_job):
             raise ApiException(status=404)
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
     ):
         await reconcile_orphan_vcjobs(db_session)
 
@@ -203,8 +203,8 @@ async def test_list_apiexception_propagates(db_session):
             raise AssertionError("secret delete must not run when list failed")
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
         pytest.raises(ApiException),
     ):
         await reconcile_orphan_vcjobs(db_session)
@@ -240,8 +240,8 @@ async def test_delete_non_404_apiexception_continues(db_session):
             secret_attempts.append(kw["name"])
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
     ):
         await reconcile_orphan_vcjobs(db_session)
 
@@ -275,8 +275,8 @@ async def test_vcjob_404_still_cleans_secret(db_session):
             secret_attempts.append(kw["name"])
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
     ):
         await reconcile_orphan_vcjobs(db_session)
 
@@ -313,8 +313,8 @@ async def test_age_guard_skips_freshly_created_vcjobs(db_session):
             pass
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
     ):
         await reconcile_orphan_vcjobs(db_session)
 
@@ -347,8 +347,8 @@ async def test_malformed_label_increments_metric(db_session):
             pass
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_VolcanoStub()),
-        patch("app.reconciler.core_v1", return_value=_CoreStub()),
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
     ):
         await reconcile_orphan_vcjobs(db_session)
 

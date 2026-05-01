@@ -23,18 +23,27 @@ from app.reconciler import (
 
 @contextmanager
 def _patch_notify():
+    # notify_build_failed is used in BOTH builds.py (k8s_job_missing / _handle_failed /
+    # _handle_timeout) AND build_finalize.py (5 fail-closed branches). Patch both sites
+    # with a shared mock so assertions work regardless of which module fires.
+    bf_mock = AsyncMock()
     with (
-        patch("app.reconciler.notify_job_completed", new=AsyncMock()) as jc,
-        patch("app.reconciler.notify_job_failed", new=AsyncMock()) as jf,
-        patch("app.reconciler.notify_build_completed", new=AsyncMock()) as bc,
-        patch("app.reconciler.notify_build_failed", new=AsyncMock()) as bf,
-        patch("app.reconciler.notify_trivy_blocked", new=AsyncMock()) as tb,
+        patch("app.reconciler.jobs.notify_job_completed", new=AsyncMock()) as jc,
+        patch("app.reconciler.notify.notify_job_failed", new=AsyncMock()) as jf,
+        patch(
+            "app.reconciler.build_finalize.notify_build_completed", new=AsyncMock()
+        ) as bc,
+        patch("app.reconciler.builds.notify_build_failed", new=bf_mock),
+        patch("app.reconciler.build_finalize.notify_build_failed", new=bf_mock),
+        patch(
+            "app.reconciler.build_finalize.notify_trivy_blocked", new=AsyncMock()
+        ) as tb,
     ):
         yield SimpleNamespace(
             job_completed=jc,
             job_failed=jf,
             build_completed=bc,
-            build_failed=bf,
+            build_failed=bf_mock,
             trivy_blocked=tb,
         )
 
@@ -54,7 +63,7 @@ async def test_handle_job_succeeded_calls_notify_completed(
         "version": "1",
         "run_id": "r",
     }
-    monkeypatch.setattr("app.reconciler.MlflowClient", lambda *a, **kw: stub)
+    monkeypatch.setattr("app.reconciler.jobs.MlflowClient", lambda *a, **kw: stub)
 
     dv_id = uuid.UUID(await seed_detector_version())
     tr = uuid.UUID(await seed_dataset(name="tr"))
@@ -182,7 +191,7 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
             pass
 
     with (
-        patch("app.reconciler.HarborClient", return_value=_StubHarbor()),
+        patch("app.reconciler.builds.HarborClient", return_value=_StubHarbor()),
         _patch_notify() as notify,
     ):
         await _handle_succeeded(db_session, build)
@@ -232,7 +241,7 @@ async def test_handle_build_succeeded_fires_trivy_blocked_on_critical_cve(
             pass
 
     with (
-        patch("app.reconciler.HarborClient", return_value=_StubHarbor()),
+        patch("app.reconciler.builds.HarborClient", return_value=_StubHarbor()),
         _patch_notify() as notify,
     ):
         await _handle_succeeded(db_session, build)
@@ -347,8 +356,8 @@ async def test_reconcile_build_k8s_missing_fires_notify_failed(db_session, seed_
             pass
 
     with (
-        patch("app.reconciler.batch_v1", return_value=_Stub()),
-        patch("app.reconciler.core_v1", return_value=_Stub()),
+        patch("app.reconciler.builds.batch_v1", return_value=_Stub()),
+        patch("app.reconciler.builds.core_v1", return_value=_Stub()),
         _patch_notify() as notify,
     ):
         await reconcile_build(db_session, build)
@@ -404,8 +413,8 @@ async def test_reconcile_job_k8s_missing_fires_notify_failed(
             pass
 
     with (
-        patch("app.reconciler.volcano_v1alpha1", return_value=_Volcano()),
-        patch("app.reconciler.core_v1", return_value=_Core()),
+        patch("app.reconciler.jobs.volcano_v1alpha1", return_value=_Volcano()),
+        patch("app.reconciler.jobs.core_v1", return_value=_Core()),
         _patch_notify() as notify,
     ):
         await reconcile_job(db_session, job)

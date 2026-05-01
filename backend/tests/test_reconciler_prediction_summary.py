@@ -56,7 +56,7 @@ async def test_project_prediction_summary_writes_to_summary_metrics(
 
     csv = "file_name,pred_label\nA,Malware\nB,Benign\nC,Malware\nD,Malware\n"
     with patch(
-        "app.reconciler._read_mlflow_artifact",
+        "app.reconciler.projections._read_mlflow_artifact",
         new=AsyncMock(return_value=csv),
     ):
         from app.reconciler import _project_prediction_summary
@@ -76,7 +76,7 @@ async def test_project_prediction_summary_handles_missing_csv(
 ) -> None:
     job = await _make_predict_job(db_session)
     with patch(
-        "app.reconciler._read_mlflow_artifact",
+        "app.reconciler.projections._read_mlflow_artifact",
         new=AsyncMock(side_effect=FileNotFoundError("no predictions.csv")),
     ):
         from app.reconciler import _project_prediction_summary

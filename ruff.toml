@@ -25,11 +25,9 @@ ignore = [
 "scripts/**" = ["T20"]
 # Late imports here are an intentional code-organization pattern:
 # main.py    — register users_me router AFTER Instrumentator wires the app
-# reconciler — late imports keep each "Phase N" section self-contained
 # E402's intent is to flag accidental late imports, which doesn't apply
-# to these files. Per-file-ignore is cleaner than scattered inline noqa.
+# to this file. Per-file-ignore is cleaner than scattered inline noqa.
 "backend/app/main.py" = ["E402"]
-"backend/app/reconciler.py" = ["E402"]
 
 [format]
 # Defaults are black-compatible; do not override.
