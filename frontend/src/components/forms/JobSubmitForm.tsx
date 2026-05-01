@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { requiredFieldsForType } from "./JobSubmitForm.logic";
 import { RjsfConfigForm } from "./RjsfConfigForm";
+import { StageExplainer } from "./StageExplainer";
 
 const TYPES: JobType[] = ["train", "evaluate", "predict"];
 
@@ -139,6 +140,8 @@ export function JobSubmitForm() {
           </div>
         </CardContent>
       </Card>
+
+      <StageExplainer type={type} />
 
       <Card>
         <CardHeader>
