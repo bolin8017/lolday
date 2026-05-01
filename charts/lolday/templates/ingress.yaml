@@ -14,6 +14,20 @@ spec:
         - kind: Service
           name: backend
           port: 8000
+    # MLflow UI — exposed at /mlflow/ behind the host's Cloudflare Access policy.
+    # Phase 13b §Open Questions Q4 chose this single-route variant: CFA + lab
+    # trust is the auth boundary, no method filter (so MLflow UI mutations like
+    # rename/delete/tag work as users expect).
+    - kind: Rule
+      match: Host(`{{ .Values.frontend.host }}`) && PathPrefix(`/mlflow`)
+      priority: 6
+      middlewares:
+        - name: mlflow-strip-prefix
+      services:
+        - kind: Service
+          name: mlflow
+          port: {{ .Values.mlflow.service.port }}
+
     # Frontend catch-all
     - kind: Rule
       match: Host(`{{ .Values.frontend.host }}`)
@@ -22,3 +36,13 @@ spec:
         - kind: Service
           name: frontend
           port: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mlflow-strip-prefix
+  namespace: {{ .Release.Namespace }}
+spec:
+  stripPrefix:
+    prefixes:
+      - /mlflow
