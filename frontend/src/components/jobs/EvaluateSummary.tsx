@@ -52,8 +52,8 @@ export function EvaluateSummary({ job }: { job: JobRead }) {
       )}
       <ResolvedConfigCard
         resolvedConfig={job.resolved_config}
-        userParams={job.user_params ?? null}
-        detectorDefaults={job.detector_defaults ?? null}
+        userParams={job.user_params}
+        detectorDefaults={job.detector_defaults}
       />
     </>
   );

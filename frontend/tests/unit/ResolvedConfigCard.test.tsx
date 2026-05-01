@@ -27,6 +27,11 @@ describe("ResolvedConfigCard", () => {
     expect(screen.getByText(/legacy job/i)).toBeInTheDocument();
   });
 
+  it("shows legacy fallback when userParams is omitted (default null)", () => {
+    render(<ResolvedConfigCard resolvedConfig={resolvedConfig} />);
+    expect(screen.getByText(/legacy job/i)).toBeInTheDocument();
+  });
+
   it("toggles full resolved config visibility", () => {
     render(
       <ResolvedConfigCard resolvedConfig={resolvedConfig} userParams={{}} />,

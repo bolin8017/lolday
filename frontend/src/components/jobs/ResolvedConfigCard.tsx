@@ -6,14 +6,14 @@ import { UserParamsTable } from "./UserParamsTable";
 
 interface Props {
   resolvedConfig: Record<string, unknown>;
-  userParams: Record<string, unknown> | null;
+  userParams?: Record<string, unknown> | null;
   detectorDefaults?: Record<string, unknown> | null;
 }
 
 export function ResolvedConfigCard({
   resolvedConfig,
-  userParams,
-  detectorDefaults,
+  userParams = null,
+  detectorDefaults = null,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const lineCount = JSON.stringify(resolvedConfig, null, 2).split("\n").length;
@@ -29,7 +29,7 @@ export function ResolvedConfigCard({
           {userParams !== null ? (
             <UserParamsTable
               userParams={userParams}
-              defaults={detectorDefaults ?? null}
+              defaults={detectorDefaults}
             />
           ) : (
             <p className="text-sm text-muted-foreground">

@@ -41,7 +41,7 @@ function pickValue(row: Row, kind: string, name: string): unknown {
 export default function RunsListPage() {
   const { expId = "" } = useParams();
   const { data, isLoading } = useExperimentRuns(expId);
-  const rows: Row[] = data ?? [];
+  const rows: Row[] = useMemo(() => data ?? [], [data]);
 
   // Discover available metric/param keys from the data.
   const { availableMetrics, availableParams } = useMemo(() => {
