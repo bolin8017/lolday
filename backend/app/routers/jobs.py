@@ -142,6 +142,18 @@ def _resolve_detector_defaults(
     return defaults or None
 
 
+def _build_job_read_with_defaults(job: Job, manifest: dict[str, Any] | None) -> JobRead:
+    """Build a ``JobRead`` from ``job`` and attach ``detector_defaults``.
+
+    Centralizes the response shape so all three ``/jobs/*`` endpoints that
+    return ``JobRead`` (POST, GET-by-id, cancel) stay in lock-step. A future
+    refactor of the manifest-defaults plumbing changes one place, not three.
+    """
+    read = JobRead.model_validate(job)
+    read.detector_defaults = _resolve_detector_defaults(manifest, job.type)
+    return read
+
+
 @router.post(
     "",
     status_code=202,
@@ -385,9 +397,9 @@ async def create_job(
     job.status = JobStatus.PREPARING
     await session.commit()
     await session.refresh(job)
-    read = JobRead.model_validate(job)
-    read.detector_defaults = _resolve_detector_defaults(dv.manifest, body.type)
-    return read
+    # ``dv`` is guaranteed non-None at this point (loaded + validated above);
+    # no defensive ``if dv else None`` guard needed here.
+    return _build_job_read_with_defaults(job, dv.manifest)
 
 
 @router.get("", response_model=JobList)
@@ -455,11 +467,7 @@ async def get_job(
     # technically be ``None`` here (FK-violating delete) — fall through to
     # ``detector_defaults=None`` rather than 500.
     dv = await session.get(DetectorVersion, job.detector_version_id)
-    read = JobRead.model_validate(job)
-    read.detector_defaults = _resolve_detector_defaults(
-        dv.manifest if dv else None, job.type
-    )
-    return read
+    return _build_job_read_with_defaults(job, dv.manifest if dv else None)
 
 
 @router.get("/{job_id}/prediction-summary")
@@ -589,12 +597,10 @@ async def cancel_job(
     job.finished_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(job)
+    # Same defensive ``dv if dv else None`` guard as ``get_job`` — the
+    # detector version row is fetched fresh and could in theory be missing.
     dv = await session.get(DetectorVersion, job.detector_version_id)
-    read = JobRead.model_validate(job)
-    read.detector_defaults = _resolve_detector_defaults(
-        dv.manifest if dv else None, job.type
-    )
-    return read
+    return _build_job_read_with_defaults(job, dv.manifest if dv else None)
 
 
 @router.get("/{job_id}/events", response_model=JobEventsPage)
