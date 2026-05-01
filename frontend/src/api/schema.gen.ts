@@ -1117,6 +1117,10 @@ export interface components {
             user_params?: {
                 [key: string]: unknown;
             } | null;
+            /** Detector Defaults */
+            detector_defaults?: {
+                [key: string]: unknown;
+            } | null;
             /** Log Tail */
             log_tail: string | null;
             resource_profile: components["schemas"]["ResourceProfile"];

@@ -3,7 +3,7 @@ import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -106,6 +106,52 @@ def _strategy_from_manifest(manifest) -> str:
             )
         return val
     return "ddp"
+
+
+def _resolve_detector_defaults(
+    manifest: dict[str, Any] | None, job_type: JobType
+) -> dict[str, Any] | None:
+    """Phase 13b Q1: extract per-field defaults from the stage's params_schema.
+
+    Returns the ``{<field>: <default>}`` map taken verbatim from
+    ``manifest.stages[<job_type>].params_schema.properties`` for each field
+    that declares a ``default`` key. Returns ``None`` (not ``{}``) when the
+    manifest is missing, the stage block isn't there, or no field declares a
+    default — the override-indicator UI uses ``null`` to hide the comparison
+    column entirely.
+
+    Reads the raw JSON dict (not the parsed ``DetectorManifest``) so the
+    helper isn't tied to a particular maldet minor version: ``params_schema``
+    is open-ended (a JSON Schema authored by detector authors), and the
+    Pydantic model normalizes the schema while preserving ``default`` values
+    verbatim. Using ``"default" in v`` rather than ``v.get("default")``
+    preserves the "default is null" vs "no default declared" distinction
+    (e.g. sklearn ``max_depth: None`` is a meaningful default).
+    """
+    if manifest is None:
+        return None
+    stage = (manifest.get("stages") or {}).get(job_type.value)
+    if not stage:
+        return None
+    props = (stage.get("params_schema") or {}).get("properties") or {}
+    defaults = {
+        k: v["default"]
+        for k, v in props.items()
+        if isinstance(v, dict) and "default" in v
+    }
+    return defaults or None
+
+
+def _build_job_read_with_defaults(job: Job, manifest: dict[str, Any] | None) -> JobRead:
+    """Build a ``JobRead`` from ``job`` and attach ``detector_defaults``.
+
+    Centralizes the response shape so all three ``/jobs/*`` endpoints that
+    return ``JobRead`` (POST, GET-by-id, cancel) stay in lock-step. A future
+    refactor of the manifest-defaults plumbing changes one place, not three.
+    """
+    read = JobRead.model_validate(job)
+    read.detector_defaults = _resolve_detector_defaults(manifest, job.type)
+    return read
 
 
 @router.post(
@@ -351,7 +397,9 @@ async def create_job(
     job.status = JobStatus.PREPARING
     await session.commit()
     await session.refresh(job)
-    return JobRead.model_validate(job)
+    # ``dv`` is guaranteed non-None at this point (loaded + validated above);
+    # no defensive ``if dv else None`` guard needed here.
+    return _build_job_read_with_defaults(job, dv.manifest)
 
 
 @router.get("", response_model=JobList)
@@ -414,7 +462,12 @@ async def get_job(
         raise HTTPException(status_code=404, detail="job not found")
     if job.owner_id != user.id and user.role.value != "admin":
         raise HTTPException(status_code=404, detail="job not found")
-    return JobRead.model_validate(job)
+    # Phase 13b Q1: enrich JobRead with the per-stage manifest defaults so the
+    # UserParamsTable can mark each row as override vs default. ``dv`` may
+    # technically be ``None`` here (FK-violating delete) — fall through to
+    # ``detector_defaults=None`` rather than 500.
+    dv = await session.get(DetectorVersion, job.detector_version_id)
+    return _build_job_read_with_defaults(job, dv.manifest if dv else None)
 
 
 @router.get("/{job_id}/prediction-summary")
@@ -544,7 +597,10 @@ async def cancel_job(
     job.finished_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(job)
-    return JobRead.model_validate(job)
+    # Same defensive ``dv if dv else None`` guard as ``get_job`` — the
+    # detector version row is fetched fresh and could in theory be missing.
+    dv = await session.get(DetectorVersion, job.detector_version_id)
+    return _build_job_read_with_defaults(job, dv.manifest if dv else None)
 
 
 @router.get("/{job_id}/events", response_model=JobEventsPage)

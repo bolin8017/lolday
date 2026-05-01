@@ -12,6 +12,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
+from app.models.job import JobType
 from app.routers.jobs import _strategy_from_manifest
 from maldet.manifest import DetectorManifest
 
@@ -446,3 +447,414 @@ async def test_submit_job_records_user_params(
     detail = await user_client.get(f"/api/v1/jobs/{job_id}")
     assert detail.status_code == 200, detail.text
     assert detail.json()["user_params"] == user_params
+
+
+# ---------------------------------------------------------------------------
+# Phase 13b Q1 — _resolve_detector_defaults helper unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "manifest, job_type, expected",
+    [
+        pytest.param(None, JobType.TRAIN, None, id="manifest_is_None"),
+        pytest.param({"stages": {}}, JobType.TRAIN, None, id="stage_missing"),
+        pytest.param(
+            {"stages": {"train": {}}},
+            JobType.TRAIN,
+            None,
+            id="params_schema_missing",
+        ),
+        pytest.param(
+            {"stages": {"train": {"params_schema": {}}}},
+            JobType.TRAIN,
+            None,
+            id="properties_missing",
+        ),
+        pytest.param(
+            {"stages": {"train": {"params_schema": {"properties": {}}}}},
+            JobType.TRAIN,
+            None,
+            id="properties_empty",
+        ),
+        pytest.param(
+            {
+                "stages": {
+                    "train": {"params_schema": {"properties": {"foo": "not-a-dict"}}}
+                }
+            },
+            JobType.TRAIN,
+            None,
+            id="property_value_non_dict_skipped",
+        ),
+        pytest.param(
+            {
+                "stages": {
+                    "train": {
+                        "params_schema": {
+                            "properties": {
+                                "with": {"type": "integer", "default": 5},
+                                "without": {"type": "integer"},
+                            }
+                        }
+                    }
+                }
+            },
+            JobType.TRAIN,
+            {"with": 5},
+            id="field_without_default_excluded",
+        ),
+        pytest.param(
+            {
+                "stages": {
+                    "train": {
+                        "params_schema": {
+                            "properties": {
+                                "max_depth": {
+                                    "type": ["integer", "null"],
+                                    "default": None,
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            JobType.TRAIN,
+            {"max_depth": None},
+            id="default_none_preserved",
+        ),
+        pytest.param(
+            {
+                "stages": {
+                    "train": {
+                        "params_schema": {
+                            "properties": {
+                                "zero": {"type": "integer", "default": 0},
+                                "false_": {"type": "boolean", "default": False},
+                                "empty": {"type": "string", "default": ""},
+                            }
+                        }
+                    }
+                }
+            },
+            JobType.TRAIN,
+            {"zero": 0, "false_": False, "empty": ""},
+            id="falsy_literals_preserved",
+        ),
+        pytest.param(
+            {
+                "stages": {
+                    "train": {
+                        "params_schema": {
+                            "properties": {
+                                "list_": {"type": "array", "default": []},
+                                "obj": {"type": "object", "default": {}},
+                            }
+                        }
+                    }
+                }
+            },
+            JobType.TRAIN,
+            {"list_": [], "obj": {}},
+            id="collection_literals_preserved",
+        ),
+        pytest.param(
+            {
+                "stages": {
+                    "train": {
+                        "params_schema": {
+                            "properties": {
+                                "a": {"type": "integer", "default": 1},
+                                "b": {"type": "integer"},  # no default
+                                "c": {"type": "integer", "default": 3},
+                            }
+                        }
+                    }
+                }
+            },
+            JobType.TRAIN,
+            {"a": 1, "c": 3},
+            id="mix_with_and_without_defaults",
+        ),
+    ],
+)
+def test_resolve_detector_defaults(
+    manifest: dict | None, job_type: JobType, expected: dict | None
+) -> None:
+    """Direct unit coverage for the helper, exercising every branch the HTTP
+    round-trip tests below can't reach individually (missing keys, malformed
+    property values, falsy literals)."""
+    from app.routers.jobs import _resolve_detector_defaults
+
+    assert _resolve_detector_defaults(manifest, job_type) == expected
+
+
+# ---------------------------------------------------------------------------
+# Phase 13b Q1 — detector_defaults round-trip on JobRead
+# ---------------------------------------------------------------------------
+
+
+def _rich_manifest_with_train_defaults() -> dict:
+    """Manifest mirroring the elfrfdet shape: a train stage whose
+    ``params_schema.properties`` declares ``default`` for each field.
+
+    Used by the detector_defaults tests below. ``max_depth`` carries
+    ``default: None`` deliberately — the helper must distinguish
+    "default declared as null" from "no default declared", so the test
+    asserts ``max_depth: None`` survives the round-trip."""
+    return {
+        "detector": {"name": "rfdet", "version": "0.1.0", "framework": "sklearn"},
+        "input": {
+            "binary_format": "elf",
+            "required_sections": [],
+            "dataset_contract": "sample_csv",
+        },
+        "output": {
+            "task": "binary_classification",
+            "classes": ["Malware", "Benign"],
+            "score_range": [0.0, 1.0],
+        },
+        "resources": {
+            "supports": ["cpu", "gpu2"],
+            "recommended": "cpu",
+            "min_memory_gib": 2,
+            "gpu_required": False,
+        },
+        "lifecycle": {
+            "stages": ["train", "evaluate", "predict"],
+            "supports_serving": False,
+            "supports_hpsweep": True,
+            "supports_distributed": False,
+            "supports_multinode": False,
+        },
+        "artifacts": {
+            "model": {"path": "model/", "type": "dir"},
+            "metrics": {"path": "metrics.json", "type": "file"},
+            "predictions": {"path": "predictions.csv", "type": "file"},
+        },
+        "compat": {"min_python": "3.12", "min_maldet": "1.0", "schema_version": 1},
+        "stages": {
+            "train": {
+                "config_class": "test.configs:TrainConfig",
+                "params_schema": {
+                    "type": "object",
+                    "properties": {
+                        "n_estimators": {"type": "integer", "default": 100},
+                        "max_depth": {
+                            "type": ["integer", "null"],
+                            "default": None,
+                        },
+                        "random_state": {"type": "integer", "default": 42},
+                    },
+                },
+            },
+            "evaluate": {
+                "config_class": "test.configs:EvaluateConfig",
+                "params_schema": {"type": "object"},
+            },
+            "predict": {
+                "config_class": "test.configs:PredictConfig",
+                "params_schema": {"type": "object"},
+            },
+        },
+    }
+
+
+async def _seed_detector_version_with_manifest(
+    db_session, seed_user, manifest: dict, name: str
+) -> str:
+    """Insert a DetectorVersion with an arbitrary manifest dict, return its id.
+
+    The packaged ``seed_detector_version`` fixture pins ``_MINIMAL_MANIFEST``,
+    whose ``params_schema`` is empty — these tests need richer schemas to
+    exercise the defaults extraction. Rather than parametrise the existing
+    fixture, we duplicate the row-insert here for clarity at the call site.
+    """
+    from uuid import uuid4
+
+    from app.models import Detector, DetectorVersion
+    from app.models.detector import DetectorVersionStatus
+
+    det = Detector(
+        name=f"{name}-{uuid4().hex[:6]}",
+        display_name=name,
+        git_url=f"https://github.com/test/{name}.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(det)
+    await db_session.flush()
+    dv = DetectorVersion(
+        detector_id=det.id,
+        git_tag="v0.1.0",
+        git_sha="a" * 40,
+        harbor_image=f"harbor.harbor.svc:80/detectors/{det.name}:v0.1.0",
+        image_digest="sha256:" + "a" * 64,
+        status=DetectorVersionStatus.ACTIVE,
+        manifest=manifest,
+    )
+    db_session.add(dv)
+    await db_session.commit()
+    return str(dv.id)
+
+
+@pytest.mark.asyncio
+async def test_get_job_returns_detector_defaults(
+    user_client, db_session, seed_user, seed_dataset
+) -> None:
+    """Happy path: a manifest whose train stage declares per-field defaults
+    surfaces those defaults verbatim on ``JobRead.detector_defaults`` from
+    ``GET /jobs/{id}``. Cross-check that ``user_params`` (the existing B3
+    field) still round-trips alongside it.
+
+    Includes ``max_depth: None`` to verify the helper preserves the literal
+    null default — the override-indicator UI relies on this to distinguish
+    a sklearn ``None`` default from "no default declared"."""
+    dv_id = await _seed_detector_version_with_manifest(
+        db_session,
+        seed_user,
+        _rich_manifest_with_train_defaults(),
+        name="rfdet-defaults",
+    )
+    train_ds = await seed_dataset(name="dd-tr")
+    test_ds = await seed_dataset(name="dd-te")
+
+    submit = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": {"n_estimators": 200},
+        },
+    )
+    assert submit.status_code == 202, submit.text
+    job_id = submit.json()["id"]
+
+    detail = await user_client.get(f"/api/v1/jobs/{job_id}")
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["detector_defaults"] == {
+        "n_estimators": 100,
+        "max_depth": None,
+        "random_state": 42,
+    }
+    assert body["user_params"] == {"n_estimators": 200}
+
+
+@pytest.mark.asyncio
+async def test_get_job_detector_defaults_none_when_no_defaults_in_schema(
+    user_client, seed_detector_version, seed_dataset
+) -> None:
+    """A manifest stage whose ``params_schema`` declares no ``default`` keys
+    must surface ``detector_defaults`` as JSON ``null`` (not ``{}``). The
+    frontend distinguishes the two: ``null`` hides the override-indicator
+    column entirely, ``{}`` would render it with every row marked as an
+    override. ``_MINIMAL_MANIFEST`` (used by ``seed_detector_version``) has
+    ``params_schema = {"type": "object"}`` with no ``properties``, so it's
+    the natural fit for this assertion."""
+    dv_id = await seed_detector_version()
+    train_ds = await seed_dataset(name="nd-tr")
+    test_ds = await seed_dataset(name="nd-te")
+
+    submit = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": {},
+        },
+    )
+    assert submit.status_code == 202, submit.text
+    job_id = submit.json()["id"]
+
+    detail = await user_client.get(f"/api/v1/jobs/{job_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["detector_defaults"] is None
+
+
+@pytest.mark.asyncio
+async def test_submit_job_returns_detector_defaults(
+    user_client, db_session, seed_user, seed_dataset
+) -> None:
+    """The 202 ``JobRead`` body from ``POST /jobs`` must already carry
+    ``detector_defaults`` — the frontend uses this to render the
+    override-indicator immediately after submission without a follow-up GET."""
+    dv_id = await _seed_detector_version_with_manifest(
+        db_session,
+        seed_user,
+        _rich_manifest_with_train_defaults(),
+        name="rfdet-submit",
+    )
+    train_ds = await seed_dataset(name="ds-tr")
+    test_ds = await seed_dataset(name="ds-te")
+
+    submit = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": {"n_estimators": 250, "max_depth": 7},
+        },
+    )
+    assert submit.status_code == 202, submit.text
+    body = submit.json()
+    assert body["detector_defaults"] == {
+        "n_estimators": 100,
+        "max_depth": None,
+        "random_state": 42,
+    }
+    assert body["user_params"] == {"n_estimators": 250, "max_depth": 7}
+
+
+@pytest.mark.asyncio
+async def test_cancel_job_returns_detector_defaults(
+    user_client, db_session, seed_user, seed_dataset
+) -> None:
+    """``POST /jobs/{id}/cancel`` returns a ``JobRead`` and must carry the
+    same ``detector_defaults`` payload the submit + GET endpoints do. Locks
+    in the wiring on the third call site so a future refactor doesn't drop
+    the field on cancel responses (the helper centralizes attachment, but
+    the integration test guards against the wiring itself being skipped).
+
+    ``cancel_job`` only succeeds while the job is non-terminal. After submit
+    the row is in ``preparing`` status (the test fixture mocks the Volcano
+    side away but the router still flips status before returning), which is
+    in ``NON_TERMINAL_STATUSES``."""
+    dv_id = await _seed_detector_version_with_manifest(
+        db_session,
+        seed_user,
+        _rich_manifest_with_train_defaults(),
+        name="rfdet-cancel",
+    )
+    train_ds = await seed_dataset(name="cd-tr")
+    test_ds = await seed_dataset(name="cd-te")
+
+    submit = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": {"n_estimators": 300},
+        },
+    )
+    assert submit.status_code == 202, submit.text
+    job_id = submit.json()["id"]
+    expected_defaults = submit.json()["detector_defaults"]
+
+    cancel = await user_client.post(f"/api/v1/jobs/{job_id}/cancel")
+    assert cancel.status_code == 200, cancel.text
+    body = cancel.json()
+    assert body["status"] == "cancelled"
+    assert body["detector_defaults"] == expected_defaults
+    assert body["detector_defaults"] == {
+        "n_estimators": 100,
+        "max_depth": None,
+        "random_state": 42,
+    }
