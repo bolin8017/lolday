@@ -52,7 +52,7 @@
     "react-hook-form": "^7.74.0",
     "react-i18next": "^15.7.4",
     "react-router": "^7.14.1",
-    "recharts": "^2.15.4",
+    "recharts": "^3.8.1",
     "tailwind-merge": "^3.5.0",
     "vaul": "^1.1.2",
     "zod": "^3.25.76"
