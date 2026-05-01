@@ -14,6 +14,22 @@ spec:
         - kind: Service
           name: backend
           port: 8000
+    # MLflow UI — exposed at /mlflow/ behind the host's Cloudflare Access policy.
+    # Pass-through (no stripPrefix): MLflow's `--static-prefix=/mlflow` makes
+    # mlflow itself serve the UI at /mlflow/ and ajax-api at
+    # /mlflow/ajax-api/, so Traefik must forward the path unchanged. Stripping
+    # /mlflow would land at mlflow's `/`, which 404s under static-prefix.
+    # Phase 13b §Open Questions Q4 fallback: no method filter — CFA + lab
+    # trust is the auth boundary, so MLflow UI mutations (rename/delete/tag)
+    # work as users expect.
+    - kind: Rule
+      match: Host(`{{ .Values.frontend.host }}`) && PathPrefix(`/mlflow`)
+      priority: 6
+      services:
+        - kind: Service
+          name: mlflow
+          port: {{ .Values.mlflow.service.port }}
+
     # Frontend catch-all
     - kind: Rule
       match: Host(`{{ .Values.frontend.host }}`)
