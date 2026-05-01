@@ -469,11 +469,44 @@ _MINIMAL_MANIFEST = {
 }
 
 
+# Phase 13b Q1: train-stage manifest mirroring elfrfdet — a params_schema with
+# per-field ``default`` values, including ``max_depth: None`` to lock down the
+# "default declared as null" round-trip. Reused by the detector_defaults
+# round-trip tests in ``test_routers_jobs.py``.
+RICH_MANIFEST_WITH_TRAIN_DEFAULTS = {
+    **_MINIMAL_MANIFEST,
+    "stages": {
+        **_MINIMAL_MANIFEST["stages"],
+        "train": {
+            "config_class": "test.configs:TrainConfig",
+            "params_schema": {
+                "type": "object",
+                "properties": {
+                    "n_estimators": {"type": "integer", "default": 100},
+                    "max_depth": {"type": ["integer", "null"], "default": None},
+                    "random_state": {"type": "integer", "default": 42},
+                },
+            },
+        },
+    },
+}
+
+
 @pytest_asyncio.fixture
 async def seed_detector_version(db_session, seed_user):
-    """Return a callable that inserts a minimal DetectorVersion row."""
+    """Return a callable that inserts a DetectorVersion row.
 
-    async def _seed(name: str = "upxelfdet", git_tag: str = "v0.4.0"):
+    Defaults to ``_MINIMAL_MANIFEST`` (permissive params_schema, suitable for
+    most tests). Pass ``manifest=`` to override — typically with
+    :data:`RICH_MANIFEST_WITH_TRAIN_DEFAULTS` for the detector_defaults
+    round-trip tests in ``test_routers_jobs.py``.
+    """
+
+    async def _seed(
+        name: str = "upxelfdet",
+        git_tag: str = "v0.4.0",
+        manifest: dict | None = None,
+    ):
         from app.models import Detector, DetectorVersion
         from app.models.detector import DetectorVersionStatus
 
@@ -492,7 +525,7 @@ async def seed_detector_version(db_session, seed_user):
             harbor_image=f"harbor.harbor.svc:80/detectors/{name}:{git_tag}",
             image_digest="sha256:" + "a" * 64,
             status=DetectorVersionStatus.ACTIVE,
-            manifest=_MINIMAL_MANIFEST,
+            manifest=manifest if manifest is not None else _MINIMAL_MANIFEST,
         )
         db_session.add(dv)
         await db_session.commit()

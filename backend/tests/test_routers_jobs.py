@@ -14,7 +14,10 @@ from copy import deepcopy
 import pytest
 from app.models.job import JobType
 from app.routers.jobs import _strategy_from_manifest
+from app.services.jobs_params_validate import resolve_detector_defaults
 from maldet.manifest import DetectorManifest
+
+from tests.conftest import RICH_MANIFEST_WITH_TRAIN_DEFAULTS
 
 # ---------------------------------------------------------------------------
 # Unit tests for _strategy_from_manifest
@@ -450,7 +453,7 @@ async def test_submit_job_records_user_params(
 
 
 # ---------------------------------------------------------------------------
-# Phase 13b Q1 — _resolve_detector_defaults helper unit tests
+# Phase 13b Q1 — resolve_detector_defaults helper unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -584,9 +587,7 @@ def test_resolve_detector_defaults(
     """Direct unit coverage for the helper, exercising every branch the HTTP
     round-trip tests below can't reach individually (missing keys, malformed
     property values, falsy literals)."""
-    from app.routers.jobs import _resolve_detector_defaults
-
-    assert _resolve_detector_defaults(manifest, job_type) == expected
+    assert resolve_detector_defaults(manifest, job_type) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -594,112 +595,9 @@ def test_resolve_detector_defaults(
 # ---------------------------------------------------------------------------
 
 
-def _rich_manifest_with_train_defaults() -> dict:
-    """Manifest mirroring the elfrfdet shape: a train stage whose
-    ``params_schema.properties`` declares ``default`` for each field.
-
-    Used by the detector_defaults tests below. ``max_depth`` carries
-    ``default: None`` deliberately — the helper must distinguish
-    "default declared as null" from "no default declared", so the test
-    asserts ``max_depth: None`` survives the round-trip."""
-    return {
-        "detector": {"name": "rfdet", "version": "0.1.0", "framework": "sklearn"},
-        "input": {
-            "binary_format": "elf",
-            "required_sections": [],
-            "dataset_contract": "sample_csv",
-        },
-        "output": {
-            "task": "binary_classification",
-            "classes": ["Malware", "Benign"],
-            "score_range": [0.0, 1.0],
-        },
-        "resources": {
-            "supports": ["cpu", "gpu2"],
-            "recommended": "cpu",
-            "min_memory_gib": 2,
-            "gpu_required": False,
-        },
-        "lifecycle": {
-            "stages": ["train", "evaluate", "predict"],
-            "supports_serving": False,
-            "supports_hpsweep": True,
-            "supports_distributed": False,
-            "supports_multinode": False,
-        },
-        "artifacts": {
-            "model": {"path": "model/", "type": "dir"},
-            "metrics": {"path": "metrics.json", "type": "file"},
-            "predictions": {"path": "predictions.csv", "type": "file"},
-        },
-        "compat": {"min_python": "3.12", "min_maldet": "1.0", "schema_version": 1},
-        "stages": {
-            "train": {
-                "config_class": "test.configs:TrainConfig",
-                "params_schema": {
-                    "type": "object",
-                    "properties": {
-                        "n_estimators": {"type": "integer", "default": 100},
-                        "max_depth": {
-                            "type": ["integer", "null"],
-                            "default": None,
-                        },
-                        "random_state": {"type": "integer", "default": 42},
-                    },
-                },
-            },
-            "evaluate": {
-                "config_class": "test.configs:EvaluateConfig",
-                "params_schema": {"type": "object"},
-            },
-            "predict": {
-                "config_class": "test.configs:PredictConfig",
-                "params_schema": {"type": "object"},
-            },
-        },
-    }
-
-
-async def _seed_detector_version_with_manifest(
-    db_session, seed_user, manifest: dict, name: str
-) -> str:
-    """Insert a DetectorVersion with an arbitrary manifest dict, return its id.
-
-    The packaged ``seed_detector_version`` fixture pins ``_MINIMAL_MANIFEST``,
-    whose ``params_schema`` is empty — these tests need richer schemas to
-    exercise the defaults extraction. Rather than parametrise the existing
-    fixture, we duplicate the row-insert here for clarity at the call site.
-    """
-    from uuid import uuid4
-
-    from app.models import Detector, DetectorVersion
-    from app.models.detector import DetectorVersionStatus
-
-    det = Detector(
-        name=f"{name}-{uuid4().hex[:6]}",
-        display_name=name,
-        git_url=f"https://github.com/test/{name}.git",
-        owner_id=seed_user.id,
-    )
-    db_session.add(det)
-    await db_session.flush()
-    dv = DetectorVersion(
-        detector_id=det.id,
-        git_tag="v0.1.0",
-        git_sha="a" * 40,
-        harbor_image=f"harbor.harbor.svc:80/detectors/{det.name}:v0.1.0",
-        image_digest="sha256:" + "a" * 64,
-        status=DetectorVersionStatus.ACTIVE,
-        manifest=manifest,
-    )
-    db_session.add(dv)
-    await db_session.commit()
-    return str(dv.id)
-
-
 @pytest.mark.asyncio
 async def test_get_job_returns_detector_defaults(
-    user_client, db_session, seed_user, seed_dataset
+    user_client, seed_detector_version, seed_dataset
 ) -> None:
     """Happy path: a manifest whose train stage declares per-field defaults
     surfaces those defaults verbatim on ``JobRead.detector_defaults`` from
@@ -709,11 +607,8 @@ async def test_get_job_returns_detector_defaults(
     Includes ``max_depth: None`` to verify the helper preserves the literal
     null default — the override-indicator UI relies on this to distinguish
     a sklearn ``None`` default from "no default declared"."""
-    dv_id = await _seed_detector_version_with_manifest(
-        db_session,
-        seed_user,
-        _rich_manifest_with_train_defaults(),
-        name="rfdet-defaults",
+    dv_id = await seed_detector_version(
+        name="rfdet-defaults", manifest=RICH_MANIFEST_WITH_TRAIN_DEFAULTS
     )
     train_ds = await seed_dataset(name="dd-tr")
     test_ds = await seed_dataset(name="dd-te")
@@ -750,7 +645,7 @@ async def test_get_job_detector_defaults_none_when_no_defaults_in_schema(
     must surface ``detector_defaults`` as JSON ``null`` (not ``{}``). The
     frontend distinguishes the two: ``null`` hides the override-indicator
     column entirely, ``{}`` would render it with every row marked as an
-    override. ``_MINIMAL_MANIFEST`` (used by ``seed_detector_version``) has
+    override. ``_MINIMAL_MANIFEST`` (the fixture default) has
     ``params_schema = {"type": "object"}`` with no ``properties``, so it's
     the natural fit for this assertion."""
     dv_id = await seed_detector_version()
@@ -777,16 +672,13 @@ async def test_get_job_detector_defaults_none_when_no_defaults_in_schema(
 
 @pytest.mark.asyncio
 async def test_submit_job_returns_detector_defaults(
-    user_client, db_session, seed_user, seed_dataset
+    user_client, seed_detector_version, seed_dataset
 ) -> None:
     """The 202 ``JobRead`` body from ``POST /jobs`` must already carry
     ``detector_defaults`` — the frontend uses this to render the
     override-indicator immediately after submission without a follow-up GET."""
-    dv_id = await _seed_detector_version_with_manifest(
-        db_session,
-        seed_user,
-        _rich_manifest_with_train_defaults(),
-        name="rfdet-submit",
+    dv_id = await seed_detector_version(
+        name="rfdet-submit", manifest=RICH_MANIFEST_WITH_TRAIN_DEFAULTS
     )
     train_ds = await seed_dataset(name="ds-tr")
     test_ds = await seed_dataset(name="ds-te")
@@ -813,7 +705,7 @@ async def test_submit_job_returns_detector_defaults(
 
 @pytest.mark.asyncio
 async def test_cancel_job_returns_detector_defaults(
-    user_client, db_session, seed_user, seed_dataset
+    user_client, seed_detector_version, seed_dataset
 ) -> None:
     """``POST /jobs/{id}/cancel`` returns a ``JobRead`` and must carry the
     same ``detector_defaults`` payload the submit + GET endpoints do. Locks
@@ -825,11 +717,8 @@ async def test_cancel_job_returns_detector_defaults(
     the row is in ``preparing`` status (the test fixture mocks the Volcano
     side away but the router still flips status before returning), which is
     in ``NON_TERMINAL_STATUSES``."""
-    dv_id = await _seed_detector_version_with_manifest(
-        db_session,
-        seed_user,
-        _rich_manifest_with_train_defaults(),
-        name="rfdet-cancel",
+    dv_id = await seed_detector_version(
+        name="rfdet-cancel", manifest=RICH_MANIFEST_WITH_TRAIN_DEFAULTS
     )
     train_ds = await seed_dataset(name="cd-tr")
     test_ds = await seed_dataset(name="cd-te")

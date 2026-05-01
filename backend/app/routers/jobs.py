@@ -36,7 +36,11 @@ from app.services.job_config import (
 )
 from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
 from app.services.job_tokens import generate_token, hash_token
-from app.services.jobs_params_validate import UserParamsRejected, validate_user_params
+from app.services.jobs_params_validate import (
+    UserParamsRejected,
+    resolve_detector_defaults,
+    validate_user_params,
+)
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
@@ -108,40 +112,6 @@ def _strategy_from_manifest(manifest) -> str:
     return "ddp"
 
 
-def _resolve_detector_defaults(
-    manifest: dict[str, Any] | None, job_type: JobType
-) -> dict[str, Any] | None:
-    """Phase 13b Q1: extract per-field defaults from the stage's params_schema.
-
-    Returns the ``{<field>: <default>}`` map taken verbatim from
-    ``manifest.stages[<job_type>].params_schema.properties`` for each field
-    that declares a ``default`` key. Returns ``None`` (not ``{}``) when the
-    manifest is missing, the stage block isn't there, or no field declares a
-    default — the override-indicator UI uses ``null`` to hide the comparison
-    column entirely.
-
-    Reads the raw JSON dict (not the parsed ``DetectorManifest``) so the
-    helper isn't tied to a particular maldet minor version: ``params_schema``
-    is open-ended (a JSON Schema authored by detector authors), and the
-    Pydantic model normalizes the schema while preserving ``default`` values
-    verbatim. Using ``"default" in v`` rather than ``v.get("default")``
-    preserves the "default is null" vs "no default declared" distinction
-    (e.g. sklearn ``max_depth: None`` is a meaningful default).
-    """
-    if manifest is None:
-        return None
-    stage = (manifest.get("stages") or {}).get(job_type.value)
-    if not stage:
-        return None
-    props = (stage.get("params_schema") or {}).get("properties") or {}
-    defaults = {
-        k: v["default"]
-        for k, v in props.items()
-        if isinstance(v, dict) and "default" in v
-    }
-    return defaults or None
-
-
 def _build_job_read_with_defaults(job: Job, manifest: dict[str, Any] | None) -> JobRead:
     """Build a ``JobRead`` from ``job`` and attach ``detector_defaults``.
 
@@ -150,7 +120,7 @@ def _build_job_read_with_defaults(job: Job, manifest: dict[str, Any] | None) -> 
     refactor of the manifest-defaults plumbing changes one place, not three.
     """
     read = JobRead.model_validate(job)
-    read.detector_defaults = _resolve_detector_defaults(manifest, job.type)
+    read.detector_defaults = resolve_detector_defaults(manifest, job.type)
     return read
 
 
