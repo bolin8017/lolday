@@ -69,6 +69,13 @@ class JobRead(JobSummary):
     source_model_version_id: uuid.UUID | None
     resolved_config: dict
     user_params: dict | None = None  # phase 13b B3
+    # phase 13b Q1: per-stage parameter defaults extracted from the detector
+    # manifest at response build time (not persisted on Job). Powers the
+    # frontend's "(default)" muted-text vs override-bold visual on the
+    # job-detail UserParamsTable. ``None`` when the stored manifest declares
+    # no defaults — distinct from ``{}`` (which the UI would render as
+    # "every row is an override").
+    detector_defaults: dict[str, Any] | None = None
     log_tail: str | None
     resource_profile: ResourceProfile
     mlflow_experiment_id: str | None
