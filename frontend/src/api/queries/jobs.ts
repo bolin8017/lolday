@@ -5,7 +5,11 @@ import { NON_TERMINAL_JOB_STATUSES } from "@/lib/status";
 
 export type Job = components["schemas"]["JobRead"];
 export type JobSummary = components["schemas"]["JobSummary"];
-export type JobType = "train" | "evaluate" | "predict";
+export const JOB_TYPES = ["train", "evaluate", "predict"] as const;
+export type JobType = (typeof JOB_TYPES)[number];
+export function isJobType(v: unknown): v is JobType {
+  return typeof v === "string" && (JOB_TYPES as readonly string[]).includes(v);
+}
 export type JobStatus = components["schemas"]["JobStatus"];
 
 export const jobsKeys = {

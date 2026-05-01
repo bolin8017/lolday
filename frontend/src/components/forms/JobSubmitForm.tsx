@@ -7,7 +7,13 @@ import {
 } from "@/api/queries/detectors";
 import { useDatasets } from "@/api/queries/datasets";
 import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
-import { useSubmitJob, useJob, type JobType } from "@/api/queries/jobs";
+import {
+  useSubmitJob,
+  useJob,
+  JOB_TYPES,
+  isJobType,
+  type JobType,
+} from "@/api/queries/jobs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -21,8 +27,6 @@ import {
 import { requiredFieldsForType } from "./JobSubmitForm.logic";
 import { RjsfConfigForm } from "./RjsfConfigForm";
 import { StageExplainer } from "./StageExplainer";
-
-const TYPES: JobType[] = ["train", "evaluate", "predict"];
 
 export function JobSubmitForm() {
   const [params] = useSearchParams();
@@ -56,7 +60,7 @@ export function JobSubmitForm() {
   // Prefill from previous job via ?from=
   useEffect(() => {
     if (!fromJob) return;
-    setType(fromJob.type as JobType);
+    if (isJobType(fromJob.type)) setType(fromJob.type);
     if (fromJob.train_dataset_id) setTrainDatasetId(fromJob.train_dataset_id);
     if (fromJob.test_dataset_id) setTestDatasetId(fromJob.test_dataset_id);
     if (fromJob.predict_dataset_id)
@@ -128,7 +132,7 @@ export function JobSubmitForm() {
         </CardHeader>
         <CardContent>
           <div className="flex gap-2">
-            {TYPES.map((t) => (
+            {JOB_TYPES.map((t) => (
               <Button
                 key={t}
                 variant={t === type ? "default" : "outline"}
