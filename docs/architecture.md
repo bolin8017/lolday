@@ -83,7 +83,7 @@ C4Container
 | --------------------- | --------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------- |
 | backend               | FastAPI 0.115 + Py3.12 + uv                   | `backend/app/main.py`                        | REST API + reconciler loop                                        | `.claude/rules/backend.md`              |
 | frontend              | Vite + React 18 + TS 5.5 + nginx-unprivileged | `frontend/src/main.tsx`                      | SPA UI; pulls API via TanStack Query                              | `.claude/rules/frontend.md`             |
-| reconciler            | in-process within backend                     | `backend/app/reconciler.py` (57KB)           | Watch vcjob events; sync DB; tail event manifests; orphan cleanup | phase11b/12 specs                       |
+| reconciler            | in-process within backend                     | `backend/app/reconciler/` (9-module pkg)     | Watch vcjob events; sync DB; tail event manifests; orphan cleanup | phase11b/12 specs; PR #53 split plan    |
 | Volcano queue         | volcano `~1.14.1` sub-chart                   | `charts/lolday/templates/volcano-queue.yaml` | GPU batch scheduling                                              | `.claude/rules/charts-and-helm.md`      |
 | Harbor                | harbor `1.18.3` sub-chart                     | `charts/lolday/charts/harbor-1.18.3.tgz`     | OCI registry for detector images                                  | `scripts/recover-harbor.sh`             |
 | MLflow                | mlflow-skinny 2.20 + custom server image      | `charts/lolday/helpers/mlflow-server/`       | Experiment tracking + model registry                              | `backend/app/services/mlflow_client.py` |
@@ -293,7 +293,7 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 
 ## 9. Known tech debt
 
-1. **`backend/app/reconciler.py` (57KB)** — single-file beast. Refactor only with a corresponding phase plan.
+1. ~~**`backend/app/reconciler.py` (57KB)**~~ — resolved 2026-04-30 in `chore/reconciler-split` (PR #53): the single file was split into a 9-submodule package (`__init__.py`, `notify.py`, `log_capture.py`, `builds.py`, `build_finalize.py`, `jobs.py`, `projections.py`, `orphans.py`, `model_sync.py`, `loop.py`), every file ≤ 15 KB. Plan: `docs/superpowers/plans/2026-04-30-reconciler-split.md`.
 2. ~~**No CI/CD.**~~ — resolved 2026-04-30 in `feat/github-actions-cicd`. Six GitHub Actions workflows under `.github/workflows/` enforce lint / tests / image build on every PR; GHCR receives `main` / tag pushes. Production deploy (`scripts/deploy.sh`) remains operator-driven by design. Spec: `docs/superpowers/specs/2026-04-30-github-actions-cicd-design.md`. Discipline rules: `.claude/rules/github-actions.md`. Conventions: `docs/conventions.md` §10.
 3. **Single `values.yaml`** (~27KB). No dev/prod overlay system.
 4. ~~**Helper images built by hand.**~~ — resolved 2026-04-29 in `feat/helper-image-versioning`: `scripts/build-helpers.sh` automates content-addressable build + push (subtree SHA tag), idempotent against Harbor. Spec: `docs/superpowers/specs/2026-04-29-helper-image-versioning-design.md`. Runbook: `docs/runbooks/release-helpers.md`.
@@ -303,20 +303,7 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 8. ~~**Helper image versions hardcoded.**~~ — resolved 2026-04-29: tags are now 12-char subtree SHAs pinned in `charts/lolday/helpers.lock` and injected by `scripts/deploy.sh`; the `BUILD_IMAGE_HELPER` / `JOB_HELPER_IMAGE` defaults in `backend/app/config.py` are empty strings, with a `validate_helper_images` model_validator that fails boot in production when either is unset. mlflow-server and pytorch-cu12-base remain on manual semantic tags by design (their tags carry external meaning).
 9. ~~**Secrets path inconsistency**~~ — resolved 2026-04-29: all script callers follow the canonical fallback pattern (`recover-harbor.sh` is the model). See `.claude/rules/scripts-and-ops.md`.
 10. ~~**Harbor URL inconsistency**~~ — resolved 2026-04-29: the two forms (`harbor.harbor.svc` for K8s in-cluster API, `harbor.lolday.svc` for image pulls via host-level setup) are intentional. See §5.3. The lone outlier in `config.py` defaults was fixed.
-11. **mypy module overrides (`[mypy-<module>] ignore_errors = true`)** — First-wave mypy is intentionally lenient (`strict = false`, only `warn_*` flags + `check_untyped_defs`). Modules below are overridden at module level; each entry must be removed when the corresponding phase refactors that file.
-    - **`app.reconciler`** — activated 2026-04-29 in Phase 4 of `chore/engineering-hygiene`. 20 `union-attr` / `arg-type` errors across the 57KB reconciler (all `Optional`-handling issues); root-cause fix deferred to the phase that refactors `reconciler.py` (see #1). Entry: `[mypy-app.reconciler] ignore_errors = true` in `mypy.ini`.
-
-    Removal procedure (for the future reconciler-refactor phase):
-
-    ```bash
-    # 1. Remove the override block from mypy.ini.
-    # 2. Run mypy without the SKIP machinery to surface the errors:
-    uv run --project backend mypy --config-file mypy.ini
-    # 3. Fix each union-attr / arg-type finding at root cause (typically
-    #    a missing `if X is None: continue` or `assert X is not None`).
-    # 4. Re-run; expect "Success: no issues found".
-    # 5. pre-commit run --all-files; expect exit 0.
-    ```
+11. ~~**mypy `app.reconciler.*` override**~~ — resolved 2026-05-01 in `chore/reconciler-mypy-strictness`: the `[mypy-app.reconciler.*] ignore_errors = true` entry was removed from `mypy.ini`. The 12 surfaced `union-attr` / `arg-type` errors (fewer than the original 20 estimate; the reconciler-split removed dead code paths) were fixed at root cause by narrowing FK lookups (`session.get(Model, fk_id)` followed by an explicit `if obj is None: raise RuntimeError(...)`) and by re-asserting caller invariants inside `_job_timed_out` and `_register_model_from_job`. The narrowing pattern is also the established way to fail fast when a foreign-key invariant is violated, so the runtime behavior is now strictly safer than the prior `AttributeError`-on-`None` path. Module-level mypy overrides for the reconciler are no longer needed.
 
 ## 10. Common gotchas
 
