@@ -1,7 +1,9 @@
 import Form from "@rjsf/core";
 import type { RJSFSchema } from "@rjsf/utils";
 import validator from "@rjsf/validator-ajv8";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { deriveUiSchemaFromSchema, fillDefaults } from "./RjsfConfigForm.logic";
 
 interface Props {
   schema: object;
@@ -48,19 +50,36 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
     () => normalizeSchema(schema) as RJSFSchema,
     [schema],
   );
+  const uiSchema = useMemo(
+    () => deriveUiSchemaFromSchema(normalizedSchema),
+    [normalizedSchema],
+  );
+
+  useEffect(() => {
+    onChange(fillDefaults(normalizedSchema, {}));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onChange is a fresh callback every render; we intentionally only react to schema changes
+  }, [normalizedSchema]);
+
   return (
     <div className="rjsf-wrap rounded-md border bg-card p-4 text-sm">
       <Form
         schema={normalizedSchema}
+        uiSchema={uiSchema}
         validator={validator}
         formData={value}
         liveValidate
         showErrorList={false}
         onChange={(e) => onChange(e.formData as Record<string, unknown>)}
-        uiSchema={{ "ui:submitButtonOptions": { norender: true } }}
       >
-        {/* No submit — parent form owns submission */}
-        <span />
+        <div className="mt-4 flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onChange(fillDefaults(normalizedSchema, {}))}
+          >
+            Reset to defaults
+          </Button>
+        </div>
       </Form>
     </div>
   );

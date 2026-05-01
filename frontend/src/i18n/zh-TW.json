@@ -1,1 +1,25 @@
-{}
+{
+  "stage": {
+    "train": {
+      "title": "Train — 訓練新模型",
+      "description": "用 train dataset 訓練新模型，產出註冊到 Models registry。可選 test dataset 同步算最終指標與混淆矩陣。"
+    },
+    "evaluate": {
+      "title": "Evaluate — 用既有模型評估",
+      "description": "用既有的訓練模型，跑 test dataset 算指標。不會產生新模型。"
+    },
+    "predict": {
+      "title": "Predict — 批次預測",
+      "description": "用既有模型批次預測未標註樣本，產出 predictions.csv。不算指標、不需要 ground truth。"
+    },
+    "field": {
+      "train_dataset": "Train dataset",
+      "test_dataset": "Test dataset",
+      "predict_dataset": "Predict dataset",
+      "source_model": "Source model + version",
+      "hyperparameters": "Hyperparameters"
+    },
+    "required": "必填",
+    "optional": "可選"
+  }
+}

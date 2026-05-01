@@ -41,5 +41,28 @@
     "scanning": "Scanning",
     "building": "Building",
     "success": "Success"
+  },
+  "stage": {
+    "train": {
+      "title": "Train — train a new model",
+      "description": "Train a new model using the train dataset; the result is registered in the Models registry. Optional test dataset enables final metrics + confusion matrix computation."
+    },
+    "evaluate": {
+      "title": "Evaluate — score with an existing model",
+      "description": "Run the test dataset through an existing trained model to compute metrics. No new model is registered."
+    },
+    "predict": {
+      "title": "Predict — batch inference",
+      "description": "Run an existing model over an unlabeled dataset, producing predictions.csv. No metrics or ground truth required."
+    },
+    "field": {
+      "train_dataset": "Train dataset",
+      "test_dataset": "Test dataset",
+      "predict_dataset": "Predict dataset",
+      "source_model": "Source model + version",
+      "hyperparameters": "Hyperparameters"
+    },
+    "required": "required",
+    "optional": "optional"
   }
 }
