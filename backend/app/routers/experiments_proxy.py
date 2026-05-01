@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 from cachetools import TTLCache
@@ -25,6 +25,34 @@ def _client() -> MlflowClient:
     return MlflowClient(
         settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
     )
+
+
+def _flatten_run(r: dict[str, Any]) -> dict[str, Any]:
+    """MLflow REST returns runs as {info: {...}, data: {metrics: [{key,value}], ...}}.
+
+    The frontend (and our aggregate logic) wants flat
+    {run_id, status, metrics: {key: value}, params: {...}, tags: {...}}.
+    Centralising the conversion here keeps the proxy contract simple and
+    matches what callers already assume.
+    """
+    info = r.get("info") or {}
+    data = r.get("data") or {}
+    metrics_list = data.get("metrics") or []
+    params_list = data.get("params") or []
+    tags_list = data.get("tags") or []
+    return {
+        "run_id": info.get("run_id") or info.get("run_uuid"),
+        "run_name": info.get("run_name"),
+        "experiment_id": info.get("experiment_id"),
+        "status": info.get("status"),
+        "start_time": info.get("start_time"),
+        "end_time": info.get("end_time"),
+        "artifact_uri": info.get("artifact_uri"),
+        "lifecycle_stage": info.get("lifecycle_stage"),
+        "metrics": {m["key"]: m["value"] for m in metrics_list if "key" in m},
+        "params": {p["key"]: p["value"] for p in params_list if "key" in p},
+        "tags": {t["key"]: t["value"] for t in tags_list if "key" in t},
+    }
 
 
 @router.get("/experiments")
@@ -63,12 +91,9 @@ async def _experiment_stats(experiment_id: str) -> dict:
     async with lock:
         if experiment_id in _stats_cache:  # double-check after acquiring lock
             return _stats_cache[experiment_id]
-        runs = await _client().search_runs([experiment_id], max_results=1000)
-        f1s = [
-            r.get("metrics", {}).get("f1")
-            for r in runs
-            if r.get("status") == "FINISHED"
-        ]
+        raw = await _client().search_runs([experiment_id], max_results=1000)
+        runs = [_flatten_run(r) for r in raw]
+        f1s = [r["metrics"].get("f1") for r in runs if r.get("status") == "FINISHED"]
         f1s = [x for x in f1s if x is not None]
         result = {
             "run_count": len(runs),
@@ -88,11 +113,12 @@ async def list_runs(
     max_results: int = Query(100, ge=1, le=1000),
 ):
     try:
-        return await _client().search_runs(
+        raw = await _client().search_runs(
             experiment_ids=[experiment_id], max_results=max_results
         )
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+    return [_flatten_run(r) for r in raw]
 
 
 @router.get("/runs/{run_id}")
@@ -101,9 +127,10 @@ async def get_run(
     user: Annotated[User, Depends(current_active_user)],
 ):
     try:
-        return await _client().get_run(run_id)
+        raw = await _client().get_run(run_id)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+    return _flatten_run(raw)
 
 
 @router.get("/runs/{run_id}/artifacts")

@@ -1,8 +1,68 @@
-"""Phase 13b B4: experiments aggregate endpoint with manual async TTL cache."""
+"""Phase 13b B4: experiments aggregate endpoint with manual async TTL cache.
+
+Run shapes follow the MLflow REST contract: each run is
+``{"info": {...}, "data": {"metrics": [{"key", "value"}], ...}}``.
+The proxy flattens this for callers; tests exercise the flatten + aggregate
+path together.
+"""
 
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from app.routers.experiments_proxy import _flatten_run
+
+
+def _run(
+    run_id: str,
+    status: str,
+    start_time: int,
+    metrics: dict[str, float] | None = None,
+    params: dict[str, str] | None = None,
+    tags: dict[str, str] | None = None,
+) -> dict:
+    """Build an MLflow-shaped run for tests."""
+    return {
+        "info": {
+            "run_id": run_id,
+            "experiment_id": "1",
+            "status": status,
+            "start_time": start_time,
+            "end_time": start_time + 1000,
+            "run_name": run_id,
+        },
+        "data": {
+            "metrics": [{"key": k, "value": v} for k, v in (metrics or {}).items()],
+            "params": [{"key": k, "value": v} for k, v in (params or {}).items()],
+            "tags": [{"key": k, "value": v} for k, v in (tags or {}).items()],
+        },
+    }
+
+
+def test_flatten_run_nested_to_flat() -> None:
+    raw = _run(
+        "r1",
+        "FINISHED",
+        100,
+        metrics={"f1": 0.9, "accuracy": 0.95},
+        params={"lr": "0.01"},
+        tags={"lolday.job_id": "job-x"},
+    )
+    flat = _flatten_run(raw)
+    assert flat["run_id"] == "r1"
+    assert flat["status"] == "FINISHED"
+    assert flat["start_time"] == 100
+    assert flat["metrics"] == {"f1": 0.9, "accuracy": 0.95}
+    assert flat["params"] == {"lr": "0.01"}
+    assert flat["tags"] == {"lolday.job_id": "job-x"}
+
+
+def test_flatten_run_handles_missing_data_and_info() -> None:
+    # Defensive: MLflow has been observed to omit data sub-keys on minimal runs.
+    flat = _flatten_run({"info": {"run_uuid": "r2"}})
+    assert flat["run_id"] == "r2"
+    assert flat["metrics"] == {}
+    assert flat["params"] == {}
+    assert flat["tags"] == {}
 
 
 @pytest.mark.asyncio
@@ -23,24 +83,9 @@ async def test_experiments_no_include_returns_bare_list(
 async def test_experiments_with_stats_aggregates(async_client, auth_owner_headers):
     fake_experiments = [{"experiment_id": "1", "name": "exp_a"}]
     fake_runs = [
-        {
-            "run_id": "r1",
-            "status": "FINISHED",
-            "start_time": 1700000000000,
-            "metrics": {"f1": 0.91},
-        },
-        {
-            "run_id": "r2",
-            "status": "FINISHED",
-            "start_time": 1700001000000,
-            "metrics": {"f1": 0.93},
-        },
-        {
-            "run_id": "r3",
-            "status": "RUNNING",
-            "start_time": 1700002000000,
-            "metrics": {},
-        },
+        _run("r1", "FINISHED", 1700000000000, metrics={"f1": 0.91}),
+        _run("r2", "FINISHED", 1700001000000, metrics={"f1": 0.93}),
+        _run("r3", "RUNNING", 1700002000000),
     ]
     with (
         patch("app.routers.experiments_proxy._client") as mc,
@@ -70,14 +115,7 @@ async def test_experiments_stats_cached(async_client, auth_owner_headers):
     async def mock_search_runs(experiment_ids, max_results):
         nonlocal runs_called
         runs_called += 1
-        return [
-            {
-                "run_id": "r1",
-                "status": "FINISHED",
-                "start_time": 1,
-                "metrics": {"f1": 0.5},
-            }
-        ]
+        return [_run("r1", "FINISHED", 1, metrics={"f1": 0.5})]
 
     with (
         patch("app.routers.experiments_proxy._client") as mc,
@@ -96,3 +134,41 @@ async def test_experiments_stats_cached(async_client, auth_owner_headers):
             "/api/v1/experiments?include=stats", headers=auth_owner_headers
         )
     assert runs_called == 1  # second call hit cache
+
+
+@pytest.mark.asyncio
+async def test_list_runs_returns_flat_shape(async_client, auth_owner_headers):
+    fake_runs = [
+        _run(
+            "r1",
+            "FINISHED",
+            123,
+            metrics={"f1": 0.9},
+            tags={"lolday.job_id": "job-1"},
+        )
+    ]
+    with patch("app.routers.experiments_proxy._client") as mc:
+        mc.return_value.search_runs = AsyncMock(return_value=fake_runs)
+        resp = await async_client.get(
+            "/api/v1/experiments/1/runs", headers=auth_owner_headers
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["run_id"] == "r1"
+    assert body[0]["status"] == "FINISHED"
+    assert body[0]["metrics"] == {"f1": 0.9}
+    assert body[0]["tags"]["lolday.job_id"] == "job-1"
+    assert "info" not in body[0]
+
+
+@pytest.mark.asyncio
+async def test_get_run_returns_flat_shape(async_client, auth_owner_headers):
+    raw = _run("r1", "FINISHED", 123, params={"lr": "0.01"})
+    with patch("app.routers.experiments_proxy._client") as mc:
+        mc.return_value.get_run = AsyncMock(return_value=raw)
+        resp = await async_client.get("/api/v1/runs/r1", headers=auth_owner_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["run_id"] == "r1"
+    assert body["params"] == {"lr": "0.01"}
+    assert "info" not in body

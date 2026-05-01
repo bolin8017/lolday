@@ -56,7 +56,8 @@ async def test_get_run_proxied(user_client):
         )
         r = await user_client.get("/api/v1/runs/r1")
     assert r.status_code == 200
-    assert r.json()["info"]["run_id"] == "r1"
+    # Proxy now flattens MLflow's nested {info, data} into a flat shape.
+    assert r.json()["run_id"] == "r1"
 
 
 @pytest.mark.no_mock_mlflow
