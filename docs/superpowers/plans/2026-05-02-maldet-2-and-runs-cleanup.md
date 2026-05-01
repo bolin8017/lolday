@@ -61,8 +61,20 @@ Each task that is not in `LOLDAY_REPO` says so in the **Files** block.
 # Phase 1 — maldet 2.0 (upstream library)
 
 > All Phase 1 tasks run in `MALDET_REPO`. Existing `pytest` config and import paths assumed; copy your local virtualenv pattern (e.g. `uv run pytest`).
+>
+> **Audit on 2026-05-02:** maldet repo at `/home/bolin8017/Documents/repositories/maldet` is already at v1.2.0 with the following spec items already merged on main — **SKIP the corresponding tasks below**:
+>
+> - ✅ Task 1.1 — `CONFUSION_MATRIX` and `PER_CLASS` are in `EventKind` enum
+> - ✅ Task 1.7 — `BinaryClassification.evaluate` writes `confusion_matrix.labels = [other, self._positive]` matching the `labels=[0, 1]` matrix orientation
+> - ✅ Task 1.8 — evaluator emits `confusion_matrix` and `per_class` events
+>
+> **Source layout:** `src/maldet/...` (src layout). Anywhere this plan says `MALDET_REPO/maldet/foo.py`, read it as `MALDET_REPO/src/maldet/foo.py`.
+>
+> **Test layout:** `tests/<area>/test_*.py` (e.g., `tests/evaluators/test_binary.py`, `tests/trainers/test_*.py`). New test files for tasks below should live in the matching subdirectory.
+>
+> **Version baseline:** maldet HEAD is 1.2.0; the bump is `1.2.0 → 2.0.0`.
 
-### Task 1.1: Add `CONFUSION_MATRIX` and `PER_CLASS` to `EventKind`
+### Task 1.1: Add `CONFUSION_MATRIX` and `PER_CLASS` to `EventKind` — **SKIPPED (already merged)**
 
 **Files:**
 
@@ -689,7 +701,7 @@ git commit -m "feat(trainer): LightningTrainer encodes labels via classes.index"
 
 ---
 
-### Task 1.7: Update `BinaryClassification.evaluate` — fix CM labels orientation
+### Task 1.7: Update `BinaryClassification.evaluate` — fix CM labels orientation — **SKIPPED (already merged)**
 
 **Files:**
 
@@ -866,7 +878,7 @@ git commit -m "fix(evaluator): align confusion_matrix labels with matrix row/col
 
 ---
 
-### Task 1.8: Emit `confusion_matrix` and `per_class` events from evaluator
+### Task 1.8: Emit `confusion_matrix` and `per_class` events from evaluator — **SKIPPED (already merged)**
 
 **Files:**
 
