@@ -72,9 +72,11 @@ async def test_reconcile_build_exception_records_error(monkeypatch):
     post-deploy /metrics smoke test.
     """
     import app.reconciler as rec
+    import app.reconciler.loop as rec_loop
 
     # Collapse the 10s inter-iteration wait so the loop exits fast after stop_event.set().
-    monkeypatch.setattr(rec, "RECONCILER_WAIT_SECONDS", 0.01)
+    # Patch on loop module — reconciler_loop reads its own module-level constant.
+    monkeypatch.setattr(rec_loop, "RECONCILER_WAIT_SECONDS", 0.01)
 
     before = _get("reconcile_build")
     stop = asyncio.Event()
@@ -96,8 +98,9 @@ async def test_reconcile_build_exception_records_error(monkeypatch):
         stop.set()
         raise RuntimeError("synthetic reconcile_build failure")
 
-    monkeypatch.setattr(rec, "async_session_maker", fake_maker)
-    monkeypatch.setattr(rec, "reconcile_build", raising_reconcile_build)
+    # Patch on loop module — reconciler_loop reads its own module-level names.
+    monkeypatch.setattr(rec_loop, "async_session_maker", fake_maker)
+    monkeypatch.setattr(rec_loop, "reconcile_build", raising_reconcile_build)
 
     await asyncio.wait_for(rec.reconciler_loop(stop), timeout=5)
 
