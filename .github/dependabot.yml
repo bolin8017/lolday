@@ -63,14 +63,16 @@ updates:
       interval: weekly
       day: monday
 
-  - package-ecosystem: docker
-    directory: /charts/lolday/helpers/mlflow-server
-    schedule:
-      interval: weekly
-      day: monday
-
-  - package-ecosystem: docker
-    directory: /charts/lolday/helpers/pytorch-cu12-base
-    schedule:
-      interval: weekly
-      day: monday
+  # mlflow-server and pytorch-cu12-base are intentionally NOT tracked by
+  # dependabot. Both are manually pinned helper images per
+  # .claude/rules/charts-and-helm.md ("Manually pinned (semantic tags)"):
+  #   - mlflow-server tag carries the upstream MLflow version (e.g. v2.20.3)
+  #     and bumping it requires a coordinated mlflow-skinny client upgrade
+  #     in backend/pyproject.toml + proxy-test refresh.
+  #   - pytorch-cu12-base is locked to CUDA 12.6 by host driver 560 on
+  #     server30; the directory name itself encodes the constraint and the
+  #     Dockerfile pins torch wheels to the cu126 index.
+  # .github/workflows/helpers.yml already excludes both from CI build
+  # verification ("mlflow-server and pytorch-cu12-base are excluded by
+  # design (operator manual)"); excluding them here keeps the two configs
+  # aligned and stops dependabot from re-proposing single-side bumps.

@@ -36,8 +36,6 @@ spec:
             - { name: tmp, mountPath: /tmp }
       volumes:
         - { name: tmp, emptyDir: {} }
-      imagePullSecrets:
-        - name: harbor-pull-cred
 ---
 apiVersion: v1
 kind: Service
