@@ -23,9 +23,9 @@ from app.reconciler import (
 
 @contextmanager
 def _patch_notify():
-    # notify_build_failed is used in BOTH builds.py (k8s_job_missing / _handle_failed /
-    # _handle_timeout) AND build_finalize.py (5 fail-closed branches). Patch both sites
-    # with a shared mock so assertions work regardless of which module fires.
+    # As of the _fail_build_with_notify helper extraction, all build-failure
+    # notifications funnel through builds.py (build_finalize.py's fail-closed
+    # branches lazy-import the helper). Patching builds.py alone is sufficient.
     bf_mock = AsyncMock()
     with (
         patch("app.reconciler.jobs.notify_job_completed", new=AsyncMock()) as jc,
@@ -34,7 +34,6 @@ def _patch_notify():
             "app.reconciler.build_finalize.notify_build_completed", new=AsyncMock()
         ) as bc,
         patch("app.reconciler.builds.notify_build_failed", new=bf_mock),
-        patch("app.reconciler.build_finalize.notify_build_failed", new=bf_mock),
         patch(
             "app.reconciler.build_finalize.notify_trivy_blocked", new=AsyncMock()
         ) as tb,

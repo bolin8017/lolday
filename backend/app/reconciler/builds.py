@@ -173,11 +173,10 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
 
 async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
     reason = await _extract_failure_reason(b)
-    b.status = DetectorBuildStatus.FAILED
-    b.failure_reason = reason
     # Phase 13a follow-up (PR review EH-1): protect log capture so a
     # K8s-side blip doesn't keep the build oscillating; symmetric with
-    # _handle_succeeded.
+    # _handle_succeeded. Captured before the helper so the log_tail
+    # column is part of the same terminal-state commit.
     try:
         b.log_tail = await _capture_log_tail(b)
     except Exception:
@@ -187,22 +186,7 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
             b.id,
             exc_info=True,
         )
-    b.finished_at = datetime.now(UTC)
-    await session.commit()
-    ctx = await _user_context(session, b.triggered_by_id)
-    if ctx is not None:
-        label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
-            notify_build_failed(
-                user_name=ctx.name,
-                user_discord_id=ctx.discord_id,
-                detector_label=label,
-                git_tag=b.git_tag,
-                failure_reason=reason,
-                build_url=_ui_url(f"/detectors/{b.detector_id}"),
-            )
-        )
-    await _cleanup_build_secret(b.id)
+    await _fail_build_with_notify(session, b, reason=reason)
 
 
 async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
@@ -224,24 +208,12 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
                 b.id,
                 exc_info=True,
             )
-    b.status = DetectorBuildStatus.TIMEOUT
-    b.failure_reason = "build exceeded timeout"
-    b.finished_at = datetime.now(UTC)
-    await session.commit()
-    ctx = await _user_context(session, b.triggered_by_id)
-    if ctx is not None:
-        label = await _detector_label(session, b.detector_id)
-        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
-            notify_build_failed(
-                user_name=ctx.name,
-                user_discord_id=ctx.discord_id,
-                detector_label=label,
-                git_tag=b.git_tag,
-                failure_reason="build exceeded timeout",
-                build_url=_ui_url(f"/detectors/{b.detector_id}"),
-            )
-        )
-    await _cleanup_build_secret(b.id)
+    await _fail_build_with_notify(
+        session,
+        b,
+        reason="build exceeded timeout",
+        status=DetectorBuildStatus.TIMEOUT,
+    )
 
 
 async def _update_progress(session: AsyncSession, b: DetectorBuild, job) -> None:
@@ -300,3 +272,48 @@ async def _cleanup_build_secret(build_id) -> None:
                 build_id,
                 exc_info=True,
             )
+
+
+async def _fail_build_with_notify(
+    session: AsyncSession,
+    b: DetectorBuild,
+    *,
+    reason: str,
+    status: DetectorBuildStatus = DetectorBuildStatus.FAILED,
+    metrics_stage: str | None = None,
+) -> None:
+    """Persist a terminal-failure DetectorBuild state, notify the user, and
+    clean up the per-build secret.
+
+    Used by the seven fail-closed branches that share the canonical shape:
+    optionally bump ``BACKEND_ERRORS{stage=metrics_stage}`` → set the
+    terminal status (``FAILED`` by default; ``TIMEOUT`` for the wall-clock
+    timeout caller) → set ``failure_reason`` + ``finished_at`` → commit
+    → fire ``notify_build_failed`` for the originating user (skipped for
+    service-token-driven builds where ``_user_context`` returns ``None``)
+    → ``_cleanup_build_secret``.
+
+    Callers do their own logging and any pre-fail steps (e.g. log_tail
+    capture, K8s job deletion) before invoking this helper, then return
+    from the surrounding handler.
+    """
+    if metrics_stage is not None:
+        BACKEND_ERRORS.labels(stage=metrics_stage).inc()
+    b.status = status
+    b.failure_reason = reason
+    b.finished_at = datetime.now(UTC)
+    await session.commit()
+    ctx = await _user_context(session, b.triggered_by_id)
+    if ctx is not None:
+        label = await _detector_label(session, b.detector_id)
+        asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
+            notify_build_failed(
+                user_name=ctx.name,
+                user_discord_id=ctx.discord_id,
+                detector_label=label,
+                git_tag=b.git_tag,
+                failure_reason=reason,
+                build_url=_ui_url(f"/detectors/{b.detector_id}"),
+            )
+        )
+    await _cleanup_build_secret(b.id)

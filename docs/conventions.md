@@ -161,6 +161,13 @@ GitHub provides no in-repo declarative branch-protection API stable enough to de
 6. **Restrict who can push to matching branches / disallow force pushes** — yes.
 7. **Allow squash merge only** (Settings → General → Pull Requests).
 
+> **Footnote — current plan-tier limitation.** As of 2026-05-01 the repo is on a personal account with the GitHub Free plan and is private; `gh api repos/bolin8017/lolday/branches/main/protection` returns HTTP 403 (`Upgrade to GitHub Pro or make this repository public to enable this feature`). The rules in steps 1–7 above are therefore **not** in effect today. Two paths to lift the limitation:
+>
+> 1. **Make the repo public.** Branch protection becomes available immediately, and the free Codecov tier + extra Dependabot security tooling light up. A privacy review is required before flipping (the repo documents internal infra paths and Harbor topology).
+> 2. **Upgrade to GitHub Pro** (~USD 4 / month). Keeps the repo private and unlocks branch protection on the personal account.
+>
+> Until one of those lands, the merge discipline is enforced socially (CI must be green before squash-merge), not by the GitHub API.
+
 ### 10.7 Dependabot SOP
 
 Weekly Mondays. Per ecosystem:

@@ -24,11 +24,7 @@ from app.reconciler.log_capture import _capture_log_tail
 from app.reconciler.notify import _detector_label, _ui_url, _user_context
 from app.services.harbor import HarborClient
 from app.services.manifest_store import ManifestDecodeError, decode_manifest_label
-from app.services.notify import (
-    notify_build_completed,
-    notify_build_failed,
-    notify_trivy_blocked,
-)
+from app.services.notify import notify_build_completed, notify_trivy_blocked
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +47,7 @@ async def _finalize_clean_scan(
     """
     # Lazy import to avoid circular dep with builds.py (which imports _finalize_clean_scan
     # at module top from this file).
-    from app.reconciler.builds import _cleanup_build_secret
+    from app.reconciler.builds import _cleanup_build_secret, _fail_build_with_notify
 
     if scan.critical > 0:
         await harbor.delete_artifact("detectors", detector.name, digest)
@@ -108,83 +104,44 @@ async def _finalize_clean_scan(
                     digest=digest,
                 )
             except Exception:
-                BACKEND_ERRORS.labels(stage="harbor_labels_fetch").inc()
                 logger.exception(
                     "failed to fetch image labels", extra={"build_id": str(b.id)}
                 )
-                b.status = DetectorBuildStatus.FAILED
-                b.failure_reason = "harbor_labels_fetch_failed"
-                b.finished_at = datetime.now(UTC)
-                await session.commit()
-                ctx = await _user_context(session, b.triggered_by_id)
-                if ctx is not None:
-                    label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
-                        notify_build_failed(
-                            user_name=ctx.name,
-                            user_discord_id=ctx.discord_id,
-                            detector_label=label,
-                            git_tag=b.git_tag,
-                            failure_reason="harbor_labels_fetch_failed",
-                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                        )
-                    )
-                await _cleanup_build_secret(b.id)
+                await _fail_build_with_notify(
+                    session,
+                    b,
+                    reason="harbor_labels_fetch_failed",
+                    metrics_stage="harbor_labels_fetch",
+                )
                 return
 
             manifest_label = labels.get("io.maldet.manifest")
             if not manifest_label:
-                BACKEND_ERRORS.labels(stage="manifest_missing").inc()
                 logger.error(
                     "build image has no io.maldet.manifest label",
                     extra={"build_id": str(b.id)},
                 )
-                b.status = DetectorBuildStatus.FAILED
-                b.failure_reason = "manifest_label_missing"
-                b.finished_at = datetime.now(UTC)
-                await session.commit()
-                ctx = await _user_context(session, b.triggered_by_id)
-                if ctx is not None:
-                    label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
-                        notify_build_failed(
-                            user_name=ctx.name,
-                            user_discord_id=ctx.discord_id,
-                            detector_label=label,
-                            git_tag=b.git_tag,
-                            failure_reason="manifest_label_missing",
-                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                        )
-                    )
-                await _cleanup_build_secret(b.id)
+                await _fail_build_with_notify(
+                    session,
+                    b,
+                    reason="manifest_label_missing",
+                    metrics_stage="manifest_missing",
+                )
                 return
 
             try:
                 manifest_model = decode_manifest_label(manifest_label)
             except ManifestDecodeError as exc:
-                BACKEND_ERRORS.labels(stage="manifest_invalid").inc()
                 logger.error(
                     "manifest decode failed",
                     extra={"build_id": str(b.id), "err": str(exc)},
                 )
-                b.status = DetectorBuildStatus.FAILED
-                b.failure_reason = "manifest_invalid"
-                b.finished_at = datetime.now(UTC)
-                await session.commit()
-                ctx = await _user_context(session, b.triggered_by_id)
-                if ctx is not None:
-                    label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
-                        notify_build_failed(
-                            user_name=ctx.name,
-                            user_discord_id=ctx.discord_id,
-                            detector_label=label,
-                            git_tag=b.git_tag,
-                            failure_reason="manifest_invalid",
-                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                        )
-                    )
-                await _cleanup_build_secret(b.id)
+                await _fail_build_with_notify(
+                    session,
+                    b,
+                    reason="manifest_invalid",
+                    metrics_stage="manifest_invalid",
+                )
                 return
 
             manifest_dict = manifest_model.model_dump(mode="json")
@@ -199,29 +156,16 @@ async def _finalize_clean_scan(
             # with empty git_sha.
             commit_sha = labels.get("org.opencontainers.image.revision", "")
             if not commit_sha:
-                BACKEND_ERRORS.labels(stage="git_sha_label_missing").inc()
                 logger.error(
                     "build image has no org.opencontainers.image.revision label",
                     extra={"build_id": str(b.id)},
                 )
-                b.status = DetectorBuildStatus.FAILED
-                b.failure_reason = "git_sha_label_missing"
-                b.finished_at = datetime.now(UTC)
-                await session.commit()
-                ctx = await _user_context(session, b.triggered_by_id)
-                if ctx is not None:
-                    label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
-                        notify_build_failed(
-                            user_name=ctx.name,
-                            user_discord_id=ctx.discord_id,
-                            detector_label=label,
-                            git_tag=b.git_tag,
-                            failure_reason="git_sha_label_missing",
-                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                        )
-                    )
-                await _cleanup_build_secret(b.id)
+                await _fail_build_with_notify(
+                    session,
+                    b,
+                    reason="git_sha_label_missing",
+                    metrics_stage="git_sha_label_missing",
+                )
                 return
 
             version = DetectorVersion(
@@ -237,7 +181,6 @@ async def _finalize_clean_scan(
             b.git_sha = commit_sha
         else:
             if existing_version.image_digest != digest:
-                BACKEND_ERRORS.labels(stage="detector_version_digest_mismatch").inc()
                 logger.warning(
                     "digest divergence for (detector_id=%s, tag=%s): "
                     "existing=%s new=%s — refusing to rebind",
@@ -246,28 +189,16 @@ async def _finalize_clean_scan(
                     existing_version.image_digest,
                     digest,
                 )
-                b.status = DetectorBuildStatus.FAILED
-                b.failure_reason = (
-                    f"tag {b.git_tag!r} already bound to digest "
-                    f"{existing_version.image_digest[:19]}…; refusing to rebind to "
-                    f"{digest[:19]}… — bump tag or delete existing version first"
+                await _fail_build_with_notify(
+                    session,
+                    b,
+                    reason=(
+                        f"tag {b.git_tag!r} already bound to digest "
+                        f"{existing_version.image_digest[:19]}…; refusing to rebind to "
+                        f"{digest[:19]}… — bump tag or delete existing version first"
+                    ),
+                    metrics_stage="detector_version_digest_mismatch",
                 )
-                b.finished_at = datetime.now(UTC)
-                await session.commit()
-                ctx = await _user_context(session, b.triggered_by_id)
-                if ctx is not None:
-                    label = await _detector_label(session, b.detector_id)
-                    asyncio.create_task(  # noqa: RUF006  # fire-and-forget notification task
-                        notify_build_failed(
-                            user_name=ctx.name,
-                            user_discord_id=ctx.discord_id,
-                            detector_label=label,
-                            git_tag=b.git_tag,
-                            failure_reason=b.failure_reason,
-                            build_url=_ui_url(f"/detectors/{b.detector_id}"),
-                        )
-                    )
-                await _cleanup_build_secret(b.id)
                 return
             commit_sha = existing_version.git_sha or ""
             b.git_sha = commit_sha
