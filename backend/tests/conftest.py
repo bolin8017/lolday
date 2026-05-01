@@ -308,6 +308,8 @@ def mock_k8s_batch(monkeypatch):
         ("app.routers.jobs", ["batch_v1", "core_v1", "volcano_v1alpha1"]),
         ("app.reconciler.builds", ["batch_v1", "core_v1"]),
         ("app.reconciler.jobs", ["core_v1", "volcano_v1alpha1"]),
+        ("app.reconciler.log_capture", ["core_v1"]),
+        ("app.reconciler.orphans", ["core_v1", "volcano_v1alpha1"]),
     ]:
         for _name in _names:
             if _name == "batch_v1":
