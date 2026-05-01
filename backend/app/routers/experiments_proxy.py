@@ -1,7 +1,9 @@
+import asyncio
 import logging
 from typing import Annotated
 
 import httpx
+from cachetools import TTLCache
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.config import settings
@@ -11,6 +13,9 @@ from app.users import current_active_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_stats_cache: TTLCache[str, dict] = TTLCache(maxsize=64, ttl=30)
+_stats_locks: dict[str, asyncio.Lock] = {}
 
 
 def _client() -> MlflowClient:
@@ -23,11 +28,54 @@ def _client() -> MlflowClient:
 async def list_experiments(
     user: Annotated[User, Depends(current_active_user)],
     max_results: int = Query(100, ge=1, le=1000),
+    include: str | None = Query(None, pattern="^stats$"),
 ):
     try:
-        return await _client().search_experiments(max_results=max_results)
+        experiments = await _client().search_experiments(max_results=max_results)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+    if include != "stats":
+        return experiments
+
+    enriched = []
+    for exp in experiments:
+        try:
+            stats = await _experiment_stats(exp["experiment_id"])
+        except MlflowError as e:
+            # Stats failure shouldn't poison the whole list; degrade gracefully.
+            logger.warning(
+                "experiment_stats failed for %s: %s", exp["experiment_id"], e
+            )
+            stats = {"run_count": None, "best_f1": None, "latest_start_time": None}
+        enriched.append({**exp, **stats})
+    return enriched
+
+
+async def _experiment_stats(experiment_id: str) -> dict:
+    """Async TTL-cached aggregate. cachetools.@cached doesn't support async,
+    so we cache by hand with a per-key Lock to avoid stampede."""
+    if experiment_id in _stats_cache:
+        return _stats_cache[experiment_id]
+    lock = _stats_locks.setdefault(experiment_id, asyncio.Lock())
+    async with lock:
+        if experiment_id in _stats_cache:  # double-check after acquiring lock
+            return _stats_cache[experiment_id]
+        runs = await _client().search_runs([experiment_id], max_results=1000)
+        f1s = [
+            r.get("metrics", {}).get("f1")
+            for r in runs
+            if r.get("status") == "FINISHED"
+        ]
+        f1s = [x for x in f1s if x is not None]
+        result = {
+            "run_count": len(runs),
+            "best_f1": max(f1s) if f1s else None,
+            "latest_start_time": max(
+                (r["start_time"] for r in runs if r.get("start_time")), default=None
+            ),
+        }
+        _stats_cache[experiment_id] = result
+        return result
 
 
 @router.get("/experiments/{experiment_id}/runs")

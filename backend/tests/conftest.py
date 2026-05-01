@@ -615,9 +615,14 @@ async def async_client(client):
     return client
 
 
-@pytest.fixture
-def auth_owner_headers():
-    """Headers that identify the detector owner (DEVELOPER role)."""
+@pytest_asyncio.fixture
+async def auth_owner_headers():
+    """Headers that identify the detector owner (DEVELOPER role).
+
+    Seeds the user row so callers that do not use detector_factory can still
+    authenticate — _make_user is idempotent.
+    """
+    await _make_user("dev@example.dev", role=Role.DEVELOPER)
     return {"x-test-user-email": "dev@example.dev"}
 
 
