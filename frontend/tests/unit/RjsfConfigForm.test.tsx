@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { RjsfConfigForm } from "@/components/forms/RjsfConfigForm";
 
 describe("RjsfConfigForm", () => {
-  it("renders description as ui:help", () => {
+  it("renders schema description exactly once (no help-block duplication)", () => {
     const schema = {
       type: "object",
       properties: {
@@ -11,9 +11,10 @@ describe("RjsfConfigForm", () => {
       },
     };
     render(<RjsfConfigForm schema={schema} value={{}} onChange={() => {}} />);
-    // RJSF renders description both as field-description and as ui:help (help-block);
-    // getAllByText confirms at least one instance is present in the DOM.
-    expect(screen.getAllByText(/Number of trees/i).length).toBeGreaterThan(0);
+    // Without ui:help mirroring, RJSF renders description only as
+    // <p class="field-description">. Asserting exactly one instance guards
+    // against a future regression that re-introduces the duplication.
+    expect(screen.getAllByText(/Number of trees/i)).toHaveLength(1);
   });
 
   it("pre-populates defaults via onChange on mount", () => {

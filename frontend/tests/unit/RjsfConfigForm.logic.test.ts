@@ -5,7 +5,7 @@ import {
 } from "@/components/forms/RjsfConfigForm.logic";
 
 describe("deriveUiSchemaFromSchema", () => {
-  it("ui:help from description", () => {
+  it("does not mirror description into ui:help (RJSF renders description natively)", () => {
     const schema = {
       type: "object",
       properties: {
@@ -15,7 +15,6 @@ describe("deriveUiSchemaFromSchema", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
     expect(deriveUiSchemaFromSchema(schema as any)).toEqual({
       "ui:submitButtonOptions": { norender: true },
-      n: { "ui:help": "Number of trees." },
     });
   });
 
@@ -29,7 +28,7 @@ describe("deriveUiSchemaFromSchema", () => {
     expect(ui.lr["ui:placeholder"]).toBe("Default: 0.001");
   });
 
-  it("both description and default", () => {
+  it("description plus default → only ui:placeholder (description is not duplicated)", () => {
     const schema = {
       type: "object",
       properties: {
@@ -39,12 +38,11 @@ describe("deriveUiSchemaFromSchema", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
     const ui = deriveUiSchemaFromSchema(schema as any);
     expect(ui.n).toEqual({
-      "ui:help": "trees",
       "ui:placeholder": "Default: 100",
     });
   });
 
-  it("recurses into nested object properties", () => {
+  it("recurses into nested object properties for ui:placeholder", () => {
     const schema = {
       type: "object",
       properties: {
@@ -60,7 +58,6 @@ describe("deriveUiSchemaFromSchema", () => {
     const ui = deriveUiSchemaFromSchema(schema as any);
     expect(ui.optimizer).toEqual({
       lr: {
-        "ui:help": "Learning rate",
         "ui:placeholder": "Default: 0.01",
       },
     });

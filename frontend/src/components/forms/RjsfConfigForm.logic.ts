@@ -18,9 +18,9 @@ function walk(node: StrictRJSFSchema, ui: UiSchema): void {
   for (const [k, child] of entries) {
     if (typeof child === "boolean") continue;
     const childUi: UiSchema = (ui[k] as UiSchema) ?? {};
-    if (typeof child.description === "string") {
-      childUi["ui:help"] = child.description;
-    }
+    // Don't mirror `description` into `ui:help` — RJSF v5 already renders
+    // schema.description natively as <p class="field-description">, and adding
+    // ui:help would cause the same string to render twice (help-block + field-description).
     if (child.default !== undefined) {
       childUi["ui:placeholder"] = `Default: ${JSON.stringify(child.default)}`;
     }
