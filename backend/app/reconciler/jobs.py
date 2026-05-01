@@ -133,7 +133,15 @@ def _job_timed_out(j: Job, vjob: dict) -> bool:
 
     Only uses the DB timestamp ``j.started_at`` — vjob is accepted for signature
     symmetry with the (batch/v1) predecessor but its fields aren't consulted.
+
+    Caller invariant: callers gate on ``j.started_at is not None`` before
+    invoking this helper (single call site is in the events loop). The
+    narrowing is re-asserted here so the static checker can prove it.
     """
+    if j.started_at is None:
+        raise RuntimeError(
+            f"caller invariant violated: _job_timed_out called for job {j.id} with no started_at"
+        )
     deadline_map = {
         JobType.TRAIN: settings.JOB_ACTIVE_DEADLINE_TRAIN_SECONDS,
         JobType.EVALUATE: settings.JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS,
@@ -283,8 +291,21 @@ async def _register_model_from_job(
     from app.models import Detector, DetectorVersion, ModelVersion
     from app.models.model_registry import ModelVersionStage
 
+    if j.mlflow_run_id is None:
+        raise RuntimeError(
+            f"job {j.id} reached model registration without mlflow_run_id "
+            "(TRAIN jobs must populate it during stage_start handling)"
+        )
     dv = await session.get(DetectorVersion, j.detector_version_id)
+    if dv is None:
+        raise RuntimeError(
+            f"FK invariant violated: job {j.id} references missing DetectorVersion {j.detector_version_id}"
+        )
     det = await session.get(Detector, dv.detector_id)
+    if det is None:
+        raise RuntimeError(
+            f"FK invariant violated: DetectorVersion {dv.id} references missing Detector {dv.detector_id}"
+        )
     name = det.name
 
     await client.create_registered_model(name)

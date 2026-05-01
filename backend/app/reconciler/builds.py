@@ -97,6 +97,10 @@ async def _handle_succeeded(session: AsyncSession, b: DetectorBuild) -> None:
     from app.models.detector import Detector
 
     detector = await session.get(Detector, b.detector_id)
+    if detector is None:
+        raise RuntimeError(
+            f"FK invariant violated: build {b.id} references missing detector {b.detector_id}"
+        )
     harbor = HarborClient(
         settings.HARBOR_URL,
         settings.HARBOR_ADMIN_USERNAME,

@@ -77,6 +77,10 @@ async def _project_summary_metrics(session: AsyncSession, job_id: uuid.UUID) -> 
                 per_class = payload_per_class
 
     job = await session.get(Job, job_id)
+    if job is None:
+        raise RuntimeError(
+            f"FK invariant violated: _project_summary_metrics called with unknown job_id {job_id}"
+        )
     job.summary_metrics = {
         "metrics": metrics,
         "confusion_matrix": confusion_matrix,
