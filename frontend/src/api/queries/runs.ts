@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { client } from "@/api/client";
 
 export const runsKeys = {
-  experiments: ["runs", "experiments"] as const,
+  experimentsStats: ["runs", "experiments", "stats"] as const,
   experimentRuns: (expId: string) =>
     ["runs", "experiment", expId, "runs"] as const,
   run: (runId: string) => ["runs", "run", runId] as const,
@@ -10,16 +10,20 @@ export const runsKeys = {
     ["runs", "run", runId, "artifacts", path ?? ""] as const,
 };
 
-export function useExperiments() {
+export function useExperimentsWithStats() {
   return useQuery({
-    queryKey: runsKeys.experiments,
+    queryKey: runsKeys.experimentsStats,
     queryFn: async () => {
-      const { data, error } = await client.GET("/api/v1/experiments");
+      const { data, error } = await client.GET("/api/v1/experiments", {
+        params: { query: { include: "stats" } },
+      });
       if (error) throw error;
       return data as {
         experiment_id: string;
         name: string;
-        artifact_location?: string;
+        run_count: number | null;
+        best_f1: number | null;
+        latest_start_time: number | null;
       }[];
     },
   });

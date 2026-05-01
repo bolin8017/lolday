@@ -2792,6 +2792,7 @@ export interface operations {
         parameters: {
             query?: {
                 max_results?: number;
+                include?: string | null;
             };
             header?: never;
             path?: never;

@@ -6,6 +6,9 @@ import { MetricsTable } from "@/components/jobs/MetricsTable";
 import { ConfusionMatrix } from "@/components/charts/ConfusionMatrix";
 import { ArtifactTree } from "@/components/common/ArtifactTree";
 import { JsonTreeView } from "@/components/common/JsonTreeView";
+import { CollapsibleCard } from "@/components/common/CollapsibleCard";
+import { OpenInMlflowButton } from "@/components/common/OpenInMlflowButton";
+import { OpenInLoldayJobButton } from "@/components/common/OpenInLoldayJobButton";
 
 export const handle = { breadcrumb: "Run" };
 
@@ -30,7 +33,7 @@ function useConfusionMatrix(runId: string) {
 }
 
 export default function RunDetailPage() {
-  const { runId = "" } = useParams();
+  const { expId = "", runId = "" } = useParams();
   const { data } = useRun(runId);
   const { data: cm } = useConfusionMatrix(runId);
   if (!data) return <p className="text-muted-foreground">Loading…</p>;
@@ -44,9 +47,18 @@ export default function RunDetailPage() {
     tags?: Record<string, string>;
   };
 
+  const jobId = run.tags?.["lolday.job_id"] ?? run.tags?.lolday_job_id;
+
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Run {runId.slice(0, 10)}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Run {runId.slice(0, 10)}</h1>
+        <div className="flex gap-2">
+          {jobId && <OpenInLoldayJobButton jobId={jobId} />}
+          <OpenInMlflowButton experimentId={expId} runId={runId} />
+        </div>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Metrics</CardTitle>
@@ -55,6 +67,7 @@ export default function RunDetailPage() {
           <MetricsTable metrics={run.metrics ?? {}} />
         </CardContent>
       </Card>
+
       {cm && (
         <Card>
           <CardHeader>
@@ -65,22 +78,15 @@ export default function RunDetailPage() {
           </CardContent>
         </Card>
       )}
-      <Card>
-        <CardHeader>
-          <CardTitle>Params</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <JsonTreeView value={run.params ?? {}} />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Tags</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <JsonTreeView value={run.tags ?? {}} />
-        </CardContent>
-      </Card>
+
+      <CollapsibleCard title="Parameters">
+        <JsonTreeView value={run.params ?? {}} collapsed={1} />
+      </CollapsibleCard>
+
+      <CollapsibleCard title="Tags">
+        <JsonTreeView value={run.tags ?? {}} collapsed={1} />
+      </CollapsibleCard>
+
       <Card>
         <CardHeader>
           <CardTitle>Artifacts</CardTitle>
