@@ -9,6 +9,7 @@ import {
 } from "@/components/runs/RunsColumnPicker";
 import {
   RunsStatusFilter,
+  isRunsStatus,
   type RunsStatus,
 } from "@/components/runs/RunsStatusFilter";
 import { OpenInMlflowButton } from "@/components/common/OpenInMlflowButton";
@@ -61,7 +62,7 @@ export default function RunsListPage() {
   );
   const [status, setStatus] = useState<RunsStatus>(() => {
     const v = localStorage.getItem(`runs.status.${expId}`);
-    return (v as RunsStatus) ?? "all";
+    return isRunsStatus(v) ? v : "all";
   });
   useEffect(() => {
     localStorage.setItem(`runs.status.${expId}`, status);

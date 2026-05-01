@@ -6,22 +6,39 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const STATUSES = ["all", "FINISHED", "RUNNING", "FAILED", "SCHEDULED"] as const;
-type Status = (typeof STATUSES)[number];
+export const RUNS_STATUSES = [
+  "all",
+  "FINISHED",
+  "RUNNING",
+  "FAILED",
+  "SCHEDULED",
+] as const;
+export type RunsStatus = (typeof RUNS_STATUSES)[number];
+
+export function isRunsStatus(v: unknown): v is RunsStatus {
+  return (
+    typeof v === "string" && (RUNS_STATUSES as readonly string[]).includes(v)
+  );
+}
 
 interface Props {
-  value: Status;
-  onChange: (s: Status) => void;
+  value: RunsStatus;
+  onChange: (s: RunsStatus) => void;
 }
 
 export function RunsStatusFilter({ value, onChange }: Props) {
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as Status)}>
+    <Select
+      value={value}
+      onValueChange={(v) => {
+        if (isRunsStatus(v)) onChange(v);
+      }}
+    >
       <SelectTrigger className="w-36">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {STATUSES.map((s) => (
+        {RUNS_STATUSES.map((s) => (
           <SelectItem key={s} value={s}>
             {s === "all" ? "All statuses" : s}
           </SelectItem>
@@ -30,5 +47,3 @@ export function RunsStatusFilter({ value, onChange }: Props) {
     </Select>
   );
 }
-
-export type { Status as RunsStatus };
