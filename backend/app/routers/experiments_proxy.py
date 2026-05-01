@@ -15,6 +15,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _stats_cache: TTLCache[str, dict] = TTLCache(maxsize=64, ttl=30)
+# Grows unbounded (one Lock per experiment_id, never evicted). Acceptable: cache
+# is capped at maxsize=64 and lab-scale experiment counts stay well under 1 k.
+# Revisit if experiments become user-scoped or the cache cap is raised substantially.
 _stats_locks: dict[str, asyncio.Lock] = {}
 
 
