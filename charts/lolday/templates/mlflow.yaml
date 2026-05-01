@@ -47,6 +47,7 @@ spec:
             - --default-artifact-root=mlflow-artifacts:/
             - --artifacts-destination=/mlflow-artifacts
             - --serve-artifacts
+            - --static-prefix=/mlflow
           env:
             - name: PG_USER
               valueFrom: { secretKeyRef: { name: mlflow-db, key: username } }
