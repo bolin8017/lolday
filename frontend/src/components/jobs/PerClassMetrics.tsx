@@ -38,14 +38,8 @@ export function PerClassMetrics({ perClass, positiveClass }: Props) {
       </TableHeader>
       <TableBody>
         {rows.map(([cls, m]) => (
-          <TableRow
-            key={cls}
-            className={cls === positiveClass ? "font-medium" : ""}
-          >
-            <TableCell>
-              {cls}
-              {cls === positiveClass ? " (positive)" : ""}
-            </TableCell>
+          <TableRow key={cls}>
+            <TableCell>{cls}</TableCell>
             <TableCell className="text-right">
               {m.precision.toFixed(4)}
             </TableCell>
