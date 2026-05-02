@@ -7,6 +7,12 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://redis:6379/0"
     DOCS_ENABLED: bool = True
 
+    # Phase 2.4 (maldet 2.0 cutover): when truthy, ``POST /api/v1/jobs``
+    # short-circuits with HTTP 503 + ``Retry-After`` so in-flight submissions
+    # don't write into a half-wiped MLflow / Job state during the operator
+    # cutover window. The frontend detects 503 to render a banner.
+    BACKEND_MAINTENANCE_MODE: bool = False
+
     # Phase 3: Detector Lifecycle
     FERNET_KEY: str = ""  # base64-encoded 32-byte Fernet key
     HARBOR_URL: str = "http://harbor.harbor.svc.cluster.local:80"

@@ -749,3 +749,74 @@ async def test_cancel_job_returns_detector_defaults(
         "max_depth": None,
         "random_state": 42,
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.4 — BACKEND_MAINTENANCE_MODE flag gates POST /api/v1/jobs.
+# During the Phase 4 cutover (maldet 2.0 deps bumped → all detector data
+# wiped → all detector images rebuilt) the operator flips this flag on so
+# in-flight submissions don't write into a half-cleared MLflow / Job state.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_job_blocked_in_maintenance_mode(
+    user_client, seed_detector_version, seed_dataset, monkeypatch
+) -> None:
+    """When ``BACKEND_MAINTENANCE_MODE=True``, ``POST /api/v1/jobs`` short
+    circuits with HTTP 503 + ``Retry-After`` before doing any DB / MLflow
+    work. The 503 detail string includes "maintenance" so the frontend can
+    render a user-friendly banner."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "BACKEND_MAINTENANCE_MODE", True)
+
+    dv_id = await seed_detector_version(name="mm-on")
+    train_ds = await seed_dataset(name="mm-on-tr")
+    test_ds = await seed_dataset(name="mm-on-te")
+
+    resp = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": {},
+        },
+    )
+    assert resp.status_code == 503, resp.text
+    assert resp.headers.get("Retry-After") is not None
+    detail = resp.json().get("detail", "")
+    assert "maintenance" in detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_create_job_allowed_when_maintenance_off(
+    user_client, seed_detector_version, seed_dataset, monkeypatch
+) -> None:
+    """When ``BACKEND_MAINTENANCE_MODE=False`` (default), submissions are
+    allowed — the gate must never produce 503 with the flag off, even if
+    other validation later returns 4xx. The path through the rest of the
+    handler is exercised by the surrounding tests; here we just guard
+    against the gate firing on a falsy flag."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "BACKEND_MAINTENANCE_MODE", False)
+
+    dv_id = await seed_detector_version(name="mm-off")
+    train_ds = await seed_dataset(name="mm-off-tr")
+    test_ds = await seed_dataset(name="mm-off-te")
+
+    resp = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": {},
+        },
+    )
+    assert resp.status_code != 503, resp.text
+    assert resp.status_code in (200, 201, 202, 400, 422), resp.text

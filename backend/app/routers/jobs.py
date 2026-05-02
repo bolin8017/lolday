@@ -135,6 +135,18 @@ async def create_job(
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
 ) -> JobRead:
+    # Phase 2.4: maintenance mode short-circuit. Fires before any DB /
+    # MLflow side-effect so the operator can flip the flag mid-cutover and
+    # know no new submission can land in a half-wiped state. The frontend
+    # detects 503 from job-submit to render a "platform under maintenance"
+    # banner.
+    if settings.BACKEND_MAINTENANCE_MODE:
+        raise HTTPException(
+            status_code=503,
+            detail="maintenance: platform under maintenance, try again later",
+            headers={"Retry-After": "3600"},
+        )
+
     # 1. detector_version
     dv = await session.get(DetectorVersion, body.detector_version_id)
     if dv is None:
