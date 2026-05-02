@@ -55,6 +55,13 @@ spec:
               valueFrom: { secretKeyRef: { name: mlflow-db, key: password } }
             - name: PG_DB
               valueFrom: { secretKeyRef: { name: mlflow-db, key: database } }
+            # Mirror the --backend-store-uri arg as an env var so any in-pod
+            # tooling that needs the URI (e.g. ``mlflow gc`` invoked by
+            # ``scripts/wipe-mlflow-history.sh``) can read it via
+            # ``printenv MLFLOW_BACKEND_STORE_URI`` rather than hard-coding
+            # the URI shape in two places.
+            - name: MLFLOW_BACKEND_STORE_URI
+              value: "postgresql+psycopg2://$(PG_USER):$(PG_PASSWORD)@postgresql.{{ .Values.global.namespace }}.svc:5432/$(PG_DB)"
           ports:
             - containerPort: {{ .Values.mlflow.service.port }}
               name: http
