@@ -20,9 +20,13 @@
 #   NAMESPACE=lolday MLFLOW_API=http://localhost:5001/api/2.0/mlflow \
 #     bash scripts/wipe-mlflow-history.sh
 #
-# This is a Phase 4 cutover step (see docs/superpowers/plans/
-# 2026-05-02-maldet-2-and-runs-cleanup.md §4.6). DO NOT run outside that
-# window.
+# Use cases — runbook ``docs/runbooks/wipe-mlflow.md`` covers when this
+# script is the right tool (full-platform reset, schema-breaking detector
+# cutover, dev-environment rebuild) and what state to back up first.
+#
+# IRREVERSIBLE — read the runbook and back up Postgres + the MLflow
+# artifact volume before running. The interactive ``yes`` prompt is the
+# last gate.
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-lolday}"
