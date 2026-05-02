@@ -36,9 +36,14 @@ if [ -n "$DISCORD_WEBHOOK_URL_EVENTS" ]; then
 fi
 unset _var _url
 
-# Backend image (overridable for Phase 5/6). Default tracks the latest deployed phase.
-BACKEND_IMAGE=${BACKEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-backend:phase12.1-2}
-FRONTEND_IMAGE=${FRONTEND_IMAGE:-harbor.lolday.svc:80/lolday/lolday-frontend:phase13a-2}
+# Backend / frontend image refs are sourced from charts/lolday/values.yaml
+# by default — that's the chart's source of truth, kept in lock-step with
+# every release PR. Setting BACKEND_IMAGE / FRONTEND_IMAGE in the operator
+# env temporarily overrides that for ad-hoc rollbacks or hot-fix testing
+# (the corresponding ``--set backend.image=...`` is added below only when
+# the env var is non-empty). The previous design hard-coded stale phase
+# tags here, which silently downgraded any operator who forgot to pass an
+# explicit override on a fresh deploy.
 
 # ---------------------------------------------------------------------------
 # Helper images — read SHA-pinned refs from the lockfile and drift-guard
@@ -194,6 +199,17 @@ echo ""
 
 # Deploy
 echo "[4/4] Deploying lolday..."
+# Image-tag overrides — opt-in, layered on top of values.yaml defaults.
+HELM_IMAGE_OVERRIDES=()
+if [ -n "${BACKEND_IMAGE:-}" ]; then
+  HELM_IMAGE_OVERRIDES+=(--set "backend.image=$BACKEND_IMAGE")
+  echo "  BACKEND_IMAGE override: $BACKEND_IMAGE"
+fi
+if [ -n "${FRONTEND_IMAGE:-}" ]; then
+  HELM_IMAGE_OVERRIDES+=(--set "frontend.image=$FRONTEND_IMAGE")
+  echo "  FRONTEND_IMAGE override: $FRONTEND_IMAGE"
+fi
+
 helm upgrade --install lolday "$CHART_DIR" \
   -n lolday \
   --set cloudflare.enabled="${CF_ENABLED:-false}" \
@@ -201,14 +217,13 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set postgresql.auth.password="$PG_PASSWORD" \
   --set backend.fernetKey="$FERNET_KEY" \
   --set backend.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
-  --set backend.image="$BACKEND_IMAGE" \
-  --set frontend.image="$FRONTEND_IMAGE" \
   --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
   --set monitoring.grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD" \
   --set monitoring.postgresExporter.password="$PG_EXPORTER_PASSWORD" \
   --set backend.env.BUILD_IMAGE_HELPER="$BUILD_IMAGE_HELPER" \
   --set backend.env.JOB_HELPER_IMAGE="$JOB_HELPER_IMAGE" \
+  "${HELM_IMAGE_OVERRIDES[@]}" \
   --wait --timeout 20m
 
 echo ""
