@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import mimetypes
+from pathlib import PurePosixPath
 from typing import Annotated, Any
+from urllib.parse import quote
 
 import httpx
 from cachetools import TTLCache
@@ -13,6 +16,26 @@ from app.users import current_active_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _build_content_disposition(filename: str) -> str:
+    """RFC 6266 dual-form ``Content-Disposition`` for artifact downloads.
+
+    Output: ``attachment; filename="<ascii>"; filename*=UTF-8''<percent-encoded>``.
+
+    - ``filename``: ASCII fallback for legacy clients. Non-ASCII chars become ``?``
+      via ``encode("ascii", errors="replace")`` and quotes are scrubbed to ``_`` to
+      defend against header-injection.
+    - ``filename*``: RFC 5987 percent-encoded UTF-8 form, used by every modern
+      browser. Lab-produced detectors may emit Chinese-named files, so the dual
+      form is required (the ASCII fallback alone would lose the filename).
+    """
+    ascii_fallback = (
+        filename.encode("ascii", errors="replace").decode("ascii").replace('"', "_")
+    )
+    quoted = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quoted}"
+
 
 _stats_cache: TTLCache[str, dict] = TTLCache(maxsize=64, ttl=30)
 # Grows unbounded (one Lock per experiment_id, never evicted). Acceptable: cache
@@ -170,4 +193,13 @@ async def download_artifact(
         r = await c.get(url)
     if r.status_code != 200:
         raise HTTPException(status_code=502, detail=r.text)
-    return Response(content=r.content, media_type="application/octet-stream")
+
+    # RFC 6266: tell the browser to save with the artifact basename instead of
+    # the URL's literal "download" segment. See spec §5.2 / plan Task 2.3.
+    filename = PurePosixPath(path).name or "artifact"
+    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return Response(
+        content=r.content,
+        media_type=media_type,
+        headers={"Content-Disposition": _build_content_disposition(filename)},
+    )
