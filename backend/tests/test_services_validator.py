@@ -27,7 +27,8 @@ def _write_minimal_v2_repo(repo: Path, *, framework: str = "sklearn") -> None:
 
         [output]
         task = "binary_classification"
-        classes = ["Malware", "Benign"]
+        classes = ["Benign", "Malware"]
+        positive_class = "Malware"
 
         [resources]
         supports = ["cpu"]
@@ -114,7 +115,8 @@ def _write_valid_repo(repo: Path) -> None:
 
         [output]
         task = "binary_classification"
-        classes = ["Malware", "Benign"]
+        classes = ["Benign", "Malware"]
+        positive_class = "Malware"
 
         [resources]
         supports = ["cpu"]
@@ -247,7 +249,8 @@ def test_blank_detector_name_rejected(tmp_path: Path) -> None:
 
         [output]
         task = "binary_classification"
-        classes = ["Malware", "Benign"]
+        classes = ["Benign", "Malware"]
+        positive_class = "Malware"
 
         [resources]
         supports = ["cpu"]
@@ -285,7 +288,8 @@ def test_blank_detector_version_rejected(tmp_path: Path) -> None:
 
         [output]
         task = "binary_classification"
-        classes = ["Malware", "Benign"]
+        classes = ["Benign", "Malware"]
+        positive_class = "Malware"
 
         [resources]
         supports = ["cpu"]

@@ -40,7 +40,8 @@ def _manifest(supports_distributed) -> DetectorManifest:
         },
         "output": {
             "task": "binary_classification",
-            "classes": ["Malware", "Benign"],
+            "classes": ["Benign", "Malware"],
+            "positive_class": "Malware",
             "score_range": [0.0, 1.0],
         },
         "resources": {
@@ -120,7 +121,8 @@ def _gpu2_manifest_dict() -> dict:
         },
         "output": {
             "task": "binary_classification",
-            "classes": ["Malware", "Benign"],
+            "classes": ["Benign", "Malware"],
+            "positive_class": "Malware",
             "score_range": [0.0, 1.0],
         },
         "resources": {
