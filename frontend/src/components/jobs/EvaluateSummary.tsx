@@ -36,7 +36,10 @@ export function EvaluateSummary({ job }: { job: JobRead }) {
             <CardTitle>Per-class metrics</CardTitle>
           </CardHeader>
           <CardContent>
-            <PerClassMetrics perClass={perClass} />
+            <PerClassMetrics
+              perClass={perClass}
+              positiveClass={job.positive_class ?? undefined}
+            />
           </CardContent>
         </Card>
       )}

@@ -18,7 +18,10 @@ export function PredictSummary({ job }: { job: JobRead }) {
       {job.source_model_version_id && (
         <SourceModelCard sourceModelVersionId={job.source_model_version_id} />
       )}
-      <PredictionSummaryCard summary={ps ?? null} />
+      <PredictionSummaryCard
+        summary={ps ?? null}
+        positiveClass={job.positive_class ?? undefined}
+      />
       {job.mlflow_run_id && (
         <Card>
           <CardHeader>

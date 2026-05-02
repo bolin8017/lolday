@@ -1121,6 +1121,8 @@ export interface components {
             detector_defaults?: {
                 [key: string]: unknown;
             } | null;
+            /** Positive Class */
+            positive_class?: string | null;
             /** Log Tail */
             log_tail: string | null;
             resource_profile: components["schemas"]["ResourceProfile"];

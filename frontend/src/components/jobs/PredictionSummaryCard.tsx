@@ -15,8 +15,10 @@ const BAR_COLORS = [
 
 export function PredictionSummaryCard({
   summary,
+  positiveClass,
 }: {
   summary: PredictionSummary | null;
+  positiveClass?: string;
 }) {
   if (!summary) {
     return (
@@ -31,7 +33,17 @@ export function PredictionSummaryCard({
     );
   }
   const { total, distribution, duration_seconds } = summary;
-  const entries = Object.entries(distribution).sort(([, a], [, b]) => b - a);
+  // Order: positive class first (so the row a security operator cares about
+  // anchors the bar's left edge and the grid's first cell), then remaining
+  // classes by descending count. Matches the (positive)-first row ordering
+  // in PerClassMetrics so the two cards read consistently.
+  const entries = Object.entries(distribution).sort(([a, ac], [b, bc]) => {
+    if (positiveClass) {
+      if (a === positiveClass) return -1;
+      if (b === positiveClass) return 1;
+    }
+    return bc - ac;
+  });
 
   return (
     <Card>

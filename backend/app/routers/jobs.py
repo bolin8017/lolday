@@ -121,6 +121,9 @@ def _build_job_read_with_defaults(job: Job, manifest: dict[str, Any] | None) -> 
     """
     read = JobRead.model_validate(job)
     read.detector_defaults = resolve_detector_defaults(manifest, job.type)
+    output = (manifest or {}).get("output") or {}
+    pc = output.get("positive_class")
+    read.positive_class = pc if isinstance(pc, str) and pc else None
     return read
 
 
