@@ -79,14 +79,31 @@ export default function RunsListPage() {
     {
       accessorKey: "run_id",
       header: "Run",
-      cell: ({ row }) => (
-        <Link
-          to={`/runs/${expId}/${row.original.run_id}`}
-          className="font-mono text-sm hover:underline"
-        >
-          {row.original.run_id.slice(0, 10)}
-        </Link>
-      ),
+      cell: ({ row }) => {
+        const jobId =
+          row.original.tags?.["lolday.job_id"] ??
+          row.original.tags?.lolday_job_id;
+        if (jobId) {
+          return (
+            <Link
+              to={`/jobs/${jobId}`}
+              className="font-mono text-sm hover:underline"
+            >
+              {row.original.run_id.slice(0, 10)}
+            </Link>
+          );
+        }
+        return (
+          <a
+            href={`/mlflow/#/experiments/${expId}/runs/${row.original.run_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-sm hover:underline"
+          >
+            {row.original.run_id.slice(0, 10)} ↗
+          </a>
+        );
+      },
     },
     { accessorKey: "run_name", header: "Name" },
     {
@@ -120,22 +137,6 @@ export default function RunsListPage() {
         },
       };
     }),
-    {
-      id: "job",
-      header: "Job",
-      cell: ({ row }) => {
-        const jobId =
-          row.original.tags?.["lolday.job_id"] ??
-          row.original.tags?.lolday_job_id;
-        return jobId ? (
-          <Link to={`/jobs/${jobId}`} className="text-primary hover:underline">
-            ↗
-          </Link>
-        ) : (
-          "—"
-        );
-      },
-    },
   ];
 
   if (isLoading) return <p className="text-muted-foreground">Loading…</p>;

@@ -73,6 +73,7 @@ function TreeLevel({
                   <a
                     className="inline-flex items-center text-xs text-primary hover:underline"
                     href={`/api/v1/runs/${runId}/artifacts/download?path=${encodeURIComponent(e.path)}`}
+                    download={name}
                   >
                     <Download className="mr-1 h-3 w-3" />
                     download

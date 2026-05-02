@@ -28,7 +28,7 @@ export function PredictSummary({ job }: { job: JobRead }) {
             <Button asChild variant="outline">
               <a
                 href={`/api/v1/runs/${job.mlflow_run_id}/artifacts/download?path=predictions.csv`}
-                download
+                download="predictions.csv"
               >
                 <Download className="mr-2 h-4 w-4" />
                 Download predictions.csv
