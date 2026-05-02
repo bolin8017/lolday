@@ -7,6 +7,7 @@
 - 系統架構 / 模組責任 / 外部服務 / env vars / 技術債 → `docs/architecture.md`
 - 部署 / 維運 → `docs/runbooks/deploy.md`、`docs/runbooks/troubleshooting.md`
 - 命名 / 分支 / commit / migration 慣例 → `docs/conventions.md`
+- Detector repo 清單（cutover / 升 maldet 用） → `docs/detector-repos.md`
 - 在 `backend/` / `frontend/` / `charts/` / `scripts/` / `backend/migrations/` 工作 →
   自動載入對應 `.claude/rules/<area>.md`（path-scoped）
 - 過去 Phase 紀錄 / E2E checklists → `docs/phase-history/`
