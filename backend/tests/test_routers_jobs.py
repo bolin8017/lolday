@@ -752,6 +752,43 @@ async def test_cancel_job_returns_detector_defaults(
 
 
 # ---------------------------------------------------------------------------
+# Cutover v0.16.1 — JobRead.positive_class round-trip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_job_returns_positive_class(
+    user_client, seed_detector_version, seed_dataset
+) -> None:
+    """``JobRead.positive_class`` mirrors ``manifest.output.positive_class`` so
+    the frontend can tag the positive row in PerClassMetrics and bias
+    PredictionSummaryCard ordering without a follow-up call to fetch the
+    detector_version manifest. The seeded ``_MINIMAL_MANIFEST`` declares
+    ``Malware`` as the positive class."""
+    dv_id = await seed_detector_version(name="rfdet-positive")
+    train_ds = await seed_dataset(name="pc-tr")
+    test_ds = await seed_dataset(name="pc-te")
+
+    submit = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": {},
+        },
+    )
+    assert submit.status_code == 202, submit.text
+    job_id = submit.json()["id"]
+    assert submit.json()["positive_class"] == "Malware"
+
+    detail = await user_client.get(f"/api/v1/jobs/{job_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["positive_class"] == "Malware"
+
+
+# ---------------------------------------------------------------------------
 # Phase 2.4 — BACKEND_MAINTENANCE_MODE flag gates POST /api/v1/jobs.
 # During the Phase 4 cutover (maldet 2.0 deps bumped → all detector data
 # wiped → all detector images rebuilt) the operator flips this flag on so

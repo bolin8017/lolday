@@ -76,6 +76,11 @@ class JobRead(JobSummary):
     # no defaults — distinct from ``{}`` (which the UI would render as
     # "every row is an override").
     detector_defaults: dict[str, Any] | None = None
+    # Cutover v0.16.1: surface the detector manifest's [output].positive_class
+    # so the job detail UI can tag the positive row in PerClassMetrics and
+    # bias PredictionSummaryCard ordering. ``None`` when the manifest does
+    # not declare it (non-binary task or pre-schema_version=2 detectors).
+    positive_class: str | None = None
     log_tail: str | None
     resource_profile: ResourceProfile
     mlflow_experiment_id: str | None
