@@ -3,7 +3,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir 'maldet[lightning]>=1.1,<2.0'
+    && pip install --no-cache-dir 'maldet[lightning]>=2.0,<3.0'
 
 WORKDIR /app
 COPY maldet_validator.py .

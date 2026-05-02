@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -12,6 +13,7 @@ export function OpenInMlflowButton({
   runId,
   size = "sm",
 }: Props) {
+  const { t } = useTranslation();
   let href = "/mlflow/";
   if (experimentId && runId) {
     href = `/mlflow/#/experiments/${experimentId}/runs/${runId}`;
@@ -22,7 +24,7 @@ export function OpenInMlflowButton({
     <Button asChild variant="outline" size={size}>
       <a href={href} target="_blank" rel="noopener noreferrer">
         <ExternalLink className="mr-2 h-4 w-4" />
-        Open in MLflow
+        {t("common.openInMlflow")}
       </a>
     </Button>
   );

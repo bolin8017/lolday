@@ -930,7 +930,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "jsonschema", specifier = ">=4.20,<5" },
     { name = "kubernetes", specifier = ">=31.0.0" },
-    { name = "maldet", specifier = ">=1.1,<2" },
+    { name = "maldet", specifier = ">=2.0,<3" },
     { name = "mlflow-skinny", specifier = ">=2.20.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = "~=7.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
@@ -966,7 +966,7 @@ wheels = [
 
 [[package]]
 name = "maldet"
-version = "1.1.0"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hydra-core" },
@@ -982,9 +982,9 @@ dependencies = [
     { name = "tomli-w" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/9c/b8e764b9d20ff8e39880e35ef6f9e06a6cea93d6e4380295a3b08b17720f/maldet-1.1.0.tar.gz", hash = "sha256:1407aae431de61cf3743bef823cd24821d16d04d3f05b44b5e1e2a25eae7b6af", size = 44681, upload-time = "2026-04-27T17:56:48.082Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/95/2d/65f525ff139c3a15defda42c9b8ea59fedb75f766204433b686a2de9f5e5/maldet-2.0.0.tar.gz", hash = "sha256:f019ef2126363f393b0cd6cd0bb2e2406eabed5fcb555300ddc94c125b55f8a6", size = 50798, upload-time = "2026-05-02T03:09:54.385Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/83/32/6a271ae29df8030ae51543f3df4a980eca2de5658533c916b0b099f9849a/maldet-1.1.0-py3-none-any.whl", hash = "sha256:37403b88a8a5cadde31b09203cef2abfa0a33bffe7f6f514a7a2a2b947ab571f", size = 37449, upload-time = "2026-04-27T17:56:46.362Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/74/b2ce8d93d5d76194a4268a378c628f3381c098fa70d2aab1bbc812d9e44d/maldet-2.0.0-py3-none-any.whl", hash = "sha256:7d302099e246e2872e6c5f27e885ec7f111bab8fff5c67875b1192e305cbbb79", size = 38880, upload-time = "2026-05-02T03:09:55.657Z" },
 ]
 
 [[package]]

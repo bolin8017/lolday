@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { OpenInMlflowButton } from "@/components/common/OpenInMlflowButton";
 import { useCancelJob } from "@/api/queries/jobs";
 import { useJobQueuePosition } from "@/api/queries/cluster";
 import { isTerminal } from "@/lib/status";
@@ -33,6 +34,12 @@ export function JobDetailShell({
           <StatusBadge status={job.status} />
         </div>
         <div className="flex gap-2">
+          {job.mlflow_run_id && job.mlflow_experiment_id && (
+            <OpenInMlflowButton
+              experimentId={job.mlflow_experiment_id}
+              runId={job.mlflow_run_id}
+            />
+          )}
           <Button
             variant="ghost"
             onClick={() => nav(`/jobs/new?from=${job.id}`)}

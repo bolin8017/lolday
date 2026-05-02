@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router";
+import { useParams } from "react-router";
 import { useJob, useJobLogs } from "@/api/queries/jobs";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LogTail } from "@/components/common/LogTail";
@@ -25,15 +25,6 @@ export default function JobDetailPage() {
           <TabsTrigger value="artifacts" disabled={!job.mlflow_run_id}>
             Artifacts
           </TabsTrigger>
-          {job.mlflow_run_id && (
-            <TabsTrigger value="mlflow" asChild>
-              <Link
-                to={`/runs/${job.mlflow_experiment_id}/${job.mlflow_run_id}`}
-              >
-                Open run ↗
-              </Link>
-            </TabsTrigger>
-          )}
         </TabsList>
 
         <TabsContent value="summary" className="space-y-4">
