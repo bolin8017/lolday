@@ -28,7 +28,8 @@
     "loading": "載入中…",
     "noData": "無資料。",
     "error": "錯誤",
-    "retry": "重試"
+    "retry": "重試",
+    "openInMlflow": "在 MLflow 中開啟"
   },
   "status": {
     "pending": "等待中",

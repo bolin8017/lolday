@@ -28,7 +28,8 @@
     "loading": "Loading…",
     "noData": "No data.",
     "error": "Error",
-    "retry": "Retry"
+    "retry": "Retry",
+    "openInMlflow": "Open in MLflow"
   },
   "status": {
     "pending": "Pending",
