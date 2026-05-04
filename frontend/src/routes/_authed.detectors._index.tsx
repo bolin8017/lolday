@@ -9,6 +9,7 @@ import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
 import { LoldayApiError } from "@/api/errors";
 import { DataTable } from "@/components/tables/DataTable";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -90,7 +91,7 @@ function DetectorRowActions({
 }
 
 const columns: ColumnDef<Detector>[] = [
-  { accessorKey: "display_name", header: "Name" },
+  { accessorKey: "display_name", header: "Name", meta: { cardSlot: "title" } },
   {
     accessorKey: "description",
     header: "Description",
@@ -99,6 +100,7 @@ const columns: ColumnDef<Detector>[] = [
         {row.original.description ?? "—"}
       </span>
     ),
+    meta: { cardLabel: "Description", cardSlot: "body" },
   },
   {
     accessorKey: "git_url",
@@ -106,16 +108,19 @@ const columns: ColumnDef<Detector>[] = [
     cell: ({ row }) => (
       <span className="font-mono text-xs">{row.original.git_url}</span>
     ),
+    meta: { cardLabel: "Git URL", cardSlot: "body" },
   },
   {
     accessorKey: "created_at",
     header: "Created",
     cell: ({ row }) => formatRelative(row.original.created_at),
+    meta: { cardLabel: "Created", cardSlot: "subtitle" },
   },
   {
     id: "actions",
     header: "",
     cell: ({ row }) => <DetectorRowActions detector={row.original} />,
+    meta: { cardSlot: "actions" },
   },
 ];
 
@@ -124,15 +129,17 @@ export default function DetectorsListPage() {
   const items = (data as { items?: Detector[] } | undefined)?.items ?? [];
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Detectors</h1>
-        <Button asChild>
-          <Link to="/detectors/new">
-            <Plus className="mr-2 h-4 w-4" />
-            Register
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="Detectors"
+        actions={
+          <Button asChild>
+            <Link to="/detectors/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Register
+            </Link>
+          </Button>
+        }
+      />
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : (

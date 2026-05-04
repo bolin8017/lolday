@@ -13,6 +13,7 @@ import {
   type RunsStatus,
 } from "@/components/runs/RunsStatusFilter";
 import { OpenInMlflowButton } from "@/components/common/OpenInMlflowButton";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { formatDuration } from "@/lib/date";
 import type { ColumnDef } from "@tanstack/react-table";
 
@@ -104,14 +105,20 @@ export default function RunsListPage() {
           </a>
         );
       },
+      meta: { cardSlot: "title" },
     },
-    { accessorKey: "run_name", header: "Name" },
+    {
+      accessorKey: "run_name",
+      header: "Name",
+      meta: { cardLabel: "Name", cardSlot: "body" },
+    },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => (
         <StatusBadge status={row.original.status.toLowerCase()} />
       ),
+      meta: { cardSlot: "subtitle" },
     },
     {
       id: "duration",
@@ -123,6 +130,7 @@ export default function RunsListPage() {
               new Date(row.original.end_time).toISOString(),
             )
           : "—",
+      meta: { cardLabel: "Duration", cardSlot: "body" },
     },
     ...selectedCols.map((key): ColumnDef<Row> => {
       const [kind, name] = key.split(".", 2);
@@ -135,6 +143,7 @@ export default function RunsListPage() {
           if (v == null) return "—";
           return String(v);
         },
+        meta: { cardLabel: name, cardSlot: "body" },
       };
     }),
   ];
@@ -143,20 +152,22 @@ export default function RunsListPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Runs</h1>
-        <div className="flex items-center gap-2">
-          <RunsStatusFilter value={status} onChange={setStatus} />
-          <RunsColumnPicker
-            experimentId={expId}
-            availableMetrics={availableMetrics}
-            availableParams={availableParams}
-            selected={selectedCols}
-            onChange={setSelectedCols}
-          />
-          <OpenInMlflowButton experimentId={expId} />
-        </div>
-      </div>
+      <PageHeader
+        title="Runs"
+        actions={
+          <>
+            <RunsStatusFilter value={status} onChange={setStatus} />
+            <RunsColumnPicker
+              experimentId={expId}
+              availableMetrics={availableMetrics}
+              availableParams={availableParams}
+              selected={selectedCols}
+              onChange={setSelectedCols}
+            />
+            <OpenInMlflowButton experimentId={expId} />
+          </>
+        }
+      />
       <DataTable
         data={filteredRows}
         columns={columns}

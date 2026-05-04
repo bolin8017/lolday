@@ -6,6 +6,7 @@ import {
 } from "@/api/queries/admin";
 import { useAuth } from "@/hooks/useAuth";
 import { DataTable } from "@/components/tables/DataTable";
+import { PageHeader } from "@/components/layout/PageHeader";
 import {
   Select,
   SelectContent,
@@ -57,13 +58,15 @@ export default function AdminUsersPage() {
 
   if (isError && errorStatus === 403) {
     return (
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">Users</h1>
-        <p className="text-sm text-muted-foreground">
-          Your account does not have admin permission. Ask the lolday operator
-          to upgrade your role (admin → <code>/admin/users</code>).
-        </p>
-      </div>
+      <PageHeader
+        title="Users"
+        description={
+          <>
+            Your account does not have admin permission. Ask the lolday operator
+            to upgrade your role (admin → <code>/admin/users</code>).
+          </>
+        }
+      />
     );
   }
 
@@ -82,11 +85,13 @@ export default function AdminUsersPage() {
           )}
         </span>
       ),
+      meta: { cardSlot: "title" },
     },
     {
       accessorKey: "display_name",
       header: "Display name",
       cell: ({ row }) => row.original.display_name ?? "—",
+      meta: { cardLabel: "Display name", cardSlot: "body" },
     },
     {
       accessorKey: "role",
@@ -94,25 +99,29 @@ export default function AdminUsersPage() {
       cell: ({ row }) => (
         <RoleCell user={row.original} selfId={currentUser?.id ?? null} />
       ),
+      meta: { cardLabel: "Role", cardSlot: "body" },
     },
     {
       accessorKey: "created_at",
       header: "Created",
       cell: ({ row }) =>
         row.original.created_at ? formatRelative(row.original.created_at) : "—",
+      meta: { cardLabel: "Created", cardSlot: "body" },
     },
   ];
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Users</h1>
-        <p className="text-sm text-muted-foreground">
-          Promote lab members to <code>developer</code> (register detectors,
-          submit jobs) or <code>admin</code> (full access). New SSO arrivals
-          default to <code>user</code>.
-        </p>
-      </div>
+      <PageHeader
+        title="Users"
+        description={
+          <>
+            Promote lab members to <code>developer</code> (register detectors,
+            submit jobs) or <code>admin</code> (full access). New SSO arrivals
+            default to <code>user</code>.
+          </>
+        }
+      />
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>
       ) : (

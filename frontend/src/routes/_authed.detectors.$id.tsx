@@ -15,6 +15,7 @@ import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
 import { LoldayApiError } from "@/api/errors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -98,23 +99,26 @@ export default function DetectorDetailPage() {
   const buildsArr = unwrap<BuildRow>(builds);
 
   const versionsCols: ColumnDef<VersionRow>[] = [
-    { accessorKey: "git_tag", header: "Tag" },
+    { accessorKey: "git_tag", header: "Tag", meta: { cardSlot: "title" } },
     {
       accessorKey: "git_sha",
       header: "Commit",
       cell: ({ row }) => (
         <span className="font-mono">{row.original.git_sha.slice(0, 10)}</span>
       ),
+      meta: { cardLabel: "Commit", cardSlot: "body" },
     },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      meta: { cardSlot: "subtitle" },
     },
     {
       accessorKey: "built_at",
       header: "Built",
       cell: ({ row }) => formatRelative(row.original.built_at),
+      meta: { cardLabel: "Built", cardSlot: "body" },
     },
     {
       id: "actions",
@@ -131,26 +135,30 @@ export default function DetectorDetailPage() {
           <VersionDeleteButton detectorId={id} version={row.original} />
         </div>
       ),
+      meta: { cardSlot: "actions" },
     },
   ];
 
   const buildsCols: ColumnDef<BuildRow>[] = [
-    { accessorKey: "git_tag", header: "Tag" },
+    { accessorKey: "git_tag", header: "Tag", meta: { cardSlot: "title" } },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      meta: { cardSlot: "subtitle" },
     },
     {
       accessorKey: "started_at",
       header: "Started",
       cell: ({ row }) => formatRelative(row.original.started_at),
+      meta: { cardLabel: "Started", cardSlot: "body" },
     },
     {
       id: "duration",
       header: "Duration",
       cell: ({ row }) =>
         formatDuration(row.original.started_at, row.original.finished_at),
+      meta: { cardLabel: "Duration", cardSlot: "body" },
     },
     {
       id: "actions",
@@ -187,20 +195,23 @@ export default function DetectorDetailPage() {
           )}
         </div>
       ),
+      meta: { cardSlot: "actions" },
     },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{det.display_name}</h1>
-        <div className="flex items-center gap-2">
-          <DetectorDeleteButton detector={det} />
-          <Link to="/detectors" className="text-sm text-muted-foreground">
-            ← back
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title={det.display_name}
+        actions={
+          <>
+            <DetectorDeleteButton detector={det} />
+            <Link to="/detectors" className="text-sm text-muted-foreground">
+              ← back
+            </Link>
+          </>
+        }
+      />
 
       <Tabs defaultValue="overview">
         <TabsList>
