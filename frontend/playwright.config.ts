@@ -24,8 +24,27 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      // Desktop project ignores the mobile/ subdirectory; iphone-13-mini and
+      // pixel-5 projects scope themselves to it via their own testDir.
+      testIgnore: ["**/mobile/**"],
       use: {
         ...devices["Desktop Chrome"],
+        launchOptions: { args: deployedHostArgs },
+      },
+    },
+    {
+      name: "iphone-13-mini",
+      testDir: "./tests/e2e/mobile",
+      use: {
+        ...devices["iPhone 13 Mini"],
+        launchOptions: { args: deployedHostArgs },
+      },
+    },
+    {
+      name: "pixel-5",
+      testDir: "./tests/e2e/mobile",
+      use: {
+        ...devices["Pixel 5"],
         launchOptions: { args: deployedHostArgs },
       },
     },
