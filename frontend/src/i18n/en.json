@@ -72,5 +72,12 @@
     "light": "Light",
     "dark": "Dark",
     "system": "System"
+  },
+  "table": {
+    "sortBy": "Sort by",
+    "defaultOrder": "Default order",
+    "prev": "Prev",
+    "next": "Next",
+    "pageOf": "Page {{current}} of {{total}}"
   }
 }

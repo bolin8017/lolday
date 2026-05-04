@@ -9,6 +9,15 @@
  */
 import "@tanstack/react-table";
 
+/**
+ * Slot a column occupies in the mobile card layout.
+ *
+ * Exported so `CardList.tsx` and `MobileSortBar.tsx` share a single source of
+ * truth — adding a slot here is a TS error in every consumer that branches on
+ * the value, preventing drift between the augmentation and the rendering code.
+ */
+export type CardSlot = "title" | "subtitle" | "body" | "actions" | "hidden";
+
 declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- TData/TValue match TanStack's own ColumnMeta<TData, TValue> signature; required for module augmentation
   interface ColumnMeta<TData, TValue> {
@@ -21,9 +30,15 @@ declare module "@tanstack/react-table" {
      * - `body`: label/value row in the card body (default for unmarked columns)
      * - `actions`: icon-button slot at top-right (e.g. row dropdown trigger)
      * - `hidden`: omit from card entirely (e.g. id columns visible only on desktop)
+     *
+     * @default "body"
      */
-    cardSlot?: "title" | "subtitle" | "body" | "actions" | "hidden";
-    /** Override the body slot ordering. Lower values render first. Defaults to column array order. */
+    cardSlot?: CardSlot;
+    /**
+     * Override the body slot ordering. Lower values render first. Defaults to
+     * column array order. Applies to `body` slot only — ignored for
+     * `title` / `subtitle` / `actions` / `hidden`.
+     */
     cardOrder?: number;
   }
 }

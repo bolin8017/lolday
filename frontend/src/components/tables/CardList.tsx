@@ -1,8 +1,10 @@
+import type { MouseEvent } from "react";
 import {
   flexRender,
   type Cell,
   type Table as ReactTable,
 } from "@tanstack/react-table";
+import type { CardSlot } from "./types";
 import { cn } from "@/lib/cn";
 
 interface Props<T> {
@@ -11,10 +13,14 @@ interface Props<T> {
   onRowClick?: (row: T) => void;
 }
 
-type Slot = "title" | "subtitle" | "body" | "actions" | "hidden";
+// Selectors used to detect "the user clicked an interactive widget inside the
+// card body" — when this matches, swallow the row-level navigation. Mirrors
+// the pattern used by GitHub / Linear / Vercel's mobile lists.
+const INTERACTIVE_SELECTOR =
+  'a, button, input, select, textarea, [role="button"], [role="combobox"], [role="menuitem"], [role="checkbox"], [role="switch"], [role="link"]';
 
-function slotOf<T>(cell: Cell<T, unknown>): Slot {
-  return (cell.column.columnDef.meta?.cardSlot as Slot | undefined) ?? "body";
+function slotOf<T>(cell: Cell<T, unknown>): CardSlot {
+  return cell.column.columnDef.meta?.cardSlot ?? "body";
 }
 
 function labelOf<T>(cell: Cell<T, unknown>): string | null {
@@ -36,6 +42,9 @@ export function CardList<T>({ table, emptyMessage, onRowClick }: Props<T>) {
   return (
     <div className="flex flex-col gap-2">
       {rows.map((row) => {
+        // Bucket cells by slot. Unknown / `hidden` cells fall through and are
+        // never rendered; this is now codified rather than relying on
+        // happy-accident filtering.
         const cells = row.getVisibleCells();
         const titleCell = cells.find((c) => slotOf(c) === "title");
         const subtitleCell = cells.find((c) => slotOf(c) === "subtitle");
@@ -48,13 +57,21 @@ export function CardList<T>({ table, emptyMessage, onRowClick }: Props<T>) {
             return ao - bo;
           });
 
+        // Card-level click navigates, but interactive descendants (Select,
+        // Button, Link, Checkbox, etc.) keep their own handlers. closest()
+        // covers any slot — no per-slot stopPropagation wiring needed.
         const handleClick = onRowClick
-          ? () => onRowClick(row.original)
+          ? (e: MouseEvent<HTMLDivElement>) => {
+              const target = e.target as HTMLElement;
+              if (target.closest(INTERACTIVE_SELECTOR)) return;
+              onRowClick(row.original);
+            }
           : undefined;
 
         return (
           <div
             key={row.id}
+            data-testid="card-list-row"
             onClick={handleClick}
             className={cn(
               "rounded-lg border bg-card p-3 shadow-sm",
@@ -81,6 +98,11 @@ export function CardList<T>({ table, emptyMessage, onRowClick }: Props<T>) {
                 )}
               </div>
               {actionsCell && (
+                // Defense-in-depth: even though the card-level handler ignores
+                // clicks on interactive descendants, the actions slot
+                // explicitly stops propagation so a non-interactive wrapper
+                // around the action (e.g. a tooltip span) cannot accidentally
+                // trigger onRowClick.
                 <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                   {flexRender(
                     actionsCell.column.columnDef.cell,

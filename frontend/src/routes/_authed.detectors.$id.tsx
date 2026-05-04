@@ -15,6 +15,7 @@ import { DeleteConfirmDialog } from "@/components/common/DeleteConfirmDialog";
 import { detailToDeleteBanner } from "@/components/common/deleteErrorBanner";
 import { LoldayApiError } from "@/api/errors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -200,15 +201,17 @@ export default function DetectorDetailPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{det.display_name}</h1>
-        <div className="flex items-center gap-2">
-          <DetectorDeleteButton detector={det} />
-          <Link to="/detectors" className="text-sm text-muted-foreground">
-            ← back
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title={det.display_name}
+        actions={
+          <>
+            <DetectorDeleteButton detector={det} />
+            <Link to="/detectors" className="text-sm text-muted-foreground">
+              ← back
+            </Link>
+          </>
+        }
+      />
 
       <Tabs defaultValue="overview">
         <TabsList>

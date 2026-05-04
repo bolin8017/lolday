@@ -58,13 +58,15 @@ export default function AdminUsersPage() {
 
   if (isError && errorStatus === 403) {
     return (
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold">Users</h1>
-        <p className="text-sm text-muted-foreground">
-          Your account does not have admin permission. Ask the lolday operator
-          to upgrade your role (admin → <code>/admin/users</code>).
-        </p>
-      </div>
+      <PageHeader
+        title="Users"
+        description={
+          <>
+            Your account does not have admin permission. Ask the lolday operator
+            to upgrade your role (admin → <code>/admin/users</code>).
+          </>
+        }
+      />
     );
   }
 
