@@ -22,6 +22,10 @@ interface Props {
 }
 
 export function ConfusionMatrix({ labels, matrix }: Props) {
+  // Outer overflow-x-auto: the grid below uses `inline-block` + per-column
+  // `minmax(4rem, 1fr)` template, so on narrow viewports a multi-class matrix
+  // would clip rather than scroll. Wrapping in overflow-x-auto preserves the
+  // grid's natural width and lets the user scroll horizontally on phones.
   return (
     <div className="overflow-x-auto">
       <div className="inline-block">

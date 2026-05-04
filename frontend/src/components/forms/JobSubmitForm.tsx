@@ -27,6 +27,7 @@ import {
 import { requiredFieldsForType } from "./JobSubmitForm.logic";
 import { RjsfConfigForm } from "./RjsfConfigForm";
 import { StageExplainer } from "./StageExplainer";
+import { StickyFormFooter } from "./StickyFormFooter";
 
 export function JobSubmitForm() {
   const [params] = useSearchParams();
@@ -131,7 +132,7 @@ export function JobSubmitForm() {
           <CardTitle>Job type</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+          <div className="flex flex-wrap gap-2">
             {JOB_TYPES.map((t) => (
               <Button
                 key={t}
@@ -318,7 +319,7 @@ export function JobSubmitForm() {
       </Card>
 
       {submitError && <p className="text-sm text-destructive">{submitError}</p>}
-      <div className="sticky bottom-0 -mx-4 flex justify-end gap-2 border-t bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:pb-3">
+      <StickyFormFooter>
         <Button variant="ghost" onClick={() => nav(-1)} className="h-11">
           Cancel
         </Button>
@@ -329,7 +330,7 @@ export function JobSubmitForm() {
         >
           Submit job
         </Button>
-      </div>
+      </StickyFormFooter>
     </div>
   );
 }

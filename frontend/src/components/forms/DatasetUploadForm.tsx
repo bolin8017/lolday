@@ -14,6 +14,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { applyFieldErrorsToForm } from "@/lib/errors";
 import type { LoldayApiError } from "@/api/errors";
+import { StickyFormFooter } from "./StickyFormFooter";
 
 const schema = z.object({
   name: z.string().min(1).max(100),
@@ -170,7 +171,7 @@ export function DatasetUploadForm() {
         )}
       </div>
 
-      <div className="sticky bottom-0 -mx-4 flex justify-end border-t bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:pb-3">
+      <StickyFormFooter>
         <Button
           type="submit"
           disabled={isSubmitting || !!parseError}
@@ -178,7 +179,7 @@ export function DatasetUploadForm() {
         >
           Upload dataset
         </Button>
-      </div>
+      </StickyFormFooter>
     </form>
   );
 }

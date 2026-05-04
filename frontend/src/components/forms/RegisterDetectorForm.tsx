@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { applyFieldErrorsToForm } from "@/lib/errors";
 import type { LoldayApiError } from "@/api/errors";
+import { StickyFormFooter } from "./StickyFormFooter";
 
 const schema = z.object({
   name: z
@@ -77,11 +78,11 @@ export function RegisterDetectorForm() {
         <Label htmlFor="description">Description</Label>
         <Textarea id="description" rows={3} {...register("description")} />
       </div>
-      <div className="sticky bottom-0 -mx-4 flex justify-end border-t bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:pb-3">
+      <StickyFormFooter>
         <Button type="submit" disabled={isSubmitting} className="h-11">
           Register detector
         </Button>
-      </div>
+      </StickyFormFooter>
     </form>
   );
 }

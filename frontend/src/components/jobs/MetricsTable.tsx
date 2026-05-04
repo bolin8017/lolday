@@ -37,7 +37,7 @@ export function MetricsTable({ metrics }: { metrics: Record<string, number> }) {
   const ordered = [...standard, ...rest];
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
       {ordered.map(([k, v]) => (
         <Card key={k} data-testid="metric-card" data-name={k}>
           <CardContent className="p-4">

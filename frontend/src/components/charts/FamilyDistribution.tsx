@@ -17,7 +17,7 @@ export function FamilyDistribution({ data }: { data: Record<string, number> }) {
     return <p className="text-muted-foreground">No family data.</p>;
   return (
     <div style={{ width: "100%", height: 300 }}>
-      <ResponsiveContainer width="100%" height={240}>
+      <ResponsiveContainer width="100%" height="100%">
         <BarChart data={top} layout="vertical" margin={{ left: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis type="number" />
