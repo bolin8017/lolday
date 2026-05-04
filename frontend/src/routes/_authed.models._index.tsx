@@ -4,6 +4,7 @@ import {
   type RegisteredModel,
 } from "@/api/queries/models";
 import { DataTable } from "@/components/tables/DataTable";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import type { ColumnDef } from "@tanstack/react-table";
 
@@ -21,8 +22,13 @@ const columns: ColumnDef<RegisteredModel>[] = [
         {row.original.name}
       </Link>
     ),
+    meta: { cardSlot: "title" },
   },
-  { accessorKey: "latest_version", header: "Latest version" },
+  {
+    accessorKey: "latest_version",
+    header: "Latest version",
+    meta: { cardLabel: "Latest", cardSlot: "body" },
+  },
   {
     id: "staging",
     header: "Staging",
@@ -34,6 +40,7 @@ const columns: ColumnDef<RegisteredModel>[] = [
       ) : (
         <span className="text-muted-foreground">—</span>
       ),
+    meta: { cardLabel: "Staging", cardSlot: "body" },
   },
   {
     id: "prod",
@@ -46,6 +53,7 @@ const columns: ColumnDef<RegisteredModel>[] = [
       ) : (
         <span className="text-muted-foreground">—</span>
       ),
+    meta: { cardLabel: "Production", cardSlot: "body" },
   },
 ];
 
@@ -54,7 +62,7 @@ export default function ModelsListPage() {
   if (isLoading) return <p className="text-muted-foreground">Loading…</p>;
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Models</h1>
+      <PageHeader title="Models" />
       <DataTable
         data={data ?? []}
         columns={columns}
