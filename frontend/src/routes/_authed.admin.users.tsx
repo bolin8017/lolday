@@ -89,7 +89,7 @@ export default function AdminUsersPage() {
       accessorKey: "display_name",
       header: "Display name",
       cell: ({ row }) => row.original.display_name ?? "—",
-      meta: { cardLabel: "Name", cardSlot: "body" },
+      meta: { cardLabel: "Display name", cardSlot: "body" },
     },
     {
       accessorKey: "role",
@@ -97,7 +97,7 @@ export default function AdminUsersPage() {
       cell: ({ row }) => (
         <RoleCell user={row.original} selfId={currentUser?.id ?? null} />
       ),
-      meta: { cardSlot: "subtitle" },
+      meta: { cardLabel: "Role", cardSlot: "body" },
     },
     {
       accessorKey: "created_at",
