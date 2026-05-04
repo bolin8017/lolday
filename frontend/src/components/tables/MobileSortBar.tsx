@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   type Table as ReactTable,
   type SortingState,
@@ -16,6 +17,8 @@ interface Props<T> {
 }
 
 export function MobileSortBar<T>({ table }: Props<T>) {
+  const uid = useId();
+  const triggerId = `mobile-sort-${uid}`;
   const sortable = table.getAllColumns().filter((c) => c.getCanSort());
   if (sortable.length === 0) return null;
 
@@ -25,7 +28,7 @@ export function MobileSortBar<T>({ table }: Props<T>) {
   return (
     <div className="flex items-center gap-2">
       <Label
-        htmlFor="mobile-sort"
+        htmlFor={triggerId}
         className="shrink-0 text-xs text-muted-foreground"
       >
         Sort by
@@ -37,7 +40,7 @@ export function MobileSortBar<T>({ table }: Props<T>) {
           table.setSorting(next);
         }}
       >
-        <SelectTrigger id="mobile-sort" className="h-9" aria-label="Sort by">
+        <SelectTrigger id={triggerId} className="h-9" aria-label="Sort by">
           <SelectValue placeholder="Default order" />
         </SelectTrigger>
         <SelectContent>

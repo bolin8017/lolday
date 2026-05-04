@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   getCoreRowModel,
@@ -41,21 +41,10 @@ describe("MobileSortBar", () => {
     const user = userEvent.setup();
     const { getByLabelText } = render(<Harness />);
     await user.click(getByLabelText(/sort by/i));
-    // Radix Select content portal renders into document.body
-    const options = await new Promise<HTMLElement[]>((resolve) => {
-      // Wait a tick for the portal to mount
-      setTimeout(() => {
-        const items = Array.from(
-          document.body.querySelectorAll('[role="option"]'),
-        ) as HTMLElement[];
-        resolve(items);
-      }, 50);
-    });
+    const options = await screen.findAllByRole("option");
     const labels = options.map((el) => el.textContent ?? "").filter(Boolean);
     expect(labels).toContain("Name");
     expect(labels).toContain("Age");
-    // The unsortable "actions" column must NOT appear
-    expect(labels).not.toContain("");
     expect(labels.length).toBe(2);
   });
 });
