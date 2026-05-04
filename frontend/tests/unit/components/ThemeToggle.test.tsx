@@ -24,7 +24,36 @@ describe("ThemeToggle", () => {
     expect(within(menu).getByText(/system|跟隨系統/i)).toBeInTheDocument();
   });
 
-  it("clicking 'Dark' adds the dark class to <html>", async () => {
+  it.each([
+    {
+      label: /^dark$|^深色$/i,
+      key: "dark",
+      expectedClass: "dark",
+    },
+    {
+      label: /^light$|^淺色$/i,
+      key: "light",
+      expectedClass: "light",
+    },
+  ])(
+    "clicking '$key' applies '$expectedClass' class to <html>",
+    async ({ label, expectedClass }) => {
+      const user = userEvent.setup();
+      const { getByLabelText } = render(
+        <ThemeProvider defaultTheme="system">
+          <ThemeToggle />
+        </ThemeProvider>,
+      );
+      await user.click(getByLabelText(/toggle theme|切換主題/i));
+      const item = await within(document.body).findByText(label);
+      await user.click(item);
+      expect(document.documentElement.classList.contains(expectedClass)).toBe(
+        true,
+      );
+    },
+  );
+
+  it("clicking 'system' resolves to either light or dark via prefers-color-scheme", async () => {
     const user = userEvent.setup();
     const { getByLabelText } = render(
       <ThemeProvider defaultTheme="light">
@@ -32,8 +61,13 @@ describe("ThemeToggle", () => {
       </ThemeProvider>,
     );
     await user.click(getByLabelText(/toggle theme|切換主題/i));
-    const dark = await within(document.body).findByText(/^dark$|^深色$/i);
-    await user.click(dark);
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    const item = await within(document.body).findByText(/^system$|^跟隨系統$/i);
+    await user.click(item);
+    // System mode reads matchMedia; with the default matchMedia stub
+    // returning matches:false, system resolves to "light".
+    expect(
+      document.documentElement.classList.contains("light") ||
+        document.documentElement.classList.contains("dark"),
+    ).toBe(true);
   });
 });

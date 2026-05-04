@@ -3,6 +3,11 @@ import type { ReactNode } from "react";
 
 export type Theme = "light" | "dark" | "system";
 
+const THEMES = ["light", "dark", "system"] as const;
+function isTheme(v: unknown): v is Theme {
+  return typeof v === "string" && (THEMES as readonly string[]).includes(v);
+}
+
 interface ThemeContextValue {
   theme: Theme;
   setTheme: (t: Theme) => void;
@@ -23,7 +28,8 @@ export function ThemeProvider({
 }: Props) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === "undefined") return defaultTheme;
-    return (localStorage.getItem(storageKey) as Theme) || defaultTheme;
+    const stored = localStorage.getItem(storageKey);
+    return isTheme(stored) ? stored : defaultTheme;
   });
 
   useEffect(() => {
@@ -51,7 +57,14 @@ export function ThemeProvider({
   }, [theme]);
 
   const setTheme = (next: Theme) => {
-    localStorage.setItem(storageKey, next);
+    // Persistence is best-effort: Safari Private mode + storage-quota-exceeded
+    // throw on setItem. Keep the in-memory toggle working so the user is not
+    // locked out of theme switching.
+    try {
+      localStorage.setItem(storageKey, next);
+    } catch (err) {
+      console.warn("ThemeProvider: localStorage.setItem failed", err);
+    }
     setThemeState(next);
   };
 
