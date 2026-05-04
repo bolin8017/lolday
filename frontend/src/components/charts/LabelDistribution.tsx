@@ -18,7 +18,7 @@ export function LabelDistribution({ data }: { data: Record<string, number> }) {
     return <p className="text-muted-foreground">No label data.</p>;
   return (
     <div style={{ width: "100%", height: 260 }}>
-      <ResponsiveContainer>
+      <ResponsiveContainer width="100%" height={240}>
         <PieChart>
           <Pie
             data={entries}
@@ -32,7 +32,7 @@ export function LabelDistribution({ data }: { data: Record<string, number> }) {
             ))}
           </Pie>
           <Tooltip />
-          <Legend />
+          <Legend verticalAlign="bottom" height={36} />
         </PieChart>
       </ResponsiveContainer>
     </div>
