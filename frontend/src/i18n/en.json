@@ -10,7 +10,8 @@
     "models": "Models",
     "profile": "Profile",
     "logout": "Log out",
-    "admin": "Admin"
+    "admin": "Admin",
+    "menu": "Open menu"
   },
   "login": {
     "title": "Sign in to Lolday",
@@ -65,5 +66,11 @@
     },
     "required": "required",
     "optional": "optional"
+  },
+  "theme": {
+    "toggle": "Toggle theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
   }
 }
