@@ -85,4 +85,40 @@ describe("CardList", () => {
     const { getByText } = render(<EmptyHarness />);
     expect(getByText("Nothing here")).toBeInTheDocument();
   });
+
+  it("clicking the actions cell does not invoke onRowClick", () => {
+    const rowHandler = vi.fn();
+    const actionHandler = vi.fn();
+    const columnsWithActions: ColumnDef<Job>[] = [
+      {
+        accessorKey: "type",
+        header: "Type",
+        meta: { cardSlot: "title" },
+      },
+      {
+        id: "actions",
+        header: "",
+        cell: () => <button onClick={actionHandler}>Delete</button>,
+        meta: { cardSlot: "actions" },
+      },
+    ];
+    function HarnessWithActions() {
+      const table = useReactTable({
+        data,
+        columns: columnsWithActions,
+        getCoreRowModel: getCoreRowModel(),
+      });
+      return (
+        <CardList
+          table={table}
+          emptyMessage="No jobs"
+          onRowClick={rowHandler}
+        />
+      );
+    }
+    const { getAllByText } = render(<HarnessWithActions />);
+    fireEvent.click(getAllByText("Delete")[0]);
+    expect(actionHandler).toHaveBeenCalled();
+    expect(rowHandler).not.toHaveBeenCalled();
+  });
 });

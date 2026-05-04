@@ -17,7 +17,7 @@ declare module "@tanstack/react-table" {
     /**
      * Where to place this column in the mobile card layout:
      * - `title`: large header text at top-left
-     * - `subtitle`: small text at top-right (status / type chips)
+     * - `subtitle`: small muted text rendered inline after the title (status / type chips)
      * - `body`: label/value row in the card body (default for unmarked columns)
      * - `actions`: icon-button slot at top-right (e.g. row dropdown trigger)
      * - `hidden`: omit from card entirely (e.g. id columns visible only on desktop)
