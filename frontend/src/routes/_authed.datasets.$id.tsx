@@ -40,7 +40,7 @@ export default function DatasetDetailPage() {
         <CardHeader>
           <CardTitle>Metadata</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 text-sm">
+        <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <div>
             <span className="text-muted-foreground">Visibility:</span>{" "}
             <Badge>{data.visibility}</Badge>
