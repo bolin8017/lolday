@@ -7,14 +7,15 @@ import { cleanup } from "@testing-library/react";
 // crashing with NO_I18NEXT_INSTANCE / `i18n.exists is not a function`.
 import "@/i18n";
 
-// Radix UI primitives (DropdownMenu, Dialog, Popover …) rely on PointerEvent
-// and pointer-capture APIs that jsdom does not implement. Alias them to
-// MouseEvent so that fireEvent.click correctly opens/closes Radix portals.
-// Reference: https://github.com/radix-ui/primitives/issues/1342
+// Radix UI primitives use PointerEvent + pointer capture APIs that jsdom does not
+// implement. See radix-ui/primitives#1342.
 window.PointerEvent = MouseEvent as typeof PointerEvent;
-window.HTMLElement.prototype.scrollIntoView = () => {};
-window.HTMLElement.prototype.hasPointerCapture = () => false;
+window.HTMLElement.prototype.hasPointerCapture = () => false; // jsdom: no pointer capture; Radix only checks the boolean.
 window.HTMLElement.prototype.releasePointerCapture = () => {};
 window.HTMLElement.prototype.setPointerCapture = () => {};
+
+// jsdom does not implement scrollIntoView. Stubbed so components that auto-scroll
+// (e.g. focused list items, command palettes) do not throw "not implemented" warnings.
+window.HTMLElement.prototype.scrollIntoView = () => {};
 
 afterEach(() => cleanup());
