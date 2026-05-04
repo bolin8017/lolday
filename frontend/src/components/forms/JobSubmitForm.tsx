@@ -131,12 +131,13 @@ export function JobSubmitForm() {
           <CardTitle>Job type</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
             {JOB_TYPES.map((t) => (
               <Button
                 key={t}
                 variant={t === type ? "default" : "outline"}
                 onClick={() => setType(t)}
+                className="h-11"
               >
                 {t.charAt(0).toUpperCase() + t.slice(1)}
               </Button>
@@ -317,11 +318,15 @@ export function JobSubmitForm() {
       </Card>
 
       {submitError && <p className="text-sm text-destructive">{submitError}</p>}
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={() => nav(-1)}>
+      <div className="sticky bottom-0 -mx-4 flex justify-end gap-2 border-t bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:pb-3">
+        <Button variant="ghost" onClick={() => nav(-1)} className="h-11">
           Cancel
         </Button>
-        <Button disabled={!canSubmit || mut.isPending} onClick={submit}>
+        <Button
+          disabled={!canSubmit || mut.isPending}
+          onClick={submit}
+          className="h-11"
+        >
           Submit job
         </Button>
       </div>

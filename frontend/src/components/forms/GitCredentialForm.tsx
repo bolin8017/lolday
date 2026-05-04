@@ -43,12 +43,17 @@ export function GitCredentialForm() {
             GitHub PAT is set (masked). Needed for detector builds.
           </AlertDescription>
         </Alert>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setEditing(true)}>
+        <div className="sticky bottom-0 -mx-4 flex justify-end gap-2 border-t bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:pb-3">
+          <Button
+            variant="secondary"
+            onClick={() => setEditing(true)}
+            className="h-11"
+          >
             Update
           </Button>
           <Button
             variant="destructive"
+            className="h-11"
             onClick={async () => {
               await clearCred.mutateAsync();
               toast({ title: "Credential cleared." });
@@ -83,19 +88,20 @@ export function GitCredentialForm() {
           <p className="text-xs text-destructive">{errors.token.message}</p>
         )}
       </div>
-      <div className="flex gap-2">
-        <Button type="submit" disabled={isSubmitting}>
-          Save
-        </Button>
+      <div className="sticky bottom-0 -mx-4 flex justify-end gap-2 border-t bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:pb-3">
         {editing && (
           <Button
             type="button"
             variant="ghost"
+            className="h-11"
             onClick={() => setEditing(false)}
           >
             Cancel
           </Button>
         )}
+        <Button type="submit" disabled={isSubmitting} className="h-11">
+          Save
+        </Button>
       </div>
     </form>
   );

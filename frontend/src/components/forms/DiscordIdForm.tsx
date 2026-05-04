@@ -66,9 +66,11 @@ export function DiscordIdForm() {
           (you'll still see your name as plain text).
         </p>
       </div>
-      <Button type="submit" disabled={isSubmitting}>
-        Save
-      </Button>
+      <div className="sticky bottom-0 -mx-4 flex justify-end border-t bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:pb-3">
+        <Button type="submit" disabled={isSubmitting} className="h-11">
+          Save
+        </Button>
+      </div>
     </form>
   );
 }

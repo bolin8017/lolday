@@ -142,35 +142,43 @@ export function DatasetUploadForm() {
             <p className="text-muted-foreground mb-1">
               Preview ({preview.rows.length} of {preview.totalRows} rows)
             </p>
-            <table className="w-full">
-              <thead>
-                <tr>
-                  {preview.columns.map((c) => (
-                    <th key={c} className="text-left">
-                      {c}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.rows.map((r, i) => (
-                  <tr key={i}>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
                     {preview.columns.map((c) => (
-                      <td key={c} className="truncate">
-                        {r[c]}
-                      </td>
+                      <th key={c} className="text-left">
+                        {c}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {preview.rows.map((r, i) => (
+                    <tr key={i}>
+                      {preview.columns.map((c) => (
+                        <td key={c} className="truncate">
+                          {r[c]}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
 
-      <Button type="submit" disabled={isSubmitting || !!parseError}>
-        Upload dataset
-      </Button>
+      <div className="sticky bottom-0 -mx-4 flex justify-end border-t bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:pb-3">
+        <Button
+          type="submit"
+          disabled={isSubmitting || !!parseError}
+          className="h-11"
+        >
+          Upload dataset
+        </Button>
+      </div>
     </form>
   );
 }
