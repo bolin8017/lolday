@@ -14,6 +14,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { applyFieldErrorsToForm } from "@/lib/errors";
 import type { LoldayApiError } from "@/api/errors";
+import { StickyFormFooter } from "./StickyFormFooter";
 
 const schema = z.object({
   name: z.string().min(1).max(100),
@@ -142,35 +143,43 @@ export function DatasetUploadForm() {
             <p className="text-muted-foreground mb-1">
               Preview ({preview.rows.length} of {preview.totalRows} rows)
             </p>
-            <table className="w-full">
-              <thead>
-                <tr>
-                  {preview.columns.map((c) => (
-                    <th key={c} className="text-left">
-                      {c}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.rows.map((r, i) => (
-                  <tr key={i}>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
                     {preview.columns.map((c) => (
-                      <td key={c} className="truncate">
-                        {r[c]}
-                      </td>
+                      <th key={c} className="text-left">
+                        {c}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {preview.rows.map((r, i) => (
+                    <tr key={i}>
+                      {preview.columns.map((c) => (
+                        <td key={c} className="truncate">
+                          {r[c]}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
 
-      <Button type="submit" disabled={isSubmitting || !!parseError}>
-        Upload dataset
-      </Button>
+      <StickyFormFooter>
+        <Button
+          type="submit"
+          disabled={isSubmitting || !!parseError}
+          className="h-11"
+        >
+          Upload dataset
+        </Button>
+      </StickyFormFooter>
     </form>
   );
 }

@@ -106,7 +106,12 @@ const columns: ColumnDef<Detector>[] = [
     accessorKey: "git_url",
     header: "Git URL",
     cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.git_url}</span>
+      <span
+        className="block max-w-full truncate font-mono text-xs"
+        title={row.original.git_url}
+      >
+        {row.original.git_url}
+      </span>
     ),
     meta: { cardLabel: "Git URL", cardSlot: "body" },
   },

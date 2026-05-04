@@ -71,3 +71,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+.rjsf-wrap {
+  & input,
+  & textarea,
+  & select {
+    width: 100%;
+  }
+  & .array-item-toolbox {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  @media (max-width: 767px) {
+    & label {
+      font-size: 0.8125rem;
+    }
+  }
+}

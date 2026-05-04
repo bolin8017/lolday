@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { StickyFormFooter } from "./StickyFormFooter";
 
 const schema = z.object({
   token: z.string().min(20, "Looks too short for a PAT"),
@@ -43,12 +44,17 @@ export function GitCredentialForm() {
             GitHub PAT is set (masked). Needed for detector builds.
           </AlertDescription>
         </Alert>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setEditing(true)}>
+        <StickyFormFooter>
+          <Button
+            variant="secondary"
+            onClick={() => setEditing(true)}
+            className="h-11"
+          >
             Update
           </Button>
           <Button
             variant="destructive"
+            className="h-11"
             onClick={async () => {
               await clearCred.mutateAsync();
               toast({ title: "Credential cleared." });
@@ -56,7 +62,7 @@ export function GitCredentialForm() {
           >
             Clear
           </Button>
-        </div>
+        </StickyFormFooter>
       </div>
     );
   }
@@ -83,20 +89,21 @@ export function GitCredentialForm() {
           <p className="text-xs text-destructive">{errors.token.message}</p>
         )}
       </div>
-      <div className="flex gap-2">
-        <Button type="submit" disabled={isSubmitting}>
-          Save
-        </Button>
+      <StickyFormFooter>
         {editing && (
           <Button
             type="button"
             variant="ghost"
+            className="h-11"
             onClick={() => setEditing(false)}
           >
             Cancel
           </Button>
         )}
-      </div>
+        <Button type="submit" disabled={isSubmitting} className="h-11">
+          Save
+        </Button>
+      </StickyFormFooter>
     </form>
   );
 }

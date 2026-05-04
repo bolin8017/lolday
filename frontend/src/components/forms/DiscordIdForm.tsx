@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { StickyFormFooter } from "./StickyFormFooter";
 
 const schema = z.object({
   discord_user_id: z
@@ -66,9 +67,11 @@ export function DiscordIdForm() {
           (you'll still see your name as plain text).
         </p>
       </div>
-      <Button type="submit" disabled={isSubmitting}>
-        Save
-      </Button>
+      <StickyFormFooter>
+        <Button type="submit" disabled={isSubmitting} className="h-11">
+          Save
+        </Button>
+      </StickyFormFooter>
     </form>
   );
 }

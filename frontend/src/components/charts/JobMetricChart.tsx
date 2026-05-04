@@ -43,7 +43,7 @@ export function JobMetricChart({ events }: { events: MaldetEvent[] }) {
         <XAxis dataKey="step" />
         <YAxis />
         <Tooltip />
-        <Legend />
+        <Legend verticalAlign="bottom" height={36} />
         {[...metrics].map((m, i) => (
           <Line
             key={m}

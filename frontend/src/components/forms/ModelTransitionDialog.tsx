@@ -94,11 +94,16 @@ export function ModelTransitionDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
+          <Button
+            variant="ghost"
+            className="h-11"
+            onClick={() => setOpen(false)}
+          >
             Cancel
           </Button>
           <Button
             disabled={mut.isPending}
+            className="h-11"
             onClick={async () => {
               await mut.mutateAsync({ version, target_stage: target, comment });
               setOpen(false);

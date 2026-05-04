@@ -27,6 +27,7 @@ import {
 import { requiredFieldsForType } from "./JobSubmitForm.logic";
 import { RjsfConfigForm } from "./RjsfConfigForm";
 import { StageExplainer } from "./StageExplainer";
+import { StickyFormFooter } from "./StickyFormFooter";
 
 export function JobSubmitForm() {
   const [params] = useSearchParams();
@@ -131,12 +132,13 @@ export function JobSubmitForm() {
           <CardTitle>Job type</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {JOB_TYPES.map((t) => (
               <Button
                 key={t}
                 variant={t === type ? "default" : "outline"}
                 onClick={() => setType(t)}
+                className="h-11"
               >
                 {t.charAt(0).toUpperCase() + t.slice(1)}
               </Button>
@@ -317,14 +319,18 @@ export function JobSubmitForm() {
       </Card>
 
       {submitError && <p className="text-sm text-destructive">{submitError}</p>}
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={() => nav(-1)}>
+      <StickyFormFooter>
+        <Button variant="ghost" onClick={() => nav(-1)} className="h-11">
           Cancel
         </Button>
-        <Button disabled={!canSubmit || mut.isPending} onClick={submit}>
+        <Button
+          disabled={!canSubmit || mut.isPending}
+          onClick={submit}
+          className="h-11"
+        >
           Submit job
         </Button>
-      </div>
+      </StickyFormFooter>
     </div>
   );
 }
