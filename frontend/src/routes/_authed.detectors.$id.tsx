@@ -232,7 +232,9 @@ export default function DetectorDetailPage() {
               </div>
               <div>
                 <span className="text-muted-foreground">Git URL:</span>{" "}
-                <code>{det.git_url}</code>
+                <code className="block max-w-full truncate" title={det.git_url}>
+                  {det.git_url}
+                </code>
               </div>
               <div>
                 <span className="text-muted-foreground">Description:</span>{" "}
