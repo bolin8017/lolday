@@ -28,6 +28,7 @@ declare module "@tanstack/react-table" {
   }
 }
 
-// Re-export ColumnDef so consumers can import everything from this file
-// when they want the typed meta in scope.
+// `export type {}` makes TypeScript treat this file as an ES module (not a
+// global ambient script), which is required for `declare module` augmentation
+// to merge into the correct module scope.
 export type {} from "@tanstack/react-table";

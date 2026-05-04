@@ -47,7 +47,7 @@ export function DesktopTable<T>({ table, emptyMessage, onRowClick }: Props<T>) {
           {table.getRowModel().rows.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={table.getAllColumns().length}
+                colSpan={table.getVisibleLeafColumns().length}
                 className="h-24 text-center text-muted-foreground"
               >
                 {emptyMessage}
