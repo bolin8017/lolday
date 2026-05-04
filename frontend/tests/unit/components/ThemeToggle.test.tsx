@@ -1,25 +1,12 @@
 import { render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 beforeEach(() => {
   localStorage.clear();
   document.documentElement.classList.remove("light", "dark");
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: vi.fn().mockReturnValue({
-      matches: false,
-      media: "",
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: () => true,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-    }),
-  });
 });
 
 describe("ThemeToggle", () => {

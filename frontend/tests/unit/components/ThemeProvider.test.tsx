@@ -26,19 +26,6 @@ describe("ThemeProvider", () => {
   beforeEach(() => {
     localStorage.clear();
     document.documentElement.classList.remove("light", "dark");
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn().mockImplementation(() => ({
-        matches: false,
-        media: "",
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: () => true,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-      })),
-    });
   });
 
   it("uses default theme when localStorage is empty", () => {

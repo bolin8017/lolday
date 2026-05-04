@@ -81,10 +81,7 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={() => logout()}
-              tooltip={t("nav.logout")}
-            >
+            <SidebarMenuButton onClick={logout} tooltip={t("nav.logout")}>
               <LogOut />
               <span>{t("nav.logout")}</span>
             </SidebarMenuButton>
