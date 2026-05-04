@@ -390,68 +390,100 @@ grep -n '"theme"' src/i18n/en.json src/i18n/zh-TW.json
 
 Expected: no results (keys do not yet exist).
 
-Edit `src/i18n/en.json` — append to the top-level object before the closing `}`:
+Edit `src/i18n/en.json`:
 
-```json
-  "theme": {
-    "toggle": "Toggle theme",
-    "light": "Light",
-    "dark": "Dark",
-    "system": "System"
-  },
-  "nav": { ... existing keys ..., "menu": "Open menu" }
-```
+1. Append a new top-level `"theme"` object (before the closing `}`):
 
-For `nav.menu`, add the key inside the existing `nav` block.
+   ```json
+     "theme": {
+       "toggle": "Toggle theme",
+       "light": "Light",
+       "dark": "Dark",
+       "system": "System"
+     }
+   ```
+
+2. Inside the existing `"nav"` block, add a `"menu"` key:
+
+   ```json
+     "menu": "Open menu"
+   ```
+
+Do **not** copy a `"nav": { ... existing keys ... }` placeholder verbatim — that produces invalid JSON. Merge the `"menu"` key into the actual `"nav"` object.
 
 Edit `src/i18n/zh-TW.json` analogously:
 
-```json
-  "theme": {
-    "toggle": "切換主題",
-    "light": "淺色",
-    "dark": "深色",
-    "system": "跟隨系統"
-  }
+1. New top-level `"theme"`:
+
+   ```json
+     "theme": {
+       "toggle": "切換主題",
+       "light": "淺色",
+       "dark": "深色",
+       "system": "跟隨系統"
+     }
+   ```
+
+2. Inside existing `"nav"`, add `"menu": "開啟選單"`.
+
+- [ ] **Step 2: Extend `frontend/tests/setup.ts` with the Radix v2 PointerEvent shim**
+
+shadcn `DropdownMenu` is a Radix primitive that listens on `pointerdown`. jsdom does not implement `PointerEvent`, `setPointerCapture`, `hasPointerCapture`, `releasePointerCapture`, or `scrollIntoView`, so any test that opens a Radix Dropdown / Dialog / Popover will hang on `findByRole("menu")` — even with `userEvent`. The fix is a global jsdom shim. Append to `frontend/tests/setup.ts`:
+
+```ts
+// Radix UI primitives use PointerEvent + pointer capture APIs that jsdom does not
+// implement. See radix-ui/primitives#1342.
+window.PointerEvent = MouseEvent as typeof PointerEvent;
+window.HTMLElement.prototype.hasPointerCapture = () => false;
+window.HTMLElement.prototype.releasePointerCapture = () => {};
+window.HTMLElement.prototype.setPointerCapture = () => {};
+window.HTMLElement.prototype.scrollIntoView = () => {};
+
+// jsdom does not implement window.matchMedia. Stubbed globally so any component
+// (Sidebar block, ThemeProvider, useIsMobile, …) that reads matchMedia on mount
+// does not throw "not a function". Individual tests may override with
+// Object.defineProperty(window, "matchMedia", { configurable: true, value: … }).
+Object.defineProperty(window, "matchMedia", {
+  configurable: true,
+  value: vi.fn().mockReturnValue({
+    matches: false,
+    media: "",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: () => true,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+  }),
+});
 ```
 
-And `nav.menu`: `"menu": "開啟選單"`.
+This shim is a one-time setup; subsequent Radix tests reuse it. **Do not use `fireEvent.click` on a Radix DropdownMenu / Dialog / Popover trigger** — it dispatches a synthetic click that bypasses pointerdown and the menu never opens. Always use `userEvent.setup()` + `await user.click(...)`.
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 3: Write the failing test**
 
 ```tsx
 // frontend/tests/unit/components/ThemeToggle.test.tsx
-import { render, fireEvent, within } from "@testing-library/react";
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { render, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, beforeEach } from "vitest";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 beforeEach(() => {
   localStorage.clear();
   document.documentElement.classList.remove("light", "dark");
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: vi.fn().mockReturnValue({
-      matches: false,
-      media: "",
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: () => true,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-    }),
-  });
 });
 
 describe("ThemeToggle", () => {
   it("renders three theme options when opened", async () => {
-    const { getByLabelText, getByRole } = render(
+    const user = userEvent.setup();
+    const { getByLabelText } = render(
       <ThemeProvider defaultTheme="light">
         <ThemeToggle />
       </ThemeProvider>,
     );
-    fireEvent.click(getByLabelText(/toggle theme|切換主題/i));
+    await user.click(getByLabelText(/toggle theme|切換主題/i));
     const menu = await within(document.body).findByRole("menu");
     expect(within(menu).getByText(/light|淺色/i)).toBeInTheDocument();
     expect(within(menu).getByText(/dark|深色/i)).toBeInTheDocument();
@@ -459,20 +491,21 @@ describe("ThemeToggle", () => {
   });
 
   it("clicking 'Dark' adds the dark class to <html>", async () => {
+    const user = userEvent.setup();
     const { getByLabelText } = render(
       <ThemeProvider defaultTheme="light">
         <ThemeToggle />
       </ThemeProvider>,
     );
-    fireEvent.click(getByLabelText(/toggle theme|切換主題/i));
-    const dark = await within(document.body).findByText(/dark|深色/i);
-    fireEvent.click(dark);
+    await user.click(getByLabelText(/toggle theme|切換主題/i));
+    const dark = await within(document.body).findByText(/^dark$|^深色$/i);
+    await user.click(dark);
     expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 4: Run test to verify it fails**
 
 ```bash
 pnpm test ThemeToggle
@@ -480,7 +513,7 @@ pnpm test ThemeToggle
 
 Expected: FAIL with `Cannot find module '@/components/ThemeToggle'`.
 
-- [ ] **Step 4: Implement ThemeToggle**
+- [ ] **Step 5: Implement ThemeToggle**
 
 ```tsx
 // frontend/src/components/ThemeToggle.tsx
@@ -525,7 +558,7 @@ export function ThemeToggle() {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 6: Run test to verify it passes**
 
 ```bash
 pnpm test ThemeToggle
@@ -533,12 +566,13 @@ pnpm test ThemeToggle
 
 Expected: 2 tests pass.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/components/ThemeToggle.tsx tests/unit/components/ThemeToggle.test.tsx \
+git add tests/setup.ts \
+        src/components/ThemeToggle.tsx tests/unit/components/ThemeToggle.test.tsx \
         src/i18n/en.json src/i18n/zh-TW.json
-git commit -m "feat(frontend): add ThemeToggle dropdown + i18n keys"
+git commit -m "feat(frontend): add ThemeToggle dropdown + i18n keys + Radix shim"
 ```
 
 ---
@@ -631,7 +665,27 @@ cd frontend
 pnpm dlx shadcn@latest add sidebar
 ```
 
-Expected: prompts to confirm overwriting any existing primitives. Accept overwrite for any peer (`tooltip`, `skeleton`, `separator`) — shadcn keeps these files API-compatible.
+Expected: prompts to confirm overwriting any existing primitives. Accept overwrite for API-compatible peers (`tooltip`, `skeleton`, `separator`, `sheet`) — shadcn keeps these stable.
+
+**⚠️ Two collisions the CLI silently produces — reconcile BEFORE committing:**
+
+1. **`src/hooks/use-mobile.tsx`** — the CLI drops a hook here that duplicates the project's `src/hooks/useIsMobile.ts` (created in Task 2). Keep the project hook; delete the CLI artifact:
+
+   ```bash
+   rm -f src/hooks/use-mobile.tsx
+   ```
+
+   Verify `src/components/ui/sidebar.tsx` imports from `@/hooks/useIsMobile`, not the deleted file. If shadcn's bundled `sidebar.tsx` imports `./use-mobile`, hand-edit to `import { useIsMobile } from "@/hooks/useIsMobile";`.
+
+2. **`--sidebar-background` token name** — older shadcn templates (and some bundled blocks) use `--sidebar-background` as the DEFAULT colour. The project's `index.css` (Task 5) and `tailwind.config.ts` (Task 5) declare `--sidebar` (no `-background` suffix). After running the CLI, scan both files:
+
+   ```bash
+   grep -nE "sidebar-background" src/index.css tailwind.config.ts
+   ```
+
+   Expected: zero matches. If present, replace `--sidebar-background` with `--sidebar` in `tailwind.config.ts` AND any CSS rule the CLI may have appended. The mismatch is silent — Tailwind's `bg-sidebar` resolves to `hsl(var(--sidebar-background))`, fails to substitute, falls back to transparent. jsdom does not catch this; only browser visual verification does. Project memory `project_shadcn_cli_collisions.md` documents this incident.
+
+Run `git status` after the CLI completes and reconcile both before moving on.
 
 If the CLI fails (offline / network / version mismatch), fall back to manual copy: paste `sidebar.tsx` from <https://ui.shadcn.com/docs/components/sidebar> into `src/components/ui/sidebar.tsx`. The block ships ~600 lines of `Sidebar`, `SidebarProvider`, `SidebarTrigger`, `SidebarInset`, `SidebarMenu*`, etc.
 
@@ -998,11 +1052,10 @@ git commit -m "feat(frontend): add SidebarTrigger + ThemeToggle to TopBar"
 - [ ] **Step 1: Confirm no remaining imports**
 
 ```bash
-grep -rn "from \"@/components/layout/Sidebar\"" src/ tests/
-grep -rn "components/layout/Sidebar'" src/ tests/
+grep -rnE "components/layout/Sidebar\b" src tests
 ```
 
-Expected: no results.
+Expected: no results. The single word-boundary pattern catches static imports (`from "@/components/layout/Sidebar"`), default imports, dynamic `import("@/components/layout/Sidebar")`, and `lazy(() => import(...))` references in one pass.
 
 - [ ] **Step 2: Delete the file**
 
