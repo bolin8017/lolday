@@ -24,8 +24,8 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      // Desktop project ignores the mobile/ subdirectory; iphone-13-mini and
-      // pixel-5 projects scope themselves to it via their own testDir.
+      // Desktop project ignores the mobile/ subdirectory; the mobile project
+      // scopes itself to it via its own testDir.
       testIgnore: ["**/mobile/**"],
       use: {
         ...devices["Desktop Chrome"],
@@ -40,13 +40,11 @@ export default defineConfig({
         launchOptions: { args: deployedHostArgs },
       },
     },
-    {
-      name: "pixel-5",
-      testDir: "./tests/e2e/mobile",
-      use: {
-        ...devices["Pixel 5"],
-        launchOptions: { args: deployedHostArgs },
-      },
-    },
+    // Pixel 5 (393×851) was removed: shares the same 393 px width as
+    // iPhone 13 Mini, both use Playwright's Chromium internally, and the
+    // height delta (812 vs 851) does not exercise meaningfully different
+    // CSS / layout. Add it back when a real Android-vs-iOS-Safari
+    // behavioural divergence needs coverage (Playwright Webkit project
+    // would be more useful than another Chromium device descriptor).
   ],
 });
