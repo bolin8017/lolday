@@ -28,3 +28,14 @@ export async function login(page: Page, _creds: SeedCreds = seedCreds()) {
   await page.goto("/");
   await page.waitForURL(/\/(detectors|)$/);
 }
+
+/**
+ * TODO(non-admin-persona): backend's AUTH_DEV_MODE only honours a single
+ * `AUTH_DEV_EMAIL`, so every spec runs as the same admin user. To exercise
+ * the negative side of role-gated UI (admin-only nav links, role-mutation
+ * buttons hidden for `developer` / `user`), the backend needs to honour a
+ * per-request override (e.g. an `X-Dev-User-Email` header) that AUTH_DEV_MODE
+ * resolves into a synthetic user with the matching role. Tracked in
+ * `docs/architecture.md` §9 #14. Until then, sidebar-drawer.spec's
+ * admin-link assertion is positive-case only.
+ */
