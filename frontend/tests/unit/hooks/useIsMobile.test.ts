@@ -4,13 +4,24 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 
 type Listener = (e: MediaQueryListEvent) => void;
 
+type MockMql = {
+  matches: boolean;
+  media: string;
+  addEventListener: (type: string, cb: Listener) => void;
+  removeEventListener: (type: string, cb: Listener) => void;
+  dispatchEvent: () => boolean;
+  onchange: null;
+  addListener: () => void;
+  removeListener: () => void;
+};
+
 function mockMatchMedia(initialMatches: boolean) {
   const listeners: Listener[] = [];
-  const mql = {
+  const mql: MockMql = {
     matches: initialMatches,
     media: "(max-width: 767px)",
-    addEventListener: (_: string, cb: Listener) => listeners.push(cb),
-    removeEventListener: (_: string, cb: Listener) => {
+    addEventListener: (_, cb) => listeners.push(cb),
+    removeEventListener: (_, cb) => {
       const i = listeners.indexOf(cb);
       if (i >= 0) listeners.splice(i, 1);
     },
@@ -18,7 +29,7 @@ function mockMatchMedia(initialMatches: boolean) {
     onchange: null,
     addListener: () => {},
     removeListener: () => {},
-  } as unknown as MediaQueryList;
+  };
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockReturnValue(mql),

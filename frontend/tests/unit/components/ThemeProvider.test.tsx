@@ -76,4 +76,35 @@ describe("ThemeProvider", () => {
     expect(document.documentElement.classList.contains("light")).toBe(true);
     expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
+
+  it("system mode re-applies <html> class when OS preference changes", () => {
+    type PrefListener = (e: MediaQueryListEvent) => void;
+    const listeners: PrefListener[] = [];
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: false,
+        media: "(prefers-color-scheme: dark)",
+        addEventListener: (_: string, cb: PrefListener) => listeners.push(cb),
+        removeEventListener: vi.fn(),
+        dispatchEvent: () => true,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      }),
+    });
+
+    render(
+      <ThemeProvider defaultTheme="system" storageKey={STORAGE_KEY}>
+        <ThemeReporter />
+      </ThemeProvider>,
+    );
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+
+    act(() => {
+      listeners.forEach((cb) => cb({ matches: true } as MediaQueryListEvent));
+    });
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(false);
+  });
 });
