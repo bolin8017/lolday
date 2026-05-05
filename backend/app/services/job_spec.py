@@ -29,7 +29,15 @@ def job_name(job_type: JobType, job_id: uuid.UUID) -> str:
     return f"job-{job_type.value}-{job_id.hex[:8]}"
 
 
-def _active_deadline(job_type: JobType) -> int:
+def _active_deadline(job_type: JobType, override: int | None = None) -> int:
+    """Resolve the pod's activeDeadlineSeconds.
+
+    Phase 5 — `override` is the user-supplied per-job value (already
+    validated by JobCreate to be > 0 and <= the per-type MAX). When None,
+    falls back to the per-type default in config.JOB_ACTIVE_DEADLINE_*_SECONDS.
+    """
+    if override is not None:
+        return override
     return {
         JobType.TRAIN: settings.JOB_ACTIVE_DEADLINE_TRAIN_SECONDS,
         JobType.EVALUATE: settings.JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS,
@@ -246,6 +254,7 @@ def build_volcano_job_manifest(
     queue_name: str,
     resource_profile: ResourceProfile = ResourceProfile.STANDARD,
     gpu_strategy: str = "ddp",
+    active_deadline_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Render a ``batch.volcano.sh/v1alpha1`` Job manifest as a Python dict.
 
@@ -293,7 +302,7 @@ def build_volcano_job_manifest(
     gpu_count = RESOURCE_PROFILE_GPU_COUNT[resource_profile]
 
     pod_spec = {
-        "activeDeadlineSeconds": _active_deadline(job_type),
+        "activeDeadlineSeconds": _active_deadline(job_type, active_deadline_seconds),
         "restartPolicy": "Never",
         "automountServiceAccountToken": False,
         "nodeSelector": {"kubernetes.io/hostname": settings.JOB_NODE_SELECTOR_HOSTNAME},

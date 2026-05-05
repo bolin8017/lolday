@@ -16,6 +16,31 @@ class JobCreate(BaseModel):
     source_model_version_id: uuid.UUID | None = None
     params: dict[str, Any] = {}
     resource_profile: ResourceProfile = ResourceProfile.STANDARD
+    # Phase 5 — optional per-job timeout override. None → use the per-type
+    # default (config.JOB_ACTIVE_DEADLINE_*_SECONDS). Caps validated below.
+    active_deadline_seconds: int | None = None
+
+    @model_validator(mode="after")
+    def _validate_active_deadline(self) -> "JobCreate":
+        if self.active_deadline_seconds is None:
+            return self
+        if self.active_deadline_seconds <= 0:
+            raise ValueError("active_deadline_seconds must be > 0")
+        # Local import to avoid app.schemas → app.config cycle at import time.
+        from app.config import settings
+
+        max_by_type = {
+            JobType.TRAIN: settings.JOB_ACTIVE_DEADLINE_TRAIN_MAX_SECONDS,
+            JobType.EVALUATE: settings.JOB_ACTIVE_DEADLINE_EVALUATE_MAX_SECONDS,
+            JobType.PREDICT: settings.JOB_ACTIVE_DEADLINE_PREDICT_MAX_SECONDS,
+        }
+        cap = max_by_type[self.type]
+        if self.active_deadline_seconds > cap:
+            raise ValueError(
+                f"active_deadline_seconds ({self.active_deadline_seconds}) "
+                f"exceeds max for {self.type.value} ({cap})"
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_refs_per_type(self) -> "JobCreate":

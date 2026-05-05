@@ -334,6 +334,7 @@ async def create_job(
         idempotency_key=idem_key,
         token_hash=hash_token(raw_token),
         resource_profile=body.resource_profile,
+        active_deadline_seconds=body.active_deadline_seconds,
     )
     session.add(job)
     await session.flush()
@@ -365,6 +366,7 @@ async def create_job(
         queue_name=queue_name,
         resource_profile=body.resource_profile,
         gpu_strategy=gpu_strategy,
+        active_deadline_seconds=body.active_deadline_seconds,
     )
     try:
         volcano_v1alpha1().create_namespaced_custom_object(
