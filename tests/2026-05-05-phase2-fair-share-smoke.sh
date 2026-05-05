@@ -28,12 +28,16 @@ fi
 
 echo ""
 echo "[step 3/4] backend SA can create cluster-scoped Queues"
-out=$(kubectl auth can-i create queues.scheduling.volcano.sh \
-  --as="system:serviceaccount:${NS_INFRA}:backend" 2>&1 || true)
-case "${out}" in
-  yes) echo "OK" ;;
-  *) echo "FAIL: backend SA cannot create cluster-scoped Queues (${out})"; fail=1 ;;
-esac
+# `kubectl auth can-i` for a cluster-scoped CRD prints a Warning to stderr
+# ('resource is not namespace scoped') but the answer 'yes'/'no' still lands
+# on stdout's last line. Normal exit codes are 0 (yes) / 1 (no).
+if kubectl auth can-i create queues.scheduling.volcano.sh \
+     --as="system:serviceaccount:${NS_INFRA}:backend" 2>/dev/null; then
+  echo "OK"
+else
+  echo "FAIL: backend SA cannot create cluster-scoped Queues"
+  fail=1
+fi
 
 echo ""
 echo "[step 4/4] no orphan user-queues from earlier test runs (informational)"
