@@ -716,9 +716,9 @@ async def test_cancel_job_returns_detector_defaults(
     the integration test guards against the wiring itself being skipped).
 
     ``cancel_job`` only succeeds while the job is non-terminal. After submit
-    the row is in ``preparing`` status (the test fixture mocks the Volcano
-    side away but the router still flips status before returning), which is
-    in ``NON_TERMINAL_STATUSES``."""
+    the row is in ``queued_backend`` status (Phase 6 Task E: dispatch is
+    deferred to the fifo_scheduler reconciler), which is in
+    ``NON_TERMINAL_STATUSES``."""
     dv_id = await seed_detector_version(
         name="rfdet-cancel", manifest=RICH_MANIFEST_WITH_TRAIN_DEFAULTS
     )

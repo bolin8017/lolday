@@ -33,7 +33,6 @@ from app.services.job_config import (
     JobConfigRenderer,
     compute_idempotency_key,
 )
-from app.services.jobs_dispatch import dispatch_job_to_volcano
 from app.services.jobs_params_validate import (
     UserParamsRejected,
     resolve_detector_defaults,
@@ -306,12 +305,20 @@ async def create_job(
     )
     resolved = {"yaml": resolved_yaml}
 
-    # 10. Insert job row
-    # token_hash is set by dispatch_job_to_volcano (step 11) with a freshly
-    # generated token; no need to pre-generate here.
+    # 10. Priority: admin-only field. Non-admin submitting priority != 0 → 403.
+    # Phase 6 (Task E): the fifo_scheduler reconciler picks up queued_backend
+    # jobs in DESC(priority), ASC(submitted_at) order. Default is 0 (normal).
+    requested_priority = body.priority  # int | None; None means "use default 0"
+    if requested_priority not in (None, 0) and user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="priority field is admin-only")
+    priority_to_persist = requested_priority if requested_priority is not None else 0
+
+    # 11. Insert job row with status=queued_backend. The fifo_scheduler
+    # reconciler (Phase 6d) picks this up and calls dispatch_job_to_volcano.
+    # No K8s side-effects happen here; the row is the only write.
     job = Job(
         type=body.type,
-        status=JobStatus.PENDING,
+        status=JobStatus.QUEUED_BACKEND,
         detector_version_id=dv.id,
         train_dataset_id=train_ds.id if train_ds else None,
         test_dataset_id=test_ds.id if test_ds else None,
@@ -325,21 +332,9 @@ async def create_job(
         idempotency_key=idem_key,
         resource_profile=body.resource_profile,
         active_deadline_seconds=body.active_deadline_seconds,
+        priority=priority_to_persist,
     )
     session.add(job)
-    await session.flush()
-
-    # 11. Launch K8s Job via shared dispatch helper (Phase 6d refactor).
-    # dispatch_job_to_volcano creates the token Secret + vcjob, sets
-    # job.k8s_job_name and transitions status to PREPARING.  It raises on
-    # K8s failure (session left uncommitted so the caller's HTTPException
-    # aborts without a partial-commit).
-    try:
-        await dispatch_job_to_volcano(session, job)
-    except Exception:
-        raise HTTPException(
-            status_code=500, detail="failed to create K8s Job"
-        ) from None
     await session.commit()
     await session.refresh(job)
     # ``dv`` is guaranteed non-None at this point (loaded + validated above);

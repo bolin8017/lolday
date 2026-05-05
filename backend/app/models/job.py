@@ -33,6 +33,7 @@ class JobStatus(StrEnum):
 
 NON_TERMINAL_STATUSES = frozenset(
     {
+        JobStatus.QUEUED_BACKEND,  # Phase 6 — held in backend FIFO before Volcano dispatch
         JobStatus.PENDING,
         JobStatus.PREPARING,
         JobStatus.RUNNING,

@@ -21,7 +21,9 @@ async def test_create_train_job_happy_path(
     )
     assert r.status_code == 202, r.text
     body = r.json()
-    assert body["status"] in ("pending", "preparing")
+    # Phase 6 (Task E): POST /jobs now writes queued_backend; dispatch is
+    # deferred to the fifo_scheduler reconciler.
+    assert body["status"] == "queued_backend"
     assert body["type"] == "train"
     assert body["mlflow_run_id"]
 
@@ -175,3 +177,154 @@ async def test_internal_config_endpoint_requires_token(
     # user_client sends a JWT as Bearer token; require_job_token rejects it
     # with 403 (wrong token) since the JWT doesn't match the stored job token hash
     assert r.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 (Task E) — POST /jobs writes queued_backend + priority enforcement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_job_default_priority_is_zero(
+    user_client, seed_detector_version, seed_dataset
+) -> None:
+    """POST /jobs without a priority field → job persisted with priority=0."""
+    dv_id = await seed_detector_version()
+    tr = await seed_dataset(name="pr-tr")
+    te = await seed_dataset(name="pr-te")
+
+    r = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {},
+        },
+    )
+    assert r.status_code == 202, r.text
+    body = r.json()
+    assert body["status"] == "queued_backend"
+    assert body["priority"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_job_nonadmin_priority_nonzero_returns_403(
+    user_client, seed_detector_version, seed_dataset
+) -> None:
+    """Non-admin user submitting priority != 0 → 403 (admin-only field)."""
+    dv_id = await seed_detector_version()
+    tr = await seed_dataset(name="pr403-tr")
+    te = await seed_dataset(name="pr403-te")
+
+    r = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {},
+            "priority": 5,
+        },
+    )
+    assert r.status_code == 403, r.text
+    assert "admin-only" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_job_nonadmin_priority_zero_is_allowed(
+    user_client, seed_detector_version, seed_dataset
+) -> None:
+    """Non-admin user explicitly submitting priority=0 → 202 (zero is the
+    default and does not trigger the admin-only guard)."""
+    dv_id = await seed_detector_version()
+    tr = await seed_dataset(name="pr0-tr")
+    te = await seed_dataset(name="pr0-te")
+
+    r = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": tr,
+            "test_dataset_id": te,
+            "params": {},
+            "priority": 0,
+        },
+    )
+    assert r.status_code == 202, r.text
+    assert r.json()["priority"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_job_admin_priority_nonzero_succeeds(client, db_session) -> None:
+    """Admin user submitting priority=5 → 202, job created with priority=5.
+
+    Uses ``db_session`` for ORM-level seeding so the admin client's
+    X-Test-User-Email header is not overwritten by the ``user_client``
+    dependency that ``seed_dataset`` / ``seed_detector_version`` pull in.
+    """
+    import uuid
+
+    from app.models import Detector, DetectorVersion, Role
+    from app.models.detector import DetectorVersionStatus
+
+    from tests.conftest import _MINIMAL_MANIFEST, _make_user
+
+    admin_user = await _make_user("adm@example.dev", role=Role.ADMIN)
+    client.headers["x-test-user-email"] = "adm@example.dev"
+
+    # Seed a dataset via HTTP using the admin client
+    from pathlib import Path
+
+    fixture_csv = (
+        Path(__file__).parent / "fixtures" / "sample_dataset.csv"
+    ).read_text()
+
+    tr_resp = await client.post(
+        "/api/v1/datasets", json={"name": "adm-tr", "csv_content": fixture_csv}
+    )
+    assert tr_resp.status_code == 201, tr_resp.text
+    te_resp = await client.post(
+        "/api/v1/datasets", json={"name": "adm-te", "csv_content": fixture_csv}
+    )
+    assert te_resp.status_code == 201, te_resp.text
+
+    # Seed a detector version via ORM (admin is the owner)
+    det = Detector(
+        name=f"adm-det-{uuid.uuid4().hex[:6]}",
+        display_name="adm-det",
+        git_url="https://github.com/test/adm-det.git",
+        owner_id=admin_user.id,
+    )
+    db_session.add(det)
+    await db_session.flush()
+    dv = DetectorVersion(
+        detector_id=det.id,
+        git_tag="v0.1.0",
+        git_sha="a" * 40,
+        harbor_image="harbor.harbor.svc:80/detectors/adm-det:v0.1.0",
+        image_digest="sha256:" + "a" * 64,
+        status=DetectorVersionStatus.ACTIVE,
+        manifest=_MINIMAL_MANIFEST,
+    )
+    db_session.add(dv)
+    await db_session.commit()
+
+    r = await client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": str(dv.id),
+            "train_dataset_id": tr_resp.json()["id"],
+            "test_dataset_id": te_resp.json()["id"],
+            "params": {},
+            "priority": 5,
+        },
+    )
+    assert r.status_code == 202, r.text
+    body = r.json()
+    assert body["status"] == "queued_backend"
+    assert body["priority"] == 5
