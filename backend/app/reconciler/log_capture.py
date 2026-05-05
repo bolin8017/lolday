@@ -8,6 +8,8 @@ container with a ``[<container>]`` header. The build-pod wrapper
 are thin adapters that supply the right label selector and container names.
 """
 
+import asyncio
+
 from kubernetes.client import ApiException
 
 from app.config import settings
@@ -52,7 +54,8 @@ async def _capture_pod_logs(
     log_tail column doesn't blow up.
     """
     try:
-        pods = core_v1().list_namespaced_pod(
+        pods = await asyncio.to_thread(
+            core_v1().list_namespaced_pod,
             namespace=namespace,
             label_selector=label_selector,
         )
@@ -77,7 +80,8 @@ async def _capture_pod_logs(
     chunks: list[str] = []
     for container in order:
         try:
-            log = core_v1().read_namespaced_pod_log(
+            log = await asyncio.to_thread(
+                core_v1().read_namespaced_pod_log,
                 name=pod.metadata.name,
                 namespace=namespace,
                 container=container,

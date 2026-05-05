@@ -67,7 +67,8 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
         return
 
     try:
-        vjob = volcano_v1alpha1().get_namespaced_custom_object(
+        vjob = await asyncio.to_thread(
+            volcano_v1alpha1().get_namespaced_custom_object,
             group=VOLCANO_BATCH_GROUP,
             version=VOLCANO_BATCH_VERSION,
             namespace=settings.JOB_NAMESPACE,
@@ -85,7 +86,8 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
 
     if j.started_at is not None and _job_timed_out(j, vjob):
         try:
-            volcano_v1alpha1().delete_namespaced_custom_object(
+            await asyncio.to_thread(
+                volcano_v1alpha1().delete_namespaced_custom_object,
                 group=VOLCANO_BATCH_GROUP,
                 version=VOLCANO_BATCH_VERSION,
                 namespace=settings.JOB_NAMESPACE,
@@ -172,7 +174,8 @@ async def _check_event_terminal(session: AsyncSession, job_id: uuid.UUID) -> str
 async def _update_job_progress(session: AsyncSession, j: Job) -> None:
     """Transition PREPARING → RUNNING once the detector container starts."""
     try:
-        pods = core_v1().list_namespaced_pod(
+        pods = await asyncio.to_thread(
+            core_v1().list_namespaced_pod,
             namespace=settings.JOB_NAMESPACE,
             label_selector=f"lolday.job-id={j.id}",
         )
@@ -352,7 +355,8 @@ async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
 
 async def _extract_job_failure_reason(j: Job) -> str:
     try:
-        pods = core_v1().list_namespaced_pod(
+        pods = await asyncio.to_thread(
+            core_v1().list_namespaced_pod,
             namespace=settings.JOB_NAMESPACE,
             label_selector=f"lolday.job-id={j.id}",
         )
@@ -386,7 +390,8 @@ async def _cleanup_job_secret(j: Job) -> None:
     try:
         from app.services.job_spec import _job_token_secret_name
 
-        core_v1().delete_namespaced_secret(
+        await asyncio.to_thread(
+            core_v1().delete_namespaced_secret,
             name=_job_token_secret_name(j.id),
             namespace=settings.JOB_NAMESPACE,
         )

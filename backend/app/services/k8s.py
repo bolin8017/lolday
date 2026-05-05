@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from functools import lru_cache
@@ -70,7 +71,7 @@ def queue_name_for_user(user_id: uuid.UUID) -> str:
     return f"lolday-u-{user_id.hex[:12]}"
 
 
-def ensure_user_queue(user_id: uuid.UUID) -> str:
+async def ensure_user_queue(user_id: uuid.UUID) -> str:
     """Idempotently create a per-user Volcano Queue. Returns the queue name.
 
     Volcano Queue is cluster-scoped. K8s 409 (AlreadyExists) is treated as
@@ -78,6 +79,10 @@ def ensure_user_queue(user_id: uuid.UUID) -> str:
     the same user, or a parallel request racing this one. Any other
     ApiException propagates so the caller (routers/jobs.create_job) can
     return 5xx instead of silently submitting a job that has no queue.
+
+    The underlying ``kubernetes`` client is sync; we run it via
+    :func:`asyncio.to_thread` so a slow K8s API doesn't block the asyncio
+    event loop alongside other request handlers.
     """
     name = queue_name_for_user(user_id)
     body = {
@@ -97,7 +102,8 @@ def ensure_user_queue(user_id: uuid.UUID) -> str:
         },
     }
     try:
-        volcano_v1alpha1().create_cluster_custom_object(
+        await asyncio.to_thread(
+            volcano_v1alpha1().create_cluster_custom_object,
             group=VOLCANO_SCHED_GROUP,
             version=VOLCANO_SCHED_VERSION,
             plural=VOLCANO_QUEUE_PLURAL,

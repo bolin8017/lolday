@@ -35,3 +35,15 @@ JOBS_PENDING_TOTAL = Gauge(
     "Total non-terminal Volcano Jobs in the lolday-jobs queue (Pending + "
     "Running). Refreshed every 10s by services.cluster_status.get_queue_depth.",
 )
+
+# Phase 6 follow-up A2 (signal-collection, not feature) — counts how often an
+# admin actually changes a queued job's priority via PATCH /jobs/{id}. The
+# data answers "is the manual-bump UX a bottleneck worth automating?"
+# Threshold guidance: if rate > 1/day for 4 consecutive weeks, draft an A2
+# (auto-aging) spec. Below that, the deferred status holds.
+PRIORITY_BUMP_TOTAL = Counter(
+    "lolday_priority_bump_total",
+    "Successful admin priority bumps on queued_backend jobs via PATCH /jobs/{id}. "
+    "Increments only when the new value actually differs from the stored value "
+    "(no-op patches don't count).",
+)

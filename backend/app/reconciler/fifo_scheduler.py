@@ -36,6 +36,7 @@ Failure handling:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 
@@ -69,9 +70,14 @@ async def _compute_cluster_free_gpu(
     physical: int = settings.CLUSTER_PHYSICAL_GPU_COUNT
     pod_gpu = 0
     try:
-        pods = k8s.list_namespaced_pod(namespace=settings.JOB_NAMESPACE).items
-        for pod in pods:
-            if (pod.status and pod.status.phase) not in ("Running", "Pending"):
+        # Sync K8s client wrapped in ``asyncio.to_thread`` so a slow API
+        # server doesn't block the asyncio loop alongside the other backend
+        # tasks (request handlers, the vcjob status reconciler, etc.).
+        pod_list = await asyncio.to_thread(
+            k8s.list_namespaced_pod, namespace=settings.JOB_NAMESPACE
+        )
+        for pod in pod_list.items:
+            if not pod.status or pod.status.phase not in ("Running", "Pending"):
                 continue
             for container in (pod.spec.containers or []) if pod.spec else []:
                 limits = (

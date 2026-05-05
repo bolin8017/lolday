@@ -489,35 +489,25 @@ async def _create_k8s_resources(
         owner_repo=owner_repo,
     )
 
-    import asyncio as _asyncio
-
-    loop = _asyncio.get_running_loop()
-
-    def _create_secret():
-        core_v1().create_namespaced_secret(
-            namespace=settings.BUILD_NAMESPACE,
-            body=secret_body,
-        )
-
-    def _create_job():
-        batch_v1().create_namespaced_job(
+    await asyncio.to_thread(
+        core_v1().create_namespaced_secret,
+        namespace=settings.BUILD_NAMESPACE,
+        body=secret_body,
+    )
+    try:
+        await asyncio.to_thread(
+            batch_v1().create_namespaced_job,
             namespace=settings.BUILD_NAMESPACE,
             body=job_body,
         )
-
-    def _delete_secret():
-        core_v1().delete_namespaced_secret(
-            name=build_secret_name(build_id),
-            namespace=settings.BUILD_NAMESPACE,
-        )
-
-    await loop.run_in_executor(None, _create_secret)
-    try:
-        await loop.run_in_executor(None, _create_job)
     except Exception:
         # Rollback Secret on any error — best-effort, don't mask original exception
         with contextlib.suppress(Exception):
-            await loop.run_in_executor(None, _delete_secret)
+            await asyncio.to_thread(
+                core_v1().delete_namespaced_secret,
+                name=build_secret_name(build_id),
+                namespace=settings.BUILD_NAMESPACE,
+            )
         raise
     return job_name
 
@@ -696,28 +686,22 @@ async def cancel_build(
 
     # Best-effort K8s job deletion
     if build.k8s_job_name:
-        import asyncio as _asyncio
-
-        loop = _asyncio.get_running_loop()
-
-        def _delete_job():
-            try:
-                batch_v1().delete_namespaced_job(
-                    name=build.k8s_job_name,
-                    namespace=settings.BUILD_NAMESPACE,
-                    propagation_policy="Background",
-                )
-            except Exception:
-                BACKEND_ERRORS.labels(stage="cancel_build_k8s_cleanup").inc()
-                logger.exception(
-                    "K8s build job cleanup failed on cancel",
-                    extra={
-                        "build_id": str(build.id),
-                        "k8s_job_name": build.k8s_job_name,
-                    },
-                )
-
-        await loop.run_in_executor(None, _delete_job)
+        try:
+            await asyncio.to_thread(
+                batch_v1().delete_namespaced_job,
+                name=build.k8s_job_name,
+                namespace=settings.BUILD_NAMESPACE,
+                propagation_policy="Background",
+            )
+        except Exception:
+            BACKEND_ERRORS.labels(stage="cancel_build_k8s_cleanup").inc()
+            logger.exception(
+                "K8s build job cleanup failed on cancel",
+                extra={
+                    "build_id": str(build.id),
+                    "k8s_job_name": build.k8s_job_name,
+                },
+            )
 
     await session.commit()
     await session.refresh(build)
