@@ -198,7 +198,7 @@ If you see a default in `config.py` that uses `harbor.lolday.svc`, it's likely a
 
 ### 5.4 Two-namespace model (since 2026-05-05)
 
-- `lolday` — infrastructure: backend, frontend, postgres, redis, mlflow, harbor, kps, loki, alloy, trivy, cloudflared. Memory cap `lolday-infra-quota: requests.memory 20Gi, limits.memory 40Gi`.
+- `lolday` — infrastructure: backend, frontend, postgres, redis, mlflow, harbor, kps, loki, alloy, trivy, cloudflared. Memory cap `lolday-infra-quota: requests.memory 20Gi, limits.memory 40Gi`, paired with `lolday-infra-defaults` LimitRange (default 1Gi limit / 128Mi request) so sub-chart pods that don't specify memory (Harbor's `registry / registryctl / admission / jobservice / core`) are not rejected by the quota's admission controller — when ResourceQuota caps memory, K8s requires every container to have an explicit memory request + limit, and LimitRange auto-injects the missing values.
 - `lolday-jobs` — workload: detector vcjobs (`batch.volcano.sh/v1alpha1.Job`) + BuildKit build Jobs. Capped by `lolday-jobs-quota` (`requests.memory 30Gi, limits.memory 50Gi, requests.nvidia.com/gpu 2, count/pods 16`) and `lolday-jobs-limits` LimitRange (per-container `max: 16Gi memory / 4 cpu`).
 - Backend SA (`lolday/backend`) has two Roles: same-ns Role for secrets / configmaps / PVCs; cross-ns Role `backend-jobs` in `lolday-jobs` for pods / batch / batch.volcano.sh.
 - NetworkPolicies on `lolday-job-egress` / `lolday-build-egress` use `namespaceSelector kubernetes.io/metadata.name: lolday` to target backend / mlflow / harbor across the namespace boundary.
