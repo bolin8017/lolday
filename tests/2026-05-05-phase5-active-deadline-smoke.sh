@@ -8,21 +8,11 @@ NS=${NS:-lolday}
 fail=0
 
 echo "[step 1/2] job table has active_deadline_seconds column"
-out=$(kubectl -n "${NS}" exec deploy/backend -c backend -- python3 -c "
-import asyncio, os
-import asyncpg
-
-async def main():
-    url = os.environ['DATABASE_URL'].replace('+asyncpg', '')
-    conn = await asyncpg.connect(url)
-    row = await conn.fetchrow(
-        \"SELECT column_name FROM information_schema.columns \"
-        \"WHERE table_name='job' AND column_name='active_deadline_seconds'\"
-    )
-    print('OK' if row else 'FAIL')
-
-asyncio.run(main())
-" 2>/dev/null || true)
+# psql in postgresql-0 pod (avoids backend pod URL-encoding pain).
+# PG_PASSWORD must be exported in the caller's shell.
+col=$(kubectl -n "${NS}" exec postgresql-0 -- env PGPASSWORD="${PG_PASSWORD:-}" psql -U lolday -d lolday -At -c \
+  "SELECT column_name FROM information_schema.columns WHERE table_name='job' AND column_name='active_deadline_seconds'" 2>/dev/null || true)
+out=$([ -n "${col}" ] && echo "OK" || echo "FAIL")
 case "${out}" in
   OK) echo "OK" ;;
   *) echo "FAIL: column missing"; fail=1 ;;

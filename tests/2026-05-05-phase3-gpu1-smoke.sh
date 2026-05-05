@@ -8,23 +8,11 @@ NS=${NS:-lolday}
 fail=0
 
 echo "[step 1/2] postgres resource_profile_enum has 'gpu1'"
-out=$(kubectl -n "${NS}" exec deploy/backend -c backend -- python3 -c "
-import asyncio, os
-import asyncpg
-
-async def main():
-    url = os.environ['DATABASE_URL'].replace('+asyncpg', '')
-    conn = await asyncpg.connect(url)
-    rows = await conn.fetch(
-        'SELECT enumlabel FROM pg_enum e '
-        'JOIN pg_type t ON e.enumtypid=t.oid '
-        \"WHERE t.typname='resource_profile_enum' \"
-        'ORDER BY enumsortorder'
-    )
-    print(','.join(r['enumlabel'] for r in rows))
-
-asyncio.run(main())
-" 2>/dev/null || true)
+# Run psql in postgresql-0 pod (avoids backend pod URL-encoding pain with
+# special chars in PG_PASSWORD, since psql reads PGPASSWORD env directly).
+# PG_PASSWORD must be exported in the caller's shell.
+out=$(kubectl -n "${NS}" exec postgresql-0 -- env PGPASSWORD="${PG_PASSWORD:-}" psql -U lolday -d lolday -At -c \
+  "SELECT enumlabel FROM pg_enum e JOIN pg_type t ON e.enumtypid=t.oid WHERE t.typname='resource_profile_enum' ORDER BY enumsortorder" 2>/dev/null || true)
 case "${out}" in
   *gpu1*) echo "OK: ${out}" ;;
   *) echo "FAIL: enum missing gpu1 (got '${out}')"; fail=1 ;;
