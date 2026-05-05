@@ -14,6 +14,7 @@
 - 過去 Phase 紀錄 / E2E checklists → `docs/phase-history/`
 - 事故 postmortem → `docs/postmortems/`
 - Phase 設計 / 實作計畫 → `docs/superpowers/specs/`、`docs/superpowers/plans/`
+- Backend FIFO scheduler (Phase 6) → `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md`、`docs/runbooks/admin-priority.md`
 
 ## Hard rules（每個 session 都必須記得）
 
