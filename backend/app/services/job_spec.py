@@ -239,6 +239,7 @@ def build_volcano_job_manifest(
     source_run_id: str | None,
     source_artifact_path: str | None,
     internal_events_url: str,
+    queue_name: str,
     resource_profile: ResourceProfile = ResourceProfile.STANDARD,
     gpu_strategy: str = "ddp",
 ) -> dict[str, Any]:
@@ -325,7 +326,7 @@ def build_volcano_job_manifest(
         "spec": {
             "schedulerName": "volcano",
             "minAvailable": 1,
-            "queue": "lolday-training",
+            "queue": queue_name,
             "ttlSecondsAfterFinished": settings.JOB_TTL_SECONDS_AFTER_FINISHED,
             "tasks": [
                 {

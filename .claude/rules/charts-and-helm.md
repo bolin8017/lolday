@@ -25,7 +25,7 @@ paths:
 - `postgresql.yaml`, `redis.yaml`, `mlflow.yaml`, `registry.yaml`.
 - `cloudflared.yaml`, `ingress.yaml` — Cloudflare tunnel + Traefik.
 - `alembic-upgrade-hook.yaml` — Helm `pre-upgrade` Job. Runs alembic migrations before the new backend pod starts. Backend boot fails fast if this hook didn't reach `head`.
-- `volcano-queue.yaml` — Volcano queue for GPU jobs.
+- `volcano-queue.yaml` — fallback queue `lolday-training` (capability cap matches per-user queues). Per-user queues `lolday-u-<id12>` are created lazily by `backend/app/services/k8s.ensure_user_queue` on first POST /jobs — they are NOT in the chart (cluster-scoped, user lifecycle ≠ chart lifecycle). Spec: `docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md` §6.3.
 - `samples-pv.yaml`, `samples-pvc.yaml` — sample dataset PV/PVC.
 - Secrets: `backend-fernet-secret.yaml`, `cloudflared-secret.yaml`, `harbor-admin-secret.yaml`, `mlflow-secret.yaml`.
 - NetworkPolicies: `network-policy.yaml`, `netpol-cloudflared.yaml`, `build-networkpolicy.yaml`, `job-networkpolicy.yaml`.

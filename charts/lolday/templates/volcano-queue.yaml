@@ -28,4 +28,13 @@ metadata:
 spec:
   weight: 1
   reclaimable: true
+  # Phase 2 (2026-05-05) — fallback queue for non-user / pre-cutover code
+  # paths. Per-user queues created lazily by services/k8s.ensure_user_queue
+  # carry the same cap. Numbers from spec §7 Phase 2; the per-queue sum cap
+  # combined with DRF gives multi-user fair-share without explicit
+  # PriorityClass.
+  capability:
+    cpu: "8"
+    memory: 30Gi
+    nvidia.com/gpu: "2"
 {{- end }}
