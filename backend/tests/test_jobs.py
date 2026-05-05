@@ -423,6 +423,38 @@ async def test_patch_job_admin_idempotent(client, db_session) -> None:
 
 
 @pytest.mark.asyncio
+async def test_patch_job_priority_bump_total_counts_only_changes(
+    client, db_session
+) -> None:
+    """Phase 6 follow-up A2: ``lolday_priority_bump_total`` increments once per
+    actual priority change. Idempotent re-PATCHes don't inflate the signal —
+    otherwise the metric would mis-report admin manual intervention frequency.
+    """
+    from prometheus_client import REGISTRY
+
+    admin_client, job_id = await _seed_admin_with_queued_job(client, db_session)
+
+    def _val() -> float:
+        return REGISTRY.get_sample_value("lolday_priority_bump_total") or 0.0
+
+    before = _val()
+
+    r1 = await admin_client.patch(f"/api/v1/jobs/{job_id}", json={"priority": 5})
+    assert r1.status_code == 200
+    assert _val() == before + 1.0
+
+    # Same value again — no-op, counter must NOT advance.
+    r2 = await admin_client.patch(f"/api/v1/jobs/{job_id}", json={"priority": 5})
+    assert r2.status_code == 200
+    assert _val() == before + 1.0
+
+    # Different value — counter advances.
+    r3 = await admin_client.patch(f"/api/v1/jobs/{job_id}", json={"priority": 7})
+    assert r3.status_code == 200
+    assert _val() == before + 2.0
+
+
+@pytest.mark.asyncio
 async def test_patch_job_nonadmin_returns_403(client, db_session) -> None:
     """Non-admin user PATCH → 403 (admin-only endpoint)."""
     from app.models import Role

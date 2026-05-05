@@ -47,8 +47,10 @@ IN_FLIGHT = {
 
 async def reconcile_build(session: AsyncSession, b: DetectorBuild) -> None:
     try:
-        job = batch_v1().read_namespaced_job(
-            name=b.k8s_job_name, namespace=settings.BUILD_NAMESPACE
+        job = await asyncio.to_thread(
+            batch_v1().read_namespaced_job,
+            name=b.k8s_job_name,
+            namespace=settings.BUILD_NAMESPACE,
         )
     except ApiException as e:
         if e.status == 404:
@@ -191,7 +193,8 @@ async def _handle_failed(session: AsyncSession, b: DetectorBuild, job) -> None:
 
 async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
     try:
-        batch_v1().delete_namespaced_job(
+        await asyncio.to_thread(
+            batch_v1().delete_namespaced_job,
             name=b.k8s_job_name,
             namespace=settings.BUILD_NAMESPACE,
             propagation_policy="Background",
@@ -218,7 +221,8 @@ async def _handle_timeout(session: AsyncSession, b: DetectorBuild) -> None:
 
 async def _update_progress(session: AsyncSession, b: DetectorBuild, job) -> None:
     """Update status based on which init container is running."""
-    pods = core_v1().list_namespaced_pod(
+    pods = await asyncio.to_thread(
+        core_v1().list_namespaced_pod,
         namespace=settings.BUILD_NAMESPACE,
         label_selector=f"lolday.io/build-id={b.id}",
     )
@@ -239,7 +243,8 @@ async def _update_progress(session: AsyncSession, b: DetectorBuild, job) -> None
 async def _extract_failure_reason(b: DetectorBuild) -> str:
     """Examine pod's init containers to determine which step failed."""
     try:
-        pods = core_v1().list_namespaced_pod(
+        pods = await asyncio.to_thread(
+            core_v1().list_namespaced_pod,
             namespace=settings.BUILD_NAMESPACE,
             label_selector=f"lolday.io/build-id={b.id}",
         )
@@ -259,7 +264,8 @@ async def _extract_failure_reason(b: DetectorBuild) -> str:
 
 async def _cleanup_build_secret(build_id) -> None:
     try:
-        core_v1().delete_namespaced_secret(
+        await asyncio.to_thread(
+            core_v1().delete_namespaced_secret,
             name=build_secret_name(build_id),
             namespace=settings.BUILD_NAMESPACE,
         )

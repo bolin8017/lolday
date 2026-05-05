@@ -4,6 +4,7 @@ Runs idempotently on backend lifespan startup. Skips silently if
 HARBOR_ADMIN_PASSWORD is unset (e.g. test environments).
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -48,7 +49,7 @@ async def init_harbor() -> None:
         )
         # Fresh robot — persist docker config Secret; existing robot returns no secret
         if "secret" in robot:
-            _write_docker_config_secret(robot["name"], robot["secret"])
+            await _write_docker_config_secret(robot["name"], robot["secret"])
     except Exception:
         BACKEND_ERRORS.labels(stage="ensure_robot").inc()
         logger.exception("ensure_robot_account failed")
@@ -62,7 +63,7 @@ async def init_harbor() -> None:
         logger.exception("set_retention_policy failed for detectors")
 
 
-def _write_docker_config_secret(robot_name: str, robot_secret: str) -> None:
+async def _write_docker_config_secret(robot_name: str, robot_secret: str) -> None:
     """Create/replace 'harbor-push-cred' Secret in BUILD_NAMESPACE so Kaniko can push."""
     registry = settings.HARBOR_IMAGE_PREFIX
     auth_blob = base64.b64encode(f"{robot_name}:{robot_secret}".encode()).decode()
@@ -75,15 +76,18 @@ def _write_docker_config_secret(robot_name: str, robot_secret: str) -> None:
         string_data={".dockerconfigjson": json.dumps(cfg)},
     )
     try:
-        core_v1().replace_namespaced_secret(
+        await asyncio.to_thread(
+            core_v1().replace_namespaced_secret,
             name="harbor-push-cred",
             namespace=settings.BUILD_NAMESPACE,
             body=body,
         )
     except ApiException as e:
         if e.status == 404:
-            core_v1().create_namespaced_secret(
-                namespace=settings.BUILD_NAMESPACE, body=body
+            await asyncio.to_thread(
+                core_v1().create_namespaced_secret,
+                namespace=settings.BUILD_NAMESPACE,
+                body=body,
             )
         else:
             raise

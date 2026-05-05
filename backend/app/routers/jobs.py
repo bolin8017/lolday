@@ -21,7 +21,7 @@ from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
 from app.config import settings
 from app.db import async_session_maker, get_async_session
 from app.deps import require_role
-from app.metrics import BACKEND_ERRORS
+from app.metrics import BACKEND_ERRORS, PRIORITY_BUMP_TOTAL
 from app.models import DatasetConfig, DetectorVersion, Job, JobEvent, ModelVersion, User
 from app.models.dataset import DatasetVisibility
 from app.models.job import NON_TERMINAL_STATUSES, JobStatus, JobType
@@ -77,34 +77,6 @@ async def _load_dataset(
     ):
         raise HTTPException(status_code=422, detail=f"{field}: dataset not accessible")
     return ds
-
-
-_KNOWN_DISTRIBUTED_STRATEGIES = frozenset({"ddp", "fsdp", "deepspeed"})
-
-
-def _strategy_from_manifest(manifest) -> str:
-    """Lightning distributed strategy env for the detector container.
-
-    Phase 11b: ``manifest.lifecycle.supports_distributed`` is ``bool |
-    Literal["ddp","fsdp","deepspeed"]``. Pass the string literal through
-    verbatim. For the boolean form (legacy or opt-out), fall back to
-    ``"ddp"`` — which Lightning ignores when ``gpu_count <= 1``.
-
-    Raises ``ValueError`` if the manifest names an unknown strategy (e.g.
-    ``"horovod"``). The caller wraps this into an HTTP 400 so the detector
-    author sees the misconfiguration at submit time rather than as an
-    opaque detector startup failure.
-    """
-    val = manifest.lifecycle.supports_distributed
-    if isinstance(val, str):
-        if val not in _KNOWN_DISTRIBUTED_STRATEGIES:
-            raise ValueError(
-                f"manifest.lifecycle.supports_distributed={val!r} is not a "
-                f"known strategy; expected one of "
-                f"{sorted(_KNOWN_DISTRIBUTED_STRATEGIES)}"
-            )
-        return val
-    return "ddp"
 
 
 def _build_job_read_with_defaults(job: Job, manifest: dict[str, Any] | None) -> JobRead:
@@ -458,7 +430,7 @@ async def get_job_logs(
     if job is None or (job.owner_id != user.id and user.role.value != "admin"):
         raise HTTPException(status_code=404, detail="job not found")
     if job.status in NON_TERMINAL_STATUSES or job.finished_at is None:
-        return _stream_live_logs(job)
+        return await _stream_live_logs(job)
     age = datetime.now(UTC) - job.finished_at.replace(tzinfo=UTC)
     if age.total_seconds() > 86400:
         return Response(
@@ -467,16 +439,18 @@ async def get_job_logs(
     return Response(content=job.log_tail or "", media_type="text/plain")
 
 
-def _stream_live_logs(job: Job):
+async def _stream_live_logs(job: Job):
     try:
-        pods = core_v1().list_namespaced_pod(
+        pods = await asyncio.to_thread(
+            core_v1().list_namespaced_pod,
             namespace=settings.JOB_NAMESPACE,
             label_selector=f"lolday.job-id={job.id}",
         )
         if not pods.items:
             return Response(content="", media_type="text/plain")
         pod = pods.items[0]
-        log = core_v1().read_namespaced_pod_log(
+        log = await asyncio.to_thread(
+            core_v1().read_namespaced_pod_log,
             name=pod.metadata.name,
             namespace=settings.JOB_NAMESPACE,
             container="detector",
@@ -500,7 +474,11 @@ async def get_job_queue_position_endpoint(
     job = await session.get(Job, job_id)
     if job is None or (job.owner_id != user.id and user.role.value != "admin"):
         raise HTTPException(status_code=404, detail="job not found")
-    position = get_job_queue_position(job.k8s_job_name) if job.k8s_job_name else None
+    position = (
+        await asyncio.to_thread(get_job_queue_position, job.k8s_job_name)
+        if job.k8s_job_name
+        else None
+    )
     return {"position": position}
 
 
@@ -520,7 +498,8 @@ async def cancel_job(
 
     if job.k8s_job_name:
         try:
-            batch_v1().delete_namespaced_job(
+            await asyncio.to_thread(
+                batch_v1().delete_namespaced_job,
                 name=job.k8s_job_name,
                 namespace=settings.JOB_NAMESPACE,
                 propagation_policy="Background",
@@ -567,7 +546,12 @@ async def patch_job(
             status_code=422,
             detail="priority cannot be changed after job has been submitted to Volcano",
         )
-    if body.priority is not None:
+    if body.priority is not None and body.priority != job.priority:
+        # Phase 6 follow-up A2: only count *changes*, not no-op patches, so
+        # the rate genuinely reflects admin manual intervention. The
+        # PRIORITY_BUMP_TOTAL counter then signals whether to invest in
+        # auto-aging (spec §3.2 / follow-ups A2).
+        PRIORITY_BUMP_TOTAL.inc()
         job.priority = body.priority
     await session.commit()
     await session.refresh(job)

@@ -16,6 +16,7 @@ Idempotency notes:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 
@@ -41,13 +42,13 @@ logger = logging.getLogger(__name__)
 _KNOWN_DISTRIBUTED_STRATEGIES = frozenset({"ddp", "fsdp", "deepspeed"})
 
 
-def _strategy_from_manifest_dict(manifest: dict | None) -> str:
-    """Resolve the Lightning distributed strategy string from a raw manifest dict.
+def _strategy_from_manifest(manifest: dict | None) -> str:
+    """Resolve the Lightning distributed strategy string from a manifest dict.
 
-    Mirrors ``app.routers.jobs._strategy_from_manifest`` but accepts a plain
-    ``dict`` (as stored in ``DetectorVersion.manifest``) rather than a
-    ``DetectorManifest`` Pydantic instance, so the reconciler does not need
-    to re-parse the manifest into a model object.
+    Accepts a plain ``dict`` (as stored in ``DetectorVersion.manifest``) so
+    callers don't need to round-trip through the ``DetectorManifest`` Pydantic
+    model. Router callers that hold a Pydantic instance pass
+    ``manifest.model_dump()`` at the call boundary.
 
     Falls back to ``"ddp"`` for ``True`` / missing values (legacy manifests).
     Raises ``ValueError`` for an unknown strategy string so callers can surface
@@ -86,7 +87,7 @@ async def dispatch_job_to_volcano(session: AsyncSession, job: Job) -> None:
         )
 
     # Resolve GPU strategy from the raw manifest dict.
-    gpu_strategy = _strategy_from_manifest_dict(dv.manifest)
+    gpu_strategy = _strategy_from_manifest(dv.manifest)
 
     # Resolve source model artifact path (evaluate / predict jobs).
     source_run_id = None
@@ -108,12 +109,18 @@ async def dispatch_job_to_volcano(session: AsyncSession, job: Job) -> None:
     job.token_hash = hash_token(raw_token)
 
     # Create the token Secret before the vcjob so the init container can read
-    # it immediately when the pod starts.
+    # it immediately when the pod starts. Sync K8s calls run via
+    # ``asyncio.to_thread`` so a slow API server doesn't block the asyncio
+    # loop alongside other handlers.
     secret = build_job_token_secret(job.id, raw_token)
-    core_v1().create_namespaced_secret(namespace=settings.JOB_NAMESPACE, body=secret)
+    await asyncio.to_thread(
+        core_v1().create_namespaced_secret,
+        namespace=settings.JOB_NAMESPACE,
+        body=secret,
+    )
 
     # Ensure the per-user Volcano queue exists (idempotent).
-    queue_name = ensure_user_queue(job.owner_id)
+    queue_name = await ensure_user_queue(job.owner_id)
 
     manifest = build_volcano_job_manifest(
         job_id=job.id,
@@ -134,7 +141,8 @@ async def dispatch_job_to_volcano(session: AsyncSession, job: Job) -> None:
     )
 
     try:
-        volcano_v1alpha1().create_namespaced_custom_object(
+        await asyncio.to_thread(
+            volcano_v1alpha1().create_namespaced_custom_object,
             group=VOLCANO_BATCH_GROUP,
             version=VOLCANO_BATCH_VERSION,
             namespace=settings.JOB_NAMESPACE,
@@ -145,7 +153,8 @@ async def dispatch_job_to_volcano(session: AsyncSession, job: Job) -> None:
         # Roll back the token secret we just created so we leave no orphaned
         # secrets behind on a partial failure.
         with contextlib.suppress(Exception):
-            core_v1().delete_namespaced_secret(
+            await asyncio.to_thread(
+                core_v1().delete_namespaced_secret,
                 name=secret["metadata"]["name"],
                 namespace=settings.JOB_NAMESPACE,
             )

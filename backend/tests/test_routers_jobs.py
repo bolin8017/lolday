@@ -13,7 +13,7 @@ from copy import deepcopy
 
 import pytest
 from app.models.job import JobType
-from app.routers.jobs import _strategy_from_manifest
+from app.services.jobs_dispatch import _strategy_from_manifest
 from app.services.jobs_params_validate import resolve_detector_defaults
 from maldet.manifest import DetectorManifest
 
@@ -73,22 +73,18 @@ def test_strategy_from_manifest_passes_known_strings(strategy: str) -> None:
     """Each platform-recognised distributed strategy passes through verbatim
     so Lightning's strategy plug-in selector sees the exact token."""
     m = _manifest(strategy)
-    assert _strategy_from_manifest(m) == strategy
+    assert _strategy_from_manifest(m.model_dump()) == strategy
 
 
 def test_strategy_from_manifest_unknown_strategy_raises() -> None:
     """Pydantic constrains the literal at schema time, but if the API ever
     accepts a richer set later, ``_strategy_from_manifest`` must still be
-    the source of truth on the platform side. Construct the model with a
-    bypass to assert the helper rejects unknown values rather than passing
-    them through as opaque env values."""
-
-    # Build a manifest with a valid value, then mutate the underlying field
-    # to bypass pydantic's Literal[...] check. This is the only realistic
-    # way an unknown string could reach the helper at runtime — a stored
-    # manifest from a future schema or a corrupted DB row.
-    m = _manifest("ddp")
-    object.__setattr__(m.lifecycle, "supports_distributed", "horovod")
+    the source of truth on the platform side. Pass an unknown literal in
+    the dict directly — this matches the realistic runtime path where a
+    stored manifest from a future schema or a corrupted DB row reaches the
+    helper without going through pydantic re-validation."""
+    m = _manifest("ddp").model_dump()
+    m["lifecycle"]["supports_distributed"] = "horovod"
 
     with pytest.raises(ValueError, match="not a known strategy"):
         _strategy_from_manifest(m)
@@ -100,7 +96,13 @@ def test_strategy_from_manifest_bool_falls_back_to_ddp(bool_val: bool) -> None:
     ``maldet < 1.1``. Lightning ignores ``strategy=ddp`` when GPU count <= 1,
     so falling back to ``"ddp"`` is safe regardless of resource_profile."""
     m = _manifest(bool_val)
-    assert _strategy_from_manifest(m) == "ddp"
+    assert _strategy_from_manifest(m.model_dump()) == "ddp"
+
+
+def test_strategy_from_manifest_none_falls_back_to_ddp() -> None:
+    """Phase 11b made ``DetectorVersion.manifest`` nullable for legacy rows.
+    The helper must accept ``None`` and surface the safe ``"ddp"`` default."""
+    assert _strategy_from_manifest(None) == "ddp"
 
 
 # ---------------------------------------------------------------------------

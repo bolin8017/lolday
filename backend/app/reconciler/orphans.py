@@ -11,6 +11,7 @@ The :data:`ORPHAN_GRACE_SECONDS` guard skips vcjobs younger than 5 min
 to avoid the create-vcjob/commit-row race in ``app/routers/jobs.py``.
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -58,7 +59,8 @@ async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
     """
     from app.services.job_spec import _job_token_secret_name
 
-    listing = volcano_v1alpha1().list_namespaced_custom_object(
+    listing = await asyncio.to_thread(
+        volcano_v1alpha1().list_namespaced_custom_object,
         group=VOLCANO_BATCH_GROUP,
         version=VOLCANO_BATCH_VERSION,
         namespace=settings.JOB_NAMESPACE,
@@ -112,7 +114,8 @@ async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
 
         vcjob_gone = False
         try:
-            volcano_v1alpha1().delete_namespaced_custom_object(
+            await asyncio.to_thread(
+                volcano_v1alpha1().delete_namespaced_custom_object,
                 group=VOLCANO_BATCH_GROUP,
                 version=VOLCANO_BATCH_VERSION,
                 namespace=settings.JOB_NAMESPACE,
@@ -136,7 +139,8 @@ async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
         # Reach the secret cleanup whether vcjob deleted just now or was
         # already gone — the orphan secret outlives a partial delete.
         try:
-            core_v1().delete_namespaced_secret(
+            await asyncio.to_thread(
+                core_v1().delete_namespaced_secret,
                 name=_job_token_secret_name(job_uuid),
                 namespace=settings.JOB_NAMESPACE,
             )
