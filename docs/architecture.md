@@ -196,6 +196,13 @@ Two host names point at Harbor; they are **not interchangeable**:
 
 If you see a default in `config.py` that uses `harbor.lolday.svc`, it's likely a copy-paste error from values.yaml — flag it.
 
+### 5.4 Two-namespace model (since 2026-05-05)
+
+- `lolday` — infrastructure: backend, frontend, postgres, redis, mlflow, harbor, kps, loki, alloy, trivy, cloudflared. Memory cap `lolday-infra-quota: requests.memory 20Gi, limits.memory 40Gi`.
+- `lolday-jobs` — workload: detector vcjobs (`batch.volcano.sh/v1alpha1.Job`) + BuildKit build Jobs. Capped by `lolday-jobs-quota` (`requests.memory 30Gi, limits.memory 50Gi, requests.nvidia.com/gpu 2, count/pods 16`) and `lolday-jobs-limits` LimitRange (per-container `max: 16Gi memory / 4 cpu`).
+- Backend SA (`lolday/backend`) has two Roles: same-ns Role for secrets / configmaps / PVCs; cross-ns Role `backend-jobs` in `lolday-jobs` for pods / batch / batch.volcano.sh.
+- NetworkPolicies on `lolday-job-egress` / `lolday-build-egress` use `namespaceSelector kubernetes.io/metadata.name: lolday` to target backend / mlflow / harbor across the namespace boundary.
+
 ## 6. Build / Test / Release
 
 ### CI/CD overview
@@ -310,6 +317,8 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 13. **AUTH_DEV_MODE single-persona limitation** — `backend/app/auth.py`'s dev-mode bypass reads `AUTH_DEV_EMAIL` once at boot and returns the same synthetic user for every request. This blocks E2E coverage of role-gated UI's negative side: there's no way for a Playwright spec to act as a `developer` / `user` to verify that admin-only nav links or admin-only mutation buttons stay hidden. Spec `docs/superpowers/specs/2026-05-04-mobile-responsive-redesign-design.md` §5 PR-4 calls for an "admin link only for admin users" assertion; the current `frontend/tests/e2e/mobile/sidebar-drawer.spec.ts` covers the positive case only because of this gap. Mitigation candidates: (a) backend honours an `X-Dev-User-Email` request header (or similar) that overrides `AUTH_DEV_EMAIL` per request, with synthetic-user creation on first sight; (b) seed multiple test users in `AUTH_DEV_MODE` and let the helper switch via `localStorage` / cookie. (a) is the smaller change and aligns with the existing dev-mode shape. Track via a small backend ticket — out of scope for any frontend-only follow-up.
 
 14. **`frontend/src/api/schema.gen.ts` drift detection** — the file is generated from a running backend's `/openapi.json` via `pnpm gen-api-types`, but PR #69 hand-stitched a single field (`detector_defaults` on `JobRead`) to avoid bringing up a local dev backend just for one sync. The shape is deterministic (mirrors the adjacent `user_params` field whose Pydantic source has the same `dict | None = None` type), so the hand-edit is safe today — but a future contributor running `pnpm gen-api-types` against a backend without this PR's backend changes deployed would silently revert the field, breaking the override-indicator UI without any compile error. Mitigations to consider: a CI step that spins up a temporary backend (uv + aiosqlite) and runs `git diff --exit-code frontend/src/api/schema.gen.ts` after regen; or a pre-commit hook with the same flow; or a smaller-scope PR-template checkbox. The fix is non-trivial (CI needs the backend dep tree available in the runner) and is deferred to its own ticket.
+
+15. ~~**Single-namespace deploy**~~ — resolved 2026-05-05 in `feat/gpu-scheduling-phase1-jobs-namespace`: detector vcjobs + BuildKit Jobs migrated to a dedicated `lolday-jobs` namespace so per-namespace `ResourceQuota` + `LimitRange` can cap them without constraining infra. Backend SA in `lolday` granted a cross-ns Role `backend-jobs` in `lolday-jobs`. See `docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md` §6.2.
 
 ## 10. Common gotchas
 

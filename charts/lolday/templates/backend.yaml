@@ -58,14 +58,16 @@ spec:
                   name: discord-events
                   key: webhook-url
                   optional: true
-            # Phase 7.5: derive BUILD_NAMESPACE + JOB_NAMESPACE from the release
-            # namespace so they cannot drift out of sync with the namespaced
-            # pods Role (which only grants list/get in this ns). A mismatch
-            # silently 403s GPU accounting → `in_use=0` → over-schedule.
+            # Phase 1 (2026-05-05): vcjobs + build Jobs moved to the
+            # dedicated jobsNamespace. The Phase 7.5 invariant — these
+            # two stay in sync with the corresponding RBAC scope —
+            # holds because templates/jobs-rbac.yaml grants the
+            # backend SA verbs in jobsNamespace; templates/backend-rbac.yaml
+            # only retains same-ns secrets/configmaps/PVC verbs.
             - name: BUILD_NAMESPACE
-              value: {{ .Values.global.namespace | quote }}
+              value: {{ .Values.global.jobsNamespace | quote }}
             - name: JOB_NAMESPACE
-              value: {{ .Values.global.namespace | quote }}
+              value: {{ .Values.global.jobsNamespace | quote }}
             {{- range $k, $v := .Values.backend.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

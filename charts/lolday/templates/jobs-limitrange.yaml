@@ -1,0 +1,23 @@
+{{/* Phase 1 — per-container default + max for lolday-jobs.
+     `default` / `defaultRequest` apply when a manifest omits
+     limits/requests; `max` is the per-container hard ceiling.
+     Numbers from spec §7 Phase 1. */}}
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: lolday-jobs-limits
+  namespace: {{ .Values.global.jobsNamespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  limits:
+    - type: Container
+      max:
+        cpu: "4"
+        memory: 16Gi
+      default:
+        cpu: "2"
+        memory: 4Gi
+      defaultRequest:
+        cpu: 500m
+        memory: 1Gi

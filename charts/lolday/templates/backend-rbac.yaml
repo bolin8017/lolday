@@ -16,23 +16,15 @@ metadata:
   labels:
     {{- include "lolday.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [""]
-    resources: [pods, pods/log]
-    verbs: [get, list, watch]
+  # Phase 1 (2026-05-05) — pods / batch / batch.volcano.sh moved to
+  # the lolday-jobs Role (templates/jobs-rbac.yaml). Same-ns Role keeps
+  # only resources that legitimately live in the infra namespace.
   - apiGroups: [""]
     resources: [secrets, configmaps]
     verbs: [get, list, create, update, delete]
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [get, list, watch]
-  - apiGroups: [batch]
-    resources: [jobs]
-    verbs: [get, list, create, delete, watch]
-  # Phase 7.3 + 7.4 — Volcano training Jobs: reconciler reads + deletes,
-  # cluster_status.get_queue_depth lists.
-  - apiGroups: [batch.volcano.sh]
-    resources: [jobs]
-    verbs: [get, list, create, delete, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -1,9 +1,10 @@
 {{- if .Values.backend.enabled }}
+{{/* Phase 1 — NP scoped to lolday-jobs; harbor + backend live in lolday infra ns. */}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: lolday-build-egress
-  namespace: {{ .Values.global.namespace }}
+  namespace: {{ .Values.global.jobsNamespace }}
   labels:
     {{- include "lolday.labels" . | nindent 4 }}
 spec:
@@ -20,7 +21,7 @@ spec:
       ports:
         - protocol: UDP
           port: 53
-    # Harbor (deployed as subchart in same namespace)
+    # Harbor (subchart in lolday infra ns)
     - to:
         - namespaceSelector:
             matchLabels:
@@ -28,7 +29,7 @@ spec:
           podSelector:
             matchLabels:
               app: harbor
-    # Backend (for validate container schema callback)
+    # Backend (validate container schema callback)
     - to:
         - namespaceSelector:
             matchLabels:

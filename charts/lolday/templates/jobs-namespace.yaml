@@ -1,0 +1,14 @@
+{{/* Phase 1 — dedicated namespace for detector vcjobs + BuildKit Jobs.
+     Decoupled from `global.namespace` so a per-namespace
+     ResourceQuota / LimitRange can cap workload pods without
+     constraining infra. See spec §6.2. */}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.global.jobsNamespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+    lolday.io/role: workload
+    # explicit duplicate of K8s' auto-injected label, for older K3s + tooling
+    # that don't reliably honour the projected `kubernetes.io/metadata.name`.
+    kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace }}

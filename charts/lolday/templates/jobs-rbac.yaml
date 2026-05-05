@@ -1,0 +1,43 @@
+{{- if .Values.backend.enabled }}
+{{/* Phase 1 — Role + RoleBinding in lolday-jobs that lets the backend
+     ServiceAccount in lolday manage vcjobs / build Jobs / their secrets.
+     Phase 7.5 deliberately narrowed Roles to the workload namespace; we
+     preserve that pattern by adding a second Role here, NOT widening the
+     existing same-ns Role into a ClusterRole. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backend-jobs
+  namespace: {{ .Values.global.jobsNamespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [get, list, create, update, delete]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, create, delete, watch]
+  - apiGroups: [batch.volcano.sh]
+    resources: [jobs]
+    verbs: [get, list, create, delete, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend-jobs
+  namespace: {{ .Values.global.jobsNamespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: backend
+    namespace: {{ .Values.global.namespace }}
+roleRef:
+  kind: Role
+  name: backend-jobs
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}
