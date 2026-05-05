@@ -328,3 +328,154 @@ async def test_create_job_admin_priority_nonzero_succeeds(client, db_session) ->
     body = r.json()
     assert body["status"] == "queued_backend"
     assert body["priority"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 (Task F) — PATCH /jobs/{id} for admin priority bump
+# ---------------------------------------------------------------------------
+
+
+async def _seed_admin_with_queued_job(
+    client,
+    db_session,
+    status: str = "queued_backend",
+) -> tuple:
+    """Helper: seed an admin user + a Job row with given status.
+
+    Returns (admin_client_with_header, job_id_str).
+    """
+    import uuid as _uuid
+
+    from app.models import Detector, DetectorVersion, Job, Role
+    from app.models.detector import DetectorVersionStatus
+    from app.models.job import JobStatus, JobType
+
+    from tests.conftest import _MINIMAL_MANIFEST, _make_user
+
+    admin_user = await _make_user("adm-patch@example.dev", role=Role.ADMIN)
+    client.headers["x-test-user-email"] = "adm-patch@example.dev"
+
+    det = Detector(
+        name=f"patch-det-{_uuid.uuid4().hex[:6]}",
+        display_name="patch-det",
+        git_url="https://github.com/test/patch-det.git",
+        owner_id=admin_user.id,
+    )
+    db_session.add(det)
+    await db_session.flush()
+    dv = DetectorVersion(
+        detector_id=det.id,
+        git_tag="v0.1.0",
+        git_sha="a" * 40,
+        harbor_image="harbor.harbor.svc:80/detectors/patch-det:v0.1.0",
+        image_digest="sha256:" + "a" * 64,
+        status=DetectorVersionStatus.ACTIVE,
+        manifest=_MINIMAL_MANIFEST,
+    )
+    db_session.add(dv)
+    await db_session.flush()
+
+    job = Job(
+        type=JobType.TRAIN,
+        status=JobStatus(status),
+        detector_version_id=dv.id,
+        owner_id=admin_user.id,
+        resolved_config={},
+        idempotency_key=_uuid.uuid4().hex,
+        priority=0,
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+    return client, str(job.id)
+
+
+@pytest.mark.asyncio
+async def test_patch_job_admin_queued_backend_updates_priority(
+    client, db_session
+) -> None:
+    """Admin PATCH on a queued_backend job → 200, priority updated in response."""
+    admin_client, job_id = await _seed_admin_with_queued_job(client, db_session)
+
+    r = await admin_client.patch(
+        f"/api/v1/jobs/{job_id}",
+        json={"priority": 5},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["id"] == job_id
+    assert body["priority"] == 5
+    assert body["status"] == "queued_backend"
+
+
+@pytest.mark.asyncio
+async def test_patch_job_admin_idempotent(client, db_session) -> None:
+    """Multiple PATCH calls with the same priority are idempotent — no error."""
+    admin_client, job_id = await _seed_admin_with_queued_job(client, db_session)
+
+    r1 = await admin_client.patch(f"/api/v1/jobs/{job_id}", json={"priority": 3})
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["priority"] == 3
+
+    r2 = await admin_client.patch(f"/api/v1/jobs/{job_id}", json={"priority": 3})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["priority"] == 3
+
+
+@pytest.mark.asyncio
+async def test_patch_job_nonadmin_returns_403(client, db_session) -> None:
+    """Non-admin user PATCH → 403 (admin-only endpoint)."""
+    from app.models import Role
+
+    from tests.conftest import _make_user
+
+    # Seed the admin + job first using a separate client setup
+    _admin_client, job_id = await _seed_admin_with_queued_job(client, db_session)
+
+    # Now switch to a regular user
+    await _make_user("user-patch@example.dev", role=Role.USER)
+    client.headers["x-test-user-email"] = "user-patch@example.dev"
+
+    r = await client.patch(
+        f"/api/v1/jobs/{job_id}",
+        json={"priority": 5},
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_job_non_queued_backend_returns_422(client, db_session) -> None:
+    """Admin PATCH on a running job → 422 with the canonical error message."""
+    admin_client, job_id = await _seed_admin_with_queued_job(
+        client, db_session, status="running"
+    )
+
+    r = await admin_client.patch(
+        f"/api/v1/jobs/{job_id}",
+        json={"priority": 5},
+    )
+    assert r.status_code == 422, r.text
+    assert (
+        "priority cannot be changed after job has been submitted to Volcano"
+        in r.json()["detail"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_patch_job_nonexistent_returns_404(client, db_session) -> None:
+    """Admin PATCH on a non-existent job id → 404."""
+    import uuid as _uuid
+
+    from app.models import Role
+
+    from tests.conftest import _make_user
+
+    await _make_user("adm-404@example.dev", role=Role.ADMIN)
+    client.headers["x-test-user-email"] = "adm-404@example.dev"
+
+    fake_id = str(_uuid.uuid4())
+    r = await client.patch(
+        f"/api/v1/jobs/{fake_id}",
+        json={"priority": 5},
+    )
+    assert r.status_code == 404, r.text

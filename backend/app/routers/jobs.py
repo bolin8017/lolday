@@ -20,11 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
 from app.config import settings
 from app.db import async_session_maker, get_async_session
+from app.deps import require_role
 from app.metrics import BACKEND_ERRORS
 from app.models import DatasetConfig, DetectorVersion, Job, JobEvent, ModelVersion, User
 from app.models.dataset import DatasetVisibility
 from app.models.job import NON_TERMINAL_STATUSES, JobStatus, JobType
-from app.schemas.job import JobCreate, JobList, JobRead, JobSummary
+from app.models.user import Role
+from app.schemas.job import JobCreate, JobList, JobPatch, JobRead, JobSummary
 from app.schemas.job_event import JobEventOut, JobEventsPage
 from app.services.cluster_status import get_job_queue_position
 from app.services.dataset import DatasetIntegrityError, parse_csv, spot_check_samples
@@ -539,6 +541,36 @@ async def cancel_job(
     await session.refresh(job)
     # Same defensive ``dv if dv else None`` guard as ``get_job`` — the
     # detector version row is fetched fresh and could in theory be missing.
+    dv = await session.get(DetectorVersion, job.detector_version_id)
+    return _build_job_read_with_defaults(job, dv.manifest if dv else None)
+
+
+@router.patch("/{job_id}", response_model=JobRead)
+async def patch_job(
+    job_id: uuid.UUID,
+    body: JobPatch,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(require_role(Role.ADMIN))],
+) -> JobRead:
+    """Phase 6 (Task F) — admin-only priority bump for queued_backend jobs.
+
+    Only ``priority`` is mutable. Rejects with 422 once the job has been
+    submitted to Volcano (i.e. status != queued_backend), because the
+    fifo_scheduler has already made its dispatch decision and the ordering
+    can no longer be altered by changing the DB field alone.
+    """
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status != JobStatus.QUEUED_BACKEND:
+        raise HTTPException(
+            status_code=422,
+            detail="priority cannot be changed after job has been submitted to Volcano",
+        )
+    if body.priority is not None:
+        job.priority = body.priority
+    await session.commit()
+    await session.refresh(job)
     dv = await session.get(DetectorVersion, job.detector_version_id)
     return _build_job_read_with_defaults(job, dv.manifest if dv else None)
 

@@ -123,6 +123,17 @@ class JobList(BaseModel):
     page_size: int
 
 
+class JobPatch(BaseModel):
+    """Request body for PATCH /jobs/{id}.
+
+    Phase 6 (Task F) — admin-only priority bump. Only ``priority`` is
+    mutable via this endpoint. The field is optional; omitting it is
+    effectively a no-op (idempotent call pattern).
+    """
+
+    priority: int | None = None
+
+
 class JobInternalConfig(BaseModel):
     yaml: str
     train_csv: str | None
