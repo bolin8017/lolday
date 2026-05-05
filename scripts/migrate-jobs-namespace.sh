@@ -16,13 +16,18 @@ mode=${1:-check}
 case "$mode" in
   check)
     echo "[step 1/3] in-flight vcjobs in ${OLD_NS}"
-    in_flight=$(kubectl get jobs.batch.volcano.sh -n "${OLD_NS}" 2>/dev/null \
-      | awk 'NR>1 && $3 != "Completed" && $3 != "Failed" && $3 != "Aborted"' \
-      | wc -l)
+    # Use jsonpath rather than column slicing — kubectl table output column
+    # offsets vary across plugin versions and the awk approach mistakes
+    # MINAVAILABLE for STATUS. Volcano Job state lives in .status.state.phase.
+    in_flight_list=$(kubectl get jobs.batch.volcano.sh -n "${OLD_NS}" \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.state.phase}{"\n"}{end}' \
+      2>/dev/null \
+      | awk -F'\t' '$2 != "Completed" && $2 != "Failed" && $2 != "Aborted" && $2 != ""' \
+      || true)
+    in_flight=$(printf '%s\n' "${in_flight_list}" | grep -cv '^$' || true)
     if [ "${in_flight}" -gt 0 ]; then
       echo "[fail] ${in_flight} in-flight vcjob(s) in ${OLD_NS}:"
-      kubectl get jobs.batch.volcano.sh -n "${OLD_NS}" 2>/dev/null \
-        | awk 'NR==1 || ($3 != "Completed" && $3 != "Failed" && $3 != "Aborted")'
+      printf '  %s\n' "${in_flight_list}"
       echo "[hint] wait for them to finish (or cancel via UI) before cutover"
       exit 1
     fi
@@ -30,9 +35,11 @@ case "$mode" in
 
     echo ""
     echo "[step 2/3] in-flight build jobs in ${OLD_NS}"
-    in_flight_builds=$(kubectl get jobs.batch -n "${OLD_NS}" -l app=lolday-build 2>/dev/null \
-      | awk 'NR>1 && $2 != "Complete"' \
-      | wc -l)
+    # batch.Job is "in-flight" when .status.succeeded != .spec.completions.
+    in_flight_builds=$(kubectl get jobs.batch -n "${OLD_NS}" -l app=lolday-build \
+      -o jsonpath='{range .items[?(@.status.succeeded < @.spec.completions)]}{.metadata.name}{"\n"}{end}' \
+      2>/dev/null \
+      | grep -c . || true)
     if [ "${in_flight_builds}" -gt 0 ]; then
       echo "[warn] ${in_flight_builds} in-flight build job(s) in ${OLD_NS} — they will continue in ${OLD_NS}"
       echo "[warn]   only newly-submitted builds will go to ${NEW_NS}"
