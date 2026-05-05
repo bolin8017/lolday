@@ -47,6 +47,7 @@ from app.services.k8s import (
     VOLCANO_JOB_PLURAL,
     batch_v1,
     core_v1,
+    ensure_user_queue,
     volcano_v1alpha1,
 )
 from app.services.mlflow_client import MlflowClient
@@ -344,6 +345,9 @@ async def create_job(
         gpu_strategy = _strategy_from_manifest(manifest_model)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Phase 2 — route through the per-user Volcano queue. ensure_user_queue is
+    # idempotent (409 → success) so concurrent submits don't race.
+    queue_name = ensure_user_queue(user.id)
     manifest = build_volcano_job_manifest(
         job_id=job.id,
         job_type=body.type,
@@ -358,6 +362,7 @@ async def create_job(
             else None
         ),
         internal_events_url=f"{settings.INTERNAL_EVENTS_BASE_URL}/api/v1/internal/jobs/{job.id}/events",
+        queue_name=queue_name,
         resource_profile=body.resource_profile,
         gpu_strategy=gpu_strategy,
     )

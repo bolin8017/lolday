@@ -31,6 +31,7 @@ def _build(resource_profile=ResourceProfile.STANDARD, gpu_strategy="ddp"):
         source_artifact_path=None,
         resource_profile=resource_profile,
         internal_events_url="http://backend:8000/internal/jobs/12345678-1234-5678-1234-567812345678/events",
+        queue_name="lolday-u-test",
         gpu_strategy=gpu_strategy,
     )
 
@@ -112,6 +113,7 @@ def test_model_fetcher_init_on_evaluate() -> None:
         source_artifact_path="model",
         resource_profile=ResourceProfile.STANDARD,
         internal_events_url="http://backend:8000/internal/jobs/.../events",
+        queue_name="lolday-u-test",
         gpu_strategy="ddp",
     )
     init_names = [
@@ -161,7 +163,11 @@ def test_manifest_is_volcano_kind() -> None:
 
 def test_spec_has_queue_and_scheduler() -> None:
     m = _build()
-    assert m["spec"]["queue"] == "lolday-training"
+    # Phase 2 — queue is now per-user (passed in by the caller); _build
+    # passes the test sentinel "lolday-u-test" so the manifest reflects it.
+    # The fallback "lolday-training" queue still exists in the chart for
+    # non-user code paths; that's covered by the chart-level helm test.
+    assert m["spec"]["queue"] == "lolday-u-test"
     assert m["spec"]["schedulerName"] == "volcano"
     # minAvailable=1 is the gang-scheduling no-op for a single-pod job.
     assert m["spec"]["minAvailable"] == 1

@@ -56,6 +56,13 @@ rules:
   - apiGroups: [""]
     resources: [nodes]
     verbs: [get, list, watch]
+  # Phase 2 — per-user Volcano Queue is cluster-scoped, created lazily on
+  # first POST /jobs by the same user. List + get for reconciler-side checks
+  # (currently only create is used, but read verbs are cheap and avoid future
+  # round-trip if we add UI showing per-user queue depth).
+  - apiGroups: [scheduling.volcano.sh]
+    resources: [queues]
+    verbs: [get, list, create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -283,6 +283,17 @@ def mock_k8s_batch(monkeypatch):
             self.objects[name] = body
             return body
 
+        # Phase 2 — services/k8s.ensure_user_queue creates cluster-scoped
+        # Volcano Queues. Idempotent stub: silently overwrites on re-create.
+        def create_cluster_custom_object(self, group, version, plural, body, **kw):
+            name = (
+                (body.get("metadata") or {}).get("name")
+                if isinstance(body, dict)
+                else body.metadata.name
+            )
+            self.objects[name] = body
+            return body
+
         def get_namespaced_custom_object(self, *a, **kw):
             from kubernetes.client.exceptions import ApiException
 
