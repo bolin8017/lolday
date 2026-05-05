@@ -112,6 +112,11 @@ kubectl -n "$NS_INFRA" patch cm "$SCHED_CM" --type=merge \
   >/dev/null
 kubectl -n "$NS_INFRA" rollout restart deploy "$SCHED_DEPLOY" >/dev/null
 kubectl -n "$NS_INFRA" rollout status deploy "$SCHED_DEPLOY" --timeout=2m
+# Defense against silent sed no-op: confirm the patched value is now present.
+kubectl -n "$NS_INFRA" get cm "$SCHED_CM" \
+  -o jsonpath='{.data.volcano-scheduler\.conf}' \
+  | grep -q "sla-waiting-time: $TEST_SLA_WAIT" \
+  || { echo "FAIL: sed did not replace sla-waiting-time in ConfigMap"; exit 1; }
 sleep 5
 echo "OK"
 
@@ -123,6 +128,11 @@ sleep 5
 submit_job d-big 2 15
 sleep 4
 submit_job d-small 1 15
+# Diagnostic — actual job creationTimestamp gap (helps debug if smoke fails on slow clusters)
+big_ct=$(kubectl -n "$NS_JOBS" get jobs.batch.volcano.sh d-big -o jsonpath='{.metadata.creationTimestamp}')
+small_ct=$(kubectl -n "$NS_JOBS" get jobs.batch.volcano.sh d-small -o jsonpath='{.metadata.creationTimestamp}')
+echo "  d-big  creationTimestamp=$big_ct"
+echo "  d-small creationTimestamp=$small_ct"
 echo "submitted d-j1, d-j2, d-big, d-small"
 
 echo
@@ -130,7 +140,7 @@ echo "[step 5/5] waiting up to 120s for d-BIG and d-SMALL pod startTime"
 big_start=""
 small_start=""
 deadline=$(($(date +%s) + 120))
-while [ $(date +%s) -lt $deadline ]; do
+while (( $(date +%s) < deadline )); do
   [ -z "$big_start" ] && big_start=$(kubectl -n "$NS_JOBS" get pod d-big-main-0 \
     -o jsonpath='{.status.startTime}' 2>/dev/null || true)
   [ -z "$small_start" ] && small_start=$(kubectl -n "$NS_JOBS" get pod d-small-main-0 \
