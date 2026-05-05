@@ -20,11 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
 from app.config import settings
 from app.db import async_session_maker, get_async_session
+from app.deps import require_role
 from app.metrics import BACKEND_ERRORS
 from app.models import DatasetConfig, DetectorVersion, Job, JobEvent, ModelVersion, User
 from app.models.dataset import DatasetVisibility
 from app.models.job import NON_TERMINAL_STATUSES, JobStatus, JobType
-from app.schemas.job import JobCreate, JobList, JobRead, JobSummary
+from app.models.user import Role
+from app.schemas.job import JobCreate, JobList, JobPatch, JobRead, JobSummary
 from app.schemas.job_event import JobEventOut, JobEventsPage
 from app.services.cluster_status import get_job_queue_position
 from app.services.dataset import DatasetIntegrityError, parse_csv, spot_check_samples
@@ -32,23 +34,15 @@ from app.services.events_tail import event_broker
 from app.services.job_config import (
     JobConfigRenderer,
     compute_idempotency_key,
-    resolve_source_model_path,
 )
-from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
-from app.services.job_tokens import generate_token, hash_token
 from app.services.jobs_params_validate import (
     UserParamsRejected,
     resolve_detector_defaults,
     validate_user_params,
 )
 from app.services.k8s import (
-    VOLCANO_BATCH_GROUP,
-    VOLCANO_BATCH_VERSION,
-    VOLCANO_JOB_PLURAL,
     batch_v1,
     core_v1,
-    ensure_user_queue,
-    volcano_v1alpha1,
 )
 from app.services.mlflow_client import MlflowClient
 from app.services.rate_limit import rate_limit_user
@@ -168,7 +162,6 @@ async def create_job(
     )
 
     # 3. source model
-    source_run_id = None
     source_model = None
     if body.source_model_version_id is not None:
         source_model = await session.get(ModelVersion, body.source_model_version_id)
@@ -176,7 +169,6 @@ async def create_job(
             raise HTTPException(
                 status_code=422, detail="source_model_version not found"
             )
-        source_run_id = source_model.mlflow_run_id
 
     # 4. Manifest pre-flight (resource_profile / dataset_contract / stage)
     if dv.manifest is None:
@@ -315,12 +307,20 @@ async def create_job(
     )
     resolved = {"yaml": resolved_yaml}
 
-    # 10. Insert job row
-    raw_token = generate_token()
+    # 10. Priority: admin-only field. Non-admin submitting priority != 0 → 403.
+    # Phase 6 (Task E): the fifo_scheduler reconciler picks up queued_backend
+    # jobs in DESC(priority), ASC(submitted_at) order. Default is 0 (normal).
+    requested_priority = body.priority  # int | None; None means "use default 0"
+    if requested_priority not in (None, 0) and user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="priority field is admin-only")
+    priority_to_persist = requested_priority if requested_priority is not None else 0
 
+    # 11. Insert job row with status=queued_backend. The fifo_scheduler
+    # reconciler (Phase 6d) picks this up and calls dispatch_job_to_volcano.
+    # No K8s side-effects happen here; the row is the only write.
     job = Job(
         type=body.type,
-        status=JobStatus.PENDING,
+        status=JobStatus.QUEUED_BACKEND,
         detector_version_id=dv.id,
         train_dataset_id=train_ds.id if train_ds else None,
         test_dataset_id=test_ds.id if test_ds else None,
@@ -332,61 +332,11 @@ async def create_job(
         mlflow_experiment_id=dv.mlflow_experiment_id,
         mlflow_run_id=run_id,
         idempotency_key=idem_key,
-        token_hash=hash_token(raw_token),
         resource_profile=body.resource_profile,
         active_deadline_seconds=body.active_deadline_seconds,
+        priority=priority_to_persist,
     )
     session.add(job)
-    await session.flush()
-
-    # 11. Launch K8s Job
-    secret = build_job_token_secret(job.id, raw_token)
-    core_v1().create_namespaced_secret(namespace=settings.JOB_NAMESPACE, body=secret)
-    try:
-        gpu_strategy = _strategy_from_manifest(manifest_model)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # Phase 2 — route through the per-user Volcano queue. ensure_user_queue is
-    # idempotent (409 → success) so concurrent submits don't race.
-    queue_name = ensure_user_queue(user.id)
-    manifest = build_volcano_job_manifest(
-        job_id=job.id,
-        job_type=body.type,
-        detector_image=dv.harbor_image,
-        mlflow_experiment_id=dv.mlflow_experiment_id,
-        mlflow_run_id=run_id,
-        mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
-        source_run_id=source_run_id,
-        source_artifact_path=(
-            resolve_source_model_path(f"runs:/{source_run_id}/model")
-            if source_run_id
-            else None
-        ),
-        internal_events_url=f"{settings.INTERNAL_EVENTS_BASE_URL}/api/v1/internal/jobs/{job.id}/events",
-        queue_name=queue_name,
-        resource_profile=body.resource_profile,
-        gpu_strategy=gpu_strategy,
-        active_deadline_seconds=body.active_deadline_seconds,
-    )
-    try:
-        volcano_v1alpha1().create_namespaced_custom_object(
-            group=VOLCANO_BATCH_GROUP,
-            version=VOLCANO_BATCH_VERSION,
-            namespace=settings.JOB_NAMESPACE,
-            plural=VOLCANO_JOB_PLURAL,
-            body=manifest,
-        )
-    except Exception:
-        with contextlib.suppress(Exception):
-            core_v1().delete_namespaced_secret(
-                name=secret["metadata"]["name"], namespace=settings.JOB_NAMESPACE
-            )
-        raise HTTPException(
-            status_code=500, detail="failed to create K8s Job"
-        ) from None
-
-    job.k8s_job_name = manifest["metadata"]["name"]
-    job.status = JobStatus.PREPARING
     await session.commit()
     await session.refresh(job)
     # ``dv`` is guaranteed non-None at this point (loaded + validated above);
@@ -591,6 +541,36 @@ async def cancel_job(
     await session.refresh(job)
     # Same defensive ``dv if dv else None`` guard as ``get_job`` — the
     # detector version row is fetched fresh and could in theory be missing.
+    dv = await session.get(DetectorVersion, job.detector_version_id)
+    return _build_job_read_with_defaults(job, dv.manifest if dv else None)
+
+
+@router.patch("/{job_id}", response_model=JobRead)
+async def patch_job(
+    job_id: uuid.UUID,
+    body: JobPatch,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(require_role(Role.ADMIN))],
+) -> JobRead:
+    """Phase 6 (Task F) — admin-only priority bump for queued_backend jobs.
+
+    Only ``priority`` is mutable. Rejects with 422 once the job has been
+    submitted to Volcano (i.e. status != queued_backend), because the
+    fifo_scheduler has already made its dispatch decision and the ordering
+    can no longer be altered by changing the DB field alone.
+    """
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status != JobStatus.QUEUED_BACKEND:
+        raise HTTPException(
+            status_code=422,
+            detail="priority cannot be changed after job has been submitted to Volcano",
+        )
+    if body.priority is not None:
+        job.priority = body.priority
+    await session.commit()
+    await session.refresh(job)
     dv = await session.get(DetectorVersion, job.detector_version_id)
     return _build_job_read_with_defaults(job, dv.manifest if dv else None)
 

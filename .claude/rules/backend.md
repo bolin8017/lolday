@@ -52,6 +52,7 @@ Both checks run inside the FastAPI lifespan. A misconfigured deploy crashes the 
 - Owns the Volcano vcjob → DB job sync, event-tail consumption, and orphan cleanup.
 - Modify only when a corresponding phase spec covers the change (see `docs/superpowers/specs/2026-04-24-phase11b-*` and Phase 12 specs).
 - Do not split the file unless a phase plan covers it.
+- **New in Phase 6:** `app/reconciler/fifo_scheduler.py` — application-layer FIFO scheduler that pulls Job rows with `status=queued_backend` from DB every 30s, sorts by `(priority DESC, created_at ASC)`, and dispatches HEAD if `cluster.free_gpu >= job.gpu_count`; halts iteration if HEAD does not fit (strict FIFO, no leapfrog). Reads/writes `Job.status` and `Job.priority`. Runs as a separate background thread; coexists with the existing reconciler (which syncs Volcano vcjob → DB state). See `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md` §6.4.
 
 ## maldet (external PyPI package)
 

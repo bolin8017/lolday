@@ -19,6 +19,9 @@ class JobCreate(BaseModel):
     # Phase 5 — optional per-job timeout override. None → use the per-type
     # default (config.JOB_ACTIVE_DEADLINE_*_SECONDS). Caps validated below.
     active_deadline_seconds: int | None = None
+    # Phase 6 — admin-only priority. None → 0 (normal). Enforcement of the
+    # admin-only restriction happens in the POST /jobs router (Task E).
+    priority: int | None = None
 
     @model_validator(mode="after")
     def _validate_active_deadline(self) -> "JobCreate":
@@ -85,6 +88,8 @@ class JobSummary(BaseModel):
     summary_metrics: dict[str, Any] | None = (
         None  # phase 11e — reconciler-projected read model
     )
+    # Phase 6 — FIFO priority; exposed in all response schemas.
+    priority: int = 0
 
 
 class JobRead(JobSummary):
@@ -116,6 +121,17 @@ class JobList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class JobPatch(BaseModel):
+    """Request body for PATCH /jobs/{id}.
+
+    Phase 6 (Task F) — admin-only priority bump. Only ``priority`` is
+    mutable via this endpoint. The field is optional; omitting it is
+    effectively a no-op (idempotent call pattern).
+    """
+
+    priority: int | None = None
 
 
 class JobInternalConfig(BaseModel):

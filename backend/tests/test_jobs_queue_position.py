@@ -32,10 +32,38 @@ async def test_queue_position_requires_auth(client):
 
 
 @pytest.mark.asyncio
-async def test_queue_position_returns_number_for_pending_job(
+async def test_queue_position_returns_null_for_queued_backend_job(
     user_client, seed_detector_version, seed_dataset
 ):
+    """Phase 6 (Task E): POST creates jobs with status=queued_backend and no
+    k8s_job_name yet. The queue-position endpoint returns null for such jobs
+    because they have not been submitted to Volcano by the reconciler yet."""
     jid = await _create_job(user_client, seed_detector_version, seed_dataset)
+    r = await user_client.get(f"/api/v1/jobs/{jid}/queue-position")
+    assert r.status_code == 200
+    assert r.json() == {"position": None}
+
+
+@pytest.mark.asyncio
+async def test_queue_position_returns_number_when_k8s_job_name_is_set(
+    user_client, seed_detector_version, seed_dataset, db_session
+):
+    """Once the reconciler dispatches the job and sets k8s_job_name, the
+    endpoint delegates to get_job_queue_position. Simulate by directly
+    setting k8s_job_name on the DB row."""
+    from uuid import UUID
+
+    from app.models.job import Job
+    from sqlalchemy import select
+
+    jid = await _create_job(user_client, seed_detector_version, seed_dataset)
+    # Simulate reconciler having set k8s_job_name after Volcano dispatch
+    job = (
+        await db_session.execute(select(Job).where(Job.id == UUID(jid)))
+    ).scalar_one()
+    job.k8s_job_name = "vcjob-test-abc123"
+    await db_session.commit()
+
     with patch("app.routers.jobs.get_job_queue_position", return_value=2):
         r = await user_client.get(f"/api/v1/jobs/{jid}/queue-position")
     assert r.status_code == 200

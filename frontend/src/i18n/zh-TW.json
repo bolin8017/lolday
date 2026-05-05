@@ -33,6 +33,7 @@
     "openInMlflow": "在 MLflow 中開啟"
   },
   "status": {
+    "queued_backend": "排隊中",
     "pending": "等待中",
     "preparing": "準備中",
     "running": "執行中",
@@ -66,6 +67,16 @@
     },
     "required": "必填",
     "optional": "可選"
+  },
+  "jobs": {
+    "priority": {
+      "label": "優先度",
+      "column": "優先度",
+      "adminOnly": "僅管理員",
+      "editPlaceholder": "0",
+      "save": "儲存優先度",
+      "warning": "提高優先度會暫停較低優先度工作的提交，直到此工作被派送至 Volcano 為止。正在執行的工作不受影響。"
+    }
   },
   "theme": {
     "toggle": "切換主題",

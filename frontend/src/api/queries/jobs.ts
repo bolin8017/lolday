@@ -96,3 +96,22 @@ export function useCancelJob() {
     onSuccess: () => qc.invalidateQueries({ queryKey: jobsKeys.all }),
   });
 }
+
+/** Phase 6 (Task G.1) — admin-only priority patch. */
+export function usePatchJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, priority }: { id: string; priority: number }) => {
+      const { data, error } = await client.PATCH("/api/v1/jobs/{job_id}", {
+        params: { path: { job_id: id } },
+        body: { priority },
+      });
+      if (error) throw error;
+      return data as Job;
+    },
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: jobsKeys.detail(id) });
+      qc.invalidateQueries({ queryKey: jobsKeys.all });
+    },
+  });
+}

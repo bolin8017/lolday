@@ -1,4 +1,5 @@
 export const NON_TERMINAL_JOB_STATUSES = [
+  "queued_backend", // Phase 6 — backend FIFO holding state before Volcano dispatch
   "pending",
   "preparing",
   "running",
@@ -22,6 +23,7 @@ const TONE_MAP: Record<string, Tone> = {
   building: "info",
   preparing: "info",
   pending: "muted",
+  queued_backend: "warning", // Phase 6 — held in backend FIFO before Volcano dispatch
 };
 
 export function statusTone(status: string): Tone {

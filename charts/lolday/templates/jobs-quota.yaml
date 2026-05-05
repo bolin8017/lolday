@@ -1,5 +1,8 @@
 {{/* Phase 1 — total resource cap on lolday-jobs namespace.
-     Numbers from spec §7 Phase 1. */}}
+     Numbers from spec §7 Phase 1; nvidia.com/gpu axis removed in
+     Phase 6 (2026-05-05) — Volcano queue capability is the GPU
+     gatekeeper, see docs/superpowers/specs/2026-05-05-gpu-fifo-anti-
+     starvation-design.md §6.1. */}}
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -13,7 +16,6 @@ spec:
     requests.memory: 30Gi
     limits.cpu: "24"
     limits.memory: 50Gi
-    requests.nvidia.com/gpu: "2"
     count/pods: "16"
     count/jobs.batch: "10"
     count/jobs.batch.volcano.sh: "20"

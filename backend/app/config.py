@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     SAMPLES_ROOT: str = "/mnt/samples"  # parent of malware/, benign/
     SAMPLES_LOCAL_ROOT: str = "/data"  # for backend-side validation (matches hostPath)
 
+    # Phase 6: FIFO scheduler
+    # Physical GPU count on the cluster.  Used by compute_cluster_free_gpu to
+    # determine how many GPUs are available for new submissions.  Set to the
+    # actual node GPU count (server30 has 2); default 2.
+    CLUSTER_PHYSICAL_GPU_COUNT: int = 2
+    # Enable / disable the FIFO scheduler loop independently of RECONCILER_ENABLED.
+    FIFO_RECONCILER_ENABLED: bool = True
+    # Period between reconcile_fifo_queue invocations.  30 s is the mainstream
+    # interval for a lightweight "what's queued → what's available" scan.
+    FIFO_RECONCILER_PERIOD_SECONDS: int = 30
+
     # Phase 7.4: Discord user-event notifications + UI base URL for embed links
     DISCORD_WEBHOOK_URL_EVENTS: str = ""
     DISCORD_HTTP_TIMEOUT_SECONDS: float = 5.0
