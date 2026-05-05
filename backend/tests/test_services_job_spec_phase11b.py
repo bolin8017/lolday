@@ -66,11 +66,15 @@ def test_sidecar_reads_internal_events_url_and_token() -> None:
 
 
 def test_detector_environment_injects_gpu_strategy_standard() -> None:
+    # Phase 3 — STANDARD profile (0 GPU) overrides the caller's DDP strategy
+    # to "none" because DDP across 0 GPUs is a config error; the override
+    # protects detectors that fail loudly on the mismatch. Caller-supplied
+    # gpu_strategy is preserved only when gpu_count >= 2 (multi-GPU).
     m = _build(resource_profile=ResourceProfile.STANDARD, gpu_strategy="ddp")
     container = m["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
     env = {e["name"]: e.get("value") for e in container["env"]}
     assert env["MALDET_GPU_COUNT"] == "0"
-    assert env["MALDET_DISTRIBUTED_STRATEGY"] == "ddp"
+    assert env["MALDET_DISTRIBUTED_STRATEGY"] == "none"
 
 
 def test_detector_environment_injects_gpu2() -> None:
@@ -171,6 +175,26 @@ def test_spec_has_queue_and_scheduler() -> None:
     assert m["spec"]["schedulerName"] == "volcano"
     # minAvailable=1 is the gang-scheduling no-op for a single-pod job.
     assert m["spec"]["minAvailable"] == 1
+
+
+def test_gpu1_profile_emits_strategy_none() -> None:
+    """Phase 3 — 1 GPU → MALDET_DISTRIBUTED_STRATEGY=none (DDP no-op on single GPU)."""
+    m = _build(resource_profile=ResourceProfile.GPU1)
+    detector = m["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+    env = {e["name"]: e["value"] for e in detector["env"]}
+    assert env["MALDET_GPU_COUNT"] == "1"
+    assert env["MALDET_DISTRIBUTED_STRATEGY"] == "none"
+    limits = detector["resources"]["limits"]
+    assert limits["nvidia.com/gpu"] == 1
+
+
+def test_gpu2_profile_keeps_explicit_strategy() -> None:
+    """Phase 3 sanity — 2 GPU keeps the caller's gpu_strategy (default ddp)."""
+    m = _build(resource_profile=ResourceProfile.GPU2, gpu_strategy="ddp")
+    detector = m["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+    env = {e["name"]: e["value"] for e in detector["env"]}
+    assert env["MALDET_GPU_COUNT"] == "2"
+    assert env["MALDET_DISTRIBUTED_STRATEGY"] == "ddp"
 
 
 def test_spec_has_exactly_one_task() -> None:

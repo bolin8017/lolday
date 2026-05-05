@@ -41,6 +41,7 @@ NON_TERMINAL_STATUSES = frozenset(
 
 class ResourceProfile(StrEnum):
     STANDARD = "standard"
+    GPU1 = "gpu1"
     GPU2 = "gpu2"
 
     @property
@@ -62,6 +63,7 @@ _RESOURCE_PROFILE_GPU_COUNT: "MappingProxyType[ResourceProfile, int]" = (
     MappingProxyType(
         {
             ResourceProfile.STANDARD: 0,
+            ResourceProfile.GPU1: 1,
             ResourceProfile.GPU2: 2,
         }
     )

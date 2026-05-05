@@ -1256,7 +1256,7 @@ export interface components {
          * ResourceProfile
          * @enum {string}
          */
-        ResourceProfile: "standard" | "gpu2";
+        ResourceProfile: "standard" | "gpu1" | "gpu2";
         /**
          * Role
          * @enum {string}
