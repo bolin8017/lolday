@@ -138,6 +138,10 @@ def _detector_container(
     gpu_count: int,
     gpu_strategy: str,
 ) -> dict[str, Any]:
+    # Phase 3 — DDP across 1 GPU is a no-op (and some maldet detectors warn
+    # loudly about it). Override here so the container's distributed-strategy
+    # env always matches its allocated GPU count.
+    effective_strategy = "none" if gpu_count <= 1 else gpu_strategy
     return {
         "name": "detector",
         "image": detector_image,
@@ -150,7 +154,7 @@ def _detector_container(
             {"name": "MLFLOW_EXPERIMENT_ID", "value": mlflow_experiment_id},
             {"name": "MALDET_MANIFEST", "value": "/app/maldet.toml"},
             {"name": "MALDET_GPU_COUNT", "value": str(gpu_count)},
-            {"name": "MALDET_DISTRIBUTED_STRATEGY", "value": gpu_strategy},
+            {"name": "MALDET_DISTRIBUTED_STRATEGY", "value": effective_strategy},
             {"name": "TMPDIR", "value": "/tmp"},
             {"name": "HOME", "value": "/tmp"},
             # ``USER`` short-circuits ``getpass.getuser()`` so it doesn't fall
