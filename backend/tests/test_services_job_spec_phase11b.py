@@ -197,6 +197,32 @@ def test_gpu2_profile_keeps_explicit_strategy() -> None:
     assert env["MALDET_DISTRIBUTED_STRATEGY"] == "ddp"
 
 
+def test_active_deadline_override_passes_through() -> None:
+    """Phase 5 — per-job override populates spec.template.spec.activeDeadlineSeconds."""
+    m = build_volcano_job_manifest(
+        job_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        job_type=JobType.TRAIN,
+        detector_image="x",
+        mlflow_experiment_id="e1",
+        mlflow_run_id="r1",
+        mlflow_tracking_uri="x",
+        source_run_id=None,
+        source_artifact_path=None,
+        internal_events_url="x",
+        queue_name="lolday-u-test",
+        active_deadline_seconds=43200,
+    )
+    pod_spec = m["spec"]["tasks"][0]["template"]["spec"]
+    assert pod_spec["activeDeadlineSeconds"] == 43200
+
+
+def test_active_deadline_default_unchanged_when_no_override() -> None:
+    """Phase 5 — None override → existing per-type default (train = 6h)."""
+    m = _build()  # default = no override
+    pod_spec = m["spec"]["tasks"][0]["template"]["spec"]
+    assert pod_spec["activeDeadlineSeconds"] == 21600  # 6h train default
+
+
 def test_spec_has_exactly_one_task() -> None:
     m = _build()
     tasks = m["spec"]["tasks"]

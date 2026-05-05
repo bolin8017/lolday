@@ -1005,6 +1005,8 @@ export interface components {
             };
             /** @default standard */
             resource_profile: components["schemas"]["ResourceProfile"];
+            /** Active Deadline Seconds */
+            active_deadline_seconds?: number | null;
         };
         /** JobEventOut */
         JobEventOut: {

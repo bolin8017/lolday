@@ -34,9 +34,14 @@ class Settings(BaseSettings):
     # Phase 4: Dataset & Jobs (MLflow)
     JOB_NAMESPACE: str = "lolday"
     JOB_HELPER_IMAGE: str = ""
-    JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600  # 6h
-    JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800  # 30m
-    JOB_ACTIVE_DEADLINE_PREDICT_SECONDS: int = 3600  # 1h
+    JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600  # 6h (default)
+    JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800  # 30m (default)
+    JOB_ACTIVE_DEADLINE_PREDICT_SECONDS: int = 3600  # 1h (default)
+    # Phase 5 — per-job override caps. User-supplied
+    # active_deadline_seconds must be <= the matching MAX.
+    JOB_ACTIVE_DEADLINE_TRAIN_MAX_SECONDS: int = 86400  # 24h
+    JOB_ACTIVE_DEADLINE_EVALUATE_MAX_SECONDS: int = 7200  # 2h
+    JOB_ACTIVE_DEADLINE_PREDICT_MAX_SECONDS: int = 14400  # 4h
     JOB_TTL_SECONDS_AFTER_FINISHED: int = 604800  # 7d
     JOB_NODE_SELECTOR_HOSTNAME: str = "server30"
     JOB_PER_USER_CONCURRENCY: int = 2

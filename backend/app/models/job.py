@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -133,6 +133,10 @@ class Job(Base):
         default=ResourceProfile.STANDARD,
         nullable=False,
     )
+    # Phase 5 — optional per-job active deadline override. None falls
+    # back to the per-type default in config.JOB_ACTIVE_DEADLINE_*_SECONDS;
+    # caps validated by JobCreate against JOB_ACTIVE_DEADLINE_*_MAX_SECONDS.
+    active_deadline_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
     token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     submitted_at: Mapped[datetime] = mapped_column(
