@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 
@@ -6,7 +7,7 @@ from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
-from app.db import engine
+from app.db import async_session_maker, engine
 from app.reconciler import reconciler_loop
 from app.routers import (
     admin,
@@ -71,6 +72,33 @@ async def _assert_schema_at_head() -> None:
         )
 
 
+async def _run_fifo_reconciler_forever(period_s: int) -> None:
+    """Periodically invoke reconcile_fifo_queue until cancelled.
+
+    Pattern mirrors reconciler_loop: open a fresh session each tick,
+    swallow per-tick errors so the loop never exits on transient failures.
+    Cancellation via asyncio.CancelledError propagates through the sleep so
+    the pod shuts down cleanly.
+    """
+    from app.reconciler.fifo_scheduler import reconcile_fifo_queue
+    from app.services.k8s import core_v1
+
+    logger.info("FIFO scheduler started (period=%ds)", period_s)
+    while True:
+        await asyncio.sleep(period_s)
+        try:
+            async with async_session_maker() as session:
+                await reconcile_fifo_queue(session, core_v1())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            from app.metrics import BACKEND_ERRORS
+
+            BACKEND_ERRORS.labels(stage="fifo_scheduler_iteration").inc()
+            logger.exception("fifo_scheduler tick failed")
+    # Unreachable; loop exits only via CancelledError.
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Phase 7.4: flag misconfigured deploy before a user waits weeks for
@@ -110,11 +138,28 @@ async def lifespan(app: FastAPI):
         stop_event = asyncio.Event()
         reconciler_task = asyncio.create_task(reconciler_loop(stop_event))
 
+    # Phase 6d: FIFO scheduler — submits queued_backend jobs to Volcano in
+    # strict (priority DESC, submitted_at ASC) order.  Runs independently of
+    # RECONCILER_ENABLED (which guards the vcjob ↔ DB sync loop); both can be
+    # disabled together in tests via RECONCILER_ENABLED=false + not starting
+    # this task.  Controlled by FIFO_RECONCILER_ENABLED (default True) so ops
+    # can disable just this scheduler without touching the existing reconciler.
+    fifo_task: asyncio.Task | None = None
+    if settings.FIFO_RECONCILER_ENABLED:
+        fifo_task = asyncio.create_task(
+            _run_fifo_reconciler_forever(settings.FIFO_RECONCILER_PERIOD_SECONDS)
+        )
+
     yield
 
     if reconciler_task is not None:
         stop_event.set()
         await reconciler_task
+
+    if fifo_task is not None:
+        fifo_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await fifo_task
 
 
 app = FastAPI(

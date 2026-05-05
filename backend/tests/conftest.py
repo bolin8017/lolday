@@ -2,6 +2,7 @@ import os
 
 os.environ.setdefault("FERNET_KEY", "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=")
 os.environ.setdefault("RECONCILER_ENABLED", "false")
+os.environ.setdefault("FIFO_RECONCILER_ENABLED", "false")
 os.environ.setdefault("SAMPLES_LOCAL_ROOT", "/nonexistent-samples-root-for-tests")
 # Phase 10.2: opt out of production SSO validation — tests use dependency_override
 # to inject fake users, so CF_ACCESS_* can stay blank.
@@ -315,8 +316,11 @@ def mock_k8s_batch(monkeypatch):
     for _mod, _names in [
         ("app.services.harbor_init", ["core_v1"]),
         ("app.services.cluster_status", ["core_v1", "volcano_v1alpha1"]),
+        # Phase 6d: vcjob + token Secret creation moved into jobs_dispatch;
+        # patch the new home so integration tests don't reach a live cluster.
+        ("app.services.jobs_dispatch", ["core_v1", "volcano_v1alpha1"]),
         ("app.routers.detectors", ["batch_v1", "core_v1"]),
-        ("app.routers.jobs", ["batch_v1", "core_v1", "volcano_v1alpha1"]),
+        ("app.routers.jobs", ["batch_v1", "core_v1"]),
         ("app.reconciler.builds", ["batch_v1", "core_v1"]),
         ("app.reconciler.jobs", ["core_v1", "volcano_v1alpha1"]),
         ("app.reconciler.log_capture", ["core_v1"]),
