@@ -181,3 +181,37 @@ kubectl delete namespace lolday
 ```
 
 Then re-deploy from step 5. This wipes all DB state, MLflow runs, and Harbor images. Use only for fresh installs / dev environments.
+
+## 9. Maintenance
+
+### Upgrading kubelet args on an existing K3s
+
+When `scripts/setup-k3s.sh` evolves to add new `--kubelet-arg=...` (e.g. Phase 0 of the GPU scheduling & OOM defense design — `kube-reserved`, `system-reserved`, memory eviction), the existing server30 install does **not** auto-pick them up. Use the patch script to upgrade in place.
+
+```bash
+# 1. dry-run — prints the systemd drop-in that would be written, no changes
+sudo bash scripts/patch-k3s-kubelet-args.sh
+
+# 2. SSH safety verify (root CLAUDE.md hard rule)
+#    Operator opens a SECOND ssh session to server30 (port 9453) from a different
+#    terminal and leaves it idle as a canary. That session must stay alive
+#    across the restart.
+
+# 3. apply — writes drop-in, daemon-reload, restart k3s, waits for Ready
+sudo bash scripts/patch-k3s-kubelet-args.sh --apply
+
+# 4. verify
+bash tests/2026-05-05-kubelet-args-smoke.sh
+
+# 5. (rollback path) — same script
+sudo bash scripts/patch-k3s-kubelet-args.sh --revert
+```
+
+Expected effects of `--apply`:
+
+- ~30 s K3s server restart. SSH unaffected (control plane only).
+- Pod runtime (containerd) does **not** restart; in-flight detector pods keep running.
+- New `Allocatable.memory` ≈ Capacity − 7 GiB (= kube 2 + system 4 + eviction-hard 1).
+
+Spec: `docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md` §7 (Phase 0).
+Plan: `docs/superpowers/plans/2026-05-05-gpu-scheduling-phase0-kubelet-args.md`.

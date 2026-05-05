@@ -39,10 +39,19 @@ echo ""
 # -------------------------------------------------------
 # 1. Install K3s with default settings
 # -------------------------------------------------------
-echo "[1/3] Installing K3s (default Flannel + network policy)..."
+echo "[1/3] Installing K3s (default Flannel + network policy + host safety reservations)..."
 if systemctl is-active k3s &>/dev/null; then
   echo "  K3s already running. Skipping installation."
 else
+  # Phase 0 host safety net — see
+  # docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md §7
+  INSTALL_K3S_EXEC="server \
+    --kubelet-arg=kube-reserved=cpu=1,memory=2Gi,ephemeral-storage=10Gi \
+    --kubelet-arg=system-reserved=cpu=1,memory=4Gi,ephemeral-storage=10Gi \
+    --kubelet-arg=eviction-hard=memory.available<1Gi,nodefs.available<10%,imagefs.available<10% \
+    --kubelet-arg=eviction-soft=memory.available<2Gi,nodefs.available<15% \
+    --kubelet-arg=eviction-soft-grace-period=memory.available=2m,nodefs.available=2m \
+    --kubelet-arg=eviction-max-pod-grace-period=60" \
   curl -sfL https://get.k3s.io | sh -
   echo "  Waiting for K3s to be ready..."
   until kubectl get nodes &>/dev/null; do
