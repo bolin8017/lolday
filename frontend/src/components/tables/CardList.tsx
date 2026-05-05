@@ -81,7 +81,7 @@ export function CardList<T>({ table, emptyMessage, onRowClick }: Props<T>) {
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2 flex-wrap min-w-0">
                 {titleCell && (
-                  <div className="font-medium min-w-0 [overflow-wrap:anywhere]">
+                  <div className="font-medium">
                     {flexRender(
                       titleCell.column.columnDef.cell,
                       titleCell.getContext(),
@@ -89,7 +89,7 @@ export function CardList<T>({ table, emptyMessage, onRowClick }: Props<T>) {
                   </div>
                 )}
                 {subtitleCell && (
-                  <div className="text-xs text-muted-foreground min-w-0 [overflow-wrap:anywhere]">
+                  <div className="text-xs text-muted-foreground">
                     {flexRender(
                       subtitleCell.column.columnDef.cell,
                       subtitleCell.getContext(),
@@ -118,7 +118,7 @@ export function CardList<T>({ table, emptyMessage, onRowClick }: Props<T>) {
                   return (
                     <div key={cell.id} className="contents">
                       <dt className="text-muted-foreground">{label ?? ""}</dt>
-                      <dd className="m-0 min-w-0 text-right text-foreground [overflow-wrap:anywhere]">
+                      <dd className="m-0 text-right text-foreground">
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),

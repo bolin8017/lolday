@@ -107,7 +107,7 @@ const columns: ColumnDef<Detector>[] = [
     header: "Git URL",
     cell: ({ row }) => (
       <span
-        className="block max-w-full break-all font-mono text-xs md:truncate md:break-normal"
+        className="block max-w-full truncate font-mono text-xs"
         title={row.original.git_url}
       >
         {row.original.git_url}
