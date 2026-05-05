@@ -29,6 +29,7 @@ paths:
 - `samples-pv.yaml`, `samples-pvc.yaml` — sample dataset PV/PVC.
 - Secrets: `backend-fernet-secret.yaml`, `cloudflared-secret.yaml`, `harbor-admin-secret.yaml`, `mlflow-secret.yaml`.
 - NetworkPolicies: `network-policy.yaml`, `netpol-cloudflared.yaml`, `build-networkpolicy.yaml`, `job-networkpolicy.yaml`.
+- **Phase 1 (lolday-jobs ns family, since 2026-05-05)** — `jobs-namespace.yaml`, `jobs-quota.yaml`, `jobs-limitrange.yaml`, `jobs-rbac.yaml`, `lolday-quota.yaml`. Detector vcjobs + BuildKit Jobs run in the dedicated `lolday-jobs` namespace so per-namespace `ResourceQuota` / `LimitRange` can cap workload pods without constraining infra. Backend SA in `lolday` has a second Role `backend-jobs` in `lolday-jobs` (preserve Phase 7.5 narrow-scope pattern, do not widen to ClusterRole). NetworkPolicies use cross-ns `namespaceSelector` with `kubernetes.io/metadata.name: lolday`. Spec: `docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md` §6.2.
 
 ## `templates/monitoring/` subfolder
 

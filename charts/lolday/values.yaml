@@ -4,6 +4,11 @@
 
 global:
   namespace: lolday
+  # Phase 1 (2026-05-05) — detector vcjobs + BuildKit Jobs run in this
+  # dedicated namespace so a per-namespace ResourceQuota / LimitRange
+  # can cap them without constraining infra (postgres / prometheus / etc.).
+  # See docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md §6.2
+  jobsNamespace: lolday-jobs
 
 # =============================================================================
 # Private Container Registry (registry:2)

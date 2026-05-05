@@ -215,3 +215,41 @@ Expected effects of `--apply`:
 
 Spec: `docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md` §7 (Phase 0).
 Plan: `docs/superpowers/plans/2026-05-05-gpu-scheduling-phase0-kubelet-args.md`.
+
+### Migrating vcjobs to the lolday-jobs namespace (one-time, Phase 1)
+
+**Pre-flight (run before `bash scripts/deploy.sh`):**
+
+```bash
+bash scripts/migrate-jobs-namespace.sh check
+```
+
+If any in-flight vcjob is reported, wait for it to finish (or cancel via UI) before deploying. New vcjobs will land in `lolday-jobs`; old in-flight ones in `lolday` continue to run but won't be visible to the new reconciler. Build jobs are similar — in-flight builds finish in `lolday`, new ones go to `lolday-jobs`.
+
+**Deploy:**
+
+```bash
+bash scripts/deploy.sh
+```
+
+Helm creates the new namespace + quotas + limits + RBAC + NetworkPolicies on first install. Backend `Deployment` rolls with the new `JOB_NAMESPACE / BUILD_NAMESPACE = lolday-jobs` env.
+
+**Post-verify:**
+
+```bash
+bash scripts/migrate-jobs-namespace.sh post-verify
+bash tests/2026-05-05-jobs-namespace-smoke.sh
+```
+
+Submit a small detector evaluate from the UI; confirm the new vcjob lands in `lolday-jobs` (`kubectl get vcjobs -n lolday-jobs`).
+
+**Rollback:**
+
+```bash
+helm rollback lolday <prev-rev> -n lolday
+```
+
+The `lolday-jobs` namespace is left in place (cheap to keep empty). Any vcjob already created in `lolday-jobs` decays via TTL. Only the `JOB_NAMESPACE` env reverts; new submissions go back to `lolday`.
+
+Spec: `docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md` §7 (Phase 1).
+Plan: `docs/superpowers/plans/2026-05-05-gpu-scheduling-phase1-jobs-namespace.md`.

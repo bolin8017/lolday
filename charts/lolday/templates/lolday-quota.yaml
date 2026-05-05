@@ -1,0 +1,15 @@
+{{/* Phase 1 — memory-only cap on the lolday infra namespace
+     (postgres / mlflow / harbor / kps / etc.). CPU + GPU intentionally
+     not capped because infra is not GPU-aware and CPU contention is
+     handled by CFS. See spec §6.2. */}}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: lolday-infra-quota
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  hard:
+    requests.memory: 20Gi
+    limits.memory: 40Gi
