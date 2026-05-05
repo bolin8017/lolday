@@ -168,27 +168,39 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 5/7: scenario (a) — strict FIFO
+# Step 5/7: scenario (a) — strict FIFO (SQL HEAD check + reconciler-log check)
 #
 # Insert two synthetic queued_backend rows:
-#   job-big:   resource_profile='gpu2', submitted_at=T
+#   job-big:   resource_profile='gpu2', submitted_at=T   (older → should be HEAD)
 #   job-small: resource_profile='gpu1', submitted_at=T+5s
 #
 # Both have priority=0.  Under strict FIFO (priority DESC, submitted_at ASC),
-# job-big is HEAD.  When cluster has >= 2 free GPUs, job-big transitions out
-# of queued_backend first.
+# job-big is HEAD.
 #
-# Assertion: job-big.status != queued_backend AND job-big transitions before
-# job-small (job-big leaves queued_backend in the same or earlier reconciler
-# cycle than job-small).
+# These rows have a fake detector_version_id FK.  The reconciler will attempt
+# to dispatch job-big (HEAD), hit a "FK invariant violated" RuntimeError, log
+# "fifo_scheduler: dispatch failed for job <big-id>", and halt the cycle
+# without touching job-small.  Neither job ever leaves queued_backend.
+#
+# We verify FIFO correctness via two evidence sources — NOT by waiting for a
+# status transition (which can never happen with fake FKs):
+#
+#   1. SQL HEAD check: ORDER BY priority DESC, submitted_at ASC LIMIT 1 must
+#      return job-big.id — proves the DB ordering is correct.
+#
+#   2. Reconciler-log check: after one full reconciler cycle (FIFO_RECONCILER_PERIOD
+#      + 5s buffer), backend logs must contain the "dispatch failed for job <big-id>"
+#      line and must NOT contain the same line for job-small.id — proves the
+#      reconciler selected big as HEAD and stopped at its failure (strict FIFO
+#      means small is never attempted in the same cycle).
 #
 # FK suspension: use SET session_replication_role = replica so FK constraints
-# are bypassed while inserting rows with dummy FK values.  This is a standard
-# Postgres DBA technique for test data; the rows are cleaned up by the trap.
+# are bypassed while inserting rows with dummy FK values.  Standard Postgres DBA
+# technique for test data; the rows are cleaned up by the trap.
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "[step 5/7] scenario (a): strict FIFO — gpu=2 job dispatches before gpu=1 job"
+echo "[step 5/7] scenario (a): strict FIFO — SQL+log evidence (no actual dispatch required)"
 
 # Obtain any real admin user id for owner_id FK (needed even with FK-bypass because
 # session_replication_role only suspends FK *checks*, not NOT NULL).
@@ -204,11 +216,10 @@ else
   DV_FAKE="00000000-0000-0000-0000-000000000001"
 
   T_NOW=$(date -u +"%Y-%m-%d %T+00")
+  INSERT_EPOCH=$(date +%s)
 
   # Insert both rows in FK-bypass mode.  Each psql_exec call is a single
-  # session; SET session_replication_role = replica is session-scoped and
-  # applies to all subsequent DML in that session.  The two statements in
-  # the same -c argument share one session, so the FK bypass covers both.
+  # session; SET session_replication_role = replica is session-scoped.
   BIG_ID=$(kubectl -n "${NS}" exec postgresql-0 -- \
     env PGPASSWORD="${PG_PASSWORD:-}" \
     psql -U lolday -d lolday -At \
@@ -248,46 +259,59 @@ else
     echo "FAIL: could not insert synthetic test rows (BIG_ID='${BIG_ID}' SMALL_ID='${SMALL_ID}')"
     fail=1
   else
-    echo "  inserted job-big id=${BIG_ID} (gpu2, submitted_at=T)"
+    echo "  inserted job-big   id=${BIG_ID}   (gpu2, submitted_at=T)"
     echo "  inserted job-small id=${SMALL_ID} (gpu1, submitted_at=T+5s)"
 
-    # Wait up to FIFO_WAIT_TIMEOUT seconds for job-big to leave queued_backend.
-    echo "  waiting up to ${FIFO_WAIT_TIMEOUT}s for reconciler to process HEAD job..."
-    deadline=$(( $(date +%s) + FIFO_WAIT_TIMEOUT ))
-    big_dispatched=0
-    small_dispatched=0
-    while [ "$(date +%s)" -lt "${deadline}" ]; do
-      big_status=$(psql_exec "SELECT status FROM job WHERE id='${BIG_ID}'" || true)
-      small_status=$(psql_exec "SELECT status FROM job WHERE id='${SMALL_ID}'" || true)
-      if [ "${big_status}" != "queued_backend" ]; then
-        big_dispatched=1
-      fi
-      if [ "${small_status}" != "queued_backend" ]; then
-        small_dispatched=1
-      fi
-      if [ "${big_dispatched}" -eq 1 ]; then
-        break
-      fi
-      sleep 5
-    done
-
-    if [ "${big_dispatched}" -eq 0 ]; then
-      echo "FAIL: job-big never left queued_backend within ${FIFO_WAIT_TIMEOUT}s"
-      echo "  (reconciler may not be running, or cluster has < 2 free GPUs)"
-      echo "  job-big status: $(psql_exec "SELECT status FROM job WHERE id='${BIG_ID}'")"
-      echo "  job-small status: $(psql_exec "SELECT status FROM job WHERE id='${SMALL_ID}'")"
-      fail=1
-    elif [ "${big_dispatched}" -eq 1 ] && [ "${small_dispatched}" -eq 0 ]; then
-      # job-big dispatched while job-small still queued — correct FIFO HEAD behaviour.
-      echo "OK: job-big (gpu2) dispatched first; job-small (gpu1) still queued — FIFO HEAD respected"
-    elif [ "${big_dispatched}" -eq 1 ] && [ "${small_dispatched}" -eq 1 ]; then
-      # Both dispatched; compare submitted_at-based dispatch order via k8s_job_name
-      # timestamp or just accept — if big dispatched in the same cycle, strict
-      # FIFO is satisfied (small only dispatched after big).
-      echo "OK: both jobs dispatched — strict FIFO not violated (big was HEAD by submitted_at)"
+    # -----------------------------------------------------------------------
+    # Check 1: SQL HEAD ordering
+    # -----------------------------------------------------------------------
+    sql_head=$(psql_exec \
+      "SELECT id FROM job WHERE status='queued_backend' AND idempotency_key LIKE '${TEST_IDEM_PREFIX}%' ORDER BY priority DESC, submitted_at ASC LIMIT 1" \
+      || true)
+    if [ "${sql_head}" = "${BIG_ID}" ]; then
+      echo "  OK (SQL HEAD): ORDER BY priority DESC, submitted_at ASC returns job-big — correct"
     else
-      echo "FAIL: unexpected dispatch state — big=${big_dispatched} small=${small_dispatched}"
+      echo "  FAIL (SQL HEAD): expected job-big (${BIG_ID}) as HEAD, got '${sql_head}'"
       fail=1
+    fi
+
+    # -----------------------------------------------------------------------
+    # Check 2: reconciler-log — wait one full cycle then inspect backend logs
+    # -----------------------------------------------------------------------
+    cycle_wait=$(( FIFO_RECONCILER_PERIOD + 5 ))
+    echo "  waiting ${cycle_wait}s for one reconciler cycle (period=${FIFO_RECONCILER_PERIOD}s + 5s buffer)..."
+    sleep "${cycle_wait}"
+
+    # Fetch backend logs since before we inserted (generous --since window).
+    elapsed=$(( $(date +%s) - INSERT_EPOCH + 10 ))
+    backend_logs=$(kubectl -n "${NS}" logs deploy/backend --since="${elapsed}s" 2>/dev/null || true)
+
+    big_in_log=$(echo "${backend_logs}" | grep -c "dispatch failed for job ${BIG_ID}" || true)
+    small_in_log=$(echo "${backend_logs}" | grep -c "dispatch failed for job ${SMALL_ID}" || true)
+
+    if [ "${big_in_log:-0}" -gt 0 ]; then
+      echo "  OK (log): reconciler attempted dispatch for job-big (HEAD) — 'dispatch failed for job ${BIG_ID}' found"
+    else
+      echo "  FAIL (log): 'dispatch failed for job ${BIG_ID}' NOT found in backend logs"
+      echo "    (reconciler may not have run yet, or log format changed)"
+      echo "    last 10 fifo_scheduler lines:"
+      echo "${backend_logs}" | grep "fifo_scheduler" | tail -10 | sed 's/^/      /' || true
+      fail=1
+    fi
+
+    if [ "${small_in_log:-0}" -eq 0 ]; then
+      echo "  OK (log): reconciler did NOT attempt job-small — strict FIFO halt confirmed"
+    else
+      echo "  FAIL (log): 'dispatch failed for job ${SMALL_ID}' found — reconciler skipped HEAD and attempted small"
+      fail=1
+    fi
+
+    # Summarise pass/fail for this scenario.
+    if [ "${sql_head}" = "${BIG_ID}" ] && [ "${big_in_log:-0}" -gt 0 ] && [ "${small_in_log:-0}" -eq 0 ]; then
+      echo "OK: scenario (a) PASS — FIFO HEAD selection verified via SQL+log"
+    else
+      echo "FAIL: scenario (a) FAIL — see details above"
+      # fail already incremented above; no double-count needed
     fi
   fi
 fi
