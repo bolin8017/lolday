@@ -126,7 +126,12 @@ async def reconcile_fifo_queue(
                 job.id,
             )
             await session.rollback()
-            # Continue to the next job on dispatch failure (unlike non-fit,
-            # a transient K8s error shouldn't block subsequent jobs that may
-            # dispatch successfully).
-            continue
+            # Strict FIFO (spec §6.4) + avoid expired-ORM bug: after rollback,
+            # SQLAlchemy expires all persistent objects in the identity map.
+            # Accessing job.resource_profile.gpu_count on the next iteration
+            # would trigger a lazy-load in an async context → MissingGreenlet.
+            # Break instead: the failed job stays at queued_backend; the next
+            # 30-second cycle retries the whole queue from the top.
+            # Worst case: 30s stall for jobs behind a flaky head — acceptable
+            # per spec §7 (retry-next-cycle semantics).
+            break

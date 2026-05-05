@@ -1,7 +1,7 @@
 """Unit tests for the FIFO scheduler reconciler (Phase 6d).
 
 TDD-first: all tests were written before fifo_scheduler.py existed.
-Tests cover the 7 core scenarios from the plan:
+Tests cover the 8 core scenarios from the plan:
 
 1. Empty queue → no-op (no submit calls).
 2. Single job, gpu_count=1, cluster.free_gpu=2 → submits.
@@ -10,6 +10,7 @@ Tests cover the 7 core scenarios from the plan:
 5. Two jobs different priority — higher priority submits first.
 6. HEAD not-fit → halts iteration (strict FIFO, later job not tried).
 7. submit raises → job stays at queued_backend, no bad state transition.
+8. submit raises for HEAD → subsequent jobs NOT submitted (strict FIFO on error).
 """
 
 from __future__ import annotations
@@ -278,11 +279,19 @@ async def test_head_not_fit_halts_iteration(db_session, mock_dispatch):
 
 
 async def test_dispatch_error_keeps_queued_backend(db_session):
-    """When dispatch_job_to_volcano raises, the job's status stays queued_backend."""
+    """When dispatch_job_to_volcano raises, the job's status stays queued_backend.
+
+    Also asserts strict-FIFO-on-error: only ONE dispatch attempt is made —
+    the second job in the queue must NOT be tried in the same cycle.
+    """
     from app.reconciler.fifo_scheduler import reconcile_fifo_queue
 
-    job = _make_job(resource_profile=ResourceProfile.GPU1)
-    db_session.add(job)
+    now = datetime.now(UTC)
+    job_a = _make_job(
+        resource_profile=ResourceProfile.GPU1, submitted_at=now - timedelta(minutes=1)
+    )
+    job_b = _make_job(resource_profile=ResourceProfile.GPU1, submitted_at=now)
+    db_session.add_all([job_a, job_b])
     await db_session.commit()
 
     failing_dispatch = AsyncMock(side_effect=RuntimeError("K8s API exploded"))
@@ -305,5 +314,89 @@ async def test_dispatch_error_keeps_queued_backend(db_session):
         # Should not raise — error is swallowed and job left at queued_backend
         await reconcile_fifo_queue(db_session, mock_k8s)
 
-    await db_session.refresh(job)
-    assert job.status == JobStatus.QUEUED_BACKEND
+    # Strict FIFO on error: dispatch was attempted exactly once (for job_a HEAD),
+    # then the loop broke — job_b was NOT tried.
+    assert failing_dispatch.call_count == 1
+
+    await db_session.refresh(job_a)
+    await db_session.refresh(job_b)
+    assert job_a.status == JobStatus.QUEUED_BACKEND
+    assert job_b.status == JobStatus.QUEUED_BACKEND
+
+
+# ---------------------------------------------------------------------------
+# Test 8: dispatch error halts iteration (strict FIFO on error — no skip-past)
+# ---------------------------------------------------------------------------
+
+
+async def test_dispatch_error_halts_iteration(db_session):
+    """When HEAD dispatch raises, subsequent queued jobs are NOT submitted.
+
+    Regression test for the continue→break fix: the old `continue` would
+    skip past the failed HEAD and try job B, which — after session.rollback()
+    — would trigger a lazy-load on an expired ORM object (MissingGreenlet
+    in async context).  `break` avoids this and preserves strict FIFO.
+    """
+    from app.reconciler.fifo_scheduler import reconcile_fifo_queue
+
+    now = datetime.now(UTC)
+    # job_a is HEAD (older, same priority) — its dispatch will fail
+    job_a = _make_job(
+        resource_profile=ResourceProfile.GPU1,
+        priority=0,
+        submitted_at=now - timedelta(minutes=5),
+    )
+    # job_b would fit if we tried it — but strict FIFO means we must NOT
+    job_b = _make_job(
+        resource_profile=ResourceProfile.GPU1,
+        priority=0,
+        submitted_at=now,
+    )
+    db_session.add_all([job_a, job_b])
+    await db_session.commit()
+    # Capture IDs before any rollback expires ORM state
+    job_a_id = job_a.id
+    job_b_id = job_b.id
+
+    # Enough capacity for both jobs individually
+    mock_k8s = MagicMock()
+    mock_k8s.list_namespaced_pod.return_value = MagicMock(items=[])
+
+    # Track which job IDs were passed to dispatch — read .id before the
+    # rollback expires the objects (captured inside the side-effect closure).
+    dispatched_ids: list = []
+
+    def dispatch_side_effect(_session, job):  # generic mock helper
+        dispatched_ids.append(job.id)  # safe: .id is in __dict__ before expire
+        if job.id == job_a_id:
+            raise RuntimeError("transient K8s error")
+        return None  # job_b would succeed — but must never be reached
+
+    failing_dispatch = AsyncMock(side_effect=dispatch_side_effect)
+
+    with (
+        patch(
+            "app.reconciler.fifo_scheduler.dispatch_job_to_volcano", failing_dispatch
+        ),
+        patch(
+            "app.reconciler.fifo_scheduler.settings",
+            MagicMock(
+                CLUSTER_PHYSICAL_GPU_COUNT=4,
+                JOB_NAMESPACE="lolday",
+            ),
+        ),
+    ):
+        await reconcile_fifo_queue(db_session, mock_k8s)
+
+    # dispatch was attempted ONCE (for job_a HEAD only); job_b was never tried
+    assert failing_dispatch.call_count == 1
+    assert dispatched_ids == [job_a_id]
+
+    # Both jobs remain at queued_backend (retry next cycle)
+    # Use merge to re-attach expired instances after rollback
+    job_a_fresh = await db_session.get(type(job_a), job_a_id)
+    job_b_fresh = await db_session.get(type(job_b), job_b_id)
+    assert job_a_fresh is not None
+    assert job_b_fresh is not None
+    assert job_a_fresh.status == JobStatus.QUEUED_BACKEND
+    assert job_b_fresh.status == JobStatus.QUEUED_BACKEND
