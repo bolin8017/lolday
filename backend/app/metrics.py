@@ -25,3 +25,13 @@ VOLCANO_PENDING_STALE = Gauge(
     "Count of Volcano Jobs in Pending phase older than a threshold. "
     "Threshold is the service constant VOLCANO_STALE_SECONDS (default 1800s).",
 )
+
+# Phase 4 — every 10s update via cluster_status.get_queue_depth(). Distinct
+# from VOLCANO_PENDING_STALE (which counts only Pending older than the stale
+# threshold); this Gauge is the *total* non-terminal vcjob count, tracked so
+# operators can see queue growth before any single job becomes "stale".
+JOBS_PENDING_TOTAL = Gauge(
+    "lolday_jobs_pending_total",
+    "Total non-terminal Volcano Jobs in the lolday-jobs queue (Pending + "
+    "Running). Refreshed every 10s by services.cluster_status.get_queue_depth.",
+)

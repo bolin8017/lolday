@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from cachetools import TTLCache, cached
 
 from app.config import settings
-from app.metrics import BACKEND_ERRORS, VOLCANO_PENDING_STALE
+from app.metrics import BACKEND_ERRORS, JOBS_PENDING_TOTAL, VOLCANO_PENDING_STALE
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
@@ -118,6 +118,13 @@ def get_queue_depth(queue_name: str = DEFAULT_QUEUE) -> int:
     except Exception:
         BACKEND_ERRORS.labels(stage="queue_stale_gauge").inc()
         logger.exception("stale-gauge refresh failed (queue=%s)", queue_name)
+
+    # Phase 4 — total non-terminal vcjob count for queue-depth alerting.
+    # Distinct from VOLCANO_PENDING_STALE (counts only Pending older than the
+    # stale threshold). Setting outside the try/except above is intentional:
+    # this number is `len(non_terminal)` which is already known and cannot
+    # raise.
+    JOBS_PENDING_TOTAL.set(len(non_terminal))
 
     return len(non_terminal)
 
