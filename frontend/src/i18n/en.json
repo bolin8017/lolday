@@ -33,6 +33,7 @@
     "openInMlflow": "Open in MLflow"
   },
   "status": {
+    "queued_backend": "Queued",
     "pending": "Pending",
     "preparing": "Preparing",
     "running": "Running",
@@ -66,6 +67,16 @@
     },
     "required": "required",
     "optional": "optional"
+  },
+  "jobs": {
+    "priority": {
+      "label": "Priority",
+      "column": "Priority",
+      "adminOnly": "Admin only",
+      "editPlaceholder": "0",
+      "save": "Save priority",
+      "warning": "Bumping priority pauses submission of new lower-priority jobs to Volcano until this job is dispatched. Running jobs are not affected."
+    }
   },
   "theme": {
     "toggle": "Toggle theme",

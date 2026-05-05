@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { useTranslation } from "react-i18next";
 import {
   useDetectors,
   useDetectorVersion,
@@ -14,8 +15,10 @@ import {
   isJobType,
   type JobType,
 } from "@/api/queries/jobs";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -30,6 +33,10 @@ import { StageExplainer } from "./StageExplainer";
 import { StickyFormFooter } from "./StickyFormFooter";
 
 export function JobSubmitForm() {
+  const { t } = useTranslation();
+  const { currentUser } = useAuth();
+  const isAdmin = currentUser?.role === "admin";
+
   const [params] = useSearchParams();
   const fromJobId = params.get("from");
   const { data: fromJob } = useJob(fromJobId ?? "");
@@ -43,6 +50,7 @@ export function JobSubmitForm() {
   const [sourceModelName, setSourceModelName] = useState("");
   const [sourceModelVersionId, setSourceModelVersionId] = useState("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
+  const [priority, setPriority] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const { data: detectors } = useDetectors();
@@ -118,6 +126,7 @@ export function JobSubmitForm() {
           ? sourceModelVersionId
           : null,
         params: config,
+        ...(isAdmin && priority !== 0 ? { priority } : {}),
       } as unknown as import("@/api/schema.gen").components["schemas"]["JobCreate"]);
       nav(`/jobs/${job.id}`);
     } catch (e) {
@@ -317,6 +326,39 @@ export function JobSubmitForm() {
           )}
         </CardContent>
       </Card>
+
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("jobs.priority.label")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center gap-3">
+              <Label htmlFor="priority-input">{t("jobs.priority.label")}</Label>
+              <Input
+                id="priority-input"
+                type="number"
+                min={0}
+                step={1}
+                className="w-24"
+                value={priority}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  setPriority(isNaN(v) || v < 0 ? 0 : v);
+                }}
+              />
+            </div>
+            {priority > 0 && (
+              <p
+                className="text-sm rounded-md border border-amber-400/60 bg-amber-50 px-3 py-2 text-amber-900 dark:bg-amber-900/20 dark:text-amber-300"
+                role="alert"
+              >
+                {t("jobs.priority.warning")}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {submitError && <p className="text-sm text-destructive">{submitError}</p>}
       <StickyFormFooter>

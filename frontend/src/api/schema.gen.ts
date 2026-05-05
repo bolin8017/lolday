@@ -355,7 +355,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch Job — admin-only priority bump */
+        patch: operations["patch_job_api_v1_jobs__job_id__patch"];
         trace?: never;
     };
     "/api/v1/jobs/{job_id}/prediction-summary": {
@@ -1007,6 +1008,12 @@ export interface components {
             resource_profile: components["schemas"]["ResourceProfile"];
             /** Active Deadline Seconds */
             active_deadline_seconds?: number | null;
+            /**
+             * Priority
+             * @description Phase 6 — admin-only scheduling priority. Higher value = earlier dispatch. Default 0.
+             * @default 0
+             */
+            priority?: number | null;
         };
         /** JobEventOut */
         JobEventOut: {
@@ -1064,6 +1071,14 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+        };
+        /**
+         * JobPatch
+         * @description Phase 6 (Task F) — admin-only priority bump. Only priority is mutable.
+         */
+        JobPatch: {
+            /** Priority */
+            priority?: number | null;
         };
         /** JobRead */
         JobRead: {
@@ -1130,12 +1145,18 @@ export interface components {
             resource_profile: components["schemas"]["ResourceProfile"];
             /** Mlflow Experiment Id */
             mlflow_experiment_id: string | null;
+            /**
+             * Priority
+             * @description Phase 6 — scheduling priority. Higher = earlier dispatch.
+             * @default 0
+             */
+            priority: number;
         };
         /**
          * JobStatus
          * @enum {string}
          */
-        JobStatus: "pending" | "preparing" | "running" | "succeeded" | "failed" | "cancelled" | "timeout";
+        JobStatus: "queued_backend" | "pending" | "preparing" | "running" | "succeeded" | "failed" | "cancelled" | "timeout";
         /** JobSummary */
         JobSummary: {
             /**
@@ -1174,6 +1195,12 @@ export interface components {
             summary_metrics?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Priority
+             * @description Phase 6 — scheduling priority. Higher = earlier dispatch.
+             * @default 0
+             */
+            priority: number;
         };
         /**
          * JobType
@@ -2266,6 +2293,42 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    /** Phase 6 (Task F) — admin-only priority bump for queued_backend jobs. */
+    patch_job_api_v1_jobs__job_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

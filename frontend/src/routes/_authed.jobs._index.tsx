@@ -1,12 +1,20 @@
 import { Link } from "react-router";
 import { useState } from "react";
-import { useJobs, type JobSummary, type JobType } from "@/api/queries/jobs";
+import { useTranslation } from "react-i18next";
+import {
+  useJobs,
+  usePatchJob,
+  type JobSummary,
+  type JobType,
+} from "@/api/queries/jobs";
+import { useAuth } from "@/hooks/useAuth";
 import { DataTable } from "@/components/tables/DataTable";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { FinalMetricsTile } from "@/components/jobs/FinalMetricsTile";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -20,7 +28,61 @@ import { Plus } from "lucide-react";
 
 export const handle = { breadcrumb: "Jobs" };
 
-const columns: ColumnDef<JobSummary>[] = [
+/** Inline-edit priority cell — only rendered for admin users. */
+function PriorityCell({ job }: { job: JobSummary }) {
+  const { t } = useTranslation();
+  const patch = usePatchJob();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(job.priority ?? 0);
+
+  const canEdit = job.status === "queued_backend";
+
+  function commit() {
+    if (draft !== (job.priority ?? 0)) {
+      patch.mutate({ id: job.id, priority: draft });
+    }
+    setEditing(false);
+  }
+
+  if (canEdit && editing) {
+    return (
+      <Input
+        type="number"
+        min={0}
+        step={1}
+        className="h-7 w-16 px-1 text-sm"
+        autoFocus
+        value={draft}
+        onChange={(e) => {
+          const v = parseInt(e.target.value, 10);
+          setDraft(isNaN(v) || v < 0 ? 0 : v);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        aria-label={t("jobs.priority.label")}
+      />
+    );
+  }
+
+  return (
+    <span
+      className={
+        canEdit
+          ? "cursor-pointer underline-offset-2 hover:underline"
+          : undefined
+      }
+      title={canEdit ? t("jobs.priority.save") : undefined}
+      onClick={canEdit ? () => setEditing(true) : undefined}
+    >
+      {job.priority ?? 0}
+    </span>
+  );
+}
+
+const baseColumns: ColumnDef<JobSummary>[] = [
   {
     accessorKey: "type",
     header: "Type",
@@ -57,10 +119,28 @@ const columns: ColumnDef<JobSummary>[] = [
 ];
 
 export default function JobsListPage() {
+  const { t } = useTranslation();
+  const { currentUser } = useAuth();
+  const isAdmin = currentUser?.role === "admin";
+
   const [type, setType] = useState<JobType | "all">("all");
   const params = type === "all" ? {} : { type };
   const { data, isLoading } = useJobs(params);
   const rows: JobSummary[] = data?.items ?? [];
+
+  // Phase 6 (Task G.3) — admin sees Priority column
+  const columns: ColumnDef<JobSummary>[] = isAdmin
+    ? [
+        ...baseColumns,
+        {
+          id: "priority",
+          header: t("jobs.priority.column"),
+          cell: ({ row }) => <PriorityCell job={row.original} />,
+          meta: { cardLabel: t("jobs.priority.column"), cardSlot: "body" },
+        },
+      ]
+    : baseColumns;
+
   return (
     <div className="space-y-4">
       <PageHeader
