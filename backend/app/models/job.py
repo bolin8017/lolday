@@ -21,6 +21,7 @@ class JobType(StrEnum):
 
 
 class JobStatus(StrEnum):
+    QUEUED_BACKEND = "queued_backend"  # Phase 6 — backend FIFO holding state; before Volcano submission
     PENDING = "pending"
     PREPARING = "preparing"
     RUNNING = "running"
@@ -137,6 +138,14 @@ class Job(Base):
     # back to the per-type default in config.JOB_ACTIVE_DEADLINE_*_SECONDS;
     # caps validated by JobCreate against JOB_ACTIVE_DEADLINE_*_MAX_SECONDS.
     active_deadline_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Phase 6 — FIFO priority. 0 = normal. Higher values move the job ahead
+    # in the backend FIFO queue. Admin-only mutation (see PATCH /jobs/{id}).
+    priority: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        index=True,
+    )
     idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
     token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     submitted_at: Mapped[datetime] = mapped_column(
