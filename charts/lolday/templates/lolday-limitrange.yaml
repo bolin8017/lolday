@@ -1,0 +1,22 @@
+{{/* Phase 1 (root-cause fix during deploy) — when a ResourceQuota in a
+     namespace caps memory (lolday-infra-quota), K8s admission requires
+     EVERY container in that ns to specify memory request + limit. Sub-chart
+     pods (Harbor's registry / registryctl / admission / jobservice / core)
+     do not set explicit memory in their templates. This LimitRange gives
+     them sane defaults so the quota's hard cap can apply without rejecting
+     the pod outright. Lolday-managed pods (backend / mlflow / kps / etc.)
+     already specify their own limits and are unaffected by this default. */}}
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: lolday-infra-defaults
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  limits:
+    - type: Container
+      default:
+        memory: 1Gi
+      defaultRequest:
+        memory: 128Mi
