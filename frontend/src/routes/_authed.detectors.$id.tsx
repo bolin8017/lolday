@@ -226,17 +226,20 @@ export default function DetectorDetailPage() {
               <CardTitle>Metadata</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div>
+              <div className="break-words">
                 <span className="text-muted-foreground">Name:</span>{" "}
                 <code>{det.name}</code>
               </div>
               <div>
                 <span className="text-muted-foreground">Git URL:</span>{" "}
-                <code className="block max-w-full truncate" title={det.git_url}>
+                <code
+                  className="block max-w-full break-all"
+                  title={det.git_url}
+                >
                   {det.git_url}
                 </code>
               </div>
-              <div>
+              <div className="break-words">
                 <span className="text-muted-foreground">Description:</span>{" "}
                 {det.description ?? "—"}
               </div>
