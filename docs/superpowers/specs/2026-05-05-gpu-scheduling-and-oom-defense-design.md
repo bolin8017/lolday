@@ -136,6 +136,8 @@ RAM 接近耗盡 → kubelet 不主動 evict（沒設 memory.available 規則）
 
 ### 5.2 場景 B — Pending vcjob 累積 runaway（🔥 高）
 
+> **Amendment 2026-05-05 (during Phase 4 implementation):** the original premise of this scenario was wrong. `JOB_PER_USER_CONCURRENCY=2` already counts pending — `routers/jobs.py:262` filters by `NON_TERMINAL_STATUSES = {PENDING, PREPARING, RUNNING}`, all three statuses. A single user therefore cannot accumulate >2 open jobs regardless of POST rate. The runaway path described below is closed by the existing cap. Phase 4 drops `JOB_PER_USER_OPEN_LIMIT` and reduces to instrumentation + alerts only.
+
 **前提**：
 
 - POST /jobs rate limit = 30 reqs / 60s per user。

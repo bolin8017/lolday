@@ -86,6 +86,89 @@ spec:
             summary: "{{`{{ $value }}`}} Volcano Jobs pending > 30min"
             description: "More than 5 batch.volcano.sh/v1alpha1 Jobs have been in Pending phase for > 30min. Check `kubectl -n lolday get jobs.batch.volcano.sh --field-selector=status.state.phase=Pending`. Typical causes: Volcano scheduler crash/restart loop, admission webhook misconfigured, or orphan CRs from a runaway script. If orphans, delete with the selector above."
 
+    - name: lolday-resource-pressure.rules
+      interval: 30s
+      rules:
+        # Phase 4 — kubelet eviction signal. Phase 0 added eviction-soft
+        # memory.available<2Gi (grace 2m); when that fires, kubelet
+        # marks the Node MemoryPressure=true. This alert reflects that
+        # *as it is happening* — at this point pods are getting evicted.
+        - alert: LoldayNodeMemoryPressure
+          expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{`{{ $labels.node }}`}} entered MemoryPressure — kubelet evicting pods"
+            description: "Node {{`{{ $labels.node }}`}} crossed eviction-soft memory.available<2Gi for >1m. kubelet is evicting BestEffort/Burstable pods. Investigate biggest offenders: `kubectl top pods -A --sort-by=memory`. See spec §5.1."
+
+        - alert: LoldayNodeDiskPressure
+          expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{`{{ $labels.node }}`}} entered DiskPressure — kubelet evicting pods"
+            description: "Node {{`{{ $labels.node }}`}} fell below eviction-hard nodefs/imagefs<10%. kubelet is evicting pods. Free disk: prune Harbor old tags, prune old Prometheus TSDB blocks, or `docker system prune` on root LV. See spec §5.5."
+
+        # Phase 4 — VRAM early warning. NVIDIA does not expose a K8s-native
+        # GPU memory limit primitive (no MIG on 2080 Ti, no HAMi by hard rule),
+        # so VRAM exhaustion surfaces only as a CUDA OOM mid-training.
+        # This alert lets us see the high-water before the next batch fails.
+        - alert: LoldayGPUVRAMHigh
+          expr: |
+            max by (gpu, Hostname) (
+              DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)
+            ) > 0.9
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GPU {{`{{ $labels.gpu }}`}} VRAM > 90% for 3m"
+            description: "GPU {{`{{ $labels.gpu }}`}} on {{`{{ $labels.Hostname }}`}} has used >90% of its physical VRAM (currently {{`{{ $value | humanizePercentage }}`}}) for the last 3m. Next allocation by the running detector will trigger CUDA OOM. Inspect: `kubectl -n lolday-jobs logs <vcjob-pod> -c detector`. Mitigation: lower batch_size in maldet config or use the smaller `gpu1` resource_profile (Phase 3)."
+
+        # Phase 4 — quota saturation. The `lolday-jobs-quota` from Phase 1
+        # caps total cluster usage of the workload ns; once it's near full,
+        # new submissions get HTTP 429 (or vcjob admission rejection).
+        - alert: LoldayJobsQuotaMemoryNearLimit
+          expr: |
+            sum(kube_resourcequota{namespace="lolday-jobs",resource="requests.memory",type="used"})
+            /
+            sum(kube_resourcequota{namespace="lolday-jobs",resource="requests.memory",type="hard"})
+            > 0.85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "lolday-jobs ResourceQuota requests.memory > 85%"
+            description: "lolday-jobs has used {{`{{ $value | humanizePercentage }}`}} of its requests.memory quota for >5m. New submissions risk admission rejection. Investigate: `kubectl describe quota -n lolday-jobs`. See spec §7 Phase 1."
+
+        - alert: LoldayJobsQuotaCPUNearLimit
+          expr: |
+            sum(kube_resourcequota{namespace="lolday-jobs",resource="requests.cpu",type="used"})
+            /
+            sum(kube_resourcequota{namespace="lolday-jobs",resource="requests.cpu",type="hard"})
+            > 0.85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "lolday-jobs ResourceQuota requests.cpu > 85%"
+            description: "lolday-jobs has used {{`{{ $value | humanizePercentage }}`}} of its requests.cpu quota for >5m. Investigate: `kubectl describe quota -n lolday-jobs`."
+
+        # Phase 4 — workload backlog. Distinct from VolcanoJobsStuckPending
+        # (which fires when a single job is Pending > 30min); this one fires
+        # when the *backlog* is large enough to be a UX problem regardless
+        # of any one job's age.
+        - alert: LoldayPendingJobsHigh
+          expr: lolday_jobs_pending_total > 12
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{`{{ $value }}`}} non-terminal vcjobs in queue (>12 for 10m)"
+            description: "More than 12 vcjobs are pending or running for >10m. Quota count/jobs.batch.volcano.sh hard cap is 20; we're approaching saturation. Likely cause: GPU-heavy workload contention. Spec §6.3 covers per-user fair-share (Phase 2)."
+
     - name: lolday-trivy.rules
       interval: 60s
       rules:
