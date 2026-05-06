@@ -21,7 +21,6 @@ export function parseCsvPreview(text: string, limit = 20): CsvPreview {
 
   const fileNameIdx = columns.indexOf("file_name");
   const labelIdx = columns.indexOf("label");
-  const familyIdx = columns.indexOf("family"); // -1 if absent
 
   for (let i = 0; i < dataLines.length; i++) {
     const cells = splitLine(dataLines[i]);
@@ -38,14 +37,6 @@ export function parseCsvPreview(text: string, limit = 20): CsvPreview {
       throw new Error(
         `Row ${rowNum}: label must be Malware or Benign, got: ${label || "(empty)"}`,
       );
-    }
-    if (familyIdx >= 0) {
-      const family = (cells[familyIdx] ?? "").trim();
-      if (family && label !== "Malware") {
-        throw new Error(
-          `Row ${rowNum}: family is only allowed on Malware rows, got: label=${label}`,
-        );
-      }
     }
   }
 

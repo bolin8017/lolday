@@ -30,11 +30,6 @@ describe("parseCsvPreview", () => {
     );
   });
 
-  it("rejects when family is set on a Benign row", () => {
-    const csv = `file_name,label,family\n${HEX},Benign,mirai\n`;
-    expect(() => parseCsvPreview(csv, 5)).toThrowError(/family.*Malware/i);
-  });
-
   it("accepts family on Malware rows", () => {
     const csv = `file_name,label,family\n${HEX},Malware,mirai\n`;
     const out = parseCsvPreview(csv, 5);

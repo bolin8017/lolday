@@ -15,10 +15,10 @@ describe("parseCsvPreview", () => {
   });
 
   it("caps rows at limit", () => {
-    // Generate 50 rows with valid SHA256 hashes (vary last hex digit)
+    // 50 unique hashes via 2-digit hex suffix
     const rows = Array.from(
       { length: 50 },
-      (_, i) => `${"a".repeat(63)}${i.toString(16).slice(-1)},Malware`,
+      (_, i) => `${"a".repeat(62)}${i.toString(16).padStart(2, "0")},Malware`,
     ).join("\n");
     const csv = `file_name,label\n${rows}\n`;
     const p = parseCsvPreview(csv, 20);
