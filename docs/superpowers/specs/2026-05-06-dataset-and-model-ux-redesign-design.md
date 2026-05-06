@@ -8,7 +8,7 @@
 
 Four operator-reported issues across the dataset and model pages share a root pattern: each surface was wired to its API but never received a focused UX pass. The label-distribution chart picks colors by entry order rather than by semantic meaning; the family-distribution chart hard-codes Top 15 in a fixed-height box that becomes unreadable as families grow; the upload form mixes a stale demo placeholder with a native `<select>` that breaks dark mode and lacks both a Cancel button and frontend-side CSV validation; the models list shows MLflow Stage columns with no in-product explanation, so a brand-new operator sees only blanks.
 
-This spec replaces the dataset detail page layout, refactors the two chart primitives with semantic color and long-tail aggregation, modernises the upload form to match the rest of the app, and adds an in-product Stage explainer to the models list. All changes follow shadcn/ui + Tailwind conventions already established in the codebase. No new dependencies are introduced.
+This spec replaces the dataset detail page layout, refactors the two chart primitives with semantic color and long-tail aggregation, modernises the upload form to match the rest of the app, and adds an in-product Stage explainer to the models list. All changes follow shadcn/ui + Tailwind conventions already established in the codebase. The only new direct dependency is `@radix-ui/react-collapsible` — pulled in by `pnpm dlx shadcn add collapsible` for the family drill-down and the dataset Metadata block. Same Radix vendor as the eight other `@radix-ui/*` packages already in `package.json`.
 
 **Design principles:**
 
@@ -22,22 +22,22 @@ This spec replaces the dataset detail page layout, refactors the two chart primi
 
 ## 1. Decisions Locked During Brainstorm
 
-| Decision                       | Choice                                                                                                                                                                                       |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dataset detail page scope      | Full layout redesign (header → KPI strip → label distribution → family distribution → metadata details)                                                                                      |
-| Family chart pattern           | Top 10 + Other(N) aggregate row; horizontal bars with count + % rendered inline; full searchable / sortable list inside `<Collapsible>` below                                                |
-| Family chart bar density       | Fixed bar row height 32 px, container height = `(items + 1) × 36 px`, no scroll inside chart card                                                                                            |
-| Label chart shape              | Donut (`innerRadius=60`) with center percent for the dominant class; legend is a 2-column inline table (count + %)                                                                           |
-| Label color mapping            | Lookup `{ Malware: red-600 (#dc2626), Benign: green-600 (#16a34a) }`; unknown labels fall back to neutral `muted-foreground`                                                                 |
-| Size field on dataset detail   | Removed from UI. `DatasetConfigRead.size_bytes` stays in the schema for API parity but is not rendered                                                                                       |
-| Checksum                       | Moved into a collapsible "Metadata" details block at page bottom                                                                                                                             |
-| Upload form Visibility control | shadcn `<Select>` (matches `JobSubmitForm`, `ModelTransitionDialog`); native `<select>` removed                                                                                              |
-| Upload form name placeholder   | Replaced with neutral copy via i18n key (`datasets.new.namePlaceholder`); literal `upx-train-v3` deleted                                                                                     |
-| Upload form Cancel button      | shadcn ghost `<Button onClick={() => nav(-1)}>` inside `<StickyFormFooter>`, matching `JobSubmitForm`                                                                                        |
-| Upload form CSV pre-validation | Frontend mirrors backend rules where cheap to do client-side: ≥1 row, SHA256 regex on `file_name`, label ∈ {Malware, Benign}, `family` only on Malware rows. Backend remains source of truth |
-| Models list Stage explainer    | Inline shadcn `<Alert>` above the table, dismissible, persisted in `localStorage`; column headers gain `<Tooltip>` icons; empty cells render `Not promoted` (muted) instead of `—`           |
-| New backend endpoints          | None. All changes are frontend-only against existing schemas                                                                                                                                 |
-| New i18n keys                  | Added under existing `datasets.*` and `models.*` namespaces in both `en.json` and `zh-TW.json`                                                                                               |
+| Decision                       | Choice                                                                                                                                                                                                                                  |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dataset detail page scope      | Full layout redesign (header → KPI strip → label distribution → family distribution → metadata details)                                                                                                                                 |
+| Family chart pattern           | Top 10 + Other(N) aggregate row; horizontal bars with count + % rendered inline; full searchable / sortable list inside `<Collapsible>` below                                                                                           |
+| Family chart bar density       | Fixed bar row height 32 px, container height = `(items + 1) × 36 px`, no scroll inside chart card                                                                                                                                       |
+| Label chart shape              | Donut (`innerRadius=60`) with center percent for the dominant class; legend is a 2-column inline table (count + %)                                                                                                                      |
+| Label color mapping            | Lookup `{ Malware: red-600 (#dc2626), Benign: green-600 (#16a34a) }`; unknown labels fall back to neutral `muted-foreground`                                                                                                            |
+| Size field on dataset detail   | Removed from UI. `DatasetConfigRead.size_bytes` stays in the schema for API parity but is not rendered                                                                                                                                  |
+| Checksum                       | Moved into a collapsible "Metadata" details block at page bottom                                                                                                                                                                        |
+| Upload form Visibility control | shadcn `<Select>` (matches `JobSubmitForm`, `ModelTransitionDialog`); native `<select>` removed                                                                                                                                         |
+| Upload form name placeholder   | Replaced with neutral copy via i18n key (`datasets.new.namePlaceholder`); literal `upx-train-v3` deleted                                                                                                                                |
+| Upload form Cancel button      | shadcn ghost `<Button onClick={() => nav(-1)}>` inside `<StickyFormFooter>`, matching `JobSubmitForm`                                                                                                                                   |
+| Upload form CSV pre-validation | Frontend mirrors backend rules where cheap to do client-side: ≥1 row, SHA256 regex on `file_name`, label ∈ {Malware, Benign}. Backend remains source of truth. (Family-on-non-Malware is silently ignored, matching backend; see §4.5.) |
+| Models list Stage explainer    | Inline shadcn `<Alert>` above the table, dismissible, persisted in `localStorage`; column headers gain `<Tooltip>` icons; empty cells render `Not promoted` (muted) instead of `—`                                                      |
+| New backend endpoints          | None. All changes are frontend-only against existing schemas                                                                                                                                                                            |
+| New i18n keys                  | Added under existing `datasets.*` and `models.*` namespaces in both `en.json` and `zh-TW.json`                                                                                                                                          |
 
 ---
 
@@ -240,14 +240,11 @@ if (!VALID_LABELS.has(row.label)) {
     `Row ${rowNum}: label must be Malware or Benign, got: ${row.label}`,
   );
 }
-if (row.family && row.label !== "Malware") {
-  throw new Error(
-    `Row ${rowNum}: family is only allowed on Malware rows, got: label=${row.label} family=${row.family}`,
-  );
-}
 ```
 
-These rules are deliberately a **strict subset** of `backend/app/services/dataset.py:parse_csv` so frontend never accepts what backend rejects. Backend remains the source of truth; frontend only enables fast feedback.
+These rules are a **strict subset** of `backend/app/services/dataset.py:parse_csv` — frontend rejects fewer cases than backend, never more. Backend remains the source of truth; frontend only enables fast feedback.
+
+**Family-on-non-Malware is silently ignored, not rejected.** The backend's `parse_csv` discards `family` values on Benign rows without raising (see `dataset.py` line 99–102). An earlier draft of this spec proposed a frontend-only reject; that was reverted during code review (commit `ad36d48`) because rejecting on the frontend while the backend would accept the same row violates the strict-subset contract above and produces a confusing UX (preview error on a CSV that would actually upload). If stricter dataset hygiene is desired, that is a separate spec that tightens the **backend** validation to match.
 
 The existing `parseError` Alert renders the thrown message verbatim, so users see the failing row number.
 
@@ -326,7 +323,7 @@ No backend file changes. No new dependencies.
 - **`FamilyDistribution`**: empty data → empty-state copy, ≤10 families → no Other row, >10 → Other row exists, search input filters table case-insensitively, sorting by count default desc.
 - **`DatasetKpiStrip`**: with/without family_distribution, formatting of large counts, Mal/Ben fallback to 0.
 - **`DatasetUploadForm`**: Cancel calls `navigate(-1)` (already mocked in existing tests), shadcn Select emits the chosen value, name input renders the new i18n placeholder.
-- **`parseCsvPreview`** (existing test file): SHA256 fail, label fail, family-on-Benign fail; existing tests for size and required cols continue to pass.
+- **`parseCsvPreview`** (existing test file): SHA256 fail, label fail; family-on-Malware accepted; existing tests for size and required cols continue to pass. (Family-on-Benign is intentionally **not** rejected — see §4.5.)
 
 ### 7.2 Component / E2E
 
