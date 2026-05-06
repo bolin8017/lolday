@@ -31,14 +31,16 @@ export default function DatasetDetailPage() {
           <LabelDistribution data={labelDist} />
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("datasets.detail.familyDistribution")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FamilyDistribution data={familyDist} />
-        </CardContent>
-      </Card>
+      {data.family_distribution && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("datasets.detail.familyDistribution")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <FamilyDistribution data={familyDist} />
+          </CardContent>
+        </Card>
+      )}
       <DatasetMetadataDetails dataset={data} />
     </div>
   );
