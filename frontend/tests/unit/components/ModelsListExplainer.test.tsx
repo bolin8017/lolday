@@ -27,11 +27,13 @@ describe("ModelsListPage stage explainer", () => {
 
   it("renders the explainer Alert on first visit", () => {
     renderPage();
+    // i18n key: models.stagesExplainer.title → "About model stages" in en (fallbackLng)
     expect(screen.getByText(/About model stages/)).toBeInTheDocument();
   });
 
   it("hides the explainer after Dismiss is clicked", async () => {
     renderPage();
+    // i18n key: common.dismiss → "Dismiss" in en (fallbackLng)
     await userEvent.click(screen.getByRole("button", { name: /Dismiss/ }));
     expect(screen.queryByText(/About model stages/)).toBeNull();
     expect(localStorage.getItem("lolday.modelsExplainerDismissed")).toBe("1");

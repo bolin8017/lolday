@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 import { useTranslation } from "react-i18next";
 import { HelpCircle, X } from "lucide-react";
@@ -27,20 +27,18 @@ function HeaderWithTooltip({ label, hint }: { label: string; hint: string }) {
   return (
     <span className="inline-flex items-center gap-1">
       {label}
-      <TooltipProvider delayDuration={150}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground"
-              aria-label={`${label} info`}
-            >
-              <HelpCircle size={14} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">{hint}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground"
+            aria-label={`${label} info`}
+          >
+            <HelpCircle size={14} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">{hint}</TooltipContent>
+      </Tooltip>
     </span>
   );
 }
@@ -110,11 +108,9 @@ function buildColumns(t: (k: string) => string): ColumnDef<RegisteredModel>[] {
 
 function StageExplainerAlert() {
   const { t } = useTranslation();
-  const [dismissed, setDismissed] = useState(true); // start hidden to avoid flash
-
-  useEffect(() => {
-    setDismissed(localStorage.getItem(DISMISSED_KEY) === "1");
-  }, []);
+  const [dismissed, setDismissed] = useState(
+    () => localStorage.getItem(DISMISSED_KEY) === "1",
+  );
 
   if (dismissed) return null;
   return (
@@ -146,14 +142,16 @@ export default function ModelsListPage() {
   const columns = buildColumns(t);
   if (isLoading) return <p className="text-muted-foreground">Loading…</p>;
   return (
-    <div className="space-y-4">
-      <PageHeader title="Models" />
-      <StageExplainerAlert />
-      <DataTable
-        data={data ?? []}
-        columns={columns}
-        emptyMessage="No models registered yet."
-      />
-    </div>
+    <TooltipProvider delayDuration={150}>
+      <div className="space-y-4">
+        <PageHeader title="Models" />
+        <StageExplainerAlert />
+        <DataTable
+          data={data ?? []}
+          columns={columns}
+          emptyMessage="No models registered yet."
+        />
+      </div>
+    </TooltipProvider>
   );
 }
