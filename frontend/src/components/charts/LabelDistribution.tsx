@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { useTranslation } from "react-i18next";
 
@@ -77,11 +78,11 @@ export function LabelDistribution({ data }: { data: Record<string, number> }) {
           <span className="text-xs text-muted-foreground">{dominant.name}</span>
         </div>
       </div>
-      <ul className="grid flex-1 grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-sm">
+      <div className="grid flex-1 grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-sm">
         {entries.map((e) => {
           const pct = ((e.value / total) * 100).toFixed(1);
           return (
-            <li key={e.name} className="contents">
+            <Fragment key={e.name}>
               <span className="flex items-center gap-2">
                 <span
                   aria-hidden
@@ -96,10 +97,10 @@ export function LabelDistribution({ data }: { data: Record<string, number> }) {
               <span className="text-right tabular-nums text-muted-foreground">
                 {pct}%
               </span>
-            </li>
+            </Fragment>
           );
         })}
-      </ul>
+      </div>
     </div>
   );
 }
