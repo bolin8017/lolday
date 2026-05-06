@@ -76,6 +76,7 @@
   "datasets": {
     "new": {
       "namePlaceholder": "例如：malware-train-2026-q1",
+      "submitLabel": "上傳資料集",
       "submitting": "上傳中…"
     },
     "detail": {

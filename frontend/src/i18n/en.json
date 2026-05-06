@@ -76,6 +76,7 @@
   "datasets": {
     "new": {
       "namePlaceholder": "e.g. malware-train-2026-q1",
+      "submitLabel": "Upload dataset",
       "submitting": "Uploading…"
     },
     "detail": {

@@ -84,7 +84,9 @@ export function DatasetUploadForm() {
       return;
     }
     try {
-      parseCsvPreview(v.csv_content, 1); // surface row-level errors before POST
+      // Validate every row before POST. limit=1 only caps the returned preview slice;
+      // the validation loop inside parseCsvPreview always walks the whole file.
+      parseCsvPreview(v.csv_content, 1);
     } catch (e) {
       setError("csv_content", { message: (e as Error).message });
       return;
@@ -213,7 +215,9 @@ export function DatasetUploadForm() {
           disabled={isSubmitting || !!parseError}
           className="h-11"
         >
-          {isSubmitting ? t("datasets.new.submitting") : "Upload dataset"}
+          {isSubmitting
+            ? t("datasets.new.submitting")
+            : t("datasets.new.submitLabel")}
         </Button>
       </StickyFormFooter>
     </form>
