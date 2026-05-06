@@ -253,3 +253,34 @@ The `lolday-jobs` namespace is left in place (cheap to keep empty). Any vcjob al
 
 Spec: `docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md` §7 (Phase 1).
 Plan: `docs/superpowers/plans/2026-05-05-gpu-scheduling-phase1-jobs-namespace.md`.
+
+## 10. Release flow (backend + frontend image bump)
+
+Sister doc to `docs/runbooks/release-helpers.md` (helper-image releases).
+
+Release commits **must** bump four fields together:
+
+- `charts/lolday/Chart.yaml` — `version` and `appVersion` (must match each other)
+- `charts/lolday/values.yaml` — `backend.image` tag and `frontend.image` tag (both must be `vX.Y.Z`)
+
+Pre-commit hook `image-tags-aligned` (`scripts/check-image-tags-aligned.sh`) blocks any commit that leaves these out of sync. Added 2026-05-06 after v0.18.0 shipped with a stale frontend tag — see PR #96 history.
+
+Standard sequence from a clean working tree on `main`:
+
+```bash
+git checkout -b chore/release-vX.Y.Z
+
+# Build + push both images. Operator host has /etc/hosts pointing
+# harbor.lolday.svc.cluster.local at the in-cluster Harbor.
+( cd backend  && docker build -t harbor.lolday.svc.cluster.local:80/lolday/lolday-backend:vX.Y.Z . )
+( cd frontend && docker build -t harbor.lolday.svc.cluster.local:80/lolday/lolday-frontend:vX.Y.Z . )
+docker push harbor.lolday.svc.cluster.local:80/lolday/lolday-backend:vX.Y.Z
+docker push harbor.lolday.svc.cluster.local:80/lolday/lolday-frontend:vX.Y.Z
+
+# Bump the four fields above; pre-commit blocks any half-bump.
+git commit -am "chore(release): cut vX.Y.Z — <one-line summary>"
+git push -u origin HEAD && gh pr create
+
+# After PR merge
+bash scripts/deploy.sh
+```
