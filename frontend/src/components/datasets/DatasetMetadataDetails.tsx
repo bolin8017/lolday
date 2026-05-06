@@ -43,6 +43,7 @@ export function DatasetMetadataDetails({ dataset }: Props) {
             variant="ghost"
             size="sm"
             className="h-7 gap-1 px-2"
+            aria-label={copied ? t("common.copied") : t("common.copy")}
             onClick={async () => {
               await navigator.clipboard.writeText(dataset.csv_checksum);
               setCopied(true);

@@ -86,6 +86,7 @@
         "families": "家族",
         "created": "建立時間"
       },
+      "downloadCsv": "下載 CSV",
       "labelDistribution": "標籤分布",
       "familyDistribution": "家族分布",
       "topOf": "顯示前 {{shown}} 名 / 共 {{total}} 個",

@@ -1,4 +1,6 @@
 import { useNavigate } from "react-router";
+import { Download } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useDeleteDataset, type Dataset } from "@/api/queries/datasets";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +10,7 @@ interface Props {
 }
 
 export function DatasetHeader({ dataset }: Props) {
+  const { t } = useTranslation();
   const nav = useNavigate();
   const del = useDeleteDataset();
   return (
@@ -26,22 +29,26 @@ export function DatasetHeader({ dataset }: Props) {
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <a
-          href={`/api/v1/datasets/${dataset.id}/csv`}
-          className="inline-flex h-9 items-center rounded-md border bg-background px-3 text-sm hover:bg-accent"
-        >
-          Download CSV
-        </a>
+        <Button asChild variant="outline" size="sm">
+          <a
+            href={`/api/v1/datasets/${dataset.id}/csv`}
+            download={`${dataset.name}.csv`}
+          >
+            <Download className="mr-1 h-4 w-4" />
+            {t("datasets.detail.downloadCsv")}
+          </a>
+        </Button>
         <Button
           variant="destructive"
           size="sm"
+          disabled={del.isPending}
           onClick={async () => {
             if (!confirm("Delete this dataset?")) return;
             await del.mutateAsync(dataset.id);
             nav("/datasets");
           }}
         >
-          Delete
+          {t("common.delete")}
         </Button>
       </div>
     </header>

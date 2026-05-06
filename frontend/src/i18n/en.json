@@ -86,6 +86,7 @@
         "families": "Families",
         "created": "Created"
       },
+      "downloadCsv": "Download CSV",
       "labelDistribution": "Label distribution",
       "familyDistribution": "Family distribution",
       "topOf": "Showing top {{shown}} of {{total}}",
