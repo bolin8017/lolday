@@ -7,11 +7,13 @@ describe("aggregateLongTail", () => {
   });
 
   it("returns sorted entries when count <= topN", () => {
-    expect(aggregateLongTail({ a: 1, b: 3, c: 2 }, 10)).toEqual([
+    const result = aggregateLongTail({ a: 1, b: 3, c: 2 }, 10);
+    expect(result).toEqual([
       { name: "b", value: 3 },
       { name: "c", value: 2 },
       { name: "a", value: 1 },
     ]);
+    expect(result.some((b) => b.isOther)).toBe(false);
   });
 
   it("returns exactly topN when input length equals topN", () => {
