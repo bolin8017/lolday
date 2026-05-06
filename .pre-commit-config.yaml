@@ -68,3 +68,10 @@ repos:
         entry: scripts/check-helpers-lock.sh
         pass_filenames: false
         files: ^charts/lolday/helpers/(build-helper|job-helper)/|^charts/lolday/helpers\.lock$
+
+      - id: image-tags-aligned
+        name: lolday image tags aligned with Chart.yaml version
+        language: system
+        entry: scripts/check-image-tags-aligned.sh
+        pass_filenames: false
+        files: ^charts/lolday/(values\.yaml|Chart\.yaml)$
