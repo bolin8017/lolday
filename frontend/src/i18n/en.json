@@ -30,7 +30,12 @@
     "noData": "No data.",
     "error": "Error",
     "retry": "Retry",
-    "openInMlflow": "Open in MLflow"
+    "openInMlflow": "Open in MLflow",
+    "copy": "Copy",
+    "copied": "Copied",
+    "showAll": "Show all",
+    "search": "Search",
+    "dismiss": "Dismiss"
   },
   "status": {
     "queued_backend": "Queued",
@@ -68,6 +73,35 @@
     "required": "required",
     "optional": "optional"
   },
+  "datasets": {
+    "new": {
+      "namePlaceholder": "e.g. malware-train-2026-q1",
+      "submitting": "Uploading…"
+    },
+    "detail": {
+      "kpi": {
+        "samples": "Samples",
+        "malware": "Malware",
+        "benign": "Benign",
+        "families": "Families",
+        "created": "Created"
+      },
+      "labelDistribution": "Label distribution",
+      "familyDistribution": "Family distribution",
+      "topOf": "Showing top {{shown}} of {{total}}",
+      "showAllFamilies": "Show all {{n}} families",
+      "searchFamilies": "Search families…",
+      "metadata": "Metadata",
+      "checksum": "Checksum",
+      "owner": "Owner",
+      "noLabelData": "No label data.",
+      "noFamilyData": "No family data.",
+      "tableFamily": "Family",
+      "tableCount": "Count",
+      "tablePercent": "Share",
+      "tableRank": "Rank"
+    }
+  },
   "jobs": {
     "priority": {
       "label": "Priority",
@@ -77,6 +111,17 @@
       "save": "Save priority",
       "warning": "Bumping priority pauses submission of new lower-priority jobs to Volcano until this job is dispatched. Running jobs are not affected."
     }
+  },
+  "models": {
+    "stagesExplainer": {
+      "title": "About model stages",
+      "body": "Newly registered model versions start in None. Use the Transition button on each version to promote: Staging for candidates under review, Production for the live serving version, Archived for retired versions. Mirrors the MLflow Model Registry lifecycle."
+    },
+    "stages": {
+      "stagingTooltip": "Candidate version under validation. Promote here before production.",
+      "productionTooltip": "Currently the active version. Only one Production version per model at a time."
+    },
+    "notPromoted": "Not promoted"
   },
   "theme": {
     "toggle": "Toggle theme",

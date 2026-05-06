@@ -30,7 +30,12 @@
     "noData": "無資料。",
     "error": "錯誤",
     "retry": "重試",
-    "openInMlflow": "在 MLflow 中開啟"
+    "openInMlflow": "在 MLflow 中開啟",
+    "copy": "複製",
+    "copied": "已複製",
+    "showAll": "顯示全部",
+    "search": "搜尋",
+    "dismiss": "關閉"
   },
   "status": {
     "queued_backend": "排隊中",
@@ -68,6 +73,35 @@
     "required": "必填",
     "optional": "可選"
   },
+  "datasets": {
+    "new": {
+      "namePlaceholder": "例如：malware-train-2026-q1",
+      "submitting": "上傳中…"
+    },
+    "detail": {
+      "kpi": {
+        "samples": "樣本",
+        "malware": "惡意",
+        "benign": "良性",
+        "families": "家族",
+        "created": "建立時間"
+      },
+      "labelDistribution": "標籤分布",
+      "familyDistribution": "家族分布",
+      "topOf": "顯示前 {{shown}} 名 / 共 {{total}} 個",
+      "showAllFamilies": "顯示全部 {{n}} 個家族",
+      "searchFamilies": "搜尋家族…",
+      "metadata": "Metadata",
+      "checksum": "Checksum",
+      "owner": "擁有者",
+      "noLabelData": "無標籤資料。",
+      "noFamilyData": "無家族資料。",
+      "tableFamily": "家族",
+      "tableCount": "數量",
+      "tablePercent": "比例",
+      "tableRank": "排名"
+    }
+  },
   "jobs": {
     "priority": {
       "label": "優先度",
@@ -77,6 +111,17 @@
       "save": "儲存優先度",
       "warning": "提高優先度會暫停較低優先度工作的提交，直到此工作被派送至 Volcano 為止。正在執行的工作不受影響。"
     }
+  },
+  "models": {
+    "stagesExplainer": {
+      "title": "關於模型階段",
+      "body": "新註冊的模型版本預設為 None。點選版本旁的「Transition」按鈕進行升等：Staging 為待驗證候選版本、Production 為線上服務版本、Archived 為已退役版本。沿用 MLflow Model Registry 的生命週期。"
+    },
+    "stages": {
+      "stagingTooltip": "候選版本，等待驗證。升 Production 前的暫存階段。",
+      "productionTooltip": "目前線上服務版本。同一模型同時只允許一個 Production 版本。"
+    },
+    "notPromoted": "尚未升等"
   },
   "theme": {
     "toggle": "切換主題",
