@@ -41,6 +41,7 @@ export function FamilyDistribution({ data }: Props) {
     [data],
   );
   const bars = useMemo(() => aggregateLongTail(data, 10), [data]);
+  const shownCount = bars.filter((b) => !b.isOther).length;
 
   const allRows = useMemo(() => {
     const rows = Object.entries(data)
@@ -72,10 +73,10 @@ export function FamilyDistribution({ data }: Props) {
 
   return (
     <div className="space-y-3">
-      {totalFamilies > bars.filter((b) => !b.isOther).length && (
+      {totalFamilies > shownCount && (
         <p className="text-xs text-muted-foreground">
           {t("datasets.detail.topOf", {
-            shown: bars.filter((b) => !b.isOther).length,
+            shown: shownCount,
             total: totalFamilies,
           })}
         </p>
@@ -99,8 +100,8 @@ export function FamilyDistribution({ data }: Props) {
             />
             <Tooltip
               cursor={{ fill: "hsl(var(--muted) / 0.3)" }}
-              formatter={(value: number) => [
-                `${value} (${((value / totalSamples) * 100).toFixed(1)}%)`,
+              formatter={(value) => [
+                `${Number(value).toLocaleString()} (${((Number(value) / totalSamples) * 100).toFixed(1)}%)`,
                 "",
               ]}
             />
@@ -111,8 +112,8 @@ export function FamilyDistribution({ data }: Props) {
               <LabelList
                 dataKey="value"
                 position="right"
-                formatter={(value: number) =>
-                  `${value} (${((value / totalSamples) * 100).toFixed(1)}%)`
+                formatter={(value) =>
+                  `${Number(value).toLocaleString()} (${((Number(value) / totalSamples) * 100).toFixed(1)}%)`
                 }
                 style={{
                   fill: "hsl(var(--foreground))",
@@ -140,7 +141,11 @@ export function FamilyDistribution({ data }: Props) {
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2 text-left">
+                  <th
+                    scope="col"
+                    aria-sort={sortKey === "name" ? "ascending" : "none"}
+                    className="px-3 py-2 text-left"
+                  >
                     <button
                       type="button"
                       onClick={() => setSortKey("name")}
@@ -149,7 +154,11 @@ export function FamilyDistribution({ data }: Props) {
                       {t("datasets.detail.tableFamily")}
                     </button>
                   </th>
-                  <th className="px-3 py-2 text-right">
+                  <th
+                    scope="col"
+                    aria-sort={sortKey === "count" ? "descending" : "none"}
+                    className="px-3 py-2 text-right"
+                  >
                     <button
                       type="button"
                       onClick={() => setSortKey("count")}
@@ -158,10 +167,10 @@ export function FamilyDistribution({ data }: Props) {
                       {t("datasets.detail.tableCount")}
                     </button>
                   </th>
-                  <th className="px-3 py-2 text-right">
+                  <th scope="col" className="px-3 py-2 text-right">
                     {t("datasets.detail.tablePercent")}
                   </th>
-                  <th className="px-3 py-2 text-right">
+                  <th scope="col" className="px-3 py-2 text-right">
                     {t("datasets.detail.tableRank")}
                   </th>
                 </tr>
