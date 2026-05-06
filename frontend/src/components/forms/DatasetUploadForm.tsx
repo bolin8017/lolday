@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router";
+import { useTranslation } from "react-i18next";
 import { useCreateDataset } from "@/api/queries/datasets";
 import { parseCsvPreview, type CsvPreview } from "@/lib/csv";
 import { checkCsvSize } from "./DatasetUploadForm.logic";
@@ -12,6 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { applyFieldErrorsToForm } from "@/lib/errors";
 import type { LoldayApiError } from "@/api/errors";
 import { StickyFormFooter } from "./StickyFormFooter";
@@ -25,6 +33,7 @@ const schema = z.object({
 type Values = z.infer<typeof schema>;
 
 export function DatasetUploadForm() {
+  const { t } = useTranslation();
   const nav = useNavigate();
   const mut = useCreateDataset();
   const {
@@ -42,6 +51,7 @@ export function DatasetUploadForm() {
   const [parseError, setParseError] = useState<string | null>(null);
 
   const content = watch("csv_content");
+  const visibility = watch("visibility");
 
   async function onFilePick(ev: ChangeEvent<HTMLInputElement>) {
     const file = ev.target.files?.[0];
@@ -74,6 +84,14 @@ export function DatasetUploadForm() {
       return;
     }
     try {
+      // Validate every row before POST. limit=1 only caps the returned preview slice;
+      // the validation loop inside parseCsvPreview always walks the whole file.
+      parseCsvPreview(v.csv_content, 1);
+    } catch (e) {
+      setError("csv_content", { message: (e as Error).message });
+      return;
+    }
+    try {
       const ds = await mut.mutateAsync(v);
       nav(`/datasets/${ds.id}`);
     } catch (e) {
@@ -82,10 +100,14 @@ export function DatasetUploadForm() {
   });
 
   return (
-    <form className="space-y-4 max-w-2xl" onSubmit={onSubmit}>
+    <form className="max-w-2xl space-y-4" onSubmit={onSubmit}>
       <div>
         <Label htmlFor="name">Name</Label>
-        <Input id="name" placeholder="upx-train-v3" {...register("name")} />
+        <Input
+          id="name"
+          placeholder={t("datasets.new.namePlaceholder")}
+          {...register("name")}
+        />
         {errors.name && (
           <p className="text-xs text-destructive">{errors.name.message}</p>
         )}
@@ -96,14 +118,22 @@ export function DatasetUploadForm() {
       </div>
       <div>
         <Label htmlFor="visibility">Visibility</Label>
-        <select
-          id="visibility"
-          className="block w-full rounded-md border p-2"
-          {...register("visibility")}
+        <Select
+          value={visibility}
+          onValueChange={(v) =>
+            setValue("visibility", v as "public" | "private", {
+              shouldValidate: true,
+            })
+          }
         >
-          <option value="public">Public (all lab members)</option>
-          <option value="private">Private (me + admin)</option>
-        </select>
+          <SelectTrigger id="visibility">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="public">Public (all lab members)</SelectItem>
+            <SelectItem value="private">Private (me + admin)</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">
@@ -140,7 +170,7 @@ export function DatasetUploadForm() {
         )}
         {preview && (
           <div className="rounded border p-2 text-xs">
-            <p className="text-muted-foreground mb-1">
+            <p className="mb-1 text-muted-foreground">
               Preview ({preview.rows.length} of {preview.totalRows} rows)
             </p>
             <div className="overflow-x-auto">
@@ -173,11 +203,21 @@ export function DatasetUploadForm() {
 
       <StickyFormFooter>
         <Button
+          type="button"
+          variant="ghost"
+          className="h-11"
+          onClick={() => nav(-1)}
+        >
+          {t("common.cancel")}
+        </Button>
+        <Button
           type="submit"
           disabled={isSubmitting || !!parseError}
           className="h-11"
         >
-          Upload dataset
+          {isSubmitting
+            ? t("datasets.new.submitting")
+            : t("datasets.new.submitLabel")}
         </Button>
       </StickyFormFooter>
     </form>

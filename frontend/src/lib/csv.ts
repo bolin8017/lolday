@@ -5,6 +5,8 @@ export interface CsvPreview {
 }
 
 const REQUIRED = ["file_name", "label"];
+const SHA256_RE = /^[0-9a-f]{64}$/;
+const VALID_LABELS = new Set(["Malware", "Benign"]);
 
 export function parseCsvPreview(text: string, limit = 20): CsvPreview {
   const lines = text.trim().split(/\r?\n/);
@@ -14,7 +16,30 @@ export function parseCsvPreview(text: string, limit = 20): CsvPreview {
     if (!columns.includes(req))
       throw new Error(`Missing required column: ${req}`);
   }
-  const dataLines = lines.slice(1);
+  const dataLines = lines.slice(1).filter((l) => l.length > 0);
+  if (dataLines.length === 0) throw new Error("CSV has no data rows");
+
+  const fileNameIdx = columns.indexOf("file_name");
+  const labelIdx = columns.indexOf("label");
+
+  for (let i = 0; i < dataLines.length; i++) {
+    const cells = splitLine(dataLines[i]);
+    const rowNum = i + 2; // 1-indexed + header line
+    const fileName = (cells[fileNameIdx] ?? "").trim();
+    const label = (cells[labelIdx] ?? "").trim();
+
+    if (!SHA256_RE.test(fileName)) {
+      throw new Error(
+        `Row ${rowNum}: file_name must be 64-char lowercase hex SHA256, got: ${fileName || "(empty)"}`,
+      );
+    }
+    if (!VALID_LABELS.has(label)) {
+      throw new Error(
+        `Row ${rowNum}: label must be Malware or Benign, got: ${label || "(empty)"}`,
+      );
+    }
+  }
+
   const rows = dataLines.slice(0, limit).map((line) => {
     const cells = splitLine(line);
     return Object.fromEntries(columns.map((c, i) => [c, cells[i] ?? ""]));
