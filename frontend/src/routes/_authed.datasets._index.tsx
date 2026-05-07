@@ -38,15 +38,6 @@ const columns: ColumnDef<Dataset>[] = [
     meta: { cardLabel: "Samples", cardSlot: "body" },
   },
   {
-    accessorKey: "size_bytes",
-    header: "Size",
-    cell: ({ row }) => {
-      const bytes = row.original.size_bytes;
-      return bytes != null ? `${(bytes / 1024).toFixed(1)} KB` : "—";
-    },
-    meta: { cardLabel: "Size", cardSlot: "body" },
-  },
-  {
     accessorKey: "created_at",
     header: "Created",
     cell: ({ row }) => formatRelative(row.original.created_at),
