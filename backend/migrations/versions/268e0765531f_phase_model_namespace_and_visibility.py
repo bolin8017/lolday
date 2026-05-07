@@ -99,7 +99,7 @@ def upgrade() -> None:
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.func.now(),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
         ),
         sa.UniqueConstraint(
             "owner_id", "detector_id", name="uq_registered_model_owner_detector"
@@ -186,6 +186,9 @@ def upgrade() -> None:
     )
 
     # ---- 5. Audit log tables ----
+    # _visibility_enum_col is an sa.Enum *type* instance (not sa.Column), so it
+    # is safe to share across multiple Column declarations below.  SQLAlchemy
+    # uses it purely as a type descriptor; each Column gets its own wrapper.
     _visibility_enum_col = sa.Enum(
         "public",
         "private",
@@ -215,7 +218,7 @@ def upgrade() -> None:
             "changed_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.func.now(),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
         ),
     )
     op.create_index(
@@ -256,7 +259,7 @@ def upgrade() -> None:
             "transferred_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.func.now(),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
         ),
     )
     op.create_index(
@@ -303,8 +306,17 @@ def downgrade() -> None:
         batch_op.drop_column("visibility")
         batch_op.drop_column("registered_model_id")
         batch_op.add_column(
-            sa.Column("mlflow_name", sa.String(200), nullable=False),
+            sa.Column(
+                "mlflow_name",
+                sa.String(200),
+                nullable=False,
+                server_default=sa.text("'__rollback_unknown__'"),
+            ),
         )
+        # Drop server_default immediately — it was only needed to satisfy NOT NULL
+        # for any existing rows during the ADD COLUMN DDL (2-step pattern per
+        # .claude/rules/alembic-migrations.md).
+        batch_op.alter_column("mlflow_name", server_default=None)
 
     op.create_index(
         "ix_model_version_name_version_unique",
