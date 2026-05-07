@@ -22,4 +22,42 @@ spec:
             - key: kubernetes.io/hostname
               operator: In
               values: [{{ .Values.samples.nodeHostname }}]
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: samples
+    namespace: {{ .Release.Namespace }}
+---
+# Parallel PV for the lolday-jobs namespace (see samples-pvc.yaml comment).
+# Same hostPath, same node, separate ROX claim. Without the explicit
+# claimRef on each PV the binder may pick the wrong PV/PVC pairing on
+# fresh deploy.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: samples-jobs
+  labels:
+    app.kubernetes.io/name: samples-jobs
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  capacity:
+    storage: {{ .Values.samples.storage }}
+  accessModes: [ReadOnlyMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: {{ .Values.samples.hostPath }}
+    type: Directory
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: [{{ .Values.samples.nodeHostname }}]
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: samples
+    namespace: {{ .Values.global.jobsNamespace }}
 {{- end }}

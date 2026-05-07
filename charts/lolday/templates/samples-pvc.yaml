@@ -11,4 +11,22 @@ spec:
   resources:
     requests:
       storage: {{ .Values.samples.storage }}
+---
+# Phase 1 (2026-05-05) moved detector build / vcjob workload pods into the
+# lolday-jobs namespace, but the samples PVC was left in `lolday`. ROX PV
+# allows shared host-path access, so we provision a parallel PV+PVC bound
+# to the same on-disk directory; the workloads in lolday-jobs mount this
+# one. Backend in `lolday` continues to mount the original `samples` PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: samples
+  namespace: {{ .Values.global.jobsNamespace }}
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: samples-jobs
+  resources:
+    requests:
+      storage: {{ .Values.samples.storage }}
 {{- end }}
