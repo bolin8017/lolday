@@ -67,6 +67,7 @@ async def test_run_tags_use_human_readable_values_with_id_companions(
         },
     )
     assert r.status_code == 202, r.text
+    job_id = r.json()["id"]
 
     assert mock_mlflow.runs_created, "no runs created"
     _, tags = mock_mlflow.runs_created[-1]
@@ -76,6 +77,10 @@ async def test_run_tags_use_human_readable_values_with_id_companions(
     assert tag_dict["lolday.user"] == seed_user.handle
     assert tag_dict["lolday.user_id"] == str(seed_user.id)
     assert tag_dict["lolday.detector_version"] == "elf-cnn/v4.0.0"
+    assert tag_dict["lolday.job_id"] == job_id, (
+        "lolday.job_id tag must equal the lolday Job UUID so the frontend Run "
+        "column can deep-link to /jobs/<id>"
+    )
     assert re.fullmatch(
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         tag_dict["lolday.detector_version_id"],
