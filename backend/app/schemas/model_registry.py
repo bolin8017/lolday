@@ -26,14 +26,8 @@ class ModelVersionRead(BaseModel):
     # Derived fields — populated by the response builder, not ORM attributes
     owner: str  # user.handle
     name: str  # detector.name
-    # NEW: populated at call sites in Plan Task 2; None until then (call sites use
-    # explicit SQL joins to fetch these — schema-only step, see plan Task 1/2).
-    detector_id: uuid.UUID | None = (
-        None  # detector.id (frontend fetches detector_version manifest)
-    )
-    detector_version_tag: str | None = (
-        None  # detector_version.git_tag (path param: /detectors/{id}/versions/{tag})
-    )
+    detector_id: uuid.UUID  # detector.id (NEW)
+    detector_version_tag: str  # detector_version.git_tag (NEW)
 
 
 class ModelVersionList(BaseModel):

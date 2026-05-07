@@ -12,6 +12,7 @@ from app.config import settings
 from app.db import get_async_session
 from app.models import (
     Detector,
+    DetectorVersion,
     ModelOwnerTransferLog,
     ModelTransitionLog,
     ModelVersion,
@@ -52,9 +53,18 @@ def _mlflow() -> MlflowClient:
 
 
 def _model_version_to_read(
-    mv: ModelVersion, owner_handle: str, detector_name: str
+    mv: ModelVersion,
+    owner_handle: str,
+    detector_name: str,
+    detector_id: uuid.UUID,
+    detector_version_tag: str,
 ) -> ModelVersionRead:
-    """Construct ModelVersionRead with derived owner_handle + detector_name populated."""
+    """Construct ModelVersionRead with derived UI-friendly fields populated.
+
+    The four trailing args are derived from joins against User, Detector, and
+    DetectorVersion. Pass them explicitly so each call site is honest about
+    its query shape (no lazy-load surprises in async sessions).
+    """
     return ModelVersionRead(
         id=mv.id,
         mlflow_version=mv.mlflow_version,
@@ -68,6 +78,8 @@ def _model_version_to_read(
         last_transitioned_at=mv.last_transitioned_at,
         owner=owner_handle,
         name=detector_name,
+        detector_id=detector_id,
+        detector_version_tag=detector_version_tag,
     )
 
 
@@ -84,19 +96,30 @@ async def get_model_version_by_id(
     """
     row = (
         await session.execute(
-            select(ModelVersion, User.handle, Detector.name)
+            select(
+                ModelVersion,
+                User.handle,
+                Detector.name,
+                Detector.id,
+                DetectorVersion.git_tag,
+            )
             .join(
                 RegisteredModel, ModelVersion.registered_model_id == RegisteredModel.id
             )
             .join(User, RegisteredModel.owner_id == User.id)
             .join(Detector, RegisteredModel.detector_id == Detector.id)
+            .join(
+                DetectorVersion, DetectorVersion.id == ModelVersion.detector_version_id
+            )
             .where(ModelVersion.id == version_id)
         )
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail="model version not found")
-    mv, owner_handle, detector_name = row
-    return _model_version_to_read(mv, owner_handle, detector_name)
+    mv, owner_handle, detector_name, detector_id, detector_version_tag = row
+    return _model_version_to_read(
+        mv, owner_handle, detector_name, detector_id, detector_version_tag
+    )
 
 
 @router.get("/versions", response_model=ModelVersionList)
@@ -120,18 +143,27 @@ async def list_model_versions_by_filter(
     # bug in the registration projector could in theory produce duplicates.
     rows = (
         await session.execute(
-            select(ModelVersion, User.handle, Detector.name)
+            select(
+                ModelVersion,
+                User.handle,
+                Detector.name,
+                Detector.id,
+                DetectorVersion.git_tag,
+            )
             .join(
                 RegisteredModel, ModelVersion.registered_model_id == RegisteredModel.id
             )
             .join(User, RegisteredModel.owner_id == User.id)
             .join(Detector, RegisteredModel.detector_id == Detector.id)
+            .join(
+                DetectorVersion, DetectorVersion.id == ModelVersion.detector_version_id
+            )
             .where(ModelVersion.source_job_id == source_job_id)
             .order_by(ModelVersion.mlflow_version.desc())
             .limit(100)
         )
     ).all()
-    items = [_model_version_to_read(mv, h, n) for mv, h, n in rows]
+    items = [_model_version_to_read(mv, h, n, did, tag) for mv, h, n, did, tag in rows]
     return ModelVersionList(
         items=items,
         total=len(items),
@@ -295,18 +327,19 @@ async def list_versions(
         visible = (ModelVersion.visibility == ModelVersionVisibility.PUBLIC) | (
             ModelVersion.owner_id == user.id
         )
-    versions = (
-        (
-            await session.execute(
-                select(ModelVersion)
-                .where(ModelVersion.registered_model_id == rm.id, visible)
-                .order_by(ModelVersion.mlflow_version.desc())
+    rows = (
+        await session.execute(
+            select(ModelVersion, DetectorVersion.git_tag)
+            .join(
+                DetectorVersion, DetectorVersion.id == ModelVersion.detector_version_id
             )
+            .where(ModelVersion.registered_model_id == rm.id, visible)
+            .order_by(ModelVersion.mlflow_version.desc())
         )
-        .scalars()
-        .all()
-    )
-    items = [_model_version_to_read(v, owner, name) for v in versions]
+    ).all()
+    items = [
+        _model_version_to_read(mv, owner, name, rm.detector_id, tag) for mv, tag in rows
+    ]
     return ModelVersionList(items=items, total=len(items), page=1, page_size=len(items))
 
 
@@ -319,21 +352,26 @@ async def get_version(
     user: Annotated[User, Depends(current_active_user)],
 ) -> ModelVersionRead:
     rm = await resolve_registered_model(owner, name, session, user)
-    mv = (
+    row = (
         await session.execute(
-            select(ModelVersion).where(
+            select(ModelVersion, DetectorVersion.git_tag)
+            .join(
+                DetectorVersion, DetectorVersion.id == ModelVersion.detector_version_id
+            )
+            .where(
                 ModelVersion.registered_model_id == rm.id,
                 ModelVersion.mlflow_version == version,
             )
         )
-    ).scalar_one_or_none()
-    if mv is None:
+    ).first()
+    if row is None:
         raise HTTPException(404, "version not found")
+    mv, detector_version_tag = row
     is_owner = mv.owner_id == user.id
     is_admin = user.role.value == "admin"
     if mv.visibility == ModelVersionVisibility.PRIVATE and not (is_owner or is_admin):
         raise HTTPException(404, "version not found")  # hide-existence
-    return _model_version_to_read(mv, owner, name)
+    return _model_version_to_read(mv, owner, name, rm.detector_id, detector_version_tag)
 
 
 @router.post(
@@ -440,7 +478,16 @@ async def transition_model_version(
 
     await session.commit()
     await session.refresh(mv)
-    return _model_version_to_read(mv, owner_handle, detector_name)
+    detector_version_tag = (
+        await session.execute(
+            select(DetectorVersion.git_tag).where(
+                DetectorVersion.id == mv.detector_version_id
+            )
+        )
+    ).scalar_one()
+    return _model_version_to_read(
+        mv, owner_handle, detector_name, rm.detector_id, detector_version_tag
+    )
 
 
 @router.patch(
@@ -456,19 +503,26 @@ async def update_visibility(
     user: Annotated[User, Depends(current_active_user)],
 ) -> ModelVersionRead:
     rm = await resolve_registered_model(owner, name, session, user, write=True)
-    mv = (
+    row = (
         await session.execute(
-            select(ModelVersion).where(
+            select(ModelVersion, DetectorVersion.git_tag)
+            .join(
+                DetectorVersion, DetectorVersion.id == ModelVersion.detector_version_id
+            )
+            .where(
                 ModelVersion.registered_model_id == rm.id,
                 ModelVersion.mlflow_version == version,
             )
         )
-    ).scalar_one_or_none()
-    if mv is None:
+    ).first()
+    if row is None:
         raise HTTPException(404, "version not found")
+    mv, detector_version_tag = row
 
     if mv.visibility == body.visibility:
-        return _model_version_to_read(mv, owner, name)  # no-op, no log
+        return _model_version_to_read(
+            mv, owner, name, rm.detector_id, detector_version_tag
+        )  # no-op, no log
 
     session.add(
         ModelVisibilityLog(
@@ -482,7 +536,7 @@ async def update_visibility(
     mv.visibility = body.visibility
     await session.commit()
     await session.refresh(mv)
-    return _model_version_to_read(mv, owner, name)
+    return _model_version_to_read(mv, owner, name, rm.detector_id, detector_version_tag)
 
 
 @router.patch("/{owner}/{name}/owner", response_model=RegisteredModelRead)

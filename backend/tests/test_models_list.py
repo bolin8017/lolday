@@ -283,3 +283,27 @@ async def test_admin_sees_all(populated, db_session):
     assert resp.status_code == 200
     rows = sorted(f"{r['owner']}/{r['name']}" for r in resp.json())
     assert rows == ["alice/elf-cnn", "alice/elf-rf", "bob/elf-rf"]
+
+
+async def test_list_versions_includes_detector_id_and_tag(populated):
+    """Paranoia: GET /{owner}/{name}/versions must include detector_id + detector_version_tag.
+
+    Regression guard for Plan Task 2: ensures the DetectorVersion join is in
+    place and the schema fields are non-None for every version in the response.
+    """
+    alice = populated["alice"]
+    async with _client_for(alice) as client:
+        resp = await client.get("/api/v1/models/alice/elf-rf/versions")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert items, "fixture should have at least one version"
+    for item in items:
+        assert isinstance(item.get("detector_id"), str), (
+            "detector_id must be a UUID string"
+        )
+        assert isinstance(item.get("detector_version_tag"), str), (
+            "detector_version_tag must be a string"
+        )
+        assert item["detector_version_tag"] == "v1", (
+            "fixture uses git_tag=v1 for elf-rf"
+        )
