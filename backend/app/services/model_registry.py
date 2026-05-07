@@ -14,7 +14,18 @@ Legend: D/O = developer (must be owner); A = admin; admin = admin only.
 
 from __future__ import annotations
 
-from app.models.model_registry import ModelVersionStage
+from fastapi import HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.detector import Detector
+from app.models.model_registry import (
+    ModelVersion,
+    ModelVersionStage,
+    ModelVersionVisibility,
+    RegisteredModel,
+)
+from app.models.user import User
 
 
 class InvalidTransitionError(ValueError):
@@ -77,3 +88,55 @@ def validate_transition(
         raise InvalidTransitionError(
             f"transition {from_stage.value} → {to_stage.value} requires admin"
         )
+
+
+async def resolve_registered_model(
+    owner: str,
+    name: str,
+    session: AsyncSession,
+    user: User,
+    *,
+    write: bool = False,
+) -> RegisteredModel:
+    """Centralised access control for `/models/{owner}/{name}/...` endpoints.
+
+    Read path: returns 404 if the model doesn't exist OR if every version is
+    private and the caller isn't owner/admin (hide-existence pattern, mirrors
+    ``datasets._get_readable_dataset``).
+
+    Write path: returns 403 if caller isn't owner/admin (mirrors
+    ``datasets._get_writable_dataset``).
+    """
+    rm = (
+        await session.execute(
+            select(RegisteredModel)
+            .join(User, RegisteredModel.owner_id == User.id)
+            .join(Detector, RegisteredModel.detector_id == Detector.id)
+            .where(User.handle == owner, Detector.name == name)
+        )
+    ).scalar_one_or_none()
+    if rm is None:
+        raise HTTPException(404, "model not found")
+
+    is_owner = rm.owner_id == user.id
+    is_admin = user.role.value == "admin"
+
+    if write and not (is_owner or is_admin):
+        raise HTTPException(403, "owner or admin only")
+
+    if not write and not (is_owner or is_admin):
+        # Read path: must have at least one publicly-visible version
+        any_visible = (
+            await session.execute(
+                select(func.count())
+                .select_from(ModelVersion)
+                .where(
+                    ModelVersion.registered_model_id == rm.id,
+                    ModelVersion.visibility == ModelVersionVisibility.PUBLIC,
+                )
+            )
+        ).scalar()
+        if not any_visible:
+            raise HTTPException(404, "model not found")  # hide-existence
+
+    return rm
