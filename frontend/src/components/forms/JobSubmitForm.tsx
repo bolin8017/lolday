@@ -43,7 +43,6 @@ export function JobSubmitForm() {
   const [derivedDetectorId, setDerivedDetectorId] = useState("");
   const [derivedDetectorVersionTag, setDerivedDetectorVersionTag] =
     useState("");
-  const [overrideDetectorVersion, setOverrideDetectorVersion] = useState(false);
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [priority, setPriority] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -136,7 +135,7 @@ export function JobSubmitForm() {
       setSubmitError(
         type === "train"
           ? "Selected detector version is no longer active."
-          : "The detector version this model was trained with is no longer active. Toggle Advanced override to pick a current version.",
+          : "The detector version this model was trained with is no longer active. Retrain the model against a current detector version before running predict / evaluate.",
       );
       return;
     }
@@ -211,8 +210,6 @@ export function JobSubmitForm() {
           setDerivedDetectorId={setDerivedDetectorId}
           derivedDetectorVersionTag={derivedDetectorVersionTag}
           setDerivedDetectorVersionTag={setDerivedDetectorVersionTag}
-          overrideDetectorVersion={overrideDetectorVersion}
-          setOverrideDetectorVersion={setOverrideDetectorVersion}
           predictDatasetId={predictDatasetId}
           setPredictDatasetId={setPredictDatasetId}
           testDatasetId={testDatasetId}

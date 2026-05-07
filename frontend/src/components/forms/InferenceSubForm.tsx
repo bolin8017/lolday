@@ -1,14 +1,8 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
-import {
-  useDetector,
-  useDetectorVersion,
-  useDetectorVersions,
-} from "@/api/queries/detectors";
+import { useDetector, useDetectorVersion } from "@/api/queries/detectors";
 import { useDatasets } from "@/api/queries/datasets";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
@@ -33,8 +27,6 @@ interface Props {
   setDerivedDetectorId: (v: string) => void;
   derivedDetectorVersionTag: string;
   setDerivedDetectorVersionTag: (v: string) => void;
-  overrideDetectorVersion: boolean;
-  setOverrideDetectorVersion: (v: boolean) => void;
   predictDatasetId: string;
   setPredictDatasetId: (v: string) => void;
   testDatasetId: string;
@@ -51,7 +43,6 @@ export function InferenceSubForm(p: Props) {
     p.sourceModelName,
   );
   const { data: detector } = useDetector(p.derivedDetectorId);
-  const { data: detectorVersions } = useDetectorVersions(p.derivedDetectorId);
   const { data: detectorVersionDetail } = useDetectorVersion(
     p.derivedDetectorId,
     p.derivedDetectorVersionTag,
@@ -71,25 +62,21 @@ export function InferenceSubForm(p: Props) {
     (datasets as { items?: { id: string; name: string }[] })?.items ??
     (datasets as unknown as { id: string; name: string }[]) ??
     [];
-  const detectorVersionsArr =
-    (detectorVersions as { items?: { git_tag: string; status: string }[] })
-      ?.items ?? [];
 
-  // When a model version is chosen, derive detector_id + tag.
+  // When a model version is chosen, derive detector_id + tag from the model.
+  // Inference always uses the training detector_version (mainstream MLOps
+  // contract — model artifact is bound to its training runtime). No override
+  // path; if the training version has been retired, the backend rejects the
+  // job with a clear error and the user must retrain against a current
+  // detector version.
   useEffect(() => {
     if (!p.sourceModelVersionId) return;
     const mv = modelVersionsArr.find((v) => v.id === p.sourceModelVersionId);
     if (!mv) return;
     p.setDerivedDetectorId(mv.detector_id);
-    if (!p.overrideDetectorVersion) {
-      p.setDerivedDetectorVersionTag(mv.detector_version_tag);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to model version + override flag changes (props mutations would loop)
-  }, [
-    p.sourceModelVersionId,
-    p.overrideDetectorVersion,
-    modelVersionsArr.length,
-  ]);
+    p.setDerivedDetectorVersionTag(mv.detector_version_tag);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to model version selection (props mutations would loop)
+  }, [p.sourceModelVersionId, modelVersionsArr.length]);
 
   const stages = detectorVersionDetail?.manifest?.stages as
     | Record<string, { params_schema?: object }>
@@ -162,7 +149,7 @@ export function InferenceSubForm(p: Props) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Detector (derived)</CardTitle>
+          <CardTitle>Detector (derived from model)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <div>
@@ -173,47 +160,7 @@ export function InferenceSubForm(p: Props) {
           </div>
           <div>
             <span className="text-muted-foreground">Version:</span>{" "}
-            {p.overrideDetectorVersion ? (
-              <Select
-                value={p.derivedDetectorVersionTag}
-                onValueChange={p.setDerivedDetectorVersionTag}
-                disabled={!p.derivedDetectorId}
-              >
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Pick version" />
-                </SelectTrigger>
-                <SelectContent>
-                  {detectorVersionsArr
-                    .filter((v) => v.status === "active")
-                    .map((v) => (
-                      <SelectItem key={v.git_tag} value={v.git_tag}>
-                        {v.git_tag}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <code>{p.derivedDetectorVersionTag || "—"}</code>
-            )}
-          </div>
-          <div className="flex items-center">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                p.setOverrideDetectorVersion(!p.overrideDetectorVersion)
-              }
-              className="px-0"
-            >
-              {p.overrideDetectorVersion ? (
-                <ChevronDown className="h-4 w-4 mr-1" />
-              ) : (
-                <ChevronRight className="h-4 w-4 mr-1" />
-              )}
-              {t("jobs.inference.advanced_override")}
-            </Button>
-            <HelpHint>{t("jobs.help.override_detector_version")}</HelpHint>
+            <code>{p.derivedDetectorVersionTag || "—"}</code>
           </div>
         </CardContent>
       </Card>
