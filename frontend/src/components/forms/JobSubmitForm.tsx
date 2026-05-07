@@ -1,13 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import {
-  useDetectors,
-  useDetectorVersion,
-  useDetectorVersions,
-} from "@/api/queries/detectors";
-import { useDatasets } from "@/api/queries/datasets";
-import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
 import {
   useSubmitJob,
   useJob,
@@ -15,24 +8,18 @@ import {
   isJobType,
   type JobType,
 } from "@/api/queries/jobs";
+import { useDetectorVersions } from "@/api/queries/detectors";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { requiredFieldsForType } from "./JobSubmitForm.logic";
-import { ClearableSelect } from "./ClearableSelect";
 import { HelpHint } from "@/components/common/HelpHint";
-import { RjsfConfigForm } from "./RjsfConfigForm";
+import { TrainSubForm } from "./TrainSubForm";
+import { InferenceSubForm } from "./InferenceSubForm";
 import { StageExplainer } from "./StageExplainer";
 import { StickyFormFooter } from "./StickyFormFooter";
+import { requiredFieldsForType } from "./JobSubmitForm.logic";
 
 export function JobSubmitForm() {
   const { t } = useTranslation();
@@ -52,27 +39,18 @@ export function JobSubmitForm() {
   const [sourceModelOwner, setSourceModelOwner] = useState("");
   const [sourceModelName, setSourceModelName] = useState("");
   const [sourceModelVersionId, setSourceModelVersionId] = useState("");
+  const [derivedDetectorId, setDerivedDetectorId] = useState("");
+  const [derivedDetectorVersionTag, setDerivedDetectorVersionTag] =
+    useState("");
+  const [overrideDetectorVersion, setOverrideDetectorVersion] = useState(false);
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [priority, setPriority] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const { data: detectors } = useDetectors();
-  const { data: versions } = useDetectorVersions(detectorId);
-  const { data: versionDetail } = useDetectorVersion(detectorId, versionTag);
-  // manifest is JSONB on the backend, exposed as `{ [key: string]: unknown }`.
-  // The shape inside is the maldet 1.1 manifest with `stages.{stage}.params_schema`.
-  const stages = versionDetail?.manifest?.stages as
-    | Record<string, { params_schema?: object }>
-    | undefined;
-  const stageSchema = stages?.[type]?.params_schema;
-  const { data: datasets } = useDatasets("all");
-  const { data: models } = useRegisteredModels();
-  const { data: modelVersions } = useModelVersions(
-    sourceModelOwner,
-    sourceModelName,
-  );
+  // Need detector versions for inference submit (resolve tag → id).
+  const { data: trainVersions } = useDetectorVersions(detectorId);
+  const { data: derivedVersions } = useDetectorVersions(derivedDetectorId);
 
-  // Prefill from previous job via ?from=
   useEffect(() => {
     if (!fromJob) return;
     if (isJobType(fromJob.type)) setType(fromJob.type);
@@ -80,33 +58,25 @@ export function JobSubmitForm() {
     if (fromJob.test_dataset_id) setTestDatasetId(fromJob.test_dataset_id);
     if (fromJob.predict_dataset_id)
       setPredictDatasetId(fromJob.predict_dataset_id);
+    if (fromJob.source_model_version_id)
+      setSourceModelVersionId(fromJob.source_model_version_id);
   }, [fromJob]);
 
-  const datasetsArr =
-    (datasets as { items?: { id: string; name: string }[] })?.items ??
-    (datasets as unknown as { id: string; name: string }[]) ??
-    [];
-  const versionsArr =
-    (versions as { items?: { id: string; git_tag: string; status: string }[] })
-      ?.items ??
-    (versions as unknown as
-      | { id: string; git_tag: string; status: string }[]
-      | undefined) ??
-    [];
-  const modelsArr =
-    (models as { owner: string; name: string }[] | undefined) ?? [];
-  const modelVersionsArr = (modelVersions ?? []) as {
-    id: string;
-    mlflow_version: number;
-    current_stage: string;
-  }[];
-
-  const mut = useSubmitJob();
-  const nav = useNavigate();
+  const versionsForSubmit =
+    type === "train"
+      ? ((trainVersions as { items?: { id: string; git_tag: string }[] })
+          ?.items ?? [])
+      : ((derivedVersions as { items?: { id: string; git_tag: string }[] })
+          ?.items ?? []);
 
   const canSubmit = (() => {
-    if (!detectorId || !versionTag) return false;
     const need = requiredFieldsForType(type);
+    if (type === "train") {
+      if (!detectorId || !versionTag) return false;
+    } else {
+      if (!sourceModelVersionId) return false;
+      if (!derivedDetectorId || !derivedDetectorVersionTag) return false;
+    }
     if (need.includes("train_dataset_id") && !trainDatasetId) return false;
     if (need.includes("test_dataset_id") && !testDatasetId) return false;
     if (need.includes("predict_dataset_id") && !predictDatasetId) return false;
@@ -115,9 +85,13 @@ export function JobSubmitForm() {
     return true;
   })();
 
+  const mut = useSubmitJob();
+  const nav = useNavigate();
+
   async function submit() {
     setSubmitError(null);
-    const versionId = versionsArr.find((v) => v.git_tag === versionTag)?.id;
+    const tag = type === "train" ? versionTag : derivedDetectorVersionTag;
+    const versionId = versionsForSubmit.find((v) => v.git_tag === tag)?.id;
     if (!versionId) return;
     try {
       const job = await mut.mutateAsync({
@@ -148,14 +122,14 @@ export function JobSubmitForm() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-            {JOB_TYPES.map((t) => (
+            {JOB_TYPES.map((tt) => (
               <Button
-                key={t}
-                variant={t === type ? "default" : "outline"}
-                onClick={() => setType(t)}
+                key={tt}
+                variant={tt === type ? "default" : "outline"}
+                onClick={() => setType(tt)}
                 className="h-11"
               >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+                {tt.charAt(0).toUpperCase() + tt.slice(1)}
               </Button>
             ))}
           </div>
@@ -164,185 +138,42 @@ export function JobSubmitForm() {
 
       <StageExplainer type={type} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Detector</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div>
-            <Label>Detector</Label>
-            <Select
-              value={detectorId}
-              onValueChange={(v) => {
-                setDetectorId(v);
-                setVersionTag("");
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Pick detector" />
-              </SelectTrigger>
-              <SelectContent>
-                {(
-                  (
-                    detectors as {
-                      items?: { id: string; display_name: string }[];
-                    }
-                  )?.items ??
-                  (detectors as unknown as {
-                    id: string;
-                    display_name: string;
-                  }[]) ??
-                  []
-                ).map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.display_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Version</Label>
-            <Select
-              value={versionTag}
-              onValueChange={setVersionTag}
-              disabled={!detectorId}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Pick version" />
-              </SelectTrigger>
-              <SelectContent>
-                {versionsArr
-                  .filter((v) => v.status === "active")
-                  .map((v) => (
-                    <SelectItem key={v.git_tag} value={v.git_tag}>
-                      {v.git_tag}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Data</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {type === "train" && (
-            <>
-              <DatasetField
-                label="Train dataset"
-                value={trainDatasetId}
-                onChange={setTrainDatasetId}
-                options={datasetsArr}
-              />
-              <DatasetField
-                label="Test dataset"
-                value={testDatasetId}
-                onChange={setTestDatasetId}
-                options={datasetsArr}
-                optional
-                helpHint={t("jobs.help.test_dataset_optional")}
-              />
-            </>
-          )}
-          {type === "evaluate" && (
-            <DatasetField
-              label="Test dataset"
-              value={testDatasetId}
-              onChange={setTestDatasetId}
-              options={datasetsArr}
-            />
-          )}
-          {type === "predict" && (
-            <DatasetField
-              label="Predict dataset"
-              value={predictDatasetId}
-              onChange={setPredictDatasetId}
-              options={datasetsArr}
-            />
-          )}
-          {["evaluate", "predict"].includes(type) && (
-            <>
-              <div>
-                <Label>Source model</Label>
-                <Select
-                  value={
-                    sourceModelOwner
-                      ? `${sourceModelOwner}/${sourceModelName}`
-                      : ""
-                  }
-                  onValueChange={(v) => {
-                    const [o, ...rest] = v.split("/");
-                    setSourceModelOwner(o ?? "");
-                    setSourceModelName(rest.join("/"));
-                    setSourceModelVersionId("");
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pick model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modelsArr.map((m) => (
-                      <SelectItem
-                        key={`${m.owner}/${m.name}`}
-                        value={`${m.owner}/${m.name}`}
-                      >
-                        {m.owner}/{m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Model version</Label>
-                <Select
-                  value={sourceModelVersionId}
-                  onValueChange={setSourceModelVersionId}
-                  disabled={!sourceModelName}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pick version" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modelVersionsArr.map((mv) => (
-                      <SelectItem key={mv.id} value={mv.id}>
-                        v{mv.mlflow_version} ({mv.current_stage})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Hyperparameters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {stageSchema ? (
-            <RjsfConfigForm
-              schema={stageSchema}
-              value={config}
-              onChange={setConfig}
-            />
-          ) : versionTag ? (
-            <p className="text-sm text-destructive">
-              Selected detector version has no params schema; rebuild with
-              maldet ≥ 1.1.
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Pick a detector + version to load its hyperparameter form.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      {type === "train" ? (
+        <TrainSubForm
+          detectorId={detectorId}
+          setDetectorId={setDetectorId}
+          versionTag={versionTag}
+          setVersionTag={setVersionTag}
+          trainDatasetId={trainDatasetId}
+          setTrainDatasetId={setTrainDatasetId}
+          testDatasetId={testDatasetId}
+          setTestDatasetId={setTestDatasetId}
+          config={config}
+          setConfig={setConfig}
+        />
+      ) : (
+        <InferenceSubForm
+          type={type}
+          sourceModelOwner={sourceModelOwner}
+          setSourceModelOwner={setSourceModelOwner}
+          sourceModelName={sourceModelName}
+          setSourceModelName={setSourceModelName}
+          sourceModelVersionId={sourceModelVersionId}
+          setSourceModelVersionId={setSourceModelVersionId}
+          derivedDetectorId={derivedDetectorId}
+          setDerivedDetectorId={setDerivedDetectorId}
+          derivedDetectorVersionTag={derivedDetectorVersionTag}
+          setDerivedDetectorVersionTag={setDerivedDetectorVersionTag}
+          overrideDetectorVersion={overrideDetectorVersion}
+          setOverrideDetectorVersion={setOverrideDetectorVersion}
+          predictDatasetId={predictDatasetId}
+          setPredictDatasetId={setPredictDatasetId}
+          testDatasetId={testDatasetId}
+          setTestDatasetId={setTestDatasetId}
+          config={config}
+          setConfig={setConfig}
+        />
+      )}
 
       {isAdmin && (
         <Card>
@@ -395,47 +226,6 @@ export function JobSubmitForm() {
           Submit job
         </Button>
       </StickyFormFooter>
-    </div>
-  );
-}
-
-function DatasetField({
-  label,
-  value,
-  onChange,
-  options,
-  optional = false,
-  helpHint,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { id: string; name: string }[];
-  optional?: boolean;
-  helpHint?: ReactNode;
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-1">
-        <Label>{label}</Label>
-        {helpHint && <HelpHint>{helpHint}</HelpHint>}
-      </div>
-      <ClearableSelect
-        value={value}
-        onValueChange={onChange}
-        clearable={optional}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder="Pick dataset" />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((d) => (
-            <SelectItem key={d.id} value={d.id}>
-              {d.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </ClearableSelect>
     </div>
   );
 }
