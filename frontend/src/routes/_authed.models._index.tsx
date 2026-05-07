@@ -8,9 +8,18 @@ import {
 } from "@/api/queries/models";
 import { DataTable } from "@/components/tables/DataTable";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { OwnerLabel } from "@/components/users/OwnerLabel";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -46,21 +55,36 @@ function HeaderWithTooltip({ label, hint }: { label: string; hint: string }) {
 function buildColumns(t: (k: string) => string): ColumnDef<RegisteredModel>[] {
   return [
     {
-      accessorKey: "name",
-      header: "Name",
+      id: "model",
+      header: "Model",
       cell: ({ row }) => (
         <Link
-          to={`/models/${encodeURIComponent(row.original.name)}`}
-          className="font-medium hover:underline"
+          to={`/models/${row.original.owner}/${row.original.name}`}
+          className="hover:underline"
         >
-          {row.original.name}
+          <OwnerLabel handle={row.original.owner} />
+          <span className="ml-1 font-medium">/ {row.original.name}</span>
         </Link>
       ),
       meta: { cardSlot: "title" },
     },
     {
+      accessorKey: "description",
+      header: "Description",
+      cell: ({ row }) => (
+        <span className="line-clamp-1 max-w-xs text-sm text-muted-foreground">
+          {row.original.description?.slice(0, 80) ?? "—"}
+        </span>
+      ),
+      meta: { cardLabel: "Description", cardSlot: "body" },
+    },
+    {
       accessorKey: "latest_version",
       header: "Latest version",
+      cell: ({ row }) =>
+        row.original.latest_version != null
+          ? `v${row.original.latest_version}`
+          : "—",
       meta: { cardLabel: "Latest", cardSlot: "body" },
     },
     {
@@ -138,19 +162,61 @@ function StageExplainerAlert() {
 
 export default function ModelsListPage() {
   const { t } = useTranslation();
-  const { data, isLoading } = useRegisteredModels();
+  const [visibility, setVisibility] = useState<"all" | "public" | "mine">(
+    "all",
+  );
+  const [ownerFilter, setOwnerFilter] = useState("");
+
+  const { data, isLoading } = useRegisteredModels({
+    visibility,
+    ...(ownerFilter ? { owner: ownerFilter } : {}),
+  });
+
   const columns = buildColumns(t);
-  if (isLoading) return <p className="text-muted-foreground">Loading…</p>;
+
   return (
     <TooltipProvider delayDuration={150}>
       <div className="space-y-4">
-        <PageHeader title="Models" />
-        <StageExplainerAlert />
-        <DataTable
-          data={data ?? []}
-          columns={columns}
-          emptyMessage="No models registered yet."
+        <PageHeader
+          title="Models"
+          actions={
+            <>
+              <Input
+                placeholder={t("models.owner")}
+                value={ownerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+                className="w-32"
+              />
+              <Select
+                value={visibility}
+                onValueChange={(v) => setVisibility(v as typeof visibility)}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("models.filter.all")}</SelectItem>
+                  <SelectItem value="public">
+                    {t("models.filter.public")}
+                  </SelectItem>
+                  <SelectItem value="mine">
+                    {t("models.filter.mine")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          }
         />
+        <StageExplainerAlert />
+        {isLoading ? (
+          <p className="text-muted-foreground">Loading…</p>
+        ) : (
+          <DataTable
+            data={data ?? []}
+            columns={columns}
+            emptyMessage="No models registered yet."
+          />
+        )}
       </div>
     </TooltipProvider>
   );
