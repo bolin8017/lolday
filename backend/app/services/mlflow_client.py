@@ -211,3 +211,26 @@ class MlflowClient:
             if getattr(e, "code", "") == "RESOURCE_ALREADY_EXISTS":
                 return {"name": name}
             raise
+
+    async def rename_registered_model(self, name: str, new_name: str) -> dict[str, Any]:
+        """MLflow Model Registry rename — used by owner-transfer (T12).
+
+        POST /api/2.0/mlflow/registered-models/rename
+        """
+        resp = await self._request(
+            "POST",
+            "/registered-models/rename",
+            json={"name": name, "new_name": new_name},
+        )
+        return resp["registered_model"]
+
+    async def delete_registered_model(self, name: str) -> None:
+        """MLflow cascade-delete — used by DELETE /models/{owner}/{name} (T13).
+
+        DELETE /api/2.0/mlflow/registered-models/delete
+        """
+        await self._request(
+            "DELETE",
+            "/registered-models/delete",
+            json={"name": name},
+        )

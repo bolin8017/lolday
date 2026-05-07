@@ -10,6 +10,7 @@ os.environ.setdefault("ENVIRONMENT", "test")
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from app.db import get_async_session
 from app.models import Base, Role, User
 from httpx import ASGITransport, AsyncClient
@@ -20,13 +21,28 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 test_engine = create_async_engine(TEST_DATABASE_URL)
 test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
+# SQLite disables foreign-key enforcement by default.  Enable it so that
+# ondelete=CASCADE on ModelVersion.registered_model_id (and similar FKs)
+# is actually enforced during tests, matching production Postgres behaviour.
+from sqlalchemy import event  # noqa: E402  # must come after test_engine is created
+
+
+@event.listens_for(test_engine.sync_engine, "connect")
+def _set_sqlite_fk_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
+    # Disable FK enforcement for teardown so that drop_all succeeds even
+    # when there are unresolvable cyclic FKs (job ↔ model_version).
     async with test_engine.begin() as conn:
+        await conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
         await conn.run_sync(Base.metadata.drop_all)
 
 
@@ -41,8 +57,20 @@ async def _make_user(
         ).scalar_one_or_none()
         if existing is not None:
             return existing
+        from app.services.user_handle import (
+            derive_handle_from_email,
+            next_unique_handle,
+        )
+        from sqlalchemy import select as _select
+
+        existing_handles = set(
+            (await session.execute(_select(User.handle))).scalars().all()
+        )
+        base_handle = derive_handle_from_email(email)
+        handle = next_unique_handle(base_handle, existing=existing_handles)
         user = User(
             email=email,
+            handle=handle,
             role=role,
             display_name=email.split("@", 1)[0],
         )
@@ -349,6 +377,12 @@ def mock_mlflow(request, monkeypatch):
         exp_counter = 0
         run_counter = 0
 
+        def __init__(self) -> None:
+            self.rename_calls: list[tuple[str, str]] = []
+            self.deleted_registered_models: list[str] = []
+            self.create_registered_model_calls: list[str] = []
+            self._mv_version_counter: int = 0
+
         async def get_or_create_experiment(self, name, artifact_location=None):
             _Stub.exp_counter += 1
             return f"exp-{_Stub.exp_counter}"
@@ -382,10 +416,23 @@ def mock_mlflow(request, monkeypatch):
             pass
 
         async def create_registered_model(self, name):
+            self.create_registered_model_calls.append(name)
             return {"name": name}
 
         async def create_model_version(self, name, source, run_id):
-            return {"name": name, "version": "1", "run_id": run_id}
+            self._mv_version_counter += 1
+            return {
+                "name": name,
+                "version": str(self._mv_version_counter),
+                "run_id": run_id,
+            }
+
+        async def rename_registered_model(self, name: str, new_name: str) -> dict:
+            self.rename_calls.append((name, new_name))
+            return {"name": new_name}
+
+        async def delete_registered_model(self, name: str) -> None:
+            self.deleted_registered_models.append(name)
 
         async def search_registered_models(self, max_results=100):
             return []
@@ -413,7 +460,7 @@ def mock_mlflow(request, monkeypatch):
     monkeypatch.setattr(jobs_mod, "MlflowClient", lambda *a, **kw: stub)
     monkeypatch.setattr(mr_mod, "MlflowClient", lambda *a, **kw: stub)
     monkeypatch.setattr(ep_mod, "MlflowClient", lambda *a, **kw: stub)
-    yield
+    yield stub
     if ep_mod.MlflowClient is not real_mlflow_cls:
         ep_mod.MlflowClient = real_mlflow_cls
 
@@ -609,6 +656,9 @@ async def seed_model_version(
         await _s.commit()
 
     async def _seed(name: str = "upxelfdet"):
+        from app.models.model_registry import RegisteredModel
+        from sqlalchemy import func, select
+
         unique_det_name = f"{name}-{uuid4().hex[:8]}"
         dv_id_str = await seed_detector_version(name=unique_det_name)
         ds_id_str = await seed_dataset(name=f"ds-for-{name}-{uuid4().hex[:6]}")
@@ -627,17 +677,38 @@ async def seed_model_version(
         db_session.add(job)
         await db_session.flush()
 
-        from sqlalchemy import func, select
+        # Resolve the detector_id from the seeded DetectorVersion row.
+        from app.models.detector import DetectorVersion as _DV
+
+        dv_row = await db_session.get(_DV, UUID(dv_id_str))
+        assert dv_row is not None
+
+        # Get-or-create the RegisteredModel (owner x detector pairing).
+        rm_row = (
+            await db_session.execute(
+                select(RegisteredModel).where(
+                    RegisteredModel.owner_id == seed_user.id,
+                    RegisteredModel.detector_id == dv_row.detector_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if rm_row is None:
+            rm_row = RegisteredModel(
+                owner_id=seed_user.id,
+                detector_id=dv_row.detector_id,
+            )
+            db_session.add(rm_row)
+            await db_session.flush()
 
         row = await db_session.execute(
             select(func.coalesce(func.max(ModelVersion.mlflow_version), 0)).where(
-                ModelVersion.mlflow_name == name
+                ModelVersion.registered_model_id == rm_row.id
             )
         )
         next_version = row.scalar_one() + 1
 
         mv = ModelVersion(
-            mlflow_name=name,
+            registered_model_id=rm_row.id,
             mlflow_version=next_version,
             mlflow_run_id=job.mlflow_run_id,
             current_stage=ModelVersionStage.NONE,

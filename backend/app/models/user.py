@@ -42,6 +42,12 @@ class User(Base):
         index=True,
         nullable=False,
     )
+    handle: Mapped[str] = mapped_column(
+        String(60),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
     role: Mapped[Role] = mapped_column(
         SAEnum(
             Role,

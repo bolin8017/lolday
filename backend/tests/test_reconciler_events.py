@@ -18,17 +18,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def _seed_job_running(session: AsyncSession) -> Job:
+    _uid = uuid.uuid4()
     user = User(
-        id=uuid.uuid4(),
-        email=f"rec-{uuid.uuid4().hex[:8]}@example.com",
+        id=_uid,
+        email=f"rec-{_uid.hex[:8]}@example.com",
+        handle=f"rec-{_uid.hex[:8]}",
     )
+    session.add(user)
+    await session.flush()  # user must be persisted before Detector FK can reference it
     det = Detector(
         name=f"rec-det-{uuid.uuid4().hex[:8]}",
         display_name="rec",
         owner_id=user.id,
         git_url="https://example.com/r.git",
     )
-    session.add_all([user, det])
+    session.add(det)
     await session.flush()
     dv = DetectorVersion(
         detector_id=det.id,

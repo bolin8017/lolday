@@ -22,6 +22,7 @@ from app.config import settings
 from app.db import get_async_session
 from app.metrics import BACKEND_ERRORS
 from app.models import Role, User
+from app.services.user_handle import derive_handle_from_email, next_unique_handle
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,12 @@ async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User
                 await session.rollback()
         return existing
 
+    # Derive a slug-safe handle for the new user.
+    # Collision-resolves against the set of currently used handles.
+    existing_handles = set((await session.execute(select(User.handle))).scalars().all())
+    base_handle = derive_handle_from_email(email)
+    handle = next_unique_handle(base_handle, existing=existing_handles)
+
     initial_role = (
         Role.SERVICE_TOKEN if email.endswith(SERVICE_TOKEN_EMAIL_DOMAIN) else Role.USER
     )
@@ -114,6 +121,7 @@ async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User
         email=email,
         role=initial_role,
         display_name=_default_display_name_for(email),
+        handle=handle,
     )
     session.add(user)
     # Commit (not flush) so the INSERT survives the request-scope session

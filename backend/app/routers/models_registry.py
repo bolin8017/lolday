@@ -1,25 +1,43 @@
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func, select
+import sqlalchemy as sa
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
-from app.metrics import BACKEND_ERRORS
-from app.models import ModelTransitionLog, ModelVersion, User
-from app.models.model_registry import ModelVersionStage
+from app.models import (
+    Detector,
+    ModelOwnerTransferLog,
+    ModelTransitionLog,
+    ModelVersion,
+    ModelVersionStage,
+    ModelVersionVisibility,
+    ModelVisibilityLog,
+    RegisteredModel,
+    Role,
+    User,
+)
 from app.schemas.model_registry import (
     ModelTransitionRequest,
     ModelVersionList,
     ModelVersionRead,
+    ModelVersionVisibilityUpdate,
+    OwnerTransferRequest,
+    RegisteredModelRead,
     RegisteredModelSummary,
+    RegisteredModelUpdate,
 )
 from app.services.mlflow_client import MlflowClient
-from app.services.model_registry import InvalidTransitionError, validate_transition
+from app.services.model_registry import (
+    InvalidTransitionError,
+    resolve_registered_model,
+    validate_transition,
+)
 from app.users import current_active_user
 
 logger = logging.getLogger(__name__)
@@ -92,152 +110,218 @@ async def list_model_versions_by_filter(
 
 
 @router.get("", response_model=list[RegisteredModelSummary])
-async def list_registered_models(
+async def list_models(
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
+    owner: str | None = Query(default=None),
+    visibility: Literal["all", "public", "mine"] = Query(default="all"),
 ) -> list[RegisteredModelSummary]:
-    stmt = select(
-        ModelVersion.mlflow_name,
-        func.max(ModelVersion.mlflow_version).label("latest"),
-    ).group_by(ModelVersion.mlflow_name)
-    names = (await session.execute(stmt)).all()
+    """List registered models visible to the caller.
 
-    summaries = []
-    for name, latest in names:
-        latest_prod = (
-            await session.execute(
-                select(func.max(ModelVersion.mlflow_version)).where(
-                    ModelVersion.mlflow_name == name,
+    Visibility rule (per-version, not per-model):
+    - Admins see all versions unconditionally.
+    - Everyone else sees versions that are PUBLIC or owned by themselves.
+    A model row is included only when at least one version passes the filter.
+
+    Query params:
+    - owner: filter by owner handle (post-visibility-filter).
+    - visibility: "all" (default), "public" (models with ≥1 public version),
+      "mine" (models owned by the caller).
+    """
+    visible: sa.ColumnElement[bool]
+    if user.role == Role.ADMIN:
+        visible = sa.true()
+    else:
+        visible = (ModelVersion.visibility == ModelVersionVisibility.PUBLIC) | (
+            ModelVersion.owner_id == user.id
+        )
+
+    stmt = (
+        select(
+            User.handle.label("owner"),
+            Detector.name.label("name"),
+            RegisteredModel.description,
+            RegisteredModel.tags,
+            func.max(ModelVersion.mlflow_version).label("latest_version"),
+            func.max(
+                case(
+                    (
+                        ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
+                        ModelVersion.mlflow_version,
+                    ),
+                    else_=None,
+                )
+            ).label("latest_production_version"),
+            func.max(
+                case(
+                    (
+                        ModelVersion.current_stage == ModelVersionStage.STAGING,
+                        ModelVersion.mlflow_version,
+                    ),
+                    else_=None,
+                )
+            ).label("latest_staging_version"),
+        )
+        .select_from(RegisteredModel)
+        .join(User, RegisteredModel.owner_id == User.id)
+        .join(Detector, RegisteredModel.detector_id == Detector.id)
+        .join(ModelVersion, ModelVersion.registered_model_id == RegisteredModel.id)
+        .where(visible)
+        .group_by(RegisteredModel.id, User.handle, Detector.name)
+    )
+
+    if owner is not None:
+        stmt = stmt.where(User.handle == owner)
+
+    if visibility == "public":
+        stmt = stmt.having(
+            func.count(
+                case(
+                    (ModelVersion.visibility == ModelVersionVisibility.PUBLIC, 1),
+                    else_=None,
+                )
+            )
+            > 0
+        )
+    elif visibility == "mine":
+        stmt = stmt.where(RegisteredModel.owner_id == user.id)
+
+    rows = (await session.execute(stmt)).all()
+    return [RegisteredModelSummary(**r._mapping) for r in rows]
+
+
+def _summary_query_for_rm(
+    rm_id: uuid.UUID,
+    user: User,
+) -> sa.Select[tuple[int | None, ...]]:
+    """Build a select() returning (latest_version, latest_production_version,
+    latest_staging_version) restricted to versions visible to ``user``.
+    """
+    visible: sa.ColumnElement[bool]
+    if user.role == Role.ADMIN:
+        visible = sa.true()
+    else:
+        visible = (ModelVersion.visibility == ModelVersionVisibility.PUBLIC) | (
+            ModelVersion.owner_id == user.id
+        )
+
+    return select(  # type: ignore[return-value]  # sqlalchemy-stubs infers Select[tuple[int, Any, Any]]; actual runtime values are int | None
+        func.max(ModelVersion.mlflow_version).label("latest_version"),
+        func.max(
+            case(
+                (
                     ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
-                )
+                    ModelVersion.mlflow_version,
+                ),
+                else_=None,
             )
-        ).scalar_one()
-        latest_staging = (
-            await session.execute(
-                select(func.max(ModelVersion.mlflow_version)).where(
-                    ModelVersion.mlflow_name == name,
+        ).label("latest_production_version"),
+        func.max(
+            case(
+                (
                     ModelVersion.current_stage == ModelVersionStage.STAGING,
-                )
+                    ModelVersion.mlflow_version,
+                ),
+                else_=None,
             )
-        ).scalar_one()
-        summaries.append(
-            RegisteredModelSummary(
-                name=name,
-                latest_version=latest,
-                latest_production_version=latest_prod,
-                latest_staging_version=latest_staging,
-            )
-        )
-    return summaries
+        ).label("latest_staging_version"),
+    ).where(ModelVersion.registered_model_id == rm_id, visible)
 
 
-@router.get("/{name}", response_model=RegisteredModelSummary)
-async def get_registered_model(
+@router.get("/{owner}/{name}", response_model=RegisteredModelRead)
+async def get_model(
+    owner: str,
     name: str,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
-) -> RegisteredModelSummary:
-    stmt = select(func.max(ModelVersion.mlflow_version)).where(
-        ModelVersion.mlflow_name == name,
-    )
-    latest = (await session.execute(stmt)).scalar_one()
-    if latest is None:
-        raise HTTPException(status_code=404, detail="model not found")
-    latest_prod = (
-        await session.execute(
-            select(func.max(ModelVersion.mlflow_version)).where(
-                ModelVersion.mlflow_name == name,
-                ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
-            )
-        )
-    ).scalar_one()
-    latest_staging = (
-        await session.execute(
-            select(func.max(ModelVersion.mlflow_version)).where(
-                ModelVersion.mlflow_name == name,
-                ModelVersion.current_stage == ModelVersionStage.STAGING,
-            )
-        )
-    ).scalar_one()
-    return RegisteredModelSummary(
+) -> RegisteredModelRead:
+    rm = await resolve_registered_model(owner, name, session, user)
+    summary = (await session.execute(_summary_query_for_rm(rm.id, user))).one()
+    return RegisteredModelRead(
+        owner=owner,
         name=name,
-        latest_version=latest,
-        latest_production_version=latest_prod,
-        latest_staging_version=latest_staging,
+        description=rm.description,
+        tags=rm.tags,
+        latest_version=summary.latest_version,
+        latest_production_version=summary.latest_production_version,
+        latest_staging_version=summary.latest_staging_version,
+        created_at=rm.created_at,
     )
 
 
-@router.get("/{name}/versions", response_model=ModelVersionList)
-async def list_model_versions(
+@router.get("/{owner}/{name}/versions", response_model=ModelVersionList)
+async def list_versions(
+    owner: str,
     name: str,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
-    page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=1, le=100),
-    stage: ModelVersionStage | None = None,
 ) -> ModelVersionList:
-    filters = [ModelVersion.mlflow_name == name]
-    if stage is not None:
-        filters.append(ModelVersion.current_stage == stage)
-
-    count = (
-        await session.execute(
-            select(func.count()).select_from(ModelVersion).where(*filters)
+    rm = await resolve_registered_model(owner, name, session, user)
+    visible: sa.ColumnElement[bool]
+    if user.role == Role.ADMIN:
+        visible = sa.true()
+    else:
+        visible = (ModelVersion.visibility == ModelVersionVisibility.PUBLIC) | (
+            ModelVersion.owner_id == user.id
         )
-    ).scalar_one()
-    items = (
+    versions = (
         (
             await session.execute(
                 select(ModelVersion)
-                .where(*filters)
+                .where(ModelVersion.registered_model_id == rm.id, visible)
                 .order_by(ModelVersion.mlflow_version.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
             )
         )
         .scalars()
         .all()
     )
-    return ModelVersionList(
-        items=[ModelVersionRead.model_validate(m) for m in items],
-        total=count,
-        page=page,
-        page_size=page_size,
-    )
+    items = [ModelVersionRead.model_validate(v) for v in versions]
+    return ModelVersionList(items=items, total=len(items), page=1, page_size=len(items))
 
 
-@router.get("/{name}/versions/{version}", response_model=ModelVersionRead)
-async def get_model_version(
+@router.get("/{owner}/{name}/versions/{version}", response_model=ModelVersionRead)
+async def get_version(
+    owner: str,
     name: str,
     version: int,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
 ) -> ModelVersionRead:
+    rm = await resolve_registered_model(owner, name, session, user)
     mv = (
         await session.execute(
             select(ModelVersion).where(
-                ModelVersion.mlflow_name == name,
+                ModelVersion.registered_model_id == rm.id,
                 ModelVersion.mlflow_version == version,
             )
         )
     ).scalar_one_or_none()
     if mv is None:
-        raise HTTPException(status_code=404, detail="model version not found")
+        raise HTTPException(404, "version not found")
+    is_owner = mv.owner_id == user.id
+    is_admin = user.role.value == "admin"
+    if mv.visibility == ModelVersionVisibility.PRIVATE and not (is_owner or is_admin):
+        raise HTTPException(404, "version not found")  # hide-existence
     return ModelVersionRead.model_validate(mv)
 
 
-@router.post("/{name}/versions/{version}/transition", response_model=ModelVersionRead)
+@router.post(
+    "/{owner}/{name}/versions/{version}/transition",
+    response_model=ModelVersionRead,
+)
 async def transition_model_version(
+    owner: str,
     name: str,
     version: int,
     body: ModelTransitionRequest,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
 ) -> ModelVersionRead:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
     mv = (
         await session.execute(
             select(ModelVersion).where(
-                ModelVersion.mlflow_name == name,
+                ModelVersion.registered_model_id == rm.id,
                 ModelVersion.mlflow_version == version,
             )
         )
@@ -257,11 +341,22 @@ async def transition_model_version(
 
     from_stage = mv.current_stage
 
+    # Capture mlflow_name for the MLflow API call (avoid lazy-load on relationships)
+    detector_name = (
+        await session.execute(
+            select(Detector.name).where(Detector.id == rm.detector_id)
+        )
+    ).scalar_one()
+    owner_handle = (
+        await session.execute(select(User.handle).where(User.id == rm.owner_id))
+    ).scalar_one()
+    mlflow_name = f"{owner_handle}/{detector_name}"
+
     client = _mlflow()
     archive = body.to_stage == ModelVersionStage.PRODUCTION
     try:
         await client.transition_model_version_stage(
-            name=name,
+            name=mlflow_name,
             version=str(version),
             stage=body.to_stage.value,
             archive_existing_versions=archive,
@@ -275,11 +370,12 @@ async def transition_model_version(
     mv.last_transitioned_at = datetime.now(UTC)
 
     if archive:
+        # Auto-archive other Production versions in the same RegisteredModel namespace
         others = (
             (
                 await session.execute(
                     select(ModelVersion).where(
-                        ModelVersion.mlflow_name == name,
+                        ModelVersion.registered_model_id == rm.id,
                         ModelVersion.id != mv.id,
                         ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
                     )
@@ -316,37 +412,218 @@ async def transition_model_version(
     return ModelVersionRead.model_validate(mv)
 
 
-@router.delete("/{name}/versions/{version}", status_code=204)
-async def delete_model_version(
+@router.patch(
+    "/{owner}/{name}/versions/{version}/visibility",
+    response_model=ModelVersionRead,
+)
+async def update_visibility(
+    owner: str,
     name: str,
     version: int,
+    body: ModelVersionVisibilityUpdate,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
-) -> Response:
+) -> ModelVersionRead:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
     mv = (
         await session.execute(
             select(ModelVersion).where(
-                ModelVersion.mlflow_name == name,
+                ModelVersion.registered_model_id == rm.id,
                 ModelVersion.mlflow_version == version,
             )
         )
     ).scalar_one_or_none()
     if mv is None:
-        raise HTTPException(status_code=404, detail="model version not found")
-    if mv.owner_id != user.id and user.role.value != "admin":
-        raise HTTPException(status_code=403, detail="owner or admin only")
-    if mv.current_stage not in (ModelVersionStage.NONE, ModelVersionStage.ARCHIVED):
-        raise HTTPException(status_code=409, detail="must be stage=None or Archived")
+        raise HTTPException(404, "version not found")
 
-    try:
-        await _mlflow().delete_model_version(name, str(version))
-    except Exception:
-        BACKEND_ERRORS.labels(stage="mlflow_mv_delete").inc()
-        logger.exception(
-            "MLflow delete_model_version failed",
-            extra={"mlflow_name": name, "mlflow_version": str(version)},
+    if mv.visibility == body.visibility:
+        return ModelVersionRead.model_validate(mv)  # no-op, no log
+
+    session.add(
+        ModelVisibilityLog(
+            model_version_id=mv.id,
+            from_visibility=mv.visibility,
+            to_visibility=body.visibility,
+            actor_id=user.id,
+            comment=body.comment,
+        )
+    )
+    mv.visibility = body.visibility
+    await session.commit()
+    await session.refresh(mv)
+    return ModelVersionRead.model_validate(mv)
+
+
+@router.patch("/{owner}/{name}/owner", response_model=RegisteredModelRead)
+async def transfer_owner(
+    owner: str,
+    name: str,
+    body: OwnerTransferRequest,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    client: Annotated[MlflowClient, Depends(_mlflow)],
+) -> RegisteredModelRead:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+
+    new_owner = (
+        await session.execute(select(User).where(User.handle == body.new_owner_handle))
+    ).scalar_one_or_none()
+    if new_owner is None:
+        raise HTTPException(422, f"user '{body.new_owner_handle}' not found")
+    if new_owner.id == rm.owner_id:
+        raise HTTPException(422, "new owner is current owner")
+
+    # Collision check: target user already owns a model for the same detector?
+    collision = (
+        await session.execute(
+            select(RegisteredModel).where(
+                RegisteredModel.owner_id == new_owner.id,
+                RegisteredModel.detector_id == rm.detector_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if collision is not None:
+        raise HTTPException(
+            409,
+            f"'{body.new_owner_handle}' already owns a model for this detector",
         )
 
-    await session.delete(mv)
+    old_owner_id = rm.owner_id
+
+    # Capture handle + detector name explicitly to avoid async lazy-load on relationship.
+    old_owner_handle = (
+        await session.execute(select(User.handle).where(User.id == rm.owner_id))
+    ).scalar_one()
+    detector_name = (
+        await session.execute(
+            select(Detector.name).where(Detector.id == rm.detector_id)
+        )
+    ).scalar_one()
+    old_mlflow_name = f"{old_owner_handle}/{detector_name}"
+    new_mlflow_name = f"{new_owner.handle}/{detector_name}"
+
+    rm.owner_id = new_owner.id
+    await client.rename_registered_model(old_mlflow_name, new_mlflow_name)
+
+    session.add(
+        ModelOwnerTransferLog(
+            registered_model_id=rm.id,
+            from_owner_id=old_owner_id,
+            to_owner_id=new_owner.id,
+            actor_id=user.id,
+            comment=body.comment,
+        )
+    )
     await session.commit()
-    return Response(status_code=204)
+    await session.refresh(rm)
+    summary = (await session.execute(_summary_query_for_rm(rm.id, user))).one()
+    return RegisteredModelRead(
+        owner=new_owner.handle,
+        name=name,
+        description=rm.description,
+        tags=rm.tags,
+        latest_version=summary.latest_version,
+        latest_production_version=summary.latest_production_version,
+        latest_staging_version=summary.latest_staging_version,
+        created_at=rm.created_at,
+    )
+
+
+@router.delete("/{owner}/{name}", status_code=204)
+async def delete_model(
+    owner: str,
+    name: str,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    client: Annotated[MlflowClient, Depends(_mlflow)],
+) -> None:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+    # Capture mlflow_name BEFORE deletion to avoid lazy-load issues post-delete.
+    detector_name = (
+        await session.execute(
+            select(Detector.name).where(Detector.id == rm.detector_id)
+        )
+    ).scalar_one()
+    owner_handle = (
+        await session.execute(select(User.handle).where(User.id == rm.owner_id))
+    ).scalar_one()
+    mlflow_name = f"{owner_handle}/{detector_name}"
+
+    await client.delete_registered_model(mlflow_name)
+    # Explicitly delete child ModelVersion rows first so that the DELETE is
+    # portable across backends: PostgreSQL relies on ondelete=CASCADE (FK-level),
+    # while SQLite in tests may have FK enforcement disabled.
+    await session.execute(
+        sa.delete(ModelVersion).where(ModelVersion.registered_model_id == rm.id)
+    )
+    await session.delete(rm)
+    await session.commit()
+
+
+@router.delete("/{owner}/{name}/versions/{version}", status_code=204)
+async def delete_model_version_namespaced(
+    owner: str,
+    name: str,
+    version: int,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    client: Annotated[MlflowClient, Depends(_mlflow)],
+) -> None:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+    mv = (
+        await session.execute(
+            select(ModelVersion).where(
+                ModelVersion.registered_model_id == rm.id,
+                ModelVersion.mlflow_version == version,
+            )
+        )
+    ).scalar_one_or_none()
+    if mv is None:
+        raise HTTPException(404, "version not found")
+
+    detector_name = (
+        await session.execute(
+            select(Detector.name).where(Detector.id == rm.detector_id)
+        )
+    ).scalar_one()
+    owner_handle = (
+        await session.execute(select(User.handle).where(User.id == rm.owner_id))
+    ).scalar_one()
+    mlflow_name = f"{owner_handle}/{detector_name}"
+
+    await client.delete_model_version(mlflow_name, str(version))
+    await session.delete(mv)  # cascade ModelVisibilityLog via ondelete
+    await session.commit()
+
+
+@router.patch("/{owner}/{name}", response_model=RegisteredModelRead)
+async def update_model(
+    owner: str,
+    name: str,
+    body: RegisteredModelUpdate,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+) -> RegisteredModelRead:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+    if body.description is not None:
+        rm.description = body.description
+    if body.tags is not None:
+        # Pydantic dict[str, str] schema validates value types;
+        # defensive check as belt-and-suspenders guard
+        for k, v in body.tags.items():
+            if not isinstance(v, str):
+                raise HTTPException(422, f"tag value for '{k}' must be string")
+        rm.tags = body.tags
+    await session.commit()
+    await session.refresh(rm)
+    summary = (await session.execute(_summary_query_for_rm(rm.id, user))).one()
+    return RegisteredModelRead(
+        owner=owner,
+        name=name,
+        description=rm.description,
+        tags=rm.tags,
+        latest_version=summary.latest_version,
+        latest_production_version=summary.latest_production_version,
+        latest_staging_version=summary.latest_staging_version,
+        created_at=rm.created_at,
+    )

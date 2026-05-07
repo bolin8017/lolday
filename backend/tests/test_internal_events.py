@@ -16,17 +16,21 @@ async def _seed_job_with_token(
     session: AsyncSession, *, status: JobStatus = JobStatus.RUNNING
 ) -> tuple[Job, str]:
     """Create a Job + issue a token for its sidecar."""
+    _uid = uuid.uuid4()
     user = User(
-        id=uuid.uuid4(),
-        email=f"events-int-{uuid.uuid4().hex[:8]}@example.com",
+        id=_uid,
+        email=f"events-int-{_uid.hex[:8]}@example.com",
+        handle=f"events-int-{_uid.hex[:8]}",
     )
+    session.add(user)
+    await session.flush()  # user must be persisted before Detector FK can reference it
     det = Detector(
         name=f"events-int-{uuid.uuid4().hex[:8]}",
         display_name="events-int",
         owner_id=user.id,
         git_url="https://example.com/r.git",
     )
-    session.add_all([user, det])
+    session.add(det)
     await session.flush()
     dv = DetectorVersion(
         detector_id=det.id,

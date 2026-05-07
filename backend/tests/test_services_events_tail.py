@@ -14,17 +14,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 async def _seed_job(session: AsyncSession) -> Job:
     """Minimal Job + required parents. Adapt field names to whatever the models require."""
+    _uid = uuid.uuid4()
     user = User(
-        id=uuid.uuid4(),
-        email=f"events-{uuid.uuid4().hex[:8]}@example.com",
+        id=_uid,
+        email=f"events-{_uid.hex[:8]}@example.com",
+        handle=f"events-{_uid.hex[:8]}",
     )
+    session.add(user)
+    await session.flush()  # user must be persisted before Detector FK can reference it
     det = Detector(
         name=f"events-det-{uuid.uuid4().hex[:8]}",
         display_name="events-det",
         owner_id=user.id,
         git_url="https://example.com/r.git",
     )
-    session.add_all([user, det])
+    session.add(det)
     await session.flush()
 
     dv = DetectorVersion(

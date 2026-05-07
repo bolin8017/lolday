@@ -71,6 +71,7 @@ def test_role_orm_writes_lowercase_value_and_roundtrips(role, tmp_path, monkeypa
             User(
                 id=user_id,
                 email=f"role-{role.name.lower()}@example.dev",
+                handle=f"role-{role.name.lower()}",
                 role=role,
                 display_name=role.name,
             )
@@ -111,6 +112,7 @@ def test_role_user_default_stores_lowercase(tmp_path, monkeypatch):
             User(
                 id=user_id,
                 email="default-role@example.dev",
+                handle="default-role",
                 # role= intentionally omitted — exercises the column default.
                 display_name="default-role",
             )
@@ -148,12 +150,13 @@ def test_service_token_lowercase_value_reads_via_orm(tmp_path, monkeypatch):
         conn.execute(
             sa.text(
                 'INSERT INTO "user" '
-                "(id, email, role, display_name) "
-                "VALUES (:id, :email, :role, :dn)"
+                "(id, email, handle, role, display_name) "
+                "VALUES (:id, :email, :handle, :role, :dn)"
             ),
             {
                 "id": user_id.hex,
                 "email": "service-test@cf-access.local",
+                "handle": "service-test",
                 "role": "service_token",
                 "dn": "Internal service token",
             },
