@@ -17,6 +17,7 @@ from app.models import (
     ModelVersion,
     ModelVersionStage,
     ModelVersionVisibility,
+    ModelVisibilityLog,
     RegisteredModel,
     Role,
     User,
@@ -25,6 +26,7 @@ from app.schemas.model_registry import (
     ModelTransitionRequest,
     ModelVersionList,
     ModelVersionRead,
+    ModelVersionVisibilityUpdate,
     RegisteredModelRead,
     RegisteredModelSummary,
 )
@@ -425,3 +427,45 @@ async def delete_model_version(
     await session.delete(mv)
     await session.commit()
     return Response(status_code=204)
+
+
+@router.patch(
+    "/{owner}/{name}/versions/{version}/visibility",
+    response_model=ModelVersionRead,
+)
+async def update_visibility(
+    owner: str,
+    name: str,
+    version: int,
+    body: ModelVersionVisibilityUpdate,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+) -> ModelVersionRead:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+    mv = (
+        await session.execute(
+            select(ModelVersion).where(
+                ModelVersion.registered_model_id == rm.id,
+                ModelVersion.mlflow_version == version,
+            )
+        )
+    ).scalar_one_or_none()
+    if mv is None:
+        raise HTTPException(404, "version not found")
+
+    if mv.visibility == body.visibility:
+        return ModelVersionRead.model_validate(mv)  # no-op, no log
+
+    session.add(
+        ModelVisibilityLog(
+            model_version_id=mv.id,
+            from_visibility=mv.visibility,
+            to_visibility=body.visibility,
+            actor_id=user.id,
+            comment=body.comment,
+        )
+    )
+    mv.visibility = body.visibility
+    await session.commit()
+    await session.refresh(mv)
+    return ModelVersionRead.model_validate(mv)
