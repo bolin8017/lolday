@@ -44,6 +44,7 @@ export function useDetector(id: string) {
       if (error) throw error;
       return data as Detector;
     },
+    enabled: Boolean(id),
   });
 }
 
@@ -60,6 +61,7 @@ export function useDetectorVersions(id: string) {
       if (error) throw error;
       return data;
     },
+    enabled: Boolean(id),
   });
 }
 

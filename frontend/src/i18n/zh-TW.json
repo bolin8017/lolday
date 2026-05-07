@@ -115,7 +115,12 @@
     },
     "help": {
       "test_dataset_optional": "可選。提供時會多算最終 metrics 與混淆矩陣；不選則只訓練模型，不算指標。",
-      "priority_admin": "提高優先度會暫停較低優先度工作的提交，直到此工作被派送至 Volcano 為止。正在執行中的工作不受影響。"
+      "priority_admin": "提高優先度會暫停較低優先度工作的提交，直到此工作被派送至 Volcano 為止。正在執行中的工作不受影響。",
+      "source_model": "已訓練好的模型；推論時會載入它的 weights。模型已綁定一個 detector，下方 Detector 區塊會自動帶入。",
+      "override_detector_version": "預設使用模型訓練時的 detector version（保證可重現）。覆寫適用於 predict pipeline 有 bugfix、或想用較新的 evaluator 的情境。"
+    },
+    "inference": {
+      "advanced_override": "進階：覆寫 detector version"
     }
   },
   "models": {
