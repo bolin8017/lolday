@@ -10,6 +10,7 @@ os.environ.setdefault("ENVIRONMENT", "test")
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from app.db import get_async_session
 from app.models import Base, Role, User
 from httpx import ASGITransport, AsyncClient
@@ -20,13 +21,28 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
 test_engine = create_async_engine(TEST_DATABASE_URL)
 test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
+# SQLite disables foreign-key enforcement by default.  Enable it so that
+# ondelete=CASCADE on ModelVersion.registered_model_id (and similar FKs)
+# is actually enforced during tests, matching production Postgres behaviour.
+from sqlalchemy import event  # noqa: E402  # must come after test_engine is created
+
+
+@event.listens_for(test_engine.sync_engine, "connect")
+def _set_sqlite_fk_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
+    # Disable FK enforcement for teardown so that drop_all succeeds even
+    # when there are unresolvable cyclic FKs (job ↔ model_version).
     async with test_engine.begin() as conn:
+        await conn.execute(sa.text("PRAGMA foreign_keys=OFF"))
         await conn.run_sync(Base.metadata.drop_all)
 
 
@@ -363,6 +379,7 @@ def mock_mlflow(request, monkeypatch):
 
         def __init__(self) -> None:
             self.rename_calls: list[tuple[str, str]] = []
+            self.deleted_registered_models: list[str] = []
 
         async def get_or_create_experiment(self, name, artifact_location=None):
             _Stub.exp_counter += 1
@@ -407,7 +424,7 @@ def mock_mlflow(request, monkeypatch):
             return {"name": new_name}
 
         async def delete_registered_model(self, name: str) -> None:
-            pass
+            self.deleted_registered_models.append(name)
 
         async def search_registered_models(self, max_results=100):
             return []

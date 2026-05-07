@@ -549,6 +549,67 @@ async def transfer_owner(
     )
 
 
+@router.delete("/{owner}/{name}", status_code=204)
+async def delete_model(
+    owner: str,
+    name: str,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    client: Annotated[MlflowClient, Depends(_mlflow)],
+) -> None:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+    # Capture mlflow_name BEFORE deletion to avoid lazy-load issues post-delete.
+    detector_name = (
+        await session.execute(
+            select(Detector.name).where(Detector.id == rm.detector_id)
+        )
+    ).scalar_one()
+    owner_handle = (
+        await session.execute(select(User.handle).where(User.id == rm.owner_id))
+    ).scalar_one()
+    mlflow_name = f"{owner_handle}/{detector_name}"
+
+    await client.delete_registered_model(mlflow_name)
+    await session.delete(rm)  # DB cascade via FK ondelete on ModelVersion
+    await session.commit()
+
+
+@router.delete("/{owner}/{name}/versions/{version}", status_code=204)
+async def delete_model_version_namespaced(
+    owner: str,
+    name: str,
+    version: int,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    client: Annotated[MlflowClient, Depends(_mlflow)],
+) -> None:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+    mv = (
+        await session.execute(
+            select(ModelVersion).where(
+                ModelVersion.registered_model_id == rm.id,
+                ModelVersion.mlflow_version == version,
+            )
+        )
+    ).scalar_one_or_none()
+    if mv is None:
+        raise HTTPException(404, "version not found")
+
+    detector_name = (
+        await session.execute(
+            select(Detector.name).where(Detector.id == rm.detector_id)
+        )
+    ).scalar_one()
+    owner_handle = (
+        await session.execute(select(User.handle).where(User.id == rm.owner_id))
+    ).scalar_one()
+    mlflow_name = f"{owner_handle}/{detector_name}"
+
+    await client.delete_model_version(mlflow_name, str(version))
+    await session.delete(mv)  # cascade ModelVisibilityLog via ondelete
+    await session.commit()
+
+
 @router.patch("/{owner}/{name}", response_model=RegisteredModelRead)
 async def update_model(
     owner: str,
