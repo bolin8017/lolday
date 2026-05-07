@@ -9,6 +9,7 @@ from tests.fixtures.sample_mlflow_responses import (
     MODEL_VERSION_CREATED,
     MODEL_VERSION_TRANSITIONED,
     MODEL_VERSIONS_SEARCH,
+    REGISTERED_MODEL_RENAMED,
     REGISTERED_MODELS_SEARCH,
     RUN_CREATED,
     RUN_FINISHED,
@@ -160,3 +161,36 @@ async def test_network_timeout_retries_then_raises():
     c = MlflowClient("http://mlflow", timeout=0.1, retries=2)
     with pytest.raises(MlflowError, match="network"):
         await c.create_experiment("any")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_rename_registered_model():
+    """Rename POST hits the right endpoint and returns the registered_model dict."""
+    route = respx.post("http://mlflow/api/2.0/mlflow/registered-models/rename").mock(
+        return_value=httpx.Response(200, json=REGISTERED_MODEL_RENAMED)
+    )
+    c = MlflowClient("http://mlflow")
+    model = await c.rename_registered_model("upxelfdet", "alice:upxelfdet")
+    assert route.called
+    sent = route.calls.last.request
+    body = sent.content.decode("utf-8")
+    assert "alice:upxelfdet" in body
+    assert model["name"] == "alice:upxelfdet"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_delete_registered_model():
+    """Delete uses DELETE and hits the right endpoint; returns None."""
+    route = respx.delete("http://mlflow/api/2.0/mlflow/registered-models/delete").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    c = MlflowClient("http://mlflow")
+    result = await c.delete_registered_model("upxelfdet")
+    assert route.called
+    sent = route.calls.last.request
+    assert sent.method == "DELETE"
+    body = sent.content.decode("utf-8")
+    assert "upxelfdet" in body
+    assert result is None

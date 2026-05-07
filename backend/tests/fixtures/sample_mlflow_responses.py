@@ -106,3 +106,11 @@ MODEL_VERSIONS_SEARCH = {
         },
     ]
 }
+
+REGISTERED_MODEL_RENAMED = {
+    "registered_model": {
+        "name": "alice:upxelfdet",
+        "creation_timestamp": 1713350000000,
+        "last_updated_timestamp": 1713360000000,
+    }
+}
