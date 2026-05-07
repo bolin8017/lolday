@@ -28,3 +28,21 @@ async def test_get_models_versions_takes_precedence_over_name_route(user_client)
     r = await user_client.get("/api/v1/models/versions")
     assert r.status_code == 400
     assert "source_job_id" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_model_version_read_includes_detector_fields(populated, alice_client):
+    """ModelVersionRead must expose detector_id and detector_version_tag.
+
+    These are needed by the frontend Submit Job form to derive the detector
+    runtime from a chosen model artifact (mainstream MLOps inference UX).
+    """
+    r = await alice_client.get("/api/v1/models/alice/elf-rf/versions")
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert items, "fixture should have at least one version"
+    item = items[0]
+    assert "detector_id" in item, "missing detector_id"
+    assert "detector_version_tag" in item, "missing detector_version_tag"
+    assert isinstance(item["detector_id"], str)
+    assert isinstance(item["detector_version_tag"], str)
