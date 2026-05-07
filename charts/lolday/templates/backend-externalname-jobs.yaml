@@ -1,0 +1,39 @@
+{{- if .Values.backend.enabled }}
+# ExternalName alias of `backend` Service in the lolday-jobs namespace.
+#
+# Phase 1 (2026-05-05) moved detector build BuildKit pods + train/test/predict
+# vcjobs into the lolday-jobs namespace. The backend pod injects
+# `INTERNAL_EVENTS_BASE_URL=http://backend:8000` into job sidecars (event-tailer
+# in particular) — that short hostname only resolves in the namespace where a
+# Service `backend` exists. Without this alias, every event-tailer in
+# lolday-jobs spends its life logging
+#   `tail_events: giving up after 6 attempts, event lost: [Errno -2] Name or
+#    service not known`
+# while the underlying job has already finished — events are dropped on the
+# floor and the operator only finds out via missing audit-log entries.
+#
+# An ExternalName service is a DNS-only redirect: pods in lolday-jobs
+# resolving `backend` get a CNAME to backend.lolday.svc.cluster.local. No
+# proxying, no extra hops. Backend stays a single replica in lolday.
+#
+# Alternative considered: ship FQN in INTERNAL_EVENTS_BASE_URL itself
+# (`http://backend.lolday.svc:8000`). Rejected because future workloads in
+# lolday-jobs may hardcode "backend" elsewhere (e.g. a model-serving sidecar
+# calling /api/v1/internal/...) and we'd hit the same DNS gap. The Service
+# alias makes "backend" resolvable namespace-wide.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: {{ .Values.global.jobsNamespace }}
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ExternalName
+  externalName: backend.{{ .Release.Namespace }}.svc.cluster.local
+  ports:
+    - name: http
+      port: 8000
+      protocol: TCP
+{{- end }}
