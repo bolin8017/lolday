@@ -123,7 +123,58 @@
       "stagingTooltip": "Candidate version under validation. Promote here before production.",
       "productionTooltip": "Currently the active version. Only one Production version per model at a time."
     },
-    "notPromoted": "Not promoted"
+    "notPromoted": "Not promoted",
+    "owner": "Owner",
+    "filter": {
+      "all": "All",
+      "public": "Public",
+      "mine": "Mine"
+    },
+    "visibility": {
+      "public": "Public",
+      "private": "Private",
+      "publicTooltip": "Visible and usable by all authenticated users.",
+      "privateTooltip": "Only you (owner) and admins can see or use this version.",
+      "makePublic": "Make public",
+      "makePrivate": "Make private",
+      "warningPrivate": "Other users will lose access for new predict jobs. Existing jobs continue running.",
+      "warningPublic": "All authenticated users will be able to view and use this version.",
+      "changedToast": "Visibility updated"
+    },
+    "description": {
+      "title": "Description",
+      "edit": "Edit description",
+      "placeholder": "Markdown supported. Document your model usage, training data, evaluation results...",
+      "successToast": "Description updated",
+      "empty": "No description yet."
+    },
+    "tags": {
+      "title": "Tags",
+      "edit": "Edit tags",
+      "placeholder": "{ \"framework\": \"sklearn\", \"contract\": \"sample_csv\" }",
+      "schemaError": "Tags must be a flat JSON object of string keys to string values",
+      "successToast": "Tags updated",
+      "empty": "No tags."
+    },
+    "transfer": {
+      "title": "Transfer ownership",
+      "description": "Move this model to another user. The new owner cannot already own a model for the same detector.",
+      "newOwnerLabel": "New owner handle",
+      "warning": "Other users may lose write access. Existing predict jobs continue.",
+      "submit": "Transfer",
+      "successToast": "Ownership transferred"
+    },
+    "delete": {
+      "title": "Delete model",
+      "warning": "This action permanently deletes the model and all versions, including MLflow artefacts. This cannot be undone.",
+      "confirmPrompt": "To confirm, type {{fullName}} below",
+      "successToast": "Model deleted"
+    },
+    "deleteVersion": {
+      "title": "Delete version",
+      "warning": "This will permanently delete version {{version}} of {{fullName}}.",
+      "successToast": "Version deleted"
+    }
   },
   "theme": {
     "toggle": "Toggle theme",
