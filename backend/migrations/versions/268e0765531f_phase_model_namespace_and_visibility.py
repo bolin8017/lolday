@@ -58,13 +58,24 @@ def upgrade() -> None:
 
     # Now tighten to NOT NULL + unique index.
     with op.batch_alter_table("user") as batch_op:
-        batch_op.alter_column("handle", new_column_name="handle", nullable=False)
+        batch_op.alter_column("handle", nullable=False)
     op.create_index("ix_user_handle", "user", ["handle"], unique=True)
 
     # ---- 2. New enum type (PostgreSQL only; SQLite stores enums as plain strings) ----
+    # Use a DO block so a leftover type from a previous failed migration run
+    # doesn't block re-execution. PostgreSQL has no `CREATE TYPE IF NOT
+    # EXISTS`; this is the standard idempotent idiom.
     if bind.dialect.name == "postgresql":
-        sa.Enum("public", "private", name="model_version_visibility_enum").create(
-            bind, checkfirst=False
+        bind.execute(
+            sa.text(
+                """
+                DO $$ BEGIN
+                    CREATE TYPE model_version_visibility_enum AS ENUM ('public', 'private');
+                EXCEPTION
+                    WHEN duplicate_object THEN null;
+                END $$;
+                """
+            )
         )
 
     # ---- 3. registered_model table ----
@@ -186,41 +197,70 @@ def upgrade() -> None:
     )
 
     # ---- 5. Audit log tables ----
-    # _visibility_enum_col is an sa.Enum *type* instance (not sa.Column), so it
-    # is safe to share across multiple Column declarations below.  SQLAlchemy
-    # uses it purely as a type descriptor; each Column gets its own wrapper.
-    _visibility_enum_col = sa.Enum(
-        "public",
-        "private",
-        name="model_version_visibility_enum",
-        create_type=False,
-    )
-
-    op.create_table(
-        "model_visibility_log",
-        sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column(
-            "model_version_id",
-            sa.Uuid(),
-            sa.ForeignKey("model_version.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column("from_visibility", _visibility_enum_col, nullable=False),
-        sa.Column("to_visibility", _visibility_enum_col, nullable=False),
-        sa.Column(
-            "actor_id",
-            sa.Uuid(),
-            sa.ForeignKey("user.id"),
-            nullable=False,
-        ),
-        sa.Column("comment", sa.Text(), nullable=True),
-        sa.Column(
-            "changed_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("(CURRENT_TIMESTAMP)"),
-        ),
-    )
+    # On PostgreSQL, alembic's `op.create_table()` with sa.Enum columns
+    # forces a CREATE TYPE even with create_type=False, so we use raw SQL
+    # for the visibility-log table. SQLite path uses op.create_table because
+    # SQLite stores enums as VARCHAR with CHECK and never tries CREATE TYPE.
+    if bind.dialect.name == "postgresql":
+        bind.execute(
+            sa.text(
+                """
+                CREATE TABLE model_visibility_log (
+                    id UUID PRIMARY KEY,
+                    model_version_id UUID NOT NULL REFERENCES model_version(id) ON DELETE CASCADE,
+                    from_visibility model_version_visibility_enum NOT NULL,
+                    to_visibility model_version_visibility_enum NOT NULL,
+                    actor_id UUID NOT NULL REFERENCES "user"(id),
+                    comment TEXT,
+                    changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+    else:
+        op.create_table(
+            "model_visibility_log",
+            sa.Column("id", sa.Uuid(), primary_key=True),
+            sa.Column(
+                "model_version_id",
+                sa.Uuid(),
+                sa.ForeignKey("model_version.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
+            sa.Column(
+                "from_visibility",
+                sa.Enum(
+                    "public",
+                    "private",
+                    name="model_version_visibility_enum",
+                    create_type=False,
+                ),
+                nullable=False,
+            ),
+            sa.Column(
+                "to_visibility",
+                sa.Enum(
+                    "public",
+                    "private",
+                    name="model_version_visibility_enum",
+                    create_type=False,
+                ),
+                nullable=False,
+            ),
+            sa.Column(
+                "actor_id",
+                sa.Uuid(),
+                sa.ForeignKey("user.id"),
+                nullable=False,
+            ),
+            sa.Column("comment", sa.Text(), nullable=True),
+            sa.Column(
+                "changed_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.text("(CURRENT_TIMESTAMP)"),
+            ),
+        )
     op.create_index(
         "ix_model_visibility_log_version",
         "model_visibility_log",
