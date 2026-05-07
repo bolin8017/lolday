@@ -51,6 +51,26 @@ def _mlflow() -> MlflowClient:
     )
 
 
+def _model_version_to_read(
+    mv: ModelVersion, owner_handle: str, detector_name: str
+) -> ModelVersionRead:
+    """Construct ModelVersionRead with derived owner_handle + detector_name populated."""
+    return ModelVersionRead(
+        id=mv.id,
+        mlflow_version=mv.mlflow_version,
+        mlflow_run_id=mv.mlflow_run_id,
+        current_stage=mv.current_stage,
+        visibility=mv.visibility,
+        detector_version_id=mv.detector_version_id,
+        source_job_id=mv.source_job_id,
+        owner_id=mv.owner_id,
+        created_at=mv.created_at,
+        last_transitioned_at=mv.last_transitioned_at,
+        owner=owner_handle,
+        name=detector_name,
+    )
+
+
 @router.get("/versions/{version_id}", response_model=ModelVersionRead)
 async def get_model_version_by_id(
     version_id: uuid.UUID,
@@ -62,12 +82,21 @@ async def get_model_version_by_id(
     Used by Phase 13b SourceModelCard which receives ``source_model_version_id``
     from JobRead and needs to render the corresponding model card.
     """
-    mv = (
-        await session.execute(select(ModelVersion).where(ModelVersion.id == version_id))
-    ).scalar_one_or_none()
-    if mv is None:
+    row = (
+        await session.execute(
+            select(ModelVersion, User.handle, Detector.name)
+            .join(
+                RegisteredModel, ModelVersion.registered_model_id == RegisteredModel.id
+            )
+            .join(User, RegisteredModel.owner_id == User.id)
+            .join(Detector, RegisteredModel.detector_id == Detector.id)
+            .where(ModelVersion.id == version_id)
+        )
+    ).first()
+    if row is None:
         raise HTTPException(status_code=404, detail="model version not found")
-    return ModelVersionRead.model_validate(mv)
+    mv, owner_handle, detector_name = row
+    return _model_version_to_read(mv, owner_handle, detector_name)
 
 
 @router.get("/versions", response_model=ModelVersionList)
@@ -89,20 +118,22 @@ async def list_model_versions_by_filter(
     # Cap is defensive — current contract says one job → one model version,
     # but ModelVersion.source_job_id has no DB-level unique constraint, so a
     # bug in the registration projector could in theory produce duplicates.
-    items = (
-        (
-            await session.execute(
-                select(ModelVersion)
-                .where(ModelVersion.source_job_id == source_job_id)
-                .order_by(ModelVersion.mlflow_version.desc())
-                .limit(100)
+    rows = (
+        await session.execute(
+            select(ModelVersion, User.handle, Detector.name)
+            .join(
+                RegisteredModel, ModelVersion.registered_model_id == RegisteredModel.id
             )
+            .join(User, RegisteredModel.owner_id == User.id)
+            .join(Detector, RegisteredModel.detector_id == Detector.id)
+            .where(ModelVersion.source_job_id == source_job_id)
+            .order_by(ModelVersion.mlflow_version.desc())
+            .limit(100)
         )
-        .scalars()
-        .all()
-    )
+    ).all()
+    items = [_model_version_to_read(mv, h, n) for mv, h, n in rows]
     return ModelVersionList(
-        items=[ModelVersionRead.model_validate(m) for m in items],
+        items=items,
         total=len(items),
         page=1,
         page_size=len(items) if items else 0,
@@ -275,7 +306,7 @@ async def list_versions(
         .scalars()
         .all()
     )
-    items = [ModelVersionRead.model_validate(v) for v in versions]
+    items = [_model_version_to_read(v, owner, name) for v in versions]
     return ModelVersionList(items=items, total=len(items), page=1, page_size=len(items))
 
 
@@ -302,7 +333,7 @@ async def get_version(
     is_admin = user.role.value == "admin"
     if mv.visibility == ModelVersionVisibility.PRIVATE and not (is_owner or is_admin):
         raise HTTPException(404, "version not found")  # hide-existence
-    return ModelVersionRead.model_validate(mv)
+    return _model_version_to_read(mv, owner, name)
 
 
 @router.post(
@@ -409,7 +440,7 @@ async def transition_model_version(
 
     await session.commit()
     await session.refresh(mv)
-    return ModelVersionRead.model_validate(mv)
+    return _model_version_to_read(mv, owner_handle, detector_name)
 
 
 @router.patch(
@@ -437,7 +468,7 @@ async def update_visibility(
         raise HTTPException(404, "version not found")
 
     if mv.visibility == body.visibility:
-        return ModelVersionRead.model_validate(mv)  # no-op, no log
+        return _model_version_to_read(mv, owner, name)  # no-op, no log
 
     session.add(
         ModelVisibilityLog(
@@ -451,7 +482,7 @@ async def update_visibility(
     mv.visibility = body.visibility
     await session.commit()
     await session.refresh(mv)
-    return ModelVersionRead.model_validate(mv)
+    return _model_version_to_read(mv, owner, name)
 
 
 @router.patch("/{owner}/{name}/owner", response_model=RegisteredModelRead)

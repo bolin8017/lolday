@@ -23,6 +23,9 @@ class ModelVersionRead(BaseModel):
     owner_id: uuid.UUID
     created_at: datetime
     last_transitioned_at: datetime
+    # Derived fields — populated by the response builder, not ORM attributes
+    owner: str  # user.handle
+    name: str  # detector.name
 
 
 class ModelVersionList(BaseModel):

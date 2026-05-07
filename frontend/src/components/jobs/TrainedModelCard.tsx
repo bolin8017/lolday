@@ -38,10 +38,10 @@ export function TrainedModelCard({ jobId }: { jobId: string }) {
         <div>
           <span className="text-muted-foreground">Registered as:</span>{" "}
           <Link
-            to={`/models/${mv.mlflow_name}`}
+            to={`/models/${mv.owner}/${mv.name}`}
             className="text-primary hover:underline"
           >
-            {mv.mlflow_name} v{mv.mlflow_version}
+            {`${mv.owner}/${mv.name}`} v{mv.mlflow_version}
           </Link>
         </div>
         <div>
