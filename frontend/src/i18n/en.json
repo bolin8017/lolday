@@ -112,6 +112,10 @@
       "editPlaceholder": "0",
       "save": "Save priority",
       "warning": "Bumping priority pauses submission of new lower-priority jobs to Volcano until this job is dispatched. Running jobs are not affected."
+    },
+    "help": {
+      "test_dataset_optional": "Optional. When provided, the run also computes final metrics and the confusion matrix. Skipping it only trains the model.",
+      "priority_admin": "Raising priority halts dispatch of lower-priority queued jobs until this one reaches Volcano. Already-running jobs are unaffected."
     }
   },
   "models": {

@@ -77,6 +77,20 @@
   & textarea,
   & select {
     width: 100%;
+    @apply bg-background text-foreground border-input;
+  }
+  & label,
+  & legend,
+  & .control-label {
+    @apply text-foreground;
+  }
+  & .field-description,
+  & small,
+  & .help-block {
+    @apply text-muted-foreground;
+  }
+  & fieldset {
+    @apply border-border;
   }
   & .array-item-toolbox {
     flex-wrap: wrap;

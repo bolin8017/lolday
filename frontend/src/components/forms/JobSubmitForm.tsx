@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
@@ -28,6 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { requiredFieldsForType } from "./JobSubmitForm.logic";
+import { ClearableSelect } from "./ClearableSelect";
+import { HelpHint } from "@/components/common/HelpHint";
 import { RjsfConfigForm } from "./RjsfConfigForm";
 import { StageExplainer } from "./StageExplainer";
 import { StickyFormFooter } from "./StickyFormFooter";
@@ -93,12 +95,11 @@ export function JobSubmitForm() {
     [];
   const modelsArr =
     (models as { owner: string; name: string }[] | undefined) ?? [];
-  const modelVersionsArr =
-    (
-      modelVersions as {
-        items?: { id: string; mlflow_version: number; current_stage: string }[];
-      }
-    )?.items ?? [];
+  const modelVersionsArr = (modelVersions ?? []) as {
+    id: string;
+    mlflow_version: number;
+    current_stage: string;
+  }[];
 
   const mut = useSubmitJob();
   const nav = useNavigate();
@@ -242,6 +243,8 @@ export function JobSubmitForm() {
                 value={testDatasetId}
                 onChange={setTestDatasetId}
                 options={datasetsArr}
+                optional
+                helpHint={t("jobs.help.test_dataset_optional")}
               />
             </>
           )}
@@ -348,7 +351,12 @@ export function JobSubmitForm() {
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-center gap-3">
-              <Label htmlFor="priority-input">{t("jobs.priority.label")}</Label>
+              <div className="flex items-center gap-1">
+                <Label htmlFor="priority-input">
+                  {t("jobs.priority.label")}
+                </Label>
+                <HelpHint popover>{t("jobs.help.priority_admin")}</HelpHint>
+              </div>
               <Input
                 id="priority-input"
                 type="number"
@@ -396,16 +404,27 @@ function DatasetField({
   value,
   onChange,
   options,
+  optional = false,
+  helpHint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: { id: string; name: string }[];
+  optional?: boolean;
+  helpHint?: ReactNode;
 }) {
   return (
     <div>
-      <Label>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
+      <div className="flex items-center gap-1">
+        <Label>{label}</Label>
+        {helpHint && <HelpHint>{helpHint}</HelpHint>}
+      </div>
+      <ClearableSelect
+        value={value}
+        onValueChange={onChange}
+        clearable={optional}
+      >
         <SelectTrigger>
           <SelectValue placeholder="Pick dataset" />
         </SelectTrigger>
@@ -416,7 +435,7 @@ function DatasetField({
             </SelectItem>
           ))}
         </SelectContent>
-      </Select>
+      </ClearableSelect>
     </div>
   );
 }

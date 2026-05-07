@@ -896,3 +896,196 @@ async def job_factory(db_session):
         return job
 
     return _create
+
+
+# ---------------------------------------------------------------------------
+# Shared model-registry fixtures (used by test_models_registry.py;
+# TODO: migrate test_models_{list,get,transition,…} to use this shared fixture)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def populated(db_session):
+    """Build the canonical model-registry test universe.
+
+    Universe:
+    - alice (developer), bob (developer)
+    - detectors: elf-rf (owner alice), elf-cnn (owner alice)
+    - alice/elf-rf has v1 (public, Production), v2 (private, Staging)
+    - bob/elf-rf has v1 (private, None)
+    - alice/elf-cnn has v1 (public, Production)
+    """
+    import uuid as _u
+
+    from app.models import (
+        Detector,
+        DetectorVersion,
+        Job,
+        ModelVersion,
+        ModelVersionStage,
+        ModelVersionVisibility,
+        RegisteredModel,
+        User,
+    )
+    from app.models.job import JobStatus, JobType
+
+    alice = User(email="alice@x.com", handle="alice", role=Role.DEVELOPER)
+    bob = User(email="bob@x.com", handle="bob", role=Role.DEVELOPER)
+    db_session.add_all([alice, bob])
+    await db_session.flush()
+
+    det_rf = Detector(
+        name="elf-rf",
+        display_name="ELF RF",
+        git_url="https://github.com/x/elf-rf",
+        owner_id=alice.id,
+    )
+    det_cnn = Detector(
+        name="elf-cnn",
+        display_name="ELF CNN",
+        git_url="https://github.com/x/elf-cnn",
+        owner_id=alice.id,
+    )
+    db_session.add_all([det_rf, det_cnn])
+    await db_session.flush()
+
+    dv_rf = DetectorVersion(
+        detector_id=det_rf.id,
+        git_tag="v1",
+        git_sha="a" * 40,
+        harbor_image="x/elf-rf:v1",
+        image_digest="sha256:" + "0" * 64,
+    )
+    dv_cnn = DetectorVersion(
+        detector_id=det_cnn.id,
+        git_tag="v1",
+        git_sha="b" * 40,
+        harbor_image="x/elf-cnn:v1",
+        image_digest="sha256:" + "1" * 64,
+    )
+    db_session.add_all([dv_rf, dv_cnn])
+    await db_session.flush()
+
+    def _job(owner: User, dv: DetectorVersion) -> Job:
+        return Job(
+            type=JobType.TRAIN,
+            owner_id=owner.id,
+            detector_version_id=dv.id,
+            status=JobStatus.SUCCEEDED,
+            mlflow_run_id=_u.uuid4().hex,
+            resolved_config={},
+            idempotency_key=_u.uuid4().hex,
+        )
+
+    rm_alice_rf = RegisteredModel(owner_id=alice.id, detector_id=det_rf.id)
+    rm_bob_rf = RegisteredModel(owner_id=bob.id, detector_id=det_rf.id)
+    rm_alice_cnn = RegisteredModel(owner_id=alice.id, detector_id=det_cnn.id)
+    db_session.add_all([rm_alice_rf, rm_bob_rf, rm_alice_cnn])
+    await db_session.flush()
+
+    versions_to_make = [
+        # (rm, version, owner, dv, visibility, stage)
+        (
+            rm_alice_rf,
+            1,
+            alice,
+            dv_rf,
+            ModelVersionVisibility.PUBLIC,
+            ModelVersionStage.PRODUCTION,
+        ),
+        (
+            rm_alice_rf,
+            2,
+            alice,
+            dv_rf,
+            ModelVersionVisibility.PRIVATE,
+            ModelVersionStage.STAGING,
+        ),
+        (
+            rm_bob_rf,
+            1,
+            bob,
+            dv_rf,
+            ModelVersionVisibility.PRIVATE,
+            ModelVersionStage.NONE,
+        ),
+        (
+            rm_alice_cnn,
+            1,
+            alice,
+            dv_cnn,
+            ModelVersionVisibility.PUBLIC,
+            ModelVersionStage.PRODUCTION,
+        ),
+    ]
+    for rm, ver, owner, dv, vis, stage in versions_to_make:
+        j = _job(owner, dv)
+        db_session.add(j)
+        await db_session.flush()
+        mv = ModelVersion(
+            registered_model_id=rm.id,
+            mlflow_version=ver,
+            mlflow_run_id=j.mlflow_run_id,
+            current_stage=stage,
+            visibility=vis,
+            detector_version_id=dv.id,
+            source_job_id=j.id,
+            owner_id=owner.id,
+        )
+        db_session.add(mv)
+    await db_session.commit()
+
+    return {
+        "alice": alice,
+        "bob": bob,
+        "rm_alice_rf": rm_alice_rf,
+        "rm_bob_rf": rm_bob_rf,
+        "rm_alice_cnn": rm_alice_cnn,
+    }
+
+
+@pytest_asyncio.fixture
+async def alice_client(populated):
+    """AsyncClient authenticated as alice (DEVELOPER) from the populated universe."""
+    from app.auth.cf_access import cf_access_user
+    from app.db import get_async_session
+    from app.main import app
+    from fastapi import Depends, HTTPException, Request
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    alice = populated["alice"]
+
+    async def override():
+        async with test_session_maker() as session:
+            yield session
+
+    app.dependency_overrides[get_async_session] = override
+
+    async def _fake_auth(
+        request: Request,
+        session: AsyncSession = Depends(get_async_session),
+    ) -> User:
+        email = request.headers.get("x-test-user-email")
+        if not email:
+            raise HTTPException(401, "missing X-Test-User-Email (test fixture)")
+        row = (
+            await session.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(401, f"test fixture: user not seeded: {email}")
+        return row
+
+    app.dependency_overrides[cf_access_user] = _fake_auth
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"x-test-user-email": alice.email},
+    ) as c:
+        yield c
+    # Pop only the overrides this fixture set, not all (clear() wipes other
+    # fixtures' overrides if both are active in the same test).
+    app.dependency_overrides.pop(get_async_session, None)
+    app.dependency_overrides.pop(cf_access_user, None)

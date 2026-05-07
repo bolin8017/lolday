@@ -26,6 +26,8 @@ class ModelVersionRead(BaseModel):
     # Derived fields — populated by the response builder, not ORM attributes
     owner: str  # user.handle
     name: str  # detector.name
+    detector_id: uuid.UUID  # detector.id (NEW)
+    detector_version_tag: str  # detector_version.git_tag (NEW)
 
 
 class ModelVersionList(BaseModel):
