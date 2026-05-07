@@ -16,14 +16,19 @@ async def test_insert_and_query(db_session: AsyncSession) -> None:
     user = User(
         id=uuid.uuid4(),
         email="t@example.com",
+        handle="t-example",
     )
+    db_session.add(user)
+    await (
+        db_session.flush()
+    )  # user must be persisted before Detector FK can reference it
     det = Detector(
         name="d1-task3",
         display_name="d1",
         owner_id=user.id,
         git_url="https://example.com/r.git",
     )
-    db_session.add_all([user, det])
+    db_session.add(det)
     await db_session.flush()
 
     dv = DetectorVersion(

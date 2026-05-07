@@ -550,7 +550,13 @@ async def delete_model(
     mlflow_name = f"{owner_handle}/{detector_name}"
 
     await client.delete_registered_model(mlflow_name)
-    await session.delete(rm)  # DB cascade via FK ondelete on ModelVersion
+    # Explicitly delete child ModelVersion rows first so that the DELETE is
+    # portable across backends: PostgreSQL relies on ondelete=CASCADE (FK-level),
+    # while SQLite in tests may have FK enforcement disabled.
+    await session.execute(
+        sa.delete(ModelVersion).where(ModelVersion.registered_model_id == rm.id)
+    )
+    await session.delete(rm)
     await session.commit()
 
 

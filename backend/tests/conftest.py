@@ -656,6 +656,9 @@ async def seed_model_version(
         await _s.commit()
 
     async def _seed(name: str = "upxelfdet"):
+        from app.models.model_registry import RegisteredModel
+        from sqlalchemy import func, select
+
         unique_det_name = f"{name}-{uuid4().hex[:8]}"
         dv_id_str = await seed_detector_version(name=unique_det_name)
         ds_id_str = await seed_dataset(name=f"ds-for-{name}-{uuid4().hex[:6]}")
@@ -674,17 +677,38 @@ async def seed_model_version(
         db_session.add(job)
         await db_session.flush()
 
-        from sqlalchemy import func, select
+        # Resolve the detector_id from the seeded DetectorVersion row.
+        from app.models.detector import DetectorVersion as _DV
+
+        dv_row = await db_session.get(_DV, UUID(dv_id_str))
+        assert dv_row is not None
+
+        # Get-or-create the RegisteredModel (owner x detector pairing).
+        rm_row = (
+            await db_session.execute(
+                select(RegisteredModel).where(
+                    RegisteredModel.owner_id == seed_user.id,
+                    RegisteredModel.detector_id == dv_row.detector_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if rm_row is None:
+            rm_row = RegisteredModel(
+                owner_id=seed_user.id,
+                detector_id=dv_row.detector_id,
+            )
+            db_session.add(rm_row)
+            await db_session.flush()
 
         row = await db_session.execute(
             select(func.coalesce(func.max(ModelVersion.mlflow_version), 0)).where(
-                ModelVersion.mlflow_name == name
+                ModelVersion.registered_model_id == rm_row.id
             )
         )
         next_version = row.scalar_one() + 1
 
         mv = ModelVersion(
-            mlflow_name=name,
+            registered_model_id=rm_row.id,
             mlflow_version=next_version,
             mlflow_run_id=job.mlflow_run_id,
             current_stage=ModelVersionStage.NONE,
