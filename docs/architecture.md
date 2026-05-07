@@ -324,6 +324,14 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 
 17. **Tracking Volcano #5044 / #4690 / #3095 (passive)** — backend FIFO scheduler may simplify when upstream lands the fix for `JobPipelinedFn` not reserving idle resources for overdue PodGroups (the bug that forced our application-layer FIFO pivot in Phase 6). Cadence: skim the upstream issue every 6–8 weeks. Trigger to act (rewrite): when #5044 is closed AND the fix is in a Volcano release we can upgrade to. Spec rationale: `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md` §4.5/§4.6.
 
+18. **`@microlink/react-json-view` (frontend, JsonTreeView)** — fork of an unmaintained library. Dark-mode hotfix landed via theme-prop swap in PR #109 (`fix(frontend): JsonTreeView dark theme`). Follow-up: evaluate `react-json-view-lite` (CSS-vars-friendly, smaller bundle, supports keyboard navigation) once we have time. Owner: frontend.
+
+19. **RJSF v5 default templates not aligned with shadcn** — `.rjsf-wrap` was extended in PR #109 to push `text-foreground` / `text-muted-foreground` / `bg-background` / `border-input` onto RJSF's default-rendered DOM, fixing the Hyperparameters dark-mode bug. The right long-term fix is RJSF templates that match shadcn primitives end-to-end. Two options: (a) `@rjsf/shadcn` community package — evaluate maturity; (b) implement a custom template set under `frontend/src/components/forms/rjsf-templates/`. Both are deferred until visual regressions or template gaps make the CSS workaround insufficient. Owner: frontend.
+
+20. **maldet `BatchPredictor.params_schema` lacks `description` for `batch_size`** — Lolday auto-renders schema descriptions via RJSF, so help text for predict-stage params should ship from maldet upstream rather than being hardcoded on the platform side. Surfaced during PR #109's HelpHint review. Follow-up: open an issue against the maldet repo to add `description` for known predict / train / evaluate params. Owner: backend / maldet.
+
+21. **`_model_version_to_read` joins use INNER JOIN against `DetectorVersion`** — five+ call sites in `backend/app/routers/models_registry.py` join `DetectorVersion ON DetectorVersion.id == ModelVersion.detector_version_id` (PR #109). Today the FK has `ON DELETE CASCADE` so dangling rows can't exist. If a future change soft-deletes DetectorVersion (status flag) without cascading to ModelVersion, every model-version endpoint will silently 404 instead of returning a stale-but-readable record. Mitigation when that change lands: switch to LEFT OUTER JOIN with a coalesced `git_tag` of `"<deleted>"` so the UI can render historical jobs / models that referenced the now-deleted version. Owner: backend.
+
 ## 10. Common gotchas
 
 1. **SSH on server30** — see hard rule. Cilium 2026-03-31 incident in `docs/postmortems/2026-03-31-cilium-ssh-incident.md`.
