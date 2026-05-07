@@ -46,7 +46,7 @@ class RegisteredModel(Base):
         ForeignKey("detector.id", ondelete="RESTRICT"), nullable=False
     )
     description: Mapped[str | None] = mapped_column(Text)
-    tags: Mapped[dict] = mapped_column(_JSONB, default=dict, nullable=False)
+    tags: Mapped[dict[str, str]] = mapped_column(_JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -59,6 +59,7 @@ class RegisteredModel(Base):
             "owner_id", "detector_id", name="uq_registered_model_owner_detector"
         ),
         Index("ix_registered_model_owner", "owner_id"),
+        Index("ix_registered_model_detector", "detector_id"),
     )
 
     @property
@@ -102,12 +103,13 @@ class ModelVersion(Base):
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     last_transitioned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+        nullable=False,
     )
 
     registered_model: Mapped[RegisteredModel] = relationship()
@@ -155,7 +157,7 @@ class ModelTransitionLog(Base):
     actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text)
     transitioned_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     __table_args__ = (Index("ix_model_transition_version", "model_version_id"),)
