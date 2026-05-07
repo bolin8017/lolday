@@ -9,6 +9,7 @@ import {
   type JobType,
 } from "@/api/queries/jobs";
 import { useDetectorVersions } from "@/api/queries/detectors";
+import { useModelVersion } from "@/api/queries/models";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +52,18 @@ export function JobSubmitForm() {
   const { data: trainVersions } = useDetectorVersions(detectorId);
   const { data: derivedVersions } = useDetectorVersions(derivedDetectorId);
 
+  // Fetch the source-model version when prefilling from a previous inference
+  // job. Only evaluate/predict jobs carry a source_model_version_id; train jobs
+  // don't, so the hook stays disabled for them.
+  const { data: prefillVersion } = useModelVersion(
+    fromJob && ["evaluate", "predict"].includes(fromJob.type ?? "")
+      ? (fromJob.source_model_version_id ?? null)
+      : null,
+  );
+
+  // Effect 1: prefill scalar dataset ids and job type from ?from=<job_id>.
+  // Does not touch owner/name/detector fields — those come from the model
+  // version fetch below (Effect 2), which needs an async lookup.
   useEffect(() => {
     if (!fromJob) return;
     if (isJobType(fromJob.type)) setType(fromJob.type);
@@ -58,9 +71,20 @@ export function JobSubmitForm() {
     if (fromJob.test_dataset_id) setTestDatasetId(fromJob.test_dataset_id);
     if (fromJob.predict_dataset_id)
       setPredictDatasetId(fromJob.predict_dataset_id);
-    if (fromJob.source_model_version_id)
-      setSourceModelVersionId(fromJob.source_model_version_id);
   }, [fromJob]);
+
+  // Effect 2: once the prefill model version resolves, populate the four state
+  // pieces that InferenceSubForm requires to render the pre-selected model and
+  // auto-derive its detector. Separated from Effect 1 because it depends on an
+  // async fetch (useModelVersion) rather than data already on fromJob.
+  useEffect(() => {
+    if (!prefillVersion) return;
+    setSourceModelOwner(prefillVersion.owner);
+    setSourceModelName(prefillVersion.name);
+    setSourceModelVersionId(prefillVersion.id);
+    setDerivedDetectorId(prefillVersion.detector_id);
+    setDerivedDetectorVersionTag(prefillVersion.detector_version_tag);
+  }, [prefillVersion]);
 
   const versionsForSubmit =
     type === "train"

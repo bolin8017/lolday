@@ -60,6 +60,7 @@ export function useDetectorVersions(id: string) {
       if (error) throw error;
       return data;
     },
+    enabled: Boolean(id),
   });
 }
 
