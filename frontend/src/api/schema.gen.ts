@@ -1324,6 +1324,13 @@ export interface components {
             owner: string;
             /** Name */
             name: string;
+            /**
+             * Detector Id
+             * Format: uuid
+             */
+            detector_id: string;
+            /** Detector Version Tag */
+            detector_version_tag: string;
         };
         /**
          * ModelVersionStage
