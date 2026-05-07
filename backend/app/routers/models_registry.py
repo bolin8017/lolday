@@ -1,17 +1,26 @@
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
+import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
 from app.metrics import BACKEND_ERRORS
-from app.models import ModelTransitionLog, ModelVersion, User
-from app.models.model_registry import ModelVersionStage
+from app.models import (
+    Detector,
+    ModelTransitionLog,
+    ModelVersion,
+    ModelVersionStage,
+    ModelVersionVisibility,
+    RegisteredModel,
+    Role,
+    User,
+)
 from app.schemas.model_registry import (
     ModelTransitionRequest,
     ModelVersionList,
@@ -92,43 +101,84 @@ async def list_model_versions_by_filter(
 
 
 @router.get("", response_model=list[RegisteredModelSummary])
-async def list_registered_models(
+async def list_models(
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
+    owner: str | None = Query(default=None),
+    visibility: Literal["all", "public", "mine"] = Query(default="all"),
 ) -> list[RegisteredModelSummary]:
-    stmt = select(
-        ModelVersion.mlflow_name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T8
-        func.max(ModelVersion.mlflow_version).label("latest"),
-    ).group_by(ModelVersion.mlflow_name)  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T8
-    names = (await session.execute(stmt)).all()
+    """List registered models visible to the caller.
 
-    summaries = []
-    for name, latest in names:
-        latest_prod = (
-            await session.execute(
-                select(func.max(ModelVersion.mlflow_version)).where(
-                    ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T8
-                    ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
-                )
-            )
-        ).scalar_one()
-        latest_staging = (
-            await session.execute(
-                select(func.max(ModelVersion.mlflow_version)).where(
-                    ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T8
-                    ModelVersion.current_stage == ModelVersionStage.STAGING,
-                )
-            )
-        ).scalar_one()
-        summaries.append(
-            RegisteredModelSummary(  # type: ignore[call-arg]  # owner field added in T3; caller rewritten in T8
-                name=name,
-                latest_version=latest,
-                latest_production_version=latest_prod,
-                latest_staging_version=latest_staging,
-            )
+    Visibility rule (per-version, not per-model):
+    - Admins see all versions unconditionally.
+    - Everyone else sees versions that are PUBLIC or owned by themselves.
+    A model row is included only when at least one version passes the filter.
+
+    Query params:
+    - owner: filter by owner handle (post-visibility-filter).
+    - visibility: "all" (default), "public" (models with ≥1 public version),
+      "mine" (models owned by the caller).
+    """
+    visible: sa.ColumnElement[bool]
+    if user.role == Role.ADMIN:
+        visible = sa.true()
+    else:
+        visible = (ModelVersion.visibility == ModelVersionVisibility.PUBLIC) | (
+            ModelVersion.owner_id == user.id
         )
-    return summaries
+
+    stmt = (
+        select(
+            User.handle.label("owner"),
+            Detector.name.label("name"),
+            RegisteredModel.description,
+            RegisteredModel.tags,
+            func.max(ModelVersion.mlflow_version).label("latest_version"),
+            func.max(
+                case(
+                    (
+                        ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
+                        ModelVersion.mlflow_version,
+                    ),
+                    else_=None,
+                )
+            ).label("latest_production_version"),
+            func.max(
+                case(
+                    (
+                        ModelVersion.current_stage == ModelVersionStage.STAGING,
+                        ModelVersion.mlflow_version,
+                    ),
+                    else_=None,
+                )
+            ).label("latest_staging_version"),
+        )
+        .select_from(RegisteredModel)
+        .join(User, RegisteredModel.owner_id == User.id)
+        .join(Detector, RegisteredModel.detector_id == Detector.id)
+        .join(ModelVersion, ModelVersion.registered_model_id == RegisteredModel.id)
+        .where(visible)
+        .group_by(RegisteredModel.id, User.handle, Detector.name)
+    )
+
+    if owner is not None:
+        stmt = stmt.where(User.handle == owner)
+
+    if visibility == "public":
+        stmt = stmt.having(
+            func.count(
+                case(
+                    (ModelVersion.visibility == ModelVersionVisibility.PUBLIC, 1),
+                    else_=None,
+                )
+            )
+            > 0
+        )
+    elif visibility == "mine":
+        stmt = stmt.where(RegisteredModel.owner_id == user.id)
+
+    rows = (await session.execute(stmt)).all()
+    return [RegisteredModelSummary(**r._mapping) for r in rows]
 
 
 @router.get("/{name}", response_model=RegisteredModelSummary)
