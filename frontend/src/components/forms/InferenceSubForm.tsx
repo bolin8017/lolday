@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
 import {
@@ -42,17 +43,8 @@ interface Props {
   setConfig: (v: Record<string, unknown>) => void;
 }
 
-// TODO(plan-task-17): replace literal Chinese strings below with i18n keys:
-//   jobs.help.source_model
-//   jobs.help.override_detector_version
-//   jobs.inference.advanced_override
-const HELP_SOURCE_MODEL =
-  "已訓練好的模型；推論時會載入它的 weights。模型已綁定一個 detector，下方 Detector 區塊會自動帶入。";
-const HELP_OVERRIDE_DETECTOR_VERSION =
-  "預設使用模型訓練時的 detector version（保證可重現）。覆寫適用於 predict pipeline 有 bugfix、或想用較新的 evaluator 的情境。";
-const ADVANCED_OVERRIDE_LABEL = "進階：覆寫 detector version";
-
 export function InferenceSubForm(p: Props) {
+  const { t } = useTranslation();
   const { data: models } = useRegisteredModels();
   const { data: modelVersions } = useModelVersions(
     p.sourceModelOwner,
@@ -114,7 +106,7 @@ export function InferenceSubForm(p: Props) {
           <div>
             <div className="flex items-center gap-1">
               <Label>Source model</Label>
-              <HelpHint>{HELP_SOURCE_MODEL}</HelpHint>
+              <HelpHint>{t("jobs.help.source_model")}</HelpHint>
             </div>
             <Select
               value={
@@ -219,9 +211,9 @@ export function InferenceSubForm(p: Props) {
               ) : (
                 <ChevronRight className="h-4 w-4 mr-1" />
               )}
-              {ADVANCED_OVERRIDE_LABEL}
+              {t("jobs.inference.advanced_override")}
             </Button>
-            <HelpHint>{HELP_OVERRIDE_DETECTOR_VERSION}</HelpHint>
+            <HelpHint>{t("jobs.help.override_detector_version")}</HelpHint>
           </div>
         </CardContent>
       </Card>
