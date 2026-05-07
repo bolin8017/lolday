@@ -310,6 +310,7 @@ async def create_job(
         tags=[
             {"key": "mlflow.runName", "value": run_name},
             {"key": "maldet.action", "value": body.type.value},
+            {"key": "lolday.job_id", "value": str(job_id)},
             {"key": "lolday.user", "value": user.handle},
             {"key": "lolday.user_id", "value": str(user.id)},
             {"key": "lolday.detector_version", "value": detector_version_label},
