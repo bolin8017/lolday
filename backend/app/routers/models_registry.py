@@ -29,6 +29,7 @@ from app.schemas.model_registry import (
     ModelVersionVisibilityUpdate,
     RegisteredModelRead,
     RegisteredModelSummary,
+    RegisteredModelUpdate,
 )
 from app.services.mlflow_client import MlflowClient
 from app.services.model_registry import (
@@ -469,3 +470,36 @@ async def update_visibility(
     await session.commit()
     await session.refresh(mv)
     return ModelVersionRead.model_validate(mv)
+
+
+@router.patch("/{owner}/{name}", response_model=RegisteredModelRead)
+async def update_model(
+    owner: str,
+    name: str,
+    body: RegisteredModelUpdate,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+) -> RegisteredModelRead:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+    if body.description is not None:
+        rm.description = body.description
+    if body.tags is not None:
+        # Pydantic dict[str, str] schema validates value types;
+        # defensive check as belt-and-suspenders guard
+        for k, v in body.tags.items():
+            if not isinstance(v, str):
+                raise HTTPException(422, f"tag value for '{k}' must be string")
+        rm.tags = body.tags
+    await session.commit()
+    await session.refresh(rm)
+    summary = (await session.execute(_summary_query_for_rm(rm.id, user))).one()
+    return RegisteredModelRead(
+        owner=owner,
+        name=name,
+        description=rm.description,
+        tags=rm.tags,
+        latest_version=summary.latest_version,
+        latest_production_version=summary.latest_production_version,
+        latest_staging_version=summary.latest_staging_version,
+        created_at=rm.created_at,
+    )
