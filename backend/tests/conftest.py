@@ -899,7 +899,8 @@ async def job_factory(db_session):
 
 
 # ---------------------------------------------------------------------------
-# Shared model-registry fixtures (used by test_models_registry.py and others)
+# Shared model-registry fixtures (used by test_models_registry.py;
+# TODO: migrate test_models_{list,get,transition,…} to use this shared fixture)
 # ---------------------------------------------------------------------------
 
 
@@ -1084,4 +1085,7 @@ async def alice_client(populated):
         headers={"x-test-user-email": alice.email},
     ) as c:
         yield c
-    app.dependency_overrides.clear()
+    # Pop only the overrides this fixture set, not all (clear() wipes other
+    # fixtures' overrides if both are active in the same test).
+    app.dependency_overrides.pop(get_async_session, None)
+    app.dependency_overrides.pop(cf_access_user, None)
