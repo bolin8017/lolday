@@ -29,9 +29,6 @@ vi.mock("@/api/queries/detectors", () => ({
   useDetector: (id: string) => ({
     data: id === "det-rf" ? { id: "det-rf", display_name: "ELF RF" } : null,
   }),
-  useDetectorVersions: () => ({
-    data: { items: [{ id: "v1", git_tag: "v1.0.0", status: "active" }] },
-  }),
   useDetectorVersion: () => ({
     data: { manifest: { stages: { predict: { params_schema: {} } } } },
   }),
@@ -60,8 +57,6 @@ describe("InferenceSubForm", () => {
         setDerivedDetectorId={() => {}}
         derivedDetectorVersionTag=""
         setDerivedDetectorVersionTag={() => {}}
-        overrideDetectorVersion={false}
-        setOverrideDetectorVersion={() => {}}
         predictDatasetId=""
         setPredictDatasetId={() => {}}
         testDatasetId=""
@@ -75,7 +70,7 @@ describe("InferenceSubForm", () => {
     expect(srcModelTitles.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("renders Advanced override toggle (collapsed by default)", () => {
+  it("does not expose an override toggle (footgun removed)", () => {
     wrap(
       <InferenceSubForm
         type="predict"
@@ -89,8 +84,6 @@ describe("InferenceSubForm", () => {
         setDerivedDetectorId={() => {}}
         derivedDetectorVersionTag=""
         setDerivedDetectorVersionTag={() => {}}
-        overrideDetectorVersion={false}
-        setOverrideDetectorVersion={() => {}}
         predictDatasetId=""
         setPredictDatasetId={() => {}}
         testDatasetId=""
@@ -99,8 +92,36 @@ describe("InferenceSubForm", () => {
         setConfig={() => {}}
       />,
     );
+    // Detector version is rendered read-only; no override button exists.
     expect(
-      screen.getByRole("button", { name: /advanced.*override|進階.*覆寫/i }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /advanced.*override|進階.*覆寫/i }),
+    ).toBeNull();
+  });
+
+  it("renders the derived detector tag as read-only code", () => {
+    wrap(
+      <InferenceSubForm
+        type="predict"
+        sourceModelOwner="alice"
+        setSourceModelOwner={() => {}}
+        sourceModelName="elf-rf"
+        setSourceModelName={() => {}}
+        sourceModelVersionId=""
+        setSourceModelVersionId={() => {}}
+        derivedDetectorId="det-rf"
+        setDerivedDetectorId={() => {}}
+        derivedDetectorVersionTag="v1.0.0"
+        setDerivedDetectorVersionTag={() => {}}
+        predictDatasetId=""
+        setPredictDatasetId={() => {}}
+        testDatasetId=""
+        setTestDatasetId={() => {}}
+        config={{}}
+        setConfig={() => {}}
+      />,
+    );
+    // Tag appears inside <code>, not inside a <select>
+    const tag = screen.getByText("v1.0.0");
+    expect(tag.tagName.toLowerCase()).toBe("code");
   });
 });

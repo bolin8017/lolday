@@ -116,11 +116,7 @@
     "help": {
       "test_dataset_optional": "Optional. When provided, the run also computes final metrics and the confusion matrix. Skipping it only trains the model.",
       "priority_admin": "Raising priority halts dispatch of lower-priority queued jobs until this one reaches Volcano. Already-running jobs are unaffected.",
-      "source_model": "The trained model loaded for inference. Each model is bound to a detector; the Detector card below auto-fills from the chosen model.",
-      "override_detector_version": "By default the run uses the detector version the model was trained with (reproducible). Override is for cases like a bug-fixed predict pipeline or running against a newer evaluator."
-    },
-    "inference": {
-      "advanced_override": "Advanced: override detector version"
+      "source_model": "The trained model loaded for inference. Each model is bound to a detector; the Detector card below auto-fills from the chosen model."
     }
   },
   "models": {
