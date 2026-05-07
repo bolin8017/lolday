@@ -361,6 +361,9 @@ def mock_mlflow(request, monkeypatch):
         exp_counter = 0
         run_counter = 0
 
+        def __init__(self) -> None:
+            self.rename_calls: list[tuple[str, str]] = []
+
         async def get_or_create_experiment(self, name, artifact_location=None):
             _Stub.exp_counter += 1
             return f"exp-{_Stub.exp_counter}"
@@ -399,6 +402,13 @@ def mock_mlflow(request, monkeypatch):
         async def create_model_version(self, name, source, run_id):
             return {"name": name, "version": "1", "run_id": run_id}
 
+        async def rename_registered_model(self, name: str, new_name: str) -> dict:
+            self.rename_calls.append((name, new_name))
+            return {"name": new_name}
+
+        async def delete_registered_model(self, name: str) -> None:
+            pass
+
         async def search_registered_models(self, max_results=100):
             return []
 
@@ -425,7 +435,7 @@ def mock_mlflow(request, monkeypatch):
     monkeypatch.setattr(jobs_mod, "MlflowClient", lambda *a, **kw: stub)
     monkeypatch.setattr(mr_mod, "MlflowClient", lambda *a, **kw: stub)
     monkeypatch.setattr(ep_mod, "MlflowClient", lambda *a, **kw: stub)
-    yield
+    yield stub
     if ep_mod.MlflowClient is not real_mlflow_cls:
         ep_mod.MlflowClient = real_mlflow_cls
 

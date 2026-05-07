@@ -13,6 +13,7 @@ from app.db import get_async_session
 from app.metrics import BACKEND_ERRORS
 from app.models import (
     Detector,
+    ModelOwnerTransferLog,
     ModelTransitionLog,
     ModelVersion,
     ModelVersionStage,
@@ -27,6 +28,7 @@ from app.schemas.model_registry import (
     ModelVersionList,
     ModelVersionRead,
     ModelVersionVisibilityUpdate,
+    OwnerTransferRequest,
     RegisteredModelRead,
     RegisteredModelSummary,
     RegisteredModelUpdate,
@@ -470,6 +472,81 @@ async def update_visibility(
     await session.commit()
     await session.refresh(mv)
     return ModelVersionRead.model_validate(mv)
+
+
+@router.patch("/{owner}/{name}/owner", response_model=RegisteredModelRead)
+async def transfer_owner(
+    owner: str,
+    name: str,
+    body: OwnerTransferRequest,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+    user: Annotated[User, Depends(current_active_user)],
+    client: Annotated[MlflowClient, Depends(_mlflow)],
+) -> RegisteredModelRead:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
+
+    new_owner = (
+        await session.execute(select(User).where(User.handle == body.new_owner_handle))
+    ).scalar_one_or_none()
+    if new_owner is None:
+        raise HTTPException(422, f"user '{body.new_owner_handle}' not found")
+    if new_owner.id == rm.owner_id:
+        raise HTTPException(422, "new owner is current owner")
+
+    # Collision check: target user already owns a model for the same detector?
+    collision = (
+        await session.execute(
+            select(RegisteredModel).where(
+                RegisteredModel.owner_id == new_owner.id,
+                RegisteredModel.detector_id == rm.detector_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if collision is not None:
+        raise HTTPException(
+            409,
+            f"'{body.new_owner_handle}' already owns a model for this detector",
+        )
+
+    old_owner_id = rm.owner_id
+
+    # Capture handle + detector name explicitly to avoid async lazy-load on relationship.
+    old_owner_handle = (
+        await session.execute(select(User.handle).where(User.id == rm.owner_id))
+    ).scalar_one()
+    detector_name = (
+        await session.execute(
+            select(Detector.name).where(Detector.id == rm.detector_id)
+        )
+    ).scalar_one()
+    old_mlflow_name = f"{old_owner_handle}/{detector_name}"
+    new_mlflow_name = f"{new_owner.handle}/{detector_name}"
+
+    rm.owner_id = new_owner.id
+    await client.rename_registered_model(old_mlflow_name, new_mlflow_name)
+
+    session.add(
+        ModelOwnerTransferLog(
+            registered_model_id=rm.id,
+            from_owner_id=old_owner_id,
+            to_owner_id=new_owner.id,
+            actor_id=user.id,
+            comment=body.comment,
+        )
+    )
+    await session.commit()
+    await session.refresh(rm)
+    summary = (await session.execute(_summary_query_for_rm(rm.id, user))).one()
+    return RegisteredModelRead(
+        owner=new_owner.handle,
+        name=name,
+        description=rm.description,
+        tags=rm.tags,
+        latest_version=summary.latest_version,
+        latest_production_version=summary.latest_production_version,
+        latest_staging_version=summary.latest_staging_version,
+        created_at=rm.created_at,
+    )
 
 
 @router.patch("/{owner}/{name}", response_model=RegisteredModelRead)
