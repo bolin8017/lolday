@@ -136,11 +136,12 @@ const router = createBrowserRouter([
             }),
           },
           {
-            path: ":name",
+            path: ":owner/:name",
             lazy: async () => ({
-              Component: (await import("./routes/_authed.models.$name"))
+              Component: (await import("./routes/_authed.models.$owner.$name"))
                 .default,
-              handle: (await import("./routes/_authed.models.$name")).handle,
+              handle: (await import("./routes/_authed.models.$owner.$name"))
+                .handle,
             }),
           },
         ],

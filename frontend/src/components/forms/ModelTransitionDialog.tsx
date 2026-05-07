@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTransitionModelVersion, type Stage } from "@/api/queries/models";
 import { Button } from "@/components/ui/button";
 import {
@@ -7,7 +7,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -21,6 +20,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface Props {
+  open: boolean;
+  onClose: () => void;
   owner: string;
   modelName: string;
   version: number;
@@ -36,23 +37,28 @@ const TARGET_STAGES: Exclude<Stage, "None">[] = [
 ];
 
 export function ModelTransitionDialog({
+  open,
+  onClose,
   owner,
   modelName,
   version,
   currentStage,
   hasExistingProd,
 }: Props) {
-  const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<Exclude<Stage, "None">>("Production");
   const [comment, setComment] = useState("");
   const mut = useTransitionModelVersion();
+
+  // Reset form state each time the dialog opens
+  useEffect(() => {
+    if (open) {
+      setTarget("Production");
+      setComment("");
+    }
+  }, [open]);
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          Transition
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -96,11 +102,7 @@ export function ModelTransitionDialog({
           )}
         </div>
         <DialogFooter>
-          <Button
-            variant="ghost"
-            className="h-11"
-            onClick={() => setOpen(false)}
-          >
+          <Button variant="ghost" className="h-11" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -114,7 +116,7 @@ export function ModelTransitionDialog({
                 toStage: target,
                 comment,
               });
-              setOpen(false);
+              onClose();
             }}
           >
             Confirm
