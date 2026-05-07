@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useTransitionModel, type Stage } from "@/api/queries/models";
+import { useTransitionModelVersion, type Stage } from "@/api/queries/models";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface Props {
+  owner: string;
   modelName: string;
   version: number;
   currentStage: Stage;
@@ -35,6 +36,7 @@ const TARGET_STAGES: Exclude<Stage, "None">[] = [
 ];
 
 export function ModelTransitionDialog({
+  owner,
   modelName,
   version,
   currentStage,
@@ -43,7 +45,7 @@ export function ModelTransitionDialog({
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<Exclude<Stage, "None">>("Production");
   const [comment, setComment] = useState("");
-  const mut = useTransitionModel(modelName);
+  const mut = useTransitionModelVersion();
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -105,7 +107,13 @@ export function ModelTransitionDialog({
             disabled={mut.isPending}
             className="h-11"
             onClick={async () => {
-              await mut.mutateAsync({ version, target_stage: target, comment });
+              await mut.mutateAsync({
+                owner,
+                name: modelName,
+                version,
+                toStage: target,
+                comment,
+              });
               setOpen(false);
             }}
           >

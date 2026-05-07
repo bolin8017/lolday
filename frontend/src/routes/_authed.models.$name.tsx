@@ -16,8 +16,12 @@ export const handle = { breadcrumb: "Model" };
 export default function ModelDetailPage() {
   const params = useParams();
   const name = decodeURIComponent(params.name ?? "");
-  const { data: model } = useModelDetail(name);
-  const { data: versionsData } = useModelVersions(name);
+  // TODO(T26): this route is replaced by _authed.models.$owner.$name.tsx;
+  // owner param will come from the URL. Using empty string here so typecheck
+  // passes until T26 lands.
+  const owner = "";
+  const { data: model } = useModelDetail(owner, name);
+  const { data: versionsData } = useModelVersions(owner, name);
   const versionsArr = (versionsData as { items?: ModelVersion[] })?.items ?? [];
   const existingProd = versionsArr.find(
     (v) => v.current_stage === "Production",
@@ -53,6 +57,7 @@ export default function ModelDetailPage() {
       header: "",
       cell: ({ row }) => (
         <ModelTransitionDialog
+          owner={owner}
           modelName={name}
           version={row.original.mlflow_version}
           currentStage={row.original.current_stage as Stage}
