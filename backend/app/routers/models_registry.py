@@ -4,13 +4,12 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
-from app.metrics import BACKEND_ERRORS
 from app.models import (
     Detector,
     ModelOwnerTransferLog,
@@ -306,18 +305,23 @@ async def get_version(
     return ModelVersionRead.model_validate(mv)
 
 
-@router.post("/{name}/versions/{version}/transition", response_model=ModelVersionRead)
+@router.post(
+    "/{owner}/{name}/versions/{version}/transition",
+    response_model=ModelVersionRead,
+)
 async def transition_model_version(
+    owner: str,
     name: str,
     version: int,
     body: ModelTransitionRequest,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
 ) -> ModelVersionRead:
+    rm = await resolve_registered_model(owner, name, session, user, write=True)
     mv = (
         await session.execute(
             select(ModelVersion).where(
-                ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T14
+                ModelVersion.registered_model_id == rm.id,
                 ModelVersion.mlflow_version == version,
             )
         )
@@ -337,11 +341,22 @@ async def transition_model_version(
 
     from_stage = mv.current_stage
 
+    # Capture mlflow_name for the MLflow API call (avoid lazy-load on relationships)
+    detector_name = (
+        await session.execute(
+            select(Detector.name).where(Detector.id == rm.detector_id)
+        )
+    ).scalar_one()
+    owner_handle = (
+        await session.execute(select(User.handle).where(User.id == rm.owner_id))
+    ).scalar_one()
+    mlflow_name = f"{owner_handle}/{detector_name}"
+
     client = _mlflow()
     archive = body.to_stage == ModelVersionStage.PRODUCTION
     try:
         await client.transition_model_version_stage(
-            name=name,
+            name=mlflow_name,
             version=str(version),
             stage=body.to_stage.value,
             archive_existing_versions=archive,
@@ -355,11 +370,12 @@ async def transition_model_version(
     mv.last_transitioned_at = datetime.now(UTC)
 
     if archive:
+        # Auto-archive other Production versions in the same RegisteredModel namespace
         others = (
             (
                 await session.execute(
                     select(ModelVersion).where(
-                        ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T14
+                        ModelVersion.registered_model_id == rm.id,
                         ModelVersion.id != mv.id,
                         ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
                     )
@@ -394,42 +410,6 @@ async def transition_model_version(
     await session.commit()
     await session.refresh(mv)
     return ModelVersionRead.model_validate(mv)
-
-
-@router.delete("/{name}/versions/{version}", status_code=204)
-async def delete_model_version(
-    name: str,
-    version: int,
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-    user: Annotated[User, Depends(current_active_user)],
-) -> Response:
-    mv = (
-        await session.execute(
-            select(ModelVersion).where(
-                ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T13
-                ModelVersion.mlflow_version == version,
-            )
-        )
-    ).scalar_one_or_none()
-    if mv is None:
-        raise HTTPException(status_code=404, detail="model version not found")
-    if mv.owner_id != user.id and user.role.value != "admin":
-        raise HTTPException(status_code=403, detail="owner or admin only")
-    if mv.current_stage not in (ModelVersionStage.NONE, ModelVersionStage.ARCHIVED):
-        raise HTTPException(status_code=409, detail="must be stage=None or Archived")
-
-    try:
-        await _mlflow().delete_model_version(name, str(version))
-    except Exception:
-        BACKEND_ERRORS.labels(stage="mlflow_mv_delete").inc()
-        logger.exception(
-            "MLflow delete_model_version failed",
-            extra={"mlflow_name": name, "mlflow_version": str(version)},
-        )
-
-    await session.delete(mv)
-    await session.commit()
-    return Response(status_code=204)
 
 
 @router.patch(
