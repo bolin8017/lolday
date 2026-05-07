@@ -241,24 +241,34 @@ EOF
 )
 
 # Upsert: check existence, then PATCH or CREATE.
+# Secret is replicated into BOTH namespaces:
+#   - lolday: backend pod + scripts/build-helpers.sh both pull from here
+#   - lolday-jobs: detector build BuildKit pods + train/test/predict vcjobs
+#                  mount this for `docker push` to Harbor (Phase 1, 2026-05-05
+#                  moved workload pods into lolday-jobs ns; the secret didn't
+#                  follow, causing every detector build to hang Init:0/2 with
+#                  `MountVolume.SetUp failed for volume "harbor-docker-cfg"`).
 PATCH_FILE=$(mktemp /tmp/recover-harbor-patch-XXXX.json)
 chmod 600 "$PATCH_FILE"
 printf '[{"op":"replace","path":"/data/.dockerconfigjson","value":"%s"}]' \
   "$DOCKER_CFG_B64" > "$PATCH_FILE"
 
-if kubectl -n lolday get secret harbor-push-cred >/dev/null 2>&1; then
-  kubectl -n lolday patch secret harbor-push-cred --type=json --patch-file "$PATCH_FILE"
-else
-  echo "  harbor-push-cred not found — creating"
-  DECODED=$(mktemp /tmp/recover-harbor-dcfg-XXXX.json)
-  chmod 600 "$DECODED"
-  echo "$DOCKER_CFG_B64" | base64 -d > "$DECODED"
-  kubectl -n lolday create secret generic harbor-push-cred \
-    --type=kubernetes.io/dockerconfigjson \
-    --from-file=.dockerconfigjson="$DECODED"
-  rm -f "$DECODED"
-fi
-rm -f "$PATCH_FILE"
+DECODED=$(mktemp /tmp/recover-harbor-dcfg-XXXX.json)
+chmod 600 "$DECODED"
+echo "$DOCKER_CFG_B64" | base64 -d > "$DECODED"
+
+for NS in lolday lolday-jobs; do
+  if kubectl -n "$NS" get secret harbor-push-cred >/dev/null 2>&1; then
+    kubectl -n "$NS" patch secret harbor-push-cred --type=json --patch-file "$PATCH_FILE"
+  else
+    echo "  $NS/harbor-push-cred not found — creating"
+    kubectl -n "$NS" create secret generic harbor-push-cred \
+      --type=kubernetes.io/dockerconfigjson \
+      --from-file=.dockerconfigjson="$DECODED"
+  fi
+done
+
+rm -f "$DECODED" "$PATCH_FILE"
 
 # ---------------------------------------------------- 5. build + push core images
 echo
