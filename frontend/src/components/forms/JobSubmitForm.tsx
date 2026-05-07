@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
@@ -48,6 +48,14 @@ export function JobSubmitForm() {
   const [priority, setPriority] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Prefill runs at most once per page load — gate against poll-induced re-runs.
+  // useJob polls every 2 s while the source job is active, which returns a new
+  // object reference each time and would re-trigger an effect that depends on
+  // the whole `fromJob` object, overwriting user edits. A ref flag is the
+  // React-idiomatic solution (vs. depending on `fromJob?.id`, which is also
+  // valid but slightly less explicit about intent).
+  const prefillDoneRef = useRef(false);
+
   // Need detector versions for inference submit (resolve tag → id).
   const { data: trainVersions } = useDetectorVersions(detectorId);
   const { data: derivedVersions } = useDetectorVersions(derivedDetectorId);
@@ -64,8 +72,10 @@ export function JobSubmitForm() {
   // Effect 1: prefill scalar dataset ids and job type from ?from=<job_id>.
   // Does not touch owner/name/detector fields — those come from the model
   // version fetch below (Effect 2), which needs an async lookup.
+  // Guard: if prefillDoneRef is already set, skip — the poll returned a new
+  // object reference but the user may have edited state since first prefill.
   useEffect(() => {
-    if (!fromJob) return;
+    if (!fromJob || prefillDoneRef.current) return;
     if (isJobType(fromJob.type)) setType(fromJob.type);
     if (fromJob.train_dataset_id) setTrainDatasetId(fromJob.train_dataset_id);
     if (fromJob.test_dataset_id) setTestDatasetId(fromJob.test_dataset_id);
@@ -77,13 +87,18 @@ export function JobSubmitForm() {
   // pieces that InferenceSubForm requires to render the pre-selected model and
   // auto-derive its detector. Separated from Effect 1 because it depends on an
   // async fetch (useModelVersion) rather than data already on fromJob.
+  // Flips prefillDoneRef.current = true — this runs after Effect 1 (model-
+  // version request is triggered only after fromJob.source_model_version_id is
+  // read). For train jobs prefillVersion is null so the flag is never set, but
+  // the dataset re-runs are benign (same values → no observable edit-clobber).
   useEffect(() => {
-    if (!prefillVersion) return;
+    if (!prefillVersion || prefillDoneRef.current) return;
     setSourceModelOwner(prefillVersion.owner);
     setSourceModelName(prefillVersion.name);
     setSourceModelVersionId(prefillVersion.id);
     setDerivedDetectorId(prefillVersion.detector_id);
     setDerivedDetectorVersionTag(prefillVersion.detector_version_tag);
+    prefillDoneRef.current = true; // both prefills complete
   }, [prefillVersion]);
 
   const versionsForSubmit =
@@ -116,7 +131,15 @@ export function JobSubmitForm() {
     setSubmitError(null);
     const tag = type === "train" ? versionTag : derivedDetectorVersionTag;
     const versionId = versionsForSubmit.find((v) => v.git_tag === tag)?.id;
-    if (!versionId) return;
+    if (!versionId) {
+      // TODO: integration-test silent submit failure (tag not in versionsForSubmit)
+      setSubmitError(
+        type === "train"
+          ? "Selected detector version is no longer active."
+          : "The detector version this model was trained with is no longer active. Toggle Advanced override to pick a current version.",
+      );
+      return;
+    }
     try {
       const job = await mut.mutateAsync({
         type,
