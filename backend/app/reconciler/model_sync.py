@@ -30,7 +30,7 @@ async def sync_model_versions(session: AsyncSession) -> None:
     by_key = {(m["name"], int(m["version"])): m for m in remote}
 
     for mv in all_local:
-        rem = by_key.get((mv.mlflow_name, mv.mlflow_version))
+        rem = by_key.get((mv.mlflow_name, mv.mlflow_version))  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel.mlflow_name (property); rewrite in T15
         if rem is None:
             continue
         remote_stage = rem.get("current_stage", "None")

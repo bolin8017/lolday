@@ -97,9 +97,9 @@ async def list_registered_models(
     user: Annotated[User, Depends(current_active_user)],
 ) -> list[RegisteredModelSummary]:
     stmt = select(
-        ModelVersion.mlflow_name,
+        ModelVersion.mlflow_name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T8
         func.max(ModelVersion.mlflow_version).label("latest"),
-    ).group_by(ModelVersion.mlflow_name)
+    ).group_by(ModelVersion.mlflow_name)  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T8
     names = (await session.execute(stmt)).all()
 
     summaries = []
@@ -107,7 +107,7 @@ async def list_registered_models(
         latest_prod = (
             await session.execute(
                 select(func.max(ModelVersion.mlflow_version)).where(
-                    ModelVersion.mlflow_name == name,
+                    ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T8
                     ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
                 )
             )
@@ -115,7 +115,7 @@ async def list_registered_models(
         latest_staging = (
             await session.execute(
                 select(func.max(ModelVersion.mlflow_version)).where(
-                    ModelVersion.mlflow_name == name,
+                    ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T8
                     ModelVersion.current_stage == ModelVersionStage.STAGING,
                 )
             )
@@ -138,7 +138,7 @@ async def get_registered_model(
     user: Annotated[User, Depends(current_active_user)],
 ) -> RegisteredModelSummary:
     stmt = select(func.max(ModelVersion.mlflow_version)).where(
-        ModelVersion.mlflow_name == name,
+        ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T9
     )
     latest = (await session.execute(stmt)).scalar_one()
     if latest is None:
@@ -146,7 +146,7 @@ async def get_registered_model(
     latest_prod = (
         await session.execute(
             select(func.max(ModelVersion.mlflow_version)).where(
-                ModelVersion.mlflow_name == name,
+                ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T9
                 ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
             )
         )
@@ -154,7 +154,7 @@ async def get_registered_model(
     latest_staging = (
         await session.execute(
             select(func.max(ModelVersion.mlflow_version)).where(
-                ModelVersion.mlflow_name == name,
+                ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T9
                 ModelVersion.current_stage == ModelVersionStage.STAGING,
             )
         )
@@ -176,7 +176,7 @@ async def list_model_versions(
     page_size: int = Query(25, ge=1, le=100),
     stage: ModelVersionStage | None = None,
 ) -> ModelVersionList:
-    filters = [ModelVersion.mlflow_name == name]
+    filters = [ModelVersion.mlflow_name == name]  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T9
     if stage is not None:
         filters.append(ModelVersion.current_stage == stage)
 
@@ -216,7 +216,7 @@ async def get_model_version(
     mv = (
         await session.execute(
             select(ModelVersion).where(
-                ModelVersion.mlflow_name == name,
+                ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T9
                 ModelVersion.mlflow_version == version,
             )
         )
@@ -237,7 +237,7 @@ async def transition_model_version(
     mv = (
         await session.execute(
             select(ModelVersion).where(
-                ModelVersion.mlflow_name == name,
+                ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T14
                 ModelVersion.mlflow_version == version,
             )
         )
@@ -279,7 +279,7 @@ async def transition_model_version(
             (
                 await session.execute(
                     select(ModelVersion).where(
-                        ModelVersion.mlflow_name == name,
+                        ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T14
                         ModelVersion.id != mv.id,
                         ModelVersion.current_stage == ModelVersionStage.PRODUCTION,
                     )
@@ -326,7 +326,7 @@ async def delete_model_version(
     mv = (
         await session.execute(
             select(ModelVersion).where(
-                ModelVersion.mlflow_name == name,
+                ModelVersion.mlflow_name == name,  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel; rewrite in T13
                 ModelVersion.mlflow_version == version,
             )
         )

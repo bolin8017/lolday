@@ -16,9 +16,13 @@ from app.models.job import (
 )
 from app.models.job_event import JobEvent
 from app.models.model_registry import (
+    ModelOwnerTransferLog,
     ModelTransitionLog,
     ModelVersion,
     ModelVersionStage,
+    ModelVersionVisibility,
+    ModelVisibilityLog,
+    RegisteredModel,
 )
 from app.models.user import Base, Role, User
 
@@ -37,9 +41,13 @@ __all__ = [
     "JobEvent",
     "JobStatus",
     "JobType",
+    "ModelOwnerTransferLog",
     "ModelTransitionLog",
     "ModelVersion",
     "ModelVersionStage",
+    "ModelVersionVisibility",
+    "ModelVisibilityLog",
+    "RegisteredModel",
     "ResourceProfile",
     "Role",
     "User",
