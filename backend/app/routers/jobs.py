@@ -22,7 +22,15 @@ from app.config import settings
 from app.db import async_session_maker, get_async_session
 from app.deps import require_role
 from app.metrics import BACKEND_ERRORS, PRIORITY_BUMP_TOTAL
-from app.models import DatasetConfig, DetectorVersion, Job, JobEvent, ModelVersion, User
+from app.models import (
+    DatasetConfig,
+    DetectorVersion,
+    Job,
+    JobEvent,
+    ModelVersion,
+    ModelVersionVisibility,
+    User,
+)
 from app.models.dataset import DatasetVisibility
 from app.models.job import NON_TERMINAL_STATUSES, JobStatus, JobType
 from app.models.user import Role
@@ -77,6 +85,31 @@ async def _load_dataset(
     ):
         raise HTTPException(status_code=422, detail=f"{field}: dataset not accessible")
     return ds
+
+
+async def _load_model_version_for_predict(
+    mv_id: uuid.UUID | None, session: AsyncSession, user: User
+) -> ModelVersion | None:
+    """Validate access to a ``source_model_version_id`` for a predict job.
+
+    Mirrors ``_load_dataset``: 422 if not found OR if the version is private
+    and the caller is not the owner / admin (hide-existence variant for the
+    job-validation context — the dataset helper uses the same status code).
+    """
+    if mv_id is None:
+        return None
+    mv = await session.get(ModelVersion, mv_id)
+    if mv is None:
+        raise HTTPException(status_code=422, detail="source_model_version not found")
+    if (
+        mv.visibility == ModelVersionVisibility.PRIVATE
+        and mv.owner_id != user.id
+        and user.role.value != "admin"
+    ):
+        raise HTTPException(
+            status_code=422, detail="source_model_version not accessible"
+        )
+    return mv
 
 
 def _build_job_read_with_defaults(job: Job, manifest: dict[str, Any] | None) -> JobRead:
@@ -134,13 +167,9 @@ async def create_job(
     )
 
     # 3. source model
-    source_model = None
-    if body.source_model_version_id is not None:
-        source_model = await session.get(ModelVersion, body.source_model_version_id)
-        if source_model is None:
-            raise HTTPException(
-                status_code=422, detail="source_model_version not found"
-            )
+    source_model = await _load_model_version_for_predict(
+        body.source_model_version_id, session, user
+    )
 
     # 4. Manifest pre-flight (resource_profile / dataset_contract / stage)
     if dv.manifest is None:
