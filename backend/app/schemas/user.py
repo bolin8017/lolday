@@ -33,6 +33,7 @@ class UserRead(BaseModel):
 
     id: uuid.UUID
     email: str
+    handle: str
     role: Role
     display_name: str | None = None
     discord_user_id: str | None = None

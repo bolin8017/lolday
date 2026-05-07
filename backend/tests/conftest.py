@@ -41,8 +41,20 @@ async def _make_user(
         ).scalar_one_or_none()
         if existing is not None:
             return existing
+        from app.services.user_handle import (
+            derive_handle_from_email,
+            next_unique_handle,
+        )
+        from sqlalchemy import select as _select
+
+        existing_handles = set(
+            (await session.execute(_select(User.handle))).scalars().all()
+        )
+        base_handle = derive_handle_from_email(email)
+        handle = next_unique_handle(base_handle, existing=existing_handles)
         user = User(
             email=email,
+            handle=handle,
             role=role,
             display_name=email.split("@", 1)[0],
         )

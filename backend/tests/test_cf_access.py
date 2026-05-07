@@ -173,8 +173,8 @@ def test_verify_cf_token_rejects_token_signed_by_different_key(rsa_keypair):
 
 
 async def test_get_or_create_user_creates_new_row_with_defaults(db_session):
-    """First visit by a new email auto-provisions a User with role=USER
-    and display_name derived from email local-part."""
+    """First visit by a new email auto-provisions a User with role=USER,
+    display_name and handle derived from email local-part."""
     from app.auth.cf_access import get_or_create_user_by_email
     from app.models import Role, User
     from sqlalchemy import select
@@ -184,6 +184,7 @@ async def test_get_or_create_user_creates_new_row_with_defaults(db_session):
     assert user.email == "newbie@example.com"
     assert user.role == Role.USER
     assert user.display_name == "newbie"
+    assert user.handle == "newbie"
 
     row = (
         await db_session.execute(select(User).where(User.email == "newbie@example.com"))
@@ -309,3 +310,36 @@ async def test_cf_access_user_dev_mode_bypasses_jwt(db_session, monkeypatch):
 
     assert user.email == "dev@local"
     assert user.role.value == "user"
+
+
+async def test_first_login_derives_handle(db_session):
+    """New user gets a handle derived from their email prefix."""
+    from app.auth.cf_access import get_or_create_user_by_email
+
+    user = await get_or_create_user_by_email(db_session, "newuser@example.com")
+
+    assert user.email == "newuser@example.com"
+    assert user.handle == "newuser"
+
+
+async def test_handle_collision_appends_suffix(db_session):
+    """When the derived handle collides, a -N suffix is appended."""
+    from app.auth.cf_access import get_or_create_user_by_email
+    from app.models import Role, User
+
+    # Pre-create a user occupying "alice"
+    db_session.add(
+        User(
+            email="alice@first.com",
+            handle="alice",
+            role=Role.USER,
+            display_name="Alice First",
+        )
+    )
+    await db_session.commit()
+
+    # Second user with the same email prefix logs in
+    user = await get_or_create_user_by_email(db_session, "alice@second.com")
+
+    assert user.email == "alice@second.com"
+    assert user.handle == "alice-2"
