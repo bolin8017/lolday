@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useTransitionModel, type Stage } from "@/api/queries/models";
+import { useState, useEffect } from "react";
+import { useTransitionModelVersion, type Stage } from "@/api/queries/models";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -7,7 +7,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -21,6 +20,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface Props {
+  open: boolean;
+  onClose: () => void;
+  owner: string;
   modelName: string;
   version: number;
   currentStage: Stage;
@@ -35,22 +37,28 @@ const TARGET_STAGES: Exclude<Stage, "None">[] = [
 ];
 
 export function ModelTransitionDialog({
+  open,
+  onClose,
+  owner,
   modelName,
   version,
   currentStage,
   hasExistingProd,
 }: Props) {
-  const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<Exclude<Stage, "None">>("Production");
   const [comment, setComment] = useState("");
-  const mut = useTransitionModel(modelName);
+  const mut = useTransitionModelVersion();
+
+  // Reset form state each time the dialog opens
+  useEffect(() => {
+    if (open) {
+      setTarget("Production");
+      setComment("");
+    }
+  }, [open]);
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline">
-          Transition
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -94,19 +102,21 @@ export function ModelTransitionDialog({
           )}
         </div>
         <DialogFooter>
-          <Button
-            variant="ghost"
-            className="h-11"
-            onClick={() => setOpen(false)}
-          >
+          <Button variant="ghost" className="h-11" onClick={onClose}>
             Cancel
           </Button>
           <Button
             disabled={mut.isPending}
             className="h-11"
             onClick={async () => {
-              await mut.mutateAsync({ version, target_stage: target, comment });
-              setOpen(false);
+              await mut.mutateAsync({
+                owner,
+                name: modelName,
+                version,
+                toStage: target,
+                comment,
+              });
+              onClose();
             }}
           >
             Confirm

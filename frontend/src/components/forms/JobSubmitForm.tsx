@@ -47,6 +47,7 @@ export function JobSubmitForm() {
   const [trainDatasetId, setTrainDatasetId] = useState("");
   const [testDatasetId, setTestDatasetId] = useState("");
   const [predictDatasetId, setPredictDatasetId] = useState("");
+  const [sourceModelOwner, setSourceModelOwner] = useState("");
   const [sourceModelName, setSourceModelName] = useState("");
   const [sourceModelVersionId, setSourceModelVersionId] = useState("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
@@ -64,7 +65,10 @@ export function JobSubmitForm() {
   const stageSchema = stages?.[type]?.params_schema;
   const { data: datasets } = useDatasets("all");
   const { data: models } = useRegisteredModels();
-  const { data: modelVersions } = useModelVersions(sourceModelName);
+  const { data: modelVersions } = useModelVersions(
+    sourceModelOwner,
+    sourceModelName,
+  );
 
   // Prefill from previous job via ?from=
   useEffect(() => {
@@ -87,7 +91,8 @@ export function JobSubmitForm() {
       | { id: string; git_tag: string; status: string }[]
       | undefined) ??
     [];
-  const modelsArr = (models as { name: string }[] | undefined) ?? [];
+  const modelsArr =
+    (models as { owner: string; name: string }[] | undefined) ?? [];
   const modelVersionsArr =
     (
       modelVersions as {
@@ -261,9 +266,15 @@ export function JobSubmitForm() {
               <div>
                 <Label>Source model</Label>
                 <Select
-                  value={sourceModelName}
+                  value={
+                    sourceModelOwner
+                      ? `${sourceModelOwner}/${sourceModelName}`
+                      : ""
+                  }
                   onValueChange={(v) => {
-                    setSourceModelName(v);
+                    const [o, ...rest] = v.split("/");
+                    setSourceModelOwner(o ?? "");
+                    setSourceModelName(rest.join("/"));
                     setSourceModelVersionId("");
                   }}
                 >
@@ -272,8 +283,11 @@ export function JobSubmitForm() {
                   </SelectTrigger>
                   <SelectContent>
                     {modelsArr.map((m) => (
-                      <SelectItem key={m.name} value={m.name}>
-                        {m.name}
+                      <SelectItem
+                        key={`${m.owner}/${m.name}`}
+                        value={`${m.owner}/${m.name}`}
+                      >
+                        {m.owner}/{m.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

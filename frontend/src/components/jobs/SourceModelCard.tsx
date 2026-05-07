@@ -43,10 +43,10 @@ export function SourceModelCard({
         <div>
           <span className="text-muted-foreground">Model:</span>{" "}
           <Link
-            to={`/models/${mv.mlflow_name}`}
+            to={`/models/${mv.owner}/${mv.name}`}
             className="text-primary hover:underline"
           >
-            {mv.mlflow_name}
+            {`${mv.owner}/${mv.name}`}
           </Link>
         </div>
         <div>

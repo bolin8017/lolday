@@ -123,7 +123,58 @@
       "stagingTooltip": "候選版本，等待驗證。升 Production 前的暫存階段。",
       "productionTooltip": "目前線上服務版本。同一模型同時只允許一個 Production 版本。"
     },
-    "notPromoted": "尚未升等"
+    "notPromoted": "尚未升等",
+    "owner": "擁有者",
+    "filter": {
+      "all": "全部",
+      "public": "公開",
+      "mine": "我的"
+    },
+    "visibility": {
+      "public": "公開",
+      "private": "私有",
+      "publicTooltip": "所有登入用戶皆可檢視與使用。",
+      "privateTooltip": "只有你（擁有者）和管理員看得到、用得到此版本。",
+      "makePublic": "改為公開",
+      "makePrivate": "改為私有",
+      "warningPrivate": "其他用戶在新的 predict job 將失去存取權；已執行中的 job 不受影響。",
+      "warningPublic": "所有登入用戶將能檢視並用於 predict。",
+      "changedToast": "已更新可見度"
+    },
+    "description": {
+      "title": "描述",
+      "edit": "編輯描述",
+      "placeholder": "支援 Markdown。可記錄模型使用方式、訓練資料、評估結果……",
+      "successToast": "描述已更新",
+      "empty": "尚無描述。"
+    },
+    "tags": {
+      "title": "標籤",
+      "edit": "編輯標籤",
+      "placeholder": "{ \"framework\": \"sklearn\", \"contract\": \"sample_csv\" }",
+      "schemaError": "標籤必須是扁平的 JSON 物件（key/value 都是字串）",
+      "successToast": "標籤已更新",
+      "empty": "尚無標籤。"
+    },
+    "transfer": {
+      "title": "轉移擁有權",
+      "description": "把此模型轉給另一位使用者。新擁有者不能已擁有同一 detector 的模型。",
+      "newOwnerLabel": "新擁有者的 handle",
+      "warning": "其他使用者將失去寫入權限；正在執行的 predict job 不受影響。",
+      "submit": "轉移",
+      "successToast": "擁有權已轉移"
+    },
+    "delete": {
+      "title": "刪除模型",
+      "warning": "此動作會永久刪除此模型與其所有版本，包括 MLflow artefact，無法復原。",
+      "confirmPrompt": "請輸入 {{fullName}} 確認刪除",
+      "successToast": "模型已刪除"
+    },
+    "deleteVersion": {
+      "title": "刪除版本",
+      "warning": "此動作會永久刪除 {{fullName}} 的版本 {{version}}。",
+      "successToast": "版本已刪除"
+    }
   },
   "theme": {
     "toggle": "切換主題",

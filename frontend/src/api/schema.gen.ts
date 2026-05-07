@@ -355,7 +355,15 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Patch Job — admin-only priority bump */
+        /**
+         * Patch Job
+         * @description Phase 6 (Task F) — admin-only priority bump for queued_backend jobs.
+         *
+         *     Only ``priority`` is mutable. Rejects with 422 once the job has been
+         *     submitted to Volcano (i.e. status != queued_backend), because the
+         *     fifo_scheduler has already made its dispatch decision and the ordering
+         *     can no longer be altered by changing the DB field alone.
+         */
         patch: operations["patch_job_api_v1_jobs__job_id__patch"];
         trace?: never;
     };
@@ -551,8 +559,21 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Registered Models */
-        get: operations["list_registered_models_api_v1_models_get"];
+        /**
+         * List Models
+         * @description List registered models visible to the caller.
+         *
+         *     Visibility rule (per-version, not per-model):
+         *     - Admins see all versions unconditionally.
+         *     - Everyone else sees versions that are PUBLIC or owned by themselves.
+         *     A model row is included only when at least one version passes the filter.
+         *
+         *     Query params:
+         *     - owner: filter by owner handle (post-visibility-filter).
+         *     - visibility: "all" (default), "public" (models with ≥1 public version),
+         *       "mine" (models owned by the caller).
+         */
+        get: operations["list_models_api_v1_models_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -561,15 +582,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/models/{name}": {
+    "/api/v1/models/{owner}/{name}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Registered Model */
-        get: operations["get_registered_model_api_v1_models__name__get"];
+        /** Get Model */
+        get: operations["get_model_api_v1_models__owner___name__get"];
+        put?: never;
+        post?: never;
+        /** Delete Model */
+        delete: operations["delete_model_api_v1_models__owner___name__delete"];
+        options?: never;
+        head?: never;
+        /** Update Model */
+        patch: operations["update_model_api_v1_models__owner___name__patch"];
+        trace?: never;
+    };
+    "/api/v1/models/{owner}/{name}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Versions */
+        get: operations["list_versions_api_v1_models__owner___name__versions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -578,42 +618,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/models/{name}/versions": {
+    "/api/v1/models/{owner}/{name}/versions/{version}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Model Versions */
-        get: operations["list_model_versions_api_v1_models__name__versions_get"];
+        /** Get Version */
+        get: operations["get_version_api_v1_models__owner___name__versions__version__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Model Version Namespaced */
+        delete: operations["delete_model_version_namespaced_api_v1_models__owner___name__versions__version__delete"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/models/{name}/versions/{version}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Model Version */
-        get: operations["get_model_version_api_v1_models__name__versions__version__get"];
-        put?: never;
-        post?: never;
-        /** Delete Model Version */
-        delete: operations["delete_model_version_api_v1_models__name__versions__version__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/models/{name}/versions/{version}/transition": {
+    "/api/v1/models/{owner}/{name}/versions/{version}/transition": {
         parameters: {
             query?: never;
             header?: never;
@@ -623,11 +646,45 @@ export interface paths {
         get?: never;
         put?: never;
         /** Transition Model Version */
-        post: operations["transition_model_version_api_v1_models__name__versions__version__transition_post"];
+        post: operations["transition_model_version_api_v1_models__owner___name__versions__version__transition_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/{owner}/{name}/versions/{version}/visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Visibility */
+        patch: operations["update_visibility_api_v1_models__owner___name__versions__version__visibility_patch"];
+        trace?: never;
+    };
+    "/api/v1/models/{owner}/{name}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Transfer Owner */
+        patch: operations["transfer_owner_api_v1_models__owner___name__owner_patch"];
         trace?: never;
     };
     "/api/v1/experiments": {
@@ -1008,11 +1065,7 @@ export interface components {
             resource_profile: components["schemas"]["ResourceProfile"];
             /** Active Deadline Seconds */
             active_deadline_seconds?: number | null;
-            /**
-             * Priority
-             * @description Phase 6 — admin-only scheduling priority. Higher value = earlier dispatch. Default 0.
-             * @default 0
-             */
+            /** Priority */
             priority?: number | null;
         };
         /** JobEventOut */
@@ -1074,7 +1127,11 @@ export interface components {
         };
         /**
          * JobPatch
-         * @description Phase 6 (Task F) — admin-only priority bump. Only priority is mutable.
+         * @description Request body for PATCH /jobs/{id}.
+         *
+         *     Phase 6 (Task F) — admin-only priority bump. Only ``priority`` is
+         *     mutable via this endpoint. The field is optional; omitting it is
+         *     effectively a no-op (idempotent call pattern).
          */
         JobPatch: {
             /** Priority */
@@ -1118,6 +1175,11 @@ export interface components {
             summary_metrics?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
             /** Train Dataset Id */
             train_dataset_id: string | null;
             /** Test Dataset Id */
@@ -1145,12 +1207,6 @@ export interface components {
             resource_profile: components["schemas"]["ResourceProfile"];
             /** Mlflow Experiment Id */
             mlflow_experiment_id: string | null;
-            /**
-             * Priority
-             * @description Phase 6 — scheduling priority. Higher = earlier dispatch.
-             * @default 0
-             */
-            priority: number;
         };
         /**
          * JobStatus
@@ -1197,7 +1253,6 @@ export interface components {
             } | null;
             /**
              * Priority
-             * @description Phase 6 — scheduling priority. Higher = earlier dispatch.
              * @default 0
              */
             priority: number;
@@ -1207,7 +1262,10 @@ export interface components {
          * @enum {string}
          */
         JobType: "train" | "evaluate" | "predict";
-        /** ModelTransitionRequest */
+        /**
+         * ModelTransitionRequest
+         * @description Stage transition — schema unchanged from existing.
+         */
         ModelTransitionRequest: {
             to_stage: components["schemas"]["ModelVersionStage"];
             /** Comment */
@@ -1231,13 +1289,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Mlflow Name */
-            mlflow_name: string;
             /** Mlflow Version */
             mlflow_version: number;
             /** Mlflow Run Id */
             mlflow_run_id: string;
             current_stage: components["schemas"]["ModelVersionStage"];
+            visibility: components["schemas"]["ModelVersionVisibility"];
             /**
              * Detector Version Id
              * Format: uuid
@@ -1263,23 +1320,91 @@ export interface components {
              * Format: date-time
              */
             last_transitioned_at: string;
+            /** Owner */
+            owner: string;
+            /** Name */
+            name: string;
         };
         /**
          * ModelVersionStage
-         * @description Mirrors MLflow stages; 'none' = unassigned.
          * @enum {string}
          */
         ModelVersionStage: "None" | "Staging" | "Production" | "Archived";
-        /** RegisteredModelSummary */
-        RegisteredModelSummary: {
+        /**
+         * ModelVersionVisibility
+         * @enum {string}
+         */
+        ModelVersionVisibility: "public" | "private";
+        /** ModelVersionVisibilityUpdate */
+        ModelVersionVisibilityUpdate: {
+            visibility: components["schemas"]["ModelVersionVisibility"];
+            /** Comment */
+            comment?: string | null;
+        };
+        /** OwnerTransferRequest */
+        OwnerTransferRequest: {
+            /** New Owner Handle */
+            new_owner_handle: string;
+            /** Comment */
+            comment?: string | null;
+        };
+        /**
+         * RegisteredModelRead
+         * @description Full detail for `GET /api/v1/models/{owner}/{name}`.
+         */
+        RegisteredModelRead: {
+            /** Owner */
+            owner: string;
             /** Name */
             name: string;
+            /** Description */
+            description: string | null;
+            /** Tags */
+            tags: {
+                [key: string]: string;
+            };
             /** Latest Version */
             latest_version: number | null;
             /** Latest Production Version */
             latest_production_version: number | null;
             /** Latest Staging Version */
             latest_staging_version: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * RegisteredModelSummary
+         * @description One row in `GET /api/v1/models`.
+         */
+        RegisteredModelSummary: {
+            /** Owner */
+            owner: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: {
+                [key: string]: string;
+            };
+            /** Latest Version */
+            latest_version?: number | null;
+            /** Latest Production Version */
+            latest_production_version?: number | null;
+            /** Latest Staging Version */
+            latest_staging_version?: number | null;
+        };
+        /** RegisteredModelUpdate */
+        RegisteredModelUpdate: {
+            /** Description */
+            description?: string | null;
+            /** Tags */
+            tags?: {
+                [key: string]: string;
+            } | null;
         };
         /**
          * ResourceProfile
@@ -1300,6 +1425,8 @@ export interface components {
             id: string;
             /** Email */
             email: string;
+            /** Handle */
+            handle: string;
             role: components["schemas"]["Role"];
             /** Display Name */
             display_name?: string | null;
@@ -2311,8 +2438,7 @@ export interface operations {
             };
         };
     };
-    /** Phase 6 (Task F) — admin-only priority bump for queued_backend jobs. */
-    patch_job_api_v1_jobs__job_id__patch: {
+    get_job_api_v1_jobs__job_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2321,11 +2447,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["JobPatch"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2347,7 +2469,7 @@ export interface operations {
             };
         };
     };
-    get_job_api_v1_jobs__job_id__get: {
+    patch_job_api_v1_jobs__job_id__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -2356,7 +2478,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobPatch"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -2675,9 +2801,12 @@ export interface operations {
             };
         };
     };
-    list_registered_models_api_v1_models_get: {
+    list_models_api_v1_models_get: {
         parameters: {
-            query?: never;
+            query?: {
+                owner?: string | null;
+                visibility?: "all" | "public" | "mine";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2693,13 +2822,23 @@ export interface operations {
                     "application/json": components["schemas"]["RegisteredModelSummary"][];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
-    get_registered_model_api_v1_models__name__get: {
+    get_model_api_v1_models__owner___name__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                owner: string;
                 name: string;
             };
             cookie?: never;
@@ -2712,7 +2851,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegisteredModelSummary"];
+                    "application/json": components["schemas"]["RegisteredModelRead"];
                 };
             };
             /** @description Validation Error */
@@ -2726,15 +2865,78 @@ export interface operations {
             };
         };
     };
-    list_model_versions_api_v1_models__name__versions_get: {
+    delete_model_api_v1_models__owner___name__delete: {
         parameters: {
-            query?: {
-                page?: number;
-                page_size?: number;
-                stage?: components["schemas"]["ModelVersionStage"] | null;
-            };
+            query?: never;
             header?: never;
             path: {
+                owner: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_model_api_v1_models__owner___name__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisteredModelUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisteredModelRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_versions_api_v1_models__owner___name__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
                 name: string;
             };
             cookie?: never;
@@ -2761,11 +2963,12 @@ export interface operations {
             };
         };
     };
-    get_model_version_api_v1_models__name__versions__version__get: {
+    get_version_api_v1_models__owner___name__versions__version__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                owner: string;
                 name: string;
                 version: number;
             };
@@ -2793,11 +2996,12 @@ export interface operations {
             };
         };
     };
-    delete_model_version_api_v1_models__name__versions__version__delete: {
+    delete_model_version_namespaced_api_v1_models__owner___name__versions__version__delete: {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                owner: string;
                 name: string;
                 version: number;
             };
@@ -2823,11 +3027,12 @@ export interface operations {
             };
         };
     };
-    transition_model_version_api_v1_models__name__versions__version__transition_post: {
+    transition_model_version_api_v1_models__owner___name__versions__version__transition_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                owner: string;
                 name: string;
                 version: number;
             };
@@ -2846,6 +3051,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelVersionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_visibility_api_v1_models__owner___name__versions__version__visibility_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                name: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelVersionVisibilityUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelVersionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transfer_owner_api_v1_models__owner___name__owner_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                owner: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnerTransferRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisteredModelRead"];
                 };
             };
             /** @description Validation Error */

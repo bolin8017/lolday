@@ -9,8 +9,9 @@ function renderPage() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // Pre-seed an empty list so the table renders immediately
-  qc.setQueryData(["models", "list"], []);
+  // Pre-seed an empty list so the table renders immediately.
+  // Key matches modelsKeys.list() → ["models", "list", {}]
+  qc.setQueryData(["models", "list", {}], []);
   return render(
     <MemoryRouter>
       <QueryClientProvider client={qc}>
