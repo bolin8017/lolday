@@ -291,8 +291,17 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
 async def _register_model_from_job(
     session: AsyncSession, client: MlflowClient, j: Job
 ) -> None:
-    from app.models import Detector, DetectorVersion, ModelVersion
-    from app.models.model_registry import ModelVersionStage
+    from app.models import (
+        Detector,
+        DetectorVersion,
+        ModelVersion,
+        RegisteredModel,
+        User,
+    )
+    from app.models.model_registry import (
+        ModelVersionStage,
+        ModelVersionVisibility,
+    )
 
     if j.mlflow_run_id is None:
         raise RuntimeError(
@@ -309,19 +318,40 @@ async def _register_model_from_job(
         raise RuntimeError(
             f"FK invariant violated: DetectorVersion {dv.id} references missing Detector {dv.detector_id}"
         )
-    name = det.name
+    owner = await session.get(User, j.owner_id)
+    if owner is None:
+        raise RuntimeError(
+            f"FK invariant violated: job {j.id} references missing User {j.owner_id}"
+        )
 
-    await client.create_registered_model(name)
+    # Upsert RegisteredModel for (owner, detector). One per user-detector pair.
+    rm = (
+        await session.execute(
+            select(RegisteredModel).where(
+                RegisteredModel.owner_id == owner.id,
+                RegisteredModel.detector_id == det.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if rm is None:
+        rm = RegisteredModel(owner_id=owner.id, detector_id=det.id)
+        session.add(rm)
+        await session.flush()
+
+    mlflow_name = f"{owner.handle}/{det.name}"  # HF-style namespace
+    await client.create_registered_model(mlflow_name)  # idempotent in MLflow
     mv_resp = await client.create_model_version(
-        name=name, source=f"runs:/{j.mlflow_run_id}/model", run_id=j.mlflow_run_id
+        name=mlflow_name,
+        source=f"runs:/{j.mlflow_run_id}/model",
+        run_id=j.mlflow_run_id,
     )
-    mlflow_version = int(mv_resp["version"])
 
     mv = ModelVersion(
-        mlflow_name=name,
-        mlflow_version=mlflow_version,
+        registered_model_id=rm.id,
+        mlflow_version=int(mv_resp["version"]),
         mlflow_run_id=j.mlflow_run_id,
         current_stage=ModelVersionStage.NONE,
+        visibility=ModelVersionVisibility.PRIVATE,
         detector_version_id=j.detector_version_id,
         source_job_id=j.id,
         owner_id=j.owner_id,

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.config import settings
 from app.services.mlflow_client import MlflowClient
@@ -20,9 +21,26 @@ async def sync_model_versions(session: AsyncSession) -> None:
     """Pull latest stages from MLflow; reflect transitions initiated outside lolday."""
     client = MlflowClient(settings.MLFLOW_TRACKING_URI)
     from app.models import ModelVersion
-    from app.models.model_registry import ModelVersionStage
+    from app.models.model_registry import ModelVersionStage, RegisteredModel
 
-    all_local = (await session.execute(select(ModelVersion))).scalars().all()
+    # Eagerly load registered_model → owner and registered_model → detector so
+    # that rm.mlflow_name (a derived property: f"{owner.handle}/{detector.name}")
+    # is fully resolved without triggering async lazy-loads in the loop below.
+    all_local = (
+        (
+            await session.execute(
+                select(ModelVersion).options(
+                    joinedload(ModelVersion.registered_model).options(
+                        joinedload(RegisteredModel.owner),
+                        joinedload(RegisteredModel.detector),
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
     if not all_local:
         return
 
@@ -30,7 +48,9 @@ async def sync_model_versions(session: AsyncSession) -> None:
     by_key = {(m["name"], int(m["version"])): m for m in remote}
 
     for mv in all_local:
-        rem = by_key.get((mv.mlflow_name, mv.mlflow_version))  # type: ignore[attr-defined]  # mlflow_name moved to RegisteredModel.mlflow_name (property); rewrite in T15
+        rm: RegisteredModel = mv.registered_model
+        mlflow_name = f"{rm.owner.handle}/{rm.detector.name}"
+        rem = by_key.get((mlflow_name, mv.mlflow_version))
         if rem is None:
             continue
         remote_stage = rem.get("current_stage", "None")

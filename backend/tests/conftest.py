@@ -380,6 +380,8 @@ def mock_mlflow(request, monkeypatch):
         def __init__(self) -> None:
             self.rename_calls: list[tuple[str, str]] = []
             self.deleted_registered_models: list[str] = []
+            self.create_registered_model_calls: list[str] = []
+            self._mv_version_counter: int = 0
 
         async def get_or_create_experiment(self, name, artifact_location=None):
             _Stub.exp_counter += 1
@@ -414,10 +416,16 @@ def mock_mlflow(request, monkeypatch):
             pass
 
         async def create_registered_model(self, name):
+            self.create_registered_model_calls.append(name)
             return {"name": name}
 
         async def create_model_version(self, name, source, run_id):
-            return {"name": name, "version": "1", "run_id": run_id}
+            self._mv_version_counter += 1
+            return {
+                "name": name,
+                "version": str(self._mv_version_counter),
+                "run_id": run_id,
+            }
 
         async def rename_registered_model(self, name: str, new_name: str) -> dict:
             self.rename_calls.append((name, new_name))
