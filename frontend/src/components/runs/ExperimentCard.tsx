@@ -16,9 +16,6 @@ export function ExperimentCard({ exp }: { exp: Exp }) {
     <Card className="transition hover:border-primary">
       <CardContent className="space-y-2 p-4">
         <Link to={`/runs/${exp.experiment_id}`} className="block">
-          <div className="text-xs text-muted-foreground">
-            #{exp.experiment_id}
-          </div>
           <div className="text-lg font-medium">{exp.name}</div>
           <div className="text-sm text-muted-foreground">
             {exp.run_count ?? "—"} runs · Best F1:{" "}

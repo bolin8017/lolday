@@ -24,6 +24,7 @@ from app.deps import require_role
 from app.metrics import BACKEND_ERRORS, PRIORITY_BUMP_TOTAL
 from app.models import (
     DatasetConfig,
+    Detector,
     DetectorVersion,
     Job,
     JobEvent,
@@ -281,16 +282,40 @@ async def create_job(
                 status_code=422, detail=f"dataset_integrity_failed: {e}"
             ) from e
 
-    # 8. MLflow experiment + run
+    # 8. MLflow experiment + run.
+    #
+    # Naming aligns with the v0.20.0 model-registry namespace: every MLflow
+    # primitive that surfaces in the UI uses the human-readable
+    # `{owner_handle}/{detector_name}` namespace instead of opaque UUIDs. UUIDs
+    # remain available as `*_id` tag companions so backend search by ID still
+    # works. A pre-generated job UUID lets us tag the run with a stable
+    # `{action}-{job_short_id}` run name in a single create_run call.
+    det = await session.get(Detector, dv.detector_id)
+    if det is None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"FK invariant violated: DetectorVersion {dv.id} references missing Detector {dv.detector_id}",
+        )
+    job_id = uuid.uuid4()
+    detector_version_label = f"{det.name}/{dv.git_tag}"
+    exp_name = f"{user.handle}/{detector_version_label}"
+    run_name = f"{body.type.value}-{job_id.hex[:8]}"
+
     client = _get_mlflow_client()
-    exp_name = f"detector:{dv.detector_id}:{dv.git_tag}"
     if not dv.mlflow_experiment_id:
         dv.mlflow_experiment_id = await client.get_or_create_experiment(exp_name)
         await session.flush()
-    run_id = await client.create_run(dv.mlflow_experiment_id)
-    await client.set_run_tag(run_id, "maldet.action", body.type.value)
-    await client.set_run_tag(run_id, "lolday.user", str(user.id))
-    await client.set_run_tag(run_id, "lolday.detector_version", str(dv.id))
+    run_id = await client.create_run(
+        dv.mlflow_experiment_id,
+        tags=[
+            {"key": "mlflow.runName", "value": run_name},
+            {"key": "maldet.action", "value": body.type.value},
+            {"key": "lolday.user", "value": user.handle},
+            {"key": "lolday.user_id", "value": str(user.id)},
+            {"key": "lolday.detector_version", "value": detector_version_label},
+            {"key": "lolday.detector_version_id", "value": str(dv.id)},
+        ],
+    )
 
     # 9. Render resolved config (Hydra YAML)
     renderer = JobConfigRenderer(
@@ -320,6 +345,7 @@ async def create_job(
     # reconciler (Phase 6d) picks this up and calls dispatch_job_to_volcano.
     # No K8s side-effects happen here; the row is the only write.
     job = Job(
+        id=job_id,
         type=body.type,
         status=JobStatus.QUEUED_BACKEND,
         detector_version_id=dv.id,

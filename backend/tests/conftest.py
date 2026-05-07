@@ -382,13 +382,18 @@ def mock_mlflow(request, monkeypatch):
             self.deleted_registered_models: list[str] = []
             self.create_registered_model_calls: list[str] = []
             self._mv_version_counter: int = 0
+            self.experiment_creates: list[str] = []
+            self.runs_created: list[tuple[str, list[dict[str, str]]]] = []
+            self.run_tags_set: list[tuple[str, str, str]] = []
 
         async def get_or_create_experiment(self, name, artifact_location=None):
             _Stub.exp_counter += 1
+            self.experiment_creates.append(name)
             return f"exp-{_Stub.exp_counter}"
 
         async def create_run(self, experiment_id, tags=None):
             _Stub.run_counter += 1
+            self.runs_created.append((experiment_id, list(tags or [])))
             return f"run-{_Stub.run_counter}"
 
         async def get_run(self, run_id):
@@ -404,8 +409,8 @@ def mock_mlflow(request, monkeypatch):
         async def update_run(self, run_id, **kw):
             pass
 
-        async def set_run_tag(self, *a, **kw):
-            pass
+        async def set_run_tag(self, run_id, key, value):
+            self.run_tags_set.append((run_id, key, value))
 
         async def transition_model_version_stage(
             self, name, version, stage, archive_existing_versions=False
