@@ -121,7 +121,7 @@ async def list_registered_models(
             )
         ).scalar_one()
         summaries.append(
-            RegisteredModelSummary(
+            RegisteredModelSummary(  # type: ignore[call-arg]  # owner field added in T3; caller rewritten in T8
                 name=name,
                 latest_version=latest,
                 latest_production_version=latest_prod,
@@ -159,7 +159,7 @@ async def get_registered_model(
             )
         )
     ).scalar_one()
-    return RegisteredModelSummary(
+    return RegisteredModelSummary(  # type: ignore[call-arg]  # owner field added in T3; caller rewritten in T9
         name=name,
         latest_version=latest,
         latest_production_version=latest_prod,
