@@ -6,6 +6,15 @@ export function deriveUiSchemaFromSchema(schema: RJSFSchema): UiSchema {
   return ui;
 }
 
+function hasType(node: StrictRJSFSchema, t: string): boolean {
+  if (node.type === t) return true;
+  // Array.includes requires the exact element type; cast via (string[]) for
+  // the nullable-array case (e.g. ["number", "null"] from Pydantic Optional).
+  if (Array.isArray(node.type) && (node.type as string[]).includes(t))
+    return true;
+  return false;
+}
+
 function walk(node: StrictRJSFSchema, ui: UiSchema): void {
   const { properties } = node;
   if (!properties) return;
@@ -19,9 +28,11 @@ function walk(node: StrictRJSFSchema, ui: UiSchema): void {
 
     // Type → widget mapping. Selected widget names are registered in
     // RjsfConfigForm.tsx's `widgets` prop.
-    const isNumber = child.type === "number";
-    const isInteger = child.type === "integer";
-    const isBoolean = child.type === "boolean";
+    // hasType handles both string types ("number") and nullable arrays
+    // (["number", "null"]) — Pydantic Optional[float] exports the latter.
+    const isNumber = hasType(child, "number");
+    const isInteger = hasType(child, "integer");
+    const isBoolean = hasType(child, "boolean");
     const hasMin = typeof child.minimum === "number";
     const hasMax = typeof child.maximum === "number";
 

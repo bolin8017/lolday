@@ -51,6 +51,12 @@ function PriorityEditor({ job }: { job: JobRead }) {
         disabled={patch.isPending}
         size="sm"
       />
+      {patch.isError && (
+        <p className="text-sm text-destructive" role="alert">
+          {(patch.error as { detail?: string } | null)?.detail ??
+            t("jobs.priority.saveFailed")}
+        </p>
+      )}
       {current === 1 && (
         <p
           className="text-sm rounded-md border border-amber-400/60 bg-amber-50 px-3 py-2 text-amber-900 dark:bg-amber-900/20 dark:text-amber-300"

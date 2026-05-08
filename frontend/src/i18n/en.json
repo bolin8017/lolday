@@ -111,6 +111,7 @@
       "high": "Priority",
       "column": "Priority",
       "adminOnly": "Admin only",
+      "saveFailed": "Failed to save priority",
       "warning": "Bumping priority pauses submission of new lower-priority jobs to Volcano until this job is dispatched. Running jobs are not affected."
     },
     "help": {

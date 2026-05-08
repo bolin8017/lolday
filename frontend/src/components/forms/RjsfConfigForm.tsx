@@ -83,6 +83,14 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
     (fieldId: string) => {
       // RJSF builds field ids as `root_<key>` (configurable via idPrefix).
       const key = fieldId.replace(/^root_/, "");
+      if (!Object.prototype.hasOwnProperty.call(defaults, key)) {
+        // Nested schema or unknown key — refuse to write an undefined junk
+        // entry. See JSDoc above for the flat-schema assumption.
+        console.warn(
+          `onResetField: no top-level default for "${key}" — no-op.`,
+        );
+        return;
+      }
       const next = {
         ...value,
         [key]: (defaults as Record<string, unknown>)[key],

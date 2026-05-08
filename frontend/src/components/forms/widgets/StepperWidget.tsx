@@ -21,13 +21,16 @@ export function StepperWidget(props: WidgetProps) {
   // Sync from external prop changes (e.g. button bump, form reset).
   // Compare the *parsed* draft against propNumeric so we don't clobber a
   // partial decimal entry during keyboard edits.
+  // Also skip when draft is empty or NaN (user is mid-edit / just cleared).
   useEffect(() => {
+    if (draft === "") return; // user is mid-edit (cleared)
     const parsed = Number(draft);
+    if (Number.isNaN(parsed)) return;
     if (!Number.isNaN(propNumeric) && parsed !== propNumeric) {
       setDraft(String(propNumeric));
     }
-    // intentionally don't depend on draft to prevent loop
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // intentionally don't depend on draft to prevent loop -- clobber-on-empty bug
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid loop on draft changes
   }, [propNumeric]);
 
   const numeric = Number.isNaN(propNumeric)

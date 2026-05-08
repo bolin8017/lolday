@@ -82,6 +82,12 @@ function PriorityCell({ job }: { job: JobSummary }) {
           disabled={patch.isPending}
           size="sm"
         />
+        {patch.isError && (
+          <p className="text-xs text-destructive mt-2" role="alert">
+            {(patch.error as { detail?: string } | null)?.detail ??
+              t("jobs.priority.saveFailed")}
+          </p>
+        )}
       </PopoverContent>
     </Popover>
   );
