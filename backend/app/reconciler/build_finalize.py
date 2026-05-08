@@ -50,7 +50,9 @@ async def _finalize_clean_scan(
     from app.reconciler.builds import _cleanup_build_secret, _fail_build_with_notify
 
     if scan.critical > 0:
-        await harbor.delete_artifact("detectors", detector.name, digest)
+        await harbor.delete_tag_or_artifact(
+            "detectors", detector.name, b.git_tag, digest
+        )
         b.status = DetectorBuildStatus.CVE_BLOCKED
         b.failure_reason = f"cve_blocked: critical={scan.critical} high={scan.high}"
         b.trivy_critical = scan.critical
