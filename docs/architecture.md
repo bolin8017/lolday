@@ -38,7 +38,7 @@ The platform does NOT provide:
 
 When a feature would let a platform user re-tune what an author already decided, that is a **leaky abstraction**. Remove it. Past examples:
 
-- **Detector-version override toggle** — removed 2026-05-08 (PR #112). Let users mismatch a model's training detector version with the inference detector version, breaking reproducibility.
+- **Detector-version override toggle** — removed 2026-05-07 (PR #112). Let users mismatch a model's training detector version with the inference detector version, breaking reproducibility.
 - **`EvaluateConfig.threshold` field** — removed 2026-05-08. Declared but never plumbed; let users believe they were tuning the operating point when they were not.
 
 ### 1.3 Stage-aware UX rule

@@ -66,7 +66,7 @@ Lolday is the runtime for **already-tuned** detectors. Authors finish all hyperp
 
 Precedents (footgun removals):
 
-- PR #112 (2026-05-08) — detector-version override toggle
+- PR #112 (2026-05-07) — detector-version override toggle
 - 2026-05-08 spec — `EvaluateConfig.threshold` field
 
 Full reasoning: `docs/architecture.md` §1.2 + §1.3.

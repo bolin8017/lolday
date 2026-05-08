@@ -16,8 +16,16 @@ interface Props {
   onChange: (value: Record<string, unknown>) => void;
 }
 
+// Sibling keywords RJSF tolerates next to `$ref` without the allOf wrap.
+// Adding `default` would defeat the workaround — it's the trigger we
+// work around. Keep this set minimal.
 const NON_WRAPPING_SIBLINGS = new Set(["title", "description"]);
 
+/**
+ * Wrap `$ref` in `allOf` when sibling keywords are present.
+ * Bare `$ref`+sibling patterns (valid in JSON Schema 2019-09+) crash
+ * RJSF v5's production bundle. Idempotent.
+ */
 function normalizeSchema(node: unknown): unknown {
   if (node === null || typeof node !== "object") return node;
   if (Array.isArray(node)) return node.map(normalizeSchema);
