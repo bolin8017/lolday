@@ -253,6 +253,56 @@ async def test_delete_detector_blocks_when_in_flight(
 
 
 @pytest.mark.asyncio
+async def test_delete_detector_helper_routes_through_tag_level_delete(
+    async_client,
+    detector_factory,
+    version_factory,
+    auth_owner_headers,
+    monkeypatch,
+):
+    """`_delete_harbor_images` (called from delete_detector) must use
+    tag-level delete to stay consistent with delete_version and to
+    prevent shared-digest GC if a future detector grows multi-tag rows.
+    """
+    detector = await detector_factory(name="rfdet")
+    await version_factory(
+        detector_id=detector.id, git_tag="v1.0.0", image_digest="sha256:aaa"
+    )
+    await version_factory(
+        detector_id=detector.id, git_tag="v2.0.0", image_digest="sha256:bbb"
+    )
+
+    fake = FakeHarborWithTags(tags={"sha256:aaa": ["v1.0.0"], "sha256:bbb": ["v2.0.0"]})
+    monkeypatch.setattr("app.routers.detectors.HarborClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.config.settings.HARBOR_ADMIN_PASSWORD", "x")
+
+    resp = await async_client.delete(
+        f"/api/v1/detectors/{detector.id}",
+        headers=auth_owner_headers,
+    )
+    assert resp.status_code == 204
+
+    method_names = {c[0] for c in fake.calls}
+    assert method_names == {"delete_tag_or_artifact"}
+    # Both versions cleaned up
+    assert len(fake.calls) == 2
+    assert (
+        "delete_tag_or_artifact",
+        "detectors",
+        "rfdet",
+        "v1.0.0",
+        "sha256:aaa",
+    ) in fake.calls
+    assert (
+        "delete_tag_or_artifact",
+        "detectors",
+        "rfdet",
+        "v2.0.0",
+        "sha256:bbb",
+    ) in fake.calls
+
+
+@pytest.mark.asyncio
 async def test_delete_version_returns_204_when_harbor_purge_fails(
     async_client,
     detector_factory,
@@ -285,6 +335,12 @@ async def test_delete_version_returns_204_when_harbor_purge_fails(
         headers=auth_owner_headers,
     )
     assert resp.status_code == 204
+
+    list_resp = await async_client.get(
+        f"/api/v1/detectors/{detector.id}/versions",
+        headers=auth_owner_headers,
+    )
+    assert all(v["git_tag"] != "v1.0.0" for v in list_resp.json()["items"])
 
 
 @pytest.mark.asyncio
