@@ -305,3 +305,19 @@ async def test_delete_tag_or_artifact_silent_when_tag_not_in_artifact():
         await client.delete_tag_or_artifact("detectors", "foo", "v4.1.0", "sha256:abc")
 
         assert all(call.request.method != "DELETE" for call in mock.calls)
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_raises_on_5xx():
+    """Harbor 5xx must surface as httpx.HTTPStatusError so the caller can log + count."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(return_value=httpx.Response(503))
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.delete_tag_or_artifact(
+                "detectors", "foo", "v4.1.0", "sha256:abc"
+            )
