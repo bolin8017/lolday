@@ -3,11 +3,23 @@ import type { FieldTemplateProps } from "@rjsf/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import type { RjsfFormContext } from "../RjsfConfigForm.types";
 
-interface ResetCtx {
-  onResetField?: (id: string) => void;
-}
-
+/**
+ * RJSF field template — renders the label row (with default / modified badge
+ * and per-field reset button) above the widget, then the description below.
+ *
+ * Per-field reset is opt-in: shows only when (a) the current value differs
+ * from schema.default AND (b) `formContext.onResetField` is provided. The
+ * parent form (RjsfConfigForm) wires `onResetField` via formContext using
+ * the shared RjsfFormContext interface — see RjsfConfigForm.types.ts.
+ *
+ * Default-vs-modified detection uses reference equality (formData !== default).
+ * This is correct for scalar defaults (number, integer, boolean, string) and
+ * the only kind currently produced by elfrfdet/elfcnndet schemas. Object/array
+ * defaults would always read as "modified" because of reference inequality —
+ * revisit the comparison if a future detector ships compound defaults.
+ */
 export function FieldTemplate(props: FieldTemplateProps) {
   const {
     id,
@@ -22,7 +34,7 @@ export function FieldTemplate(props: FieldTemplateProps) {
     formContext,
   } = props;
 
-  const ctx = (formContext ?? {}) as ResetCtx;
+  const ctx = (formContext ?? {}) as RjsfFormContext;
   const defaultValue = (schema as { default?: unknown }).default;
   const isModified = defaultValue !== undefined && formData !== defaultValue;
   const showReset = isModified && typeof ctx.onResetField === "function";

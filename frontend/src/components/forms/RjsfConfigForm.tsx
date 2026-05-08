@@ -4,6 +4,7 @@ import validator from "@rjsf/validator-ajv8";
 import { useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { deriveUiSchemaFromSchema, fillDefaults } from "./RjsfConfigForm.logic";
+import type { RjsfFormContext } from "./RjsfConfigForm.types";
 import { FieldTemplate } from "./templates/FieldTemplate";
 import { RangeSliderWidget } from "./widgets/RangeSliderWidget";
 import { StepperWidget } from "./widgets/StepperWidget";
@@ -100,7 +101,10 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
     [value, defaults, onChange],
   );
 
-  const formContext = useMemo(() => ({ onResetField }), [onResetField]);
+  const formContext = useMemo<RjsfFormContext>(
+    () => ({ onResetField }),
+    [onResetField],
+  );
 
   return (
     <div className="rjsf-wrap rounded-md border bg-card p-4 text-sm">

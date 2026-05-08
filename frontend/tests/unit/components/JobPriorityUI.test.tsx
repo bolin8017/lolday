@@ -203,6 +203,64 @@ describe("JobsListPage — priority column visibility", () => {
   });
 });
 
+// ─── PriorityCell branch coverage — terminal/running statuses ─────────────
+describe("JobsListPage — PriorityCell branch coverage", () => {
+  beforeEach(() => {
+    authState.role = "admin";
+    vi.clearAllMocks();
+  });
+
+  // The 2026-05-08 fix added "timeout" to the dash branch. Regression-guard
+  // it by asserting the dash for each terminal/running status.
+  it.each(["running", "succeeded", "failed", "cancelled", "timeout"] as const)(
+    "shows '—' for non-editable status %s",
+    (status) => {
+      (useJobs as MockedFunction<typeof useJobs>).mockReturnValueOnce({
+        data: {
+          items: [
+            {
+              id: "j1",
+              type: "train",
+              status,
+              priority: 1,
+              detector_version_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+              owner_id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+              mlflow_run_id: null,
+              mlflow_experiment_id: null,
+              k8s_job_name: null,
+              failure_reason: null,
+              submitted_at: "2026-05-05T00:00:00Z",
+              started_at: null,
+              finished_at: null,
+              train_dataset_id: null,
+              test_dataset_id: null,
+              predict_dataset_id: null,
+              source_model_version_id: null,
+              resolved_config: {},
+              log_tail: null,
+              resource_profile: "tiny",
+              summary_metrics: null,
+            },
+          ],
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useJobs>);
+      renderListPage();
+      // For terminal/running statuses, PriorityCell renders a muted-foreground
+      // "—" span (not the table's generic empty-cell dashes). Use getAllByText
+      // and assert at least one match has the expected class.
+      const dashes = screen.getAllByText("—");
+      const priorityDash = dashes.find(
+        (el) =>
+          el.tagName === "SPAN" &&
+          el.className.includes("text-muted-foreground") &&
+          el.className.includes("text-xs"),
+      );
+      expect(priorityDash).toBeInTheDocument();
+    },
+  );
+});
+
 describe("JobsListPage — priority cell popover", () => {
   beforeEach(() => {
     authState.role = "admin";
