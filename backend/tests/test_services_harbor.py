@@ -212,3 +212,36 @@ async def test_get_scan_status_error_preserved_not_silenced_as_zero():
         assert result.status == ScanStatus.ERROR
         assert result.critical == 0
         assert result.high == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_unpins_when_multi_tag():
+    """Multiple tags share the manifest. DELETE must unpin only the target tag."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "digest": "sha256:abc",
+                    "tags": [{"name": "4.1.0"}, {"name": "v4.1.0"}],
+                },
+            )
+        )
+        tag_delete = mock.delete(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc/tags/4.1.0"
+        ).mock(return_value=httpx.Response(200))
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.delete_tag_or_artifact("detectors", "foo", "4.1.0", "sha256:abc")
+
+        assert tag_delete.called
+        # Digest-level URL must NOT have been hit
+        digest_delete_path = (
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc"
+        )
+        for call in mock.calls:
+            if call.request.method == "DELETE":
+                assert call.request.url.path != digest_delete_path
