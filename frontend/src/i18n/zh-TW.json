@@ -107,6 +107,8 @@
   "jobs": {
     "priority": {
       "label": "優先度",
+      "normal": "正常",
+      "high": "優先",
       "column": "優先度",
       "adminOnly": "僅管理員",
       "editPlaceholder": "0",

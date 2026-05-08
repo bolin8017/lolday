@@ -107,6 +107,8 @@
   "jobs": {
     "priority": {
       "label": "Priority",
+      "normal": "Normal",
+      "high": "Priority",
       "column": "Priority",
       "adminOnly": "Admin only",
       "editPlaceholder": "0",
