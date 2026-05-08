@@ -5,6 +5,7 @@ import { StepperWidget } from "@/components/forms/widgets/StepperWidget";
 
 const baseProps = {
   id: "n",
+  name: "n",
   label: "n",
   schema: { type: "integer", minimum: 1, default: 100 } as const,
   uiSchema: {},

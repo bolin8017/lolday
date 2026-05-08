@@ -5,6 +5,7 @@ import { RangeSliderWidget } from "@/components/forms/widgets/RangeSliderWidget"
 
 const baseProps = {
   id: "test_id",
+  name: "test_id",
   label: "test",
   schema: { type: "number", minimum: 0, maximum: 1, default: 0.5 } as const,
   uiSchema: {},
