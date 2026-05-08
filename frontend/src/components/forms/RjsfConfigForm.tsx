@@ -1,9 +1,14 @@
 import Form from "@rjsf/core";
 import type { RJSFSchema } from "@rjsf/utils";
 import validator from "@rjsf/validator-ajv8";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { deriveUiSchemaFromSchema, fillDefaults } from "./RjsfConfigForm.logic";
+import { FieldTemplate } from "./templates/FieldTemplate";
+import { RangeSliderWidget } from "./widgets/RangeSliderWidget";
+import { StepperWidget } from "./widgets/StepperWidget";
+import { NumericInputWidget } from "./widgets/NumericInputWidget";
+import { SwitchWidget } from "./widgets/SwitchWidget";
 
 interface Props {
   schema: object;
@@ -11,39 +16,31 @@ interface Props {
   onChange: (value: Record<string, unknown>) => void;
 }
 
-// Sibling keywords RJSF tolerates next to `$ref` without the allOf wrap.
-// Keep this set minimal — adding annotation keywords like `default` would
-// defeat the workaround, since `default` is the trigger we're working around.
 const NON_WRAPPING_SIBLINGS = new Set(["title", "description"]);
 
-/**
- * Wrap `$ref` in `allOf` when sibling keywords are present.  Bare `$ref`+sibling
- * patterns (valid in JSON Schema 2019-09+) crash RJSF v5's production bundle:
- *   { "$ref": "#/$defs/X", "default": {...} }
- *     → { "allOf": [{ "$ref": "#/$defs/X" }], "default": {...} }
- * Idempotent — re-running on already-wrapped schemas is a no-op.
- */
 function normalizeSchema(node: unknown): unknown {
   if (node === null || typeof node !== "object") return node;
   if (Array.isArray(node)) return node.map(normalizeSchema);
-
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(node)) {
-    out[k] = normalizeSchema(v);
-  }
-
+  for (const [k, v] of Object.entries(node)) out[k] = normalizeSchema(v);
   if (typeof out.$ref === "string") {
     const { $ref, ...rest } = out;
     const hasSiblings = Object.keys(rest).some(
       (k) => !NON_WRAPPING_SIBLINGS.has(k),
     );
-    if (hasSiblings) {
-      return { allOf: [{ $ref }], ...rest };
-    }
+    if (hasSiblings) return { allOf: [{ $ref }], ...rest };
   }
-
   return out;
 }
+
+const widgets = {
+  rangeSlider: RangeSliderWidget,
+  stepper: StepperWidget,
+  numericInput: NumericInputWidget,
+  switch: SwitchWidget,
+};
+
+const templates = { FieldTemplate };
 
 export function RjsfConfigForm({ schema, value, onChange }: Props) {
   const normalizedSchema = useMemo(
@@ -54,11 +51,28 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
     () => deriveUiSchemaFromSchema(normalizedSchema),
     [normalizedSchema],
   );
+  const defaults = useMemo(
+    () => fillDefaults(normalizedSchema, {}),
+    [normalizedSchema],
+  );
 
   useEffect(() => {
-    onChange(fillDefaults(normalizedSchema, {}));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- onChange is a fresh callback every render; we intentionally only react to schema changes
+    onChange(defaults);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to schema changes
   }, [normalizedSchema]);
+
+  const onResetField = useCallback(
+    (fieldId: string) => {
+      // RJSF builds field ids as `root_<key>` (configurable via idPrefix).
+      const key = fieldId.replace(/^root_/, "");
+      const next = {
+        ...value,
+        [key]: (defaults as Record<string, unknown>)[key],
+      };
+      onChange(next);
+    },
+    [value, defaults, onChange],
+  );
 
   return (
     <div className="rjsf-wrap rounded-md border bg-card p-4 text-sm">
@@ -67,6 +81,9 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
         uiSchema={uiSchema}
         validator={validator}
         formData={value}
+        widgets={widgets}
+        templates={templates}
+        formContext={{ onResetField }}
         liveValidate
         showErrorList={false}
         onChange={(e) => onChange(e.formData as Record<string, unknown>)}
@@ -75,9 +92,9 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
           <Button
             type="button"
             variant="ghost"
-            onClick={() => onChange(fillDefaults(normalizedSchema, {}))}
+            onClick={() => onChange(defaults)}
           >
-            Reset to defaults
+            Reset all to defaults
           </Button>
         </div>
       </Form>
