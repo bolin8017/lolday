@@ -53,17 +53,6 @@ async def test_get_scan_parses_critical_high():
 
 
 @pytest.mark.asyncio
-async def test_delete_artifact():
-    with respx.mock(base_url="http://harbor") as mock:
-        mock.delete(
-            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc"
-        ).mock(return_value=httpx.Response(200))
-        client = HarborClient("http://harbor", "admin", "pw")
-        await client.delete_artifact("detectors", "foo", "sha256:abc")
-        assert mock.calls.call_count == 1
-
-
-@pytest.mark.asyncio
 async def test_ensure_robot_account_matches_only_exact_prefix():
     with respx.mock(base_url="http://harbor") as mock:
         # harbor returns two robots; only the exact prefix match should be recognized

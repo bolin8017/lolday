@@ -230,14 +230,6 @@ class HarborClient:
             if resp.status_code not in (200, 404):
                 resp.raise_for_status()
 
-    async def delete_artifact(self, project: str, repo: str, digest: str) -> None:
-        async with self._client() as c:
-            resp = await c.delete(
-                f"/api/v2.0/projects/{project}/repositories/{repo}/artifacts/{digest}"
-            )
-            if resp.status_code not in (200, 404):
-                resp.raise_for_status()
-
     async def trigger_scan(self, project: str, repo: str, digest: str) -> None:
         """Kick off a Trivy scan on an artifact. Raises on failure.
 
