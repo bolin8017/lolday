@@ -1,5 +1,10 @@
 # ---- build stage ----
 FROM node:22-alpine AS build
+# pnpm >=11 runs `runDepsStatusCheck` before `pnpm run <script>` and refuses
+# to proceed in non-CI environments without an explicit affirmation. GHA
+# sets CI=true automatically, but local `docker build` does not — pin the
+# value so both environments share the same code path.
+ENV CI=true
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
