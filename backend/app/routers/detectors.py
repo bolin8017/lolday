@@ -400,9 +400,10 @@ async def delete_version(
                 settings.HARBOR_ADMIN_USERNAME,
                 settings.HARBOR_ADMIN_PASSWORD,
             )
-            await harbor.delete_artifact(
+            await harbor.delete_tag_or_artifact(
                 "detectors",
                 detector.name,
+                tag,
                 version.image_digest,
             )
         except Exception:

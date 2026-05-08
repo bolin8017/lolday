@@ -63,6 +63,31 @@ async def test_get_version_legacy_null_manifest_returns_200(
 # ---------------------------------------------------------------------------
 
 
+class FakeHarborWithTags:
+    """Fake HarborClient that tracks tag-level state.
+
+    `tags` maps digest → list of tag names currently on that digest.
+    `calls` records (method_name, project, repo, *args) tuples for assertions.
+    """
+
+    def __init__(self, *args, tags: dict[str, list[str]] | None = None, **kwargs):
+        self.tags: dict[str, list[str]] = dict(tags or {})
+        self.calls: list[tuple] = []
+
+    async def delete_tag_or_artifact(
+        self, project: str, repo: str, tag: str, digest: str
+    ) -> None:
+        self.calls.append(("delete_tag_or_artifact", project, repo, tag, digest))
+        current = self.tags.get(digest, [])
+        if tag not in current:
+            return
+        if len(current) > 1:
+            current.remove(tag)
+            self.tags[digest] = current
+        else:
+            self.tags.pop(digest, None)
+
+
 @pytest.mark.asyncio
 async def test_delete_version_soft_deletes(
     async_client,
@@ -79,16 +104,8 @@ async def test_delete_version_soft_deletes(
         image_digest="sha256:abc",
     )
 
-    harbor_calls = []
-
-    class FakeHarbor:
-        def __init__(self, *a, **kw):
-            pass
-
-        async def delete_artifact(self, project, repo, digest):
-            harbor_calls.append((project, repo, digest))
-
-    monkeypatch.setattr("app.routers.detectors.HarborClient", FakeHarbor)
+    fake = FakeHarborWithTags(tags={"sha256:abc": ["v1.0.0"]})
+    monkeypatch.setattr("app.routers.detectors.HarborClient", lambda *a, **k: fake)
     monkeypatch.setattr("app.config.settings.HARBOR_ADMIN_PASSWORD", "x")
 
     resp = await async_client.delete(
@@ -102,7 +119,11 @@ async def test_delete_version_soft_deletes(
         headers=auth_owner_headers,
     )
     assert all(v["git_tag"] != "v1.0.0" for v in list_resp.json()["items"])
-    assert harbor_calls == [("detectors", "rfdet", "sha256:abc")]
+    assert fake.calls == [
+        ("delete_tag_or_artifact", "detectors", "rfdet", "v1.0.0", "sha256:abc")
+    ]
+    # Last tag → digest-level delete → tags map empty
+    assert "sha256:abc" not in fake.tags
 
 
 @pytest.mark.asyncio
@@ -239,10 +260,8 @@ async def test_delete_version_returns_204_when_harbor_purge_fails(
     auth_owner_headers,
     monkeypatch,
 ):
-    """Phase 13a follow-up (PR review TG-3): Harbor purge is best-effort.
-    If Harbor.delete_artifact raises, the soft-delete commit must already
-    have happened (status -> DELETED) and the request must still return
-    204. The reconciler retention pass will eventually clean stragglers.
+    """If Harbor.delete_tag_or_artifact raises, the soft-delete commit must already
+    have happened; the endpoint still returns 204 and the row stays DELETED.
     """
     detector = await detector_factory(name="rfdet")
     version = await version_factory(
@@ -251,26 +270,63 @@ async def test_delete_version_returns_204_when_harbor_purge_fails(
         image_digest="sha256:abc",
     )
 
-    class ExplodingHarbor:
+    class FakeHarborRaising:
         def __init__(self, *a, **kw):
             pass
 
-        async def delete_artifact(self, project, repo, digest):
+        async def delete_tag_or_artifact(self, project, repo, tag, digest):
             raise RuntimeError("harbor down (simulated)")
 
-    monkeypatch.setattr("app.routers.detectors.HarborClient", ExplodingHarbor)
+    monkeypatch.setattr("app.routers.detectors.HarborClient", FakeHarborRaising)
     monkeypatch.setattr("app.config.settings.HARBOR_ADMIN_PASSWORD", "x")
 
     resp = await async_client.delete(
         f"/api/v1/detectors/{detector.id}/versions/{version.git_tag}",
         headers=auth_owner_headers,
     )
-    # Best-effort: 204 even when Harbor fails.
-    assert resp.status_code == 204, resp.text
+    assert resp.status_code == 204
 
-    # Soft-delete already committed (no rollback on Harbor exception).
-    list_resp = await async_client.get(
-        f"/api/v1/detectors/{detector.id}/versions",
+
+@pytest.mark.asyncio
+async def test_delete_version_only_unpins_target_tag_when_digest_shared(
+    async_client,
+    detector_factory,
+    version_factory,
+    auth_owner_headers,
+    db_session,
+    monkeypatch,
+):
+    """Two versions share image_digest. DELETE one tag → other tag survives.
+
+    Regression for 2026-05-08 footgun: digest-level delete used to GC the
+    shared manifest, leaving the surviving DB row pointing at Harbor 404.
+    """
+    from app.models.detector import DetectorVersionStatus
+
+    detector = await detector_factory(name="rfdet")
+    await version_factory(
+        detector_id=detector.id, git_tag="4.1.0", image_digest="sha256:abc"
+    )
+    v_new = await version_factory(
+        detector_id=detector.id, git_tag="v4.1.0", image_digest="sha256:abc"
+    )
+
+    fake = FakeHarborWithTags(tags={"sha256:abc": ["4.1.0", "v4.1.0"]})
+    monkeypatch.setattr("app.routers.detectors.HarborClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.config.settings.HARBOR_ADMIN_PASSWORD", "x")
+
+    resp = await async_client.delete(
+        f"/api/v1/detectors/{detector.id}/versions/4.1.0",
         headers=auth_owner_headers,
     )
-    assert all(v["git_tag"] != "v1.0.0" for v in list_resp.json()["items"])
+    assert resp.status_code == 204
+
+    # Surviving version still ACTIVE in DB
+    await db_session.refresh(v_new)
+    assert v_new.status == DetectorVersionStatus.ACTIVE
+
+    # Exactly one tag-level delete; the other tag still attached
+    assert fake.calls == [
+        ("delete_tag_or_artifact", "detectors", "rfdet", "4.1.0", "sha256:abc")
+    ]
+    assert fake.tags["sha256:abc"] == ["v4.1.0"]
