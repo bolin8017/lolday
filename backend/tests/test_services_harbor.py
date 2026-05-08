@@ -53,17 +53,6 @@ async def test_get_scan_parses_critical_high():
 
 
 @pytest.mark.asyncio
-async def test_delete_artifact():
-    with respx.mock(base_url="http://harbor") as mock:
-        mock.delete(
-            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc"
-        ).mock(return_value=httpx.Response(200))
-        client = HarborClient("http://harbor", "admin", "pw")
-        await client.delete_artifact("detectors", "foo", "sha256:abc")
-        assert mock.calls.call_count == 1
-
-
-@pytest.mark.asyncio
 async def test_ensure_robot_account_matches_only_exact_prefix():
     with respx.mock(base_url="http://harbor") as mock:
         # harbor returns two robots; only the exact prefix match should be recognized
@@ -212,3 +201,112 @@ async def test_get_scan_status_error_preserved_not_silenced_as_zero():
         assert result.status == ScanStatus.ERROR
         assert result.critical == 0
         assert result.high == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_unpins_when_multi_tag():
+    """Multiple tags share the manifest. DELETE must unpin only the target tag."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "digest": "sha256:abc",
+                    "tags": [{"name": "4.1.0"}, {"name": "v4.1.0"}],
+                },
+            )
+        )
+        tag_delete = mock.delete(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc/tags/4.1.0"
+        ).mock(return_value=httpx.Response(200))
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.delete_tag_or_artifact("detectors", "foo", "4.1.0", "sha256:abc")
+
+        assert tag_delete.called
+        # Digest-level URL must NOT have been hit
+        digest_delete_path = (
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc"
+        )
+        for call in mock.calls:
+            if call.request.method == "DELETE":
+                assert call.request.url.path != digest_delete_path
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_falls_back_to_digest_when_last_tag():
+    """When the target tag is the only tag, fall through to digest-level delete."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={"digest": "sha256:abc", "tags": [{"name": "v4.1.0"}]},
+            )
+        )
+        digest_delete = mock.delete(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc"
+        ).mock(return_value=httpx.Response(200))
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.delete_tag_or_artifact("detectors", "foo", "v4.1.0", "sha256:abc")
+
+        assert digest_delete.called
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_idempotent_when_artifact_already_404():
+    """Artifact 404 on the initial GET → silent return, no DELETE issued."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(return_value=httpx.Response(404))
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        # Must not raise
+        await client.delete_tag_or_artifact("detectors", "foo", "v4.1.0", "sha256:abc")
+
+        # No DELETE hit Harbor
+        assert all(call.request.method != "DELETE" for call in mock.calls)
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_silent_when_tag_not_in_artifact():
+    """Tag is not on the artifact's tag list → silent return, no DELETE issued."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={"digest": "sha256:abc", "tags": [{"name": "v4.0.0"}]},
+            )
+        )
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.delete_tag_or_artifact("detectors", "foo", "v4.1.0", "sha256:abc")
+
+        assert all(call.request.method != "DELETE" for call in mock.calls)
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_raises_on_5xx():
+    """Harbor 5xx must surface as httpx.HTTPStatusError so the caller can log + count."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(return_value=httpx.Response(503))
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.delete_tag_or_artifact(
+                "detectors", "foo", "v4.1.0", "sha256:abc"
+            )

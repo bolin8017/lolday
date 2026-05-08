@@ -179,7 +179,9 @@ async def _delete_harbor_images(
     )
     for v in versions_res.scalars().all():
         try:
-            await harbor.delete_artifact("detectors", detector_name, v.image_digest)
+            await harbor.delete_tag_or_artifact(
+                "detectors", detector_name, v.git_tag, v.image_digest
+            )
             v.status = DetectorVersionStatus.DELETED
         except Exception:
             BACKEND_ERRORS.labels(stage="detector_delete_harbor").inc()
@@ -400,9 +402,10 @@ async def delete_version(
                 settings.HARBOR_ADMIN_USERNAME,
                 settings.HARBOR_ADMIN_PASSWORD,
             )
-            await harbor.delete_artifact(
+            await harbor.delete_tag_or_artifact(
                 "detectors",
                 detector.name,
+                tag,
                 version.image_digest,
             )
         except Exception:

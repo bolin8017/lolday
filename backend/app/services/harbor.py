@@ -196,11 +196,37 @@ class HarborClient:
         labels = config.get("Labels") or {}
         return dict(labels)
 
-    async def delete_artifact(self, project: str, repo: str, digest: str) -> None:
+    async def delete_tag_or_artifact(
+        self, project: str, repo: str, tag: str, digest: str
+    ) -> None:
+        """Delete `tag`. Preserve other tags sharing the same manifest.
+
+        Falls back to digest-level delete only when `tag` is the last tag
+        on the manifest. Idempotent on missing artifact / missing tag.
+        """
         async with self._client() as c:
-            resp = await c.delete(
-                f"/api/v2.0/projects/{project}/repositories/{repo}/artifacts/{digest}"
+            head = await c.get(
+                f"/api/v2.0/projects/{project}/repositories/{repo}/artifacts/{digest}",
+                params={"with_tag": "true"},
             )
+            if head.status_code == 404:
+                return
+            head.raise_for_status()
+            tags = [t["name"] for t in (head.json().get("tags") or [])]
+            if tag not in tags:
+                return
+
+            if len(tags) > 1:
+                url = (
+                    f"/api/v2.0/projects/{project}/repositories/{repo}"
+                    f"/artifacts/{digest}/tags/{tag}"
+                )
+            else:
+                url = (
+                    f"/api/v2.0/projects/{project}/repositories/{repo}"
+                    f"/artifacts/{digest}"
+                )
+            resp = await c.delete(url)
             if resp.status_code not in (200, 404):
                 resp.raise_for_status()
 

@@ -92,7 +92,7 @@ async def test_reconcile_cve_blocked(db_session):
                 ScanStatus.SUCCESS, critical=1, high=0, medium=0, low=0
             )
         )
-        hc.return_value.delete_artifact = AsyncMock()
+        hc.return_value.delete_tag_or_artifact = AsyncMock()
         await reconcile_build(db_session, build)
 
     await db_session.refresh(build)

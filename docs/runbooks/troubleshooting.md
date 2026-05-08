@@ -142,3 +142,39 @@ helm repo update
 ```
 
 Then re-run `helm dependency update charts/lolday`.
+
+### Symptom: Active detector version disappears from Harbor (vcjob: ImagePullBackOff: not found)
+
+**Symptom** — `DetectorVersion.status = ACTIVE` in DB and `image_digest` populated; vcjob fails to pull `harbor.lolday.svc:80/detectors/<name>:<tag>` with 404; `docker pull` of the same tag also returns 404.
+
+**Read** — Harbor no longer has the tag/digest. Likely sources:
+
+1. Pre-v0.20.7 digest-level delete footgun — sibling tag deletion took the manifest with it.
+2. Retention policy GC.
+3. Manual Harbor cleanup.
+
+**Recovery (preferred)** — re-build through the lolday API:
+
+```bash
+JWT=...   # CF Access token; copy from browser cookie / DevTools
+DET_ID=...
+curl -X POST "https://lolday.../api/v1/detectors/$DET_ID/builds" \
+  -H "Cookie: CF_Authorization=$JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"git_tag": "v4.1.0"}'
+```
+
+The unique constraint `(detector_id, git_tag)` blocks a duplicate ACTIVE row. If a stale ACTIVE row exists pointing at the missing image, soft-delete it first (`DELETE /api/v1/detectors/$DET_ID/versions/<tag>`) before re-building. The new build pushes the same content; BuildKit usually reproduces the original digest.
+
+**Fallback (Harbor writable but the build pipeline is broken)** — pull from a workstation cache and re-push to Harbor:
+
+```bash
+docker pull harbor.lolday.svc:80/detectors/<name>:<tag>   # confirms the 404
+# from a workstation that still has the image cached:
+docker tag  <local-image> harbor.lolday.svc:80/detectors/<name>:<tag>
+docker push harbor.lolday.svc:80/detectors/<name>:<tag>
+```
+
+Detector images are not in CI's GHCR registry today (CI builds backend / frontend / helpers; detector images are operator-built). The fallback applies only if a workstation kept the image in its local docker cache.
+
+**Prevention** — v0.20.7+ uses tag-level Harbor delete; multi-tag-shared-digest scenarios no longer cascade.

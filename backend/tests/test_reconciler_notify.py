@@ -186,7 +186,7 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
                 "org.opencontainers.image.revision": "deadbeef",
             }
 
-        async def delete_artifact(self, *a, **kw):
+        async def delete_tag_or_artifact(self, *a, **kw):
             pass
 
     with (
@@ -236,7 +236,7 @@ async def test_handle_build_succeeded_fires_trivy_blocked_on_critical_cve(
                 status=ScanStatus.SUCCESS, critical=5, high=12, medium=0, low=0
             )
 
-        async def delete_artifact(self, *a, **kw):
+        async def delete_tag_or_artifact(self, *a, **kw):
             pass
 
     with (
