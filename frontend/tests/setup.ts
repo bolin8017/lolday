@@ -10,6 +10,14 @@ import "@/i18n";
 // Radix UI primitives use PointerEvent + pointer capture APIs that jsdom does not
 // implement. See radix-ui/primitives#1342.
 window.PointerEvent = MouseEvent as typeof PointerEvent;
+
+// @radix-ui/react-use-size (used by Slider thumb sizing) calls ResizeObserver
+// which jsdom does not implement. Stub with a no-op observer.
+window.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 window.HTMLElement.prototype.hasPointerCapture = () => false; // jsdom: no pointer capture; Radix only checks the boolean.
 window.HTMLElement.prototype.releasePointerCapture = () => {};
 window.HTMLElement.prototype.setPointerCapture = () => {};
