@@ -111,13 +111,11 @@
       "high": "優先",
       "column": "優先度",
       "adminOnly": "僅管理員",
-      "editPlaceholder": "0",
-      "save": "儲存優先度",
       "warning": "提高優先度會暫停較低優先度工作的提交，直到此工作被派送至 Volcano 為止。正在執行的工作不受影響。"
     },
     "help": {
       "test_dataset_optional": "可選。提供時會多算最終 metrics 與混淆矩陣；不選則只訓練模型，不算指標。",
-      "priority_admin": "提高優先度會暫停較低優先度工作的提交，直到此工作被派送至 Volcano 為止。正在執行中的工作不受影響。",
+      "priority_admin": "Priority 排在 Normal 工作前面；多個 Priority 工作之間照送出時間排（先送先跑）。Running 工作不受影響。",
       "source_model": "已訓練好的模型；推論時會載入它的 weights。模型已綁定一個 detector，下方 Detector 區塊會自動帶入。"
     }
   },
