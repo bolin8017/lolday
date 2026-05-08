@@ -97,11 +97,13 @@ After both callers migrate, this method has zero references and is deleted. Remo
 
 Other `HarborClient` methods (`ensure_project`, `ensure_robot_account`, `set_retention_policy`, `get_artifact_digest`, `get_scan`, `get_image_labels`, `trigger_scan`) are untouched.
 
-### 5.2 Router callers — `backend/app/routers/detectors.py`
+### 5.2 Production callers — `backend/app/routers/detectors.py` and `backend/app/reconciler/build_finalize.py`
 
 **`delete_version`** (lines 342-419): lines 403-407 swap from `delete_artifact` to `delete_tag_or_artifact`, passing the local `tag` parameter and `version.image_digest`. All surrounding logic — DB-first commit, try/except, `BACKEND_ERRORS{stage="version_delete_harbor"}` metric, `logger.exception` extras — is preserved verbatim.
 
 **`_delete_harbor_images`** (lines 157-193): line 182 swaps similarly, passing `v.git_tag` and `v.image_digest` per loop iteration. The `v.status = DetectorVersionStatus.DELETED` assignment stays inside the try block (only mark deleted after Harbor success). `BACKEND_ERRORS{stage="detector_delete_harbor"}` and the per-version `logger.exception` extras are preserved.
+
+**`_finalize_clean_scan`** (`backend/app/reconciler/build_finalize.py:53`, post-implementation discovery): the CVE-blocked-build cleanup path also calls Harbor delete on a just-pushed artifact. In normal operation the artifact has a single tag (`b.git_tag`); `delete_tag_or_artifact` falls through to digest-level delete, behaviour identical to the old `delete_artifact`. The migration also passes `b.git_tag` so the safe path applies if the artifact ever carries multiple tags at scan time.
 
 ## 6. Error handling
 
