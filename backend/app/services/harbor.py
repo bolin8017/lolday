@@ -209,6 +209,8 @@ class HarborClient:
                 f"/api/v2.0/projects/{project}/repositories/{repo}/artifacts/{digest}",
                 params={"with_tag": "true"},
             )
+            if head.status_code == 404:
+                return
             head.raise_for_status()
             tags = [t["name"] for t in (head.json().get("tags") or [])]
 

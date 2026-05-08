@@ -268,3 +268,20 @@ async def test_delete_tag_or_artifact_falls_back_to_digest_when_last_tag():
         await client.delete_tag_or_artifact("detectors", "foo", "v4.1.0", "sha256:abc")
 
         assert digest_delete.called
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_idempotent_when_artifact_already_404():
+    """Artifact 404 on the initial GET → silent return, no DELETE issued."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(return_value=httpx.Response(404))
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        # Must not raise
+        await client.delete_tag_or_artifact("detectors", "foo", "v4.1.0", "sha256:abc")
+
+        # No DELETE hit Harbor
+        assert all(call.request.method != "DELETE" for call in mock.calls)
