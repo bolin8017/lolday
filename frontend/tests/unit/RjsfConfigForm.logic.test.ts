@@ -5,62 +5,58 @@ import {
 } from "@/components/forms/RjsfConfigForm.logic";
 
 describe("deriveUiSchemaFromSchema", () => {
-  it("does not mirror description into ui:help (RJSF renders description natively)", () => {
+  it("maps bounded float (min+max) to rangeSlider", () => {
     const schema = {
       type: "object",
-      properties: {
-        n: { type: "integer", description: "Number of trees." },
-      },
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
-    expect(deriveUiSchemaFromSchema(schema as any)).toEqual({
-      "ui:submitButtonOptions": { norender: true },
-    });
-  });
-
-  it("ui:placeholder from default", () => {
-    const schema = {
-      type: "object",
-      properties: { lr: { type: "number", default: 0.001 } },
+      properties: { t: { type: "number", minimum: 0, maximum: 1 } },
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
     const ui = deriveUiSchemaFromSchema(schema as any);
-    expect(ui.lr["ui:placeholder"]).toBe("Default: 0.001");
+    expect((ui.t as Record<string, unknown>)["ui:widget"]).toBe("rangeSlider");
   });
 
-  it("description plus default → only ui:placeholder (description is not duplicated)", () => {
+  it("maps integer to stepper", () => {
     const schema = {
       type: "object",
-      properties: {
-        n: { type: "integer", description: "trees", default: 100 },
-      },
+      properties: { n: { type: "integer", minimum: 1 } },
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
     const ui = deriveUiSchemaFromSchema(schema as any);
-    expect(ui.n).toEqual({
-      "ui:placeholder": "Default: 100",
-    });
+    expect((ui.n as Record<string, unknown>)["ui:widget"]).toBe("stepper");
   });
 
-  it("recurses into nested object properties for ui:placeholder", () => {
+  it("maps unbounded float to numericInput", () => {
     const schema = {
       type: "object",
-      properties: {
-        optimizer: {
-          type: "object",
-          properties: {
-            lr: { type: "number", description: "Learning rate", default: 0.01 },
-          },
-        },
-      },
+      properties: { lr: { type: "number", exclusiveMinimum: 0 } },
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
     const ui = deriveUiSchemaFromSchema(schema as any);
-    expect(ui.optimizer).toEqual({
-      lr: {
-        "ui:placeholder": "Default: 0.01",
-      },
-    });
+    expect((ui.lr as Record<string, unknown>)["ui:widget"]).toBe(
+      "numericInput",
+    );
+  });
+
+  it("maps boolean to switch", () => {
+    const schema = {
+      type: "object",
+      properties: { flag: { type: "boolean" } },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
+    const ui = deriveUiSchemaFromSchema(schema as any);
+    expect((ui.flag as Record<string, unknown>)["ui:widget"]).toBe("switch");
+  });
+
+  it("does not set ui:widget for string with enum", () => {
+    const schema = {
+      type: "object",
+      properties: { mode: { type: "string", enum: ["a", "b"] } },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
+    const ui = deriveUiSchemaFromSchema(schema as any);
+    expect(
+      (ui.mode as Record<string, unknown> | undefined)?.["ui:widget"],
+    ).toBeUndefined();
   });
 });
 

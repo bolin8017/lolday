@@ -22,6 +22,9 @@ const baseProps = {
   registry: {} as never,
   hidden: false,
   displayLabel: true,
+  onChange: () => {},
+  onKeyChange: () => () => {},
+  onDropPropertyClick: () => () => {},
 };
 
 describe("FieldTemplate", () => {
