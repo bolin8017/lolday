@@ -285,3 +285,23 @@ async def test_delete_tag_or_artifact_idempotent_when_artifact_already_404():
 
         # No DELETE hit Harbor
         assert all(call.request.method != "DELETE" for call in mock.calls)
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_silent_when_tag_not_in_artifact():
+    """Tag is not on the artifact's tag list → silent return, no DELETE issued."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={"digest": "sha256:abc", "tags": [{"name": "v4.0.0"}]},
+            )
+        )
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.delete_tag_or_artifact("detectors", "foo", "v4.1.0", "sha256:abc")
+
+        assert all(call.request.method != "DELETE" for call in mock.calls)

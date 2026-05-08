@@ -213,6 +213,8 @@ class HarborClient:
                 return
             head.raise_for_status()
             tags = [t["name"] for t in (head.json().get("tags") or [])]
+            if tag not in tags:
+                return
 
             if len(tags) > 1:
                 url = (
