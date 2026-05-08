@@ -61,6 +61,16 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to schema changes
   }, [normalizedSchema]);
 
+  /**
+   * Reset a single field to its default. Assumes a FLAT schema —
+   * the strip `root_<key>` works only when fields live at the top level.
+   *
+   * For nested schemas (e.g. `{ optimizer: { properties: { lr } } }`), RJSF
+   * generates ids like `root_optimizer_lr`. This handler would compute
+   * `key="optimizer_lr"`, find no matching default, and effectively delete
+   * the parent `optimizer` subtree. Detector configs in elfrfdet / elfcnndet
+   * are flat today; revisit if a future detector introduces nesting.
+   */
   const onResetField = useCallback(
     (fieldId: string) => {
       // RJSF builds field ids as `root_<key>` (configurable via idPrefix).
@@ -74,6 +84,8 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
     [value, defaults, onChange],
   );
 
+  const formContext = useMemo(() => ({ onResetField }), [onResetField]);
+
   return (
     <div className="rjsf-wrap rounded-md border bg-card p-4 text-sm">
       <Form
@@ -83,7 +95,7 @@ export function RjsfConfigForm({ schema, value, onChange }: Props) {
         formData={value}
         widgets={widgets}
         templates={templates}
-        formContext={{ onResetField }}
+        formContext={formContext}
         liveValidate
         showErrorList={false}
         onChange={(e) => onChange(e.formData as Record<string, unknown>)}

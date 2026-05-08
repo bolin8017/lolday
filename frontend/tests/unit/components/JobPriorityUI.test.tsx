@@ -132,9 +132,10 @@ describe("JobDetailShell — priority section", () => {
 
   it("shows read-only badge for non-queued_backend status (priority=1)", () => {
     renderShell(makeJob({ status: "running", priority: 1 }));
+    // Badge renders with the ⚡ glyph for priority=1
+    expect(screen.getByText(/⚡/)).toBeInTheDocument();
+    // No toggle button rendered for read-only status
     expect(screen.queryByRole("button", { name: /normal/i })).toBeNull();
-    // Badge renders as a div/span with role "generic" — just confirm it's visible
-    expect(screen.getAllByText(/priority/i).length).toBeGreaterThan(0);
   });
 
   it("shows read-only Normal text for non-queued_backend status (priority=0)", () => {

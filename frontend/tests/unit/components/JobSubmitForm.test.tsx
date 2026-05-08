@@ -143,7 +143,7 @@ describe("JobSubmitForm — PriorityToggle (admin)", () => {
     );
   });
 
-  it("admin submitting with Priority active sends priority: 1", async () => {
+  it("toggling Priority sets aria-pressed=true on the Priority button", async () => {
     renderForm();
     // Click the Priority (⚡) button in the toggle
     await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));

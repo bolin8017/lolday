@@ -6,6 +6,7 @@ import {
   usePatchJob,
   type JobSummary,
   type JobType,
+  type JobStatus,
 } from "@/api/queries/jobs";
 import { useAuth } from "@/hooks/useAuth";
 import { DataTable } from "@/components/tables/DataTable";
@@ -33,6 +34,15 @@ import { Plus } from "lucide-react";
 
 export const handle = { breadcrumb: "Jobs" };
 
+/** Statuses where priority is no longer actionable and we show "—" instead. */
+const TERMINAL_OR_RUNNING_STATUSES = [
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "timeout",
+] as const satisfies readonly JobStatus[];
+
 /** Badge + Popover priority cell — only rendered for admin users. */
 function PriorityCell({ job }: { job: JobSummary }) {
   const { t } = useTranslation();
@@ -42,10 +52,7 @@ function PriorityCell({ job }: { job: JobSummary }) {
 
   if (!canEdit) {
     if (
-      job.status === "running" ||
-      job.status === "succeeded" ||
-      job.status === "failed" ||
-      job.status === "cancelled"
+      (TERMINAL_OR_RUNNING_STATUSES as readonly string[]).includes(job.status)
     ) {
       return <span className="text-muted-foreground text-xs">—</span>;
     }

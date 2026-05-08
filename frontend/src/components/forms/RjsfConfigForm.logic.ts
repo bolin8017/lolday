@@ -41,6 +41,9 @@ function walk(node: StrictRJSFSchema, ui: UiSchema): void {
   }
 }
 
+// NOTE: iterates only top-level properties — same flat-schema assumption as
+// onResetField in RjsfConfigForm.tsx; revisit if a future detector introduces
+// nested config keys.
 export function fillDefaults(
   schema: RJSFSchema,
   current: Record<string, unknown>,

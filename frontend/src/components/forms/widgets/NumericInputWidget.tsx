@@ -14,8 +14,23 @@ export function NumericInputWidget(props: WidgetProps) {
   const [draft, setDraft] = useState<string>(
     value === undefined || value === null ? "" : String(value),
   );
+  // Sync from external prop changes (e.g. form reset).
+  // Compare the *parsed* draft against the incoming value so we don't clobber
+  // a partial decimal entry during keyboard edits (e.g. "0." parses as 0,
+  // same as the round-tripped propValue=0 — without the guard the effect
+  // would reset "0." → "0" before the user finishes typing).
   useEffect(() => {
-    setDraft(value === undefined || value === null ? "" : String(value));
+    if (value === undefined || value === null) {
+      if (draft !== "") setDraft("");
+    } else {
+      const parsed = Number(draft);
+      const propNumeric = Number(value);
+      if (!Number.isNaN(propNumeric) && parsed !== propNumeric) {
+        setDraft(String(value));
+      }
+    }
+    // intentionally don't depend on draft to prevent loop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   function handle(e: ChangeEvent<HTMLInputElement>) {
