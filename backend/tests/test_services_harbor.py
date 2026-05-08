@@ -245,3 +245,26 @@ async def test_delete_tag_or_artifact_unpins_when_multi_tag():
         for call in mock.calls:
             if call.request.method == "DELETE":
                 assert call.request.url.path != digest_delete_path
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_falls_back_to_digest_when_last_tag():
+    """When the target tag is the only tag, fall through to digest-level delete."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={"digest": "sha256:abc", "tags": [{"name": "v4.1.0"}]},
+            )
+        )
+        digest_delete = mock.delete(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc"
+        ).mock(return_value=httpx.Response(200))
+
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.delete_tag_or_artifact("detectors", "foo", "v4.1.0", "sha256:abc")
+
+        assert digest_delete.called
