@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -75,8 +75,28 @@ vi.mock("@/components/common/HelpHint", () => ({
 // TrainSubForm and InferenceSubForm include multiple Radix Select components
 // which, when composed together in jsdom/React-19, trigger the compose-refs
 // infinite loop. Stub both; their behaviour is tested in their own test files.
+//
+// TrainSubForm is stubbed with a "fill required" button that calls the three
+// setter props so integration tests can reach the submit path without
+// interacting with real Radix Select dropdowns.
 vi.mock("@/components/forms/TrainSubForm", () => ({
-  TrainSubForm: () => <div data-testid="train-sub-form" />,
+  TrainSubForm: (props: {
+    setDetectorId: (v: string) => void;
+    setVersionTag: (v: string) => void;
+    setTrainDatasetId: (v: string) => void;
+    [k: string]: unknown;
+  }) => (
+    <button
+      data-testid="fill-required"
+      onClick={() => {
+        props.setDetectorId("det-1");
+        props.setVersionTag("v1.0.0");
+        props.setTrainDatasetId("ds-1");
+      }}
+    >
+      fill required
+    </button>
+  ),
 }));
 
 vi.mock("@/components/forms/InferenceSubForm", () => ({
@@ -145,13 +165,7 @@ describe("JobSubmitForm — PriorityToggle (admin)", () => {
 
   it("toggling Priority sets aria-pressed=true on the Priority button", async () => {
     renderForm();
-    // Click the Priority (⚡) button in the toggle
     await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
-    // Fill required train fields: select detector version tag
-    // TrainSubForm renders a detector version selector; we bypass the full UI
-    // by directly submitting — canSubmit gate requires detectorId + versionTag,
-    // so we verify the priority toggle state via aria-pressed only, not the
-    // full submit path (which requires selecting external dropdown values).
     expect(screen.getByRole("button", { name: /^priority$/i })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -160,5 +174,69 @@ describe("JobSubmitForm — PriorityToggle (admin)", () => {
       "aria-pressed",
       "false",
     );
+  });
+});
+
+describe("JobSubmitForm — priority integration (submit payload)", () => {
+  it("admin: toggling Priority active causes the submit body to carry priority: 1", async () => {
+    submitMutate.mockClear();
+    renderForm();
+
+    // Toggle priority to active
+    await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+    expect(screen.getByRole("button", { name: /^priority$/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // Fill required fields via the TrainSubForm setter button
+    await userEvent.click(screen.getByTestId("fill-required"));
+
+    // Wait for canSubmit to flip — Submit button becomes enabled
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /submit job/i }),
+      ).not.toBeDisabled();
+    });
+
+    // Submit
+    await userEvent.click(screen.getByRole("button", { name: /submit job/i }));
+
+    // The submit body must carry priority: 1, the resolved versionId, and the
+    // train dataset id set by the mock setter
+    await waitFor(() => {
+      expect(submitMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          priority: 1,
+          type: "train",
+          detector_version_id: "ver-1",
+          train_dataset_id: "ds-1",
+        }),
+      );
+    });
+  });
+
+  it("admin: keeping Normal (priority=0) omits the priority field from the submit body", async () => {
+    submitMutate.mockClear();
+    renderForm();
+
+    // Do not toggle priority — stays at 0 (Normal)
+    await userEvent.click(screen.getByTestId("fill-required"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /submit job/i }),
+      ).not.toBeDisabled();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /submit job/i }));
+
+    // The submit body must NOT contain a priority field (production spread:
+    // `...(isAdmin && priority !== 0 ? { priority } : {})`)
+    await waitFor(() => {
+      expect(submitMutate).toHaveBeenCalledTimes(1);
+      const call = submitMutate.mock.calls[0][0] as Record<string, unknown>;
+      expect(call.priority).toBeUndefined();
+    });
   });
 });
