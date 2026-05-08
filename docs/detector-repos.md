@@ -13,8 +13,8 @@ it whenever a new detector repo is onboarded or retired.
 
 | Repo (local path)                    | GitHub                                 | Framework                  | Detector ver. | maldet pin   |
 | ------------------------------------ | -------------------------------------- | -------------------------- | ------------- | ------------ |
-| `~/Documents/repositories/elfrfdet`  | https://github.com/bolin8017/elfrfdet  | sklearn (Random Forest)    | `4.0.0`       | `>=2.0,<3.0` |
-| `~/Documents/repositories/elfcnndet` | https://github.com/bolin8017/elfcnndet | PyTorch Lightning (1D-CNN) | `4.0.0`       | `>=2.0,<3.0` |
+| `~/Documents/repositories/elfrfdet`  | https://github.com/bolin8017/elfrfdet  | sklearn (Random Forest)    | `4.1.0`       | `>=2.0,<3.0` |
+| `~/Documents/repositories/elfcnndet` | https://github.com/bolin8017/elfcnndet | PyTorch Lightning (1D-CNN) | `4.1.0`       | `>=2.0,<3.0` |
 
 Both repos:
 

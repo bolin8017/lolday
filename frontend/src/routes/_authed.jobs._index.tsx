@@ -6,6 +6,7 @@ import {
   usePatchJob,
   type JobSummary,
   type JobType,
+  type JobStatus,
 } from "@/api/queries/jobs";
 import { useAuth } from "@/hooks/useAuth";
 import { DataTable } from "@/components/tables/DataTable";
@@ -14,7 +15,12 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { FinalMetricsTile } from "@/components/jobs/FinalMetricsTile";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { PriorityToggle } from "@/components/forms/PriorityToggle";
 import {
   Select,
   SelectContent,
@@ -28,57 +34,86 @@ import { Plus } from "lucide-react";
 
 export const handle = { breadcrumb: "Jobs" };
 
-/** Inline-edit priority cell — only rendered for admin users. */
+/** Statuses where priority is no longer actionable and we show "—" instead. */
+const TERMINAL_OR_RUNNING_STATUSES = [
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "timeout",
+] as const satisfies readonly JobStatus[];
+
+/** Badge + Popover priority cell — only rendered for admin users. */
 function PriorityCell({ job }: { job: JobSummary }) {
   const { t } = useTranslation();
   const patch = usePatchJob();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(job.priority ?? 0);
-
   const canEdit = job.status === "queued_backend";
+  const current: 0 | 1 = (job.priority ?? 0) === 0 ? 0 : 1;
 
-  function commit() {
-    if (draft !== (job.priority ?? 0)) {
-      patch.mutate({ id: job.id, priority: draft });
+  if (!canEdit) {
+    if (
+      (TERMINAL_OR_RUNNING_STATUSES as readonly string[]).includes(job.status)
+    ) {
+      return <span className="text-muted-foreground text-xs">—</span>;
     }
-    setEditing(false);
+    return <PriorityBadge value={current} t={t} />;
   }
 
-  if (canEdit && editing) {
-    return (
-      <Input
-        type="number"
-        min={0}
-        step={1}
-        className="h-7 w-16 px-1 text-sm"
-        autoFocus
-        value={draft}
-        onChange={(e) => {
-          const v = parseInt(e.target.value, 10);
-          setDraft(isNaN(v) || v < 0 ? 0 : v);
-        }}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          if (e.key === "Escape") setEditing(false);
-        }}
-        aria-label={t("jobs.priority.label")}
-      />
-    );
+  function onChange(next: 0 | 1) {
+    if (next === current) return;
+    patch.mutate({ id: job.id, priority: next });
   }
 
   return (
-    <span
-      className={
-        canEdit
-          ? "cursor-pointer underline-offset-2 hover:underline"
-          : undefined
-      }
-      title={canEdit ? t("jobs.priority.save") : undefined}
-      onClick={canEdit ? () => setEditing(true) : undefined}
-    >
-      {job.priority ?? 0}
-    </span>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("jobs.priority.label")}
+          className="cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+        >
+          <PriorityBadge value={current} t={t} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-2" align="start">
+        <PriorityToggle
+          value={current}
+          onChange={onChange}
+          disabled={patch.isPending}
+          size="sm"
+        />
+        {patch.isError && (
+          <p className="text-xs text-destructive mt-2" role="alert">
+            {(patch.error as { detail?: string } | null)?.detail ??
+              t("jobs.priority.saveFailed")}
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PriorityBadge({
+  value,
+  t,
+}: {
+  value: 0 | 1;
+  t: (k: string) => string;
+}) {
+  if (value === 1) {
+    return (
+      <Badge
+        variant="outline"
+        className="bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-300"
+      >
+        ⚡ {t("jobs.priority.high")}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-muted-foreground">
+      {t("jobs.priority.normal")}
+    </Badge>
   );
 }
 

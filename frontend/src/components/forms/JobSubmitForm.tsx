@@ -13,11 +13,10 @@ import { useModelVersion } from "@/api/queries/models";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { HelpHint } from "@/components/common/HelpHint";
 import { TrainSubForm } from "./TrainSubForm";
 import { InferenceSubForm } from "./InferenceSubForm";
+import { PriorityToggle } from "./PriorityToggle";
 import { StageExplainer } from "./StageExplainer";
 import { StickyFormFooter } from "./StickyFormFooter";
 import { requiredFieldsForType } from "./JobSubmitForm.logic";
@@ -44,7 +43,7 @@ export function JobSubmitForm() {
   const [derivedDetectorVersionTag, setDerivedDetectorVersionTag] =
     useState("");
   const [config, setConfig] = useState<Record<string, unknown>>({});
-  const [priority, setPriority] = useState(0);
+  const [priority, setPriority] = useState<0 | 1>(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Prefill runs at most once per page load — gate against poll-induced re-runs.
@@ -224,28 +223,12 @@ export function JobSubmitForm() {
           <CardHeader>
             <CardTitle>{t("jobs.priority.label")}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-3">
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
-                <Label htmlFor="priority-input">
-                  {t("jobs.priority.label")}
-                </Label>
-                <HelpHint popover>{t("jobs.help.priority_admin")}</HelpHint>
-              </div>
-              <Input
-                id="priority-input"
-                type="number"
-                min={0}
-                step={1}
-                className="w-24"
-                value={priority}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  setPriority(isNaN(v) || v < 0 ? 0 : v);
-                }}
-              />
+              <PriorityToggle value={priority} onChange={setPriority} />
+              <HelpHint popover>{t("jobs.help.priority_admin")}</HelpHint>
             </div>
-            {priority > 0 && (
+            {priority === 1 && (
               <p
                 className="text-sm rounded-md border border-amber-400/60 bg-amber-50 px-3 py-2 text-amber-900 dark:bg-amber-900/20 dark:text-amber-300"
                 role="alert"

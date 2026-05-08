@@ -8,10 +8,55 @@
 
 Lolday is **ISLab's internal ML platform for managing the lifecycle of malware detectors**. A user defines a detector (Python code following the `maldet` spec), lolday builds it into an OCI image, runs training/evaluation/prediction jobs as Volcano `vcjob` workloads on GPUs, tracks experiments via MLflow, and stores models in MLflow's registry plus images in a private Harbor registry.
 
-Lolday is **glue code, not a framework**. Detector logic lives in the external `maldet` PyPI package; lolday integrates against it. We write custom code only for the glue layer and `maldet`-spec-specific orchestration.
-
 - **Deploy target**: server30 (`140.118.155.30`, SSH 9453), Ubuntu 24.04, K3s single-node, NVIDIA GPU operator on host. Shared lab server.
 - **Non-goals**: multi-tenant SaaS, multi-cluster, cloud-managed deployment, public exposure beyond Cloudflare Access SSO.
+
+### 1.1 Glue, not framework
+
+Lolday is **glue code, not a framework**. Detector logic lives in the external `maldet` PyPI package and in per-detector repos; lolday integrates against them. Custom code in this repo is justified only when it serves the glue layer (job dispatch, manifest hosting, registry coordination, GPU queueing) or implements `maldet`-spec-specific orchestration. ML logic — feature extraction, training algorithms, threshold selection, calibration — does not live here.
+
+### 1.2 Deploy platform, not development platform
+
+A detector lifecycle in ISLab:
+
+```
+[detector repo: elfrfdet, elfcnndet, …]      [lolday]
+   author tunes hyperparameters,         →    build image from tagged repo
+   runs ROC analysis,                          run train jobs on shared datasets
+   picks operating point / threshold,          run evaluate / predict on trained models
+   calibrates,                                 track results, manage GPU queue
+   tags release version 4.1.0
+```
+
+Lolday is the runtime for **already-tuned** detectors. Authors finish their work — pick the operating point, calibrate, validate on their own data, write a CHANGELOG entry, tag a release — _before_ a version reaches the platform. Lolday's user is a teammate who wants to **run** a detector on a shared dataset, not develop one.
+
+The platform does NOT provide:
+
+- Hyperparameter tuning UIs (ROC sweeps, threshold optimization, grid search, calibration utilities)
+- Per-run override of detector author design decisions
+- A detector-debugging environment (use the detector repo's own dev setup with `maldet run` locally)
+
+When a feature would let a platform user re-tune what an author already decided, that is a **leaky abstraction**. Remove it. Past examples:
+
+- **Detector-version override toggle** — removed 2026-05-07 (PR #112). Let users mismatch a model's training detector version with the inference detector version, breaking reproducibility.
+- **`EvaluateConfig.threshold` field** — removed 2026-05-08. Declared but never plumbed; let users believe they were tuning the operating point when they were not.
+
+### 1.3 Stage-aware UX rule
+
+Job stages map to different responsibilities. The hyperparameter form must reflect that mapping:
+
+| Stage      | Allowable user-controlled hparams                            | Why                                                                                                                                                                                                                      |
+| ---------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `train`    | Anything — `n_estimators`, `lr`, `epochs`, `random_state`, … | Training is by definition where the user picks hparams for their experiment. The output (a trained model artefact) embeds those choices and is the contract for downstream stages.                                       |
+| `evaluate` | Resource / perf only — `batch_size`, parallelism             | The trained model is a fixed artefact. Operating-point decisions (threshold, calibration) are detector-development concerns; allowing per-eval override means measurements no longer reflect the deployed configuration. |
+| `predict`  | Resource / perf only — `batch_size`, parallelism             | Same reasoning. The model + author decisions are the contract; predict applies them.                                                                                                                                     |
+
+When adding a new field to a detector's stage config, ask: _"Does this knob change detector behavior, or only resource usage?"_
+
+- Behavioral knob → goes in `TrainConfig` (baked into the artefact at training time) or out of the config entirely (hardcoded in detector code, or selected at training via `TunedThresholdClassifierCV`-style wrappers and stored as model metadata).
+- Resource / perf knob → may live in any stage's config.
+
+The check applies symmetrically: a future maldet evaluator that adds, say, a `noise_injection: float` field to `EvaluateConfig` must be rejected for the same reason — it would change reported metrics in a way the author did not control.
 
 ## 2. System diagram
 
