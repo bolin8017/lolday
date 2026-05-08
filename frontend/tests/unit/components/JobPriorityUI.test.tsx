@@ -11,7 +11,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  type MockedFunction,
+} from "vitest";
+import { useJobs } from "@/api/queries/jobs";
 
 import { JobDetailShell } from "@/components/jobs/JobDetailShell";
 import type { components } from "@/api/schema.gen";
@@ -191,5 +199,52 @@ describe("JobsListPage — priority column visibility", () => {
     authState.role = "user";
     renderListPage();
     expect(screen.queryByText(/priority/i)).toBeNull();
+  });
+});
+
+describe("JobsListPage — priority cell popover", () => {
+  beforeEach(() => {
+    authState.role = "admin";
+    vi.clearAllMocks();
+  });
+
+  it("clicking a priority badge for queued_backend opens a popover with the toggle", async () => {
+    // Override useJobs to seed a queued_backend row so PriorityCell renders
+    (useJobs as MockedFunction<typeof useJobs>).mockReturnValueOnce({
+      data: {
+        items: [
+          {
+            id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+            type: "train",
+            status: "queued_backend",
+            priority: 0,
+            detector_version_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            owner_id: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            mlflow_run_id: null,
+            mlflow_experiment_id: null,
+            k8s_job_name: null,
+            failure_reason: null,
+            submitted_at: "2026-05-05T00:00:00Z",
+            started_at: null,
+            finished_at: null,
+            train_dataset_id: null,
+            test_dataset_id: null,
+            predict_dataset_id: null,
+            source_model_version_id: null,
+            resolved_config: {},
+            log_tail: null,
+            resource_profile: "tiny",
+            summary_metrics: null,
+          },
+        ],
+      },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useJobs>);
+    renderListPage();
+    const badges = screen.getAllByRole("button", { name: /priority/i });
+    await userEvent.click(badges[0]);
+    expect(
+      await screen.findByRole("button", { name: /normal/i }),
+    ).toBeInTheDocument();
   });
 });
