@@ -4,7 +4,7 @@
 
 **Goal:** Replace digest-level Harbor delete with tag-aware delete in `HarborClient`, eliminating the shared-digest GC footgun discovered 2026-05-08 (`4.1.0` and `v4.1.0` shared a digest; deleting one took the other with it).
 
-**Architecture:** A single new `HarborClient.delete_tag_or_artifact(project, repo, tag, digest)` method reads the artifact's tag list via `with_tag=true`, then issues tag-level `DELETE artifacts/{digest}/tags/{tag}` when more than one tag points at the manifest, falling back to digest-level delete only when the target is the last tag. Both router callers (`delete_version`, `_delete_harbor_images`) migrate to the new method; the old `delete_artifact` is removed so digest-level delete is no longer publicly callable. Spec: `docs/superpowers/specs/2026-05-08-detector-version-delete-tag-level-design.md`.
+**Architecture:** A single new `HarborClient.delete_tag_or_artifact(project, repo, tag, digest)` method reads the artifact's tag list via `with_tag=true`, then issues tag-level `DELETE artifacts/{digest}/tags/{tag}` when more than one tag points at the manifest, falling back to digest-level delete only when the target is the last tag. All three production callers (`delete_version`, `_delete_harbor_images`, `_finalize_clean_scan`) migrate to the new method; the old `delete_artifact` is removed so digest-level delete is no longer publicly callable. The third caller (`_finalize_clean_scan` for CVE-blocked builds) was discovered during implementation as Task 6.5 — spec §5.2 was amended accordingly. Spec: `docs/superpowers/specs/2026-05-08-detector-version-delete-tag-level-design.md`.
 
 **Tech Stack:** FastAPI + SQLAlchemy 2.0 async (backend), `httpx` + `respx` (Harbor HTTP + tests), pytest with `pytest-asyncio` autouse mode.
 
@@ -16,8 +16,10 @@
 
 - `backend/app/services/harbor.py` — add `delete_tag_or_artifact`; remove `delete_artifact`.
 - `backend/app/routers/detectors.py` — migrate two call sites (`delete_version` line 403-407, `_delete_harbor_images` line 182).
+- `backend/app/reconciler/build_finalize.py` — migrate `_finalize_clean_scan` (CVE-blocked-build cleanup) — discovered as Task 6.5.
 - `backend/tests/test_services_harbor.py` — add 5 unit tests for the new method; remove `test_delete_artifact`.
 - `backend/tests/test_routers_detectors.py` — add `FakeHarborWithTags` helper, add 2 new tests (regression + helper coverage), update 2 existing tests for the new fake API.
+- `backend/tests/test_reconciler.py`, `backend/tests/test_reconciler_notify.py` — update mocks/stubs to the new method (Task 6.5).
 - `docs/architecture.md` — append §10 entry 17.
 - `docs/runbooks/troubleshooting.md` — append recovery procedure.
 
@@ -931,7 +933,7 @@ EOF
 Open `docs/architecture.md`. Find §10 "Common gotchas" — the last existing entry is #16 (Phase 6 backend FIFO scheduler, around line 402). Append entry #17 immediately after #16:
 
 ```markdown
-17. **Harbor `image_digest` ≡ manifest GC unit, not tag** — `DetectorVersion.image_digest` maps to Harbor's manifest digest; one manifest can carry multiple tags (BuildKit cache hits on identical content, retag conventions, admin retags). `DELETE /api/v2.0/.../artifacts/{digest}` is digest-level: Harbor GCs the manifest and untags every tag pointing at it. Lolday must always go through `HarborClient.delete_tag_or_artifact(...)`, which reads `with_tag=true` first and uses tag-level `DELETE .../tags/{tag}` whenever more than one tag exists on the artifact. Footgun source: 2026-05-08 (`4.1.0` and `v4.1.0` shared a digest after a retag-convention change; digest-level delete pulled both). Fixed in PR #<TBD>.
+17. **Harbor `image_digest` ≡ manifest GC unit, not tag** — `DetectorVersion.image_digest` maps to Harbor's manifest digest; one manifest can carry multiple tags (BuildKit cache hits on identical content, retag conventions, admin retags). `DELETE /api/v2.0/.../artifacts/{digest}` is digest-level: Harbor GCs the manifest and untags every tag pointing at it. Lolday must always go through `HarborClient.delete_tag_or_artifact(...)`, which reads `with_tag=true` first and uses tag-level `DELETE .../tags/{tag}` whenever more than one tag exists on the artifact. Footgun source: 2026-05-08 (`4.1.0` and `v4.1.0` shared a digest after a retag-convention change; digest-level delete pulled both). Fixed in PR #116.
 ```
 
 `<TBD>` will be replaced with the actual PR number in Task 11 once the PR exists.
