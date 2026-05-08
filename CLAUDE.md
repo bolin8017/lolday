@@ -58,6 +58,19 @@ ISLab is a Taiwanese security research lab. Default to English-ecosystem / GitHu
 
 Lolday is a glue platform. For every component, **first look for an existing open-source / actively maintained project** before proposing a custom implementation. Write custom code only for the glue layer and `maldet`-spec-specific logic.
 
+### Deploy platform, not development platform
+
+Lolday is the runtime for **already-tuned** detectors. Authors finish all hyperparameter tuning, threshold selection, and calibration in their own repos before tagging a release. The platform must NOT expose UI knobs that let platform users override detector-author design decisions.
+
+**Stage-aware rule**: `TrainConfig` may have user-tunable hparams (per-experiment); `EvaluateConfig` / `PredictConfig` may have only resource / perf knobs (no behavioral knobs).
+
+Precedents (footgun removals):
+
+- PR #112 (2026-05-08) — detector-version override toggle
+- 2026-05-08 spec — `EvaluateConfig.threshold` field
+
+Full reasoning: `docs/architecture.md` §1.2 + §1.3.
+
 ## Quickstart commands
 
 ```bash
