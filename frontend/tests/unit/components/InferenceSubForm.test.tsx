@@ -98,7 +98,7 @@ describe("InferenceSubForm", () => {
     ).toBeNull();
   });
 
-  it("renders the derived detector tag as read-only code", () => {
+  it("does not render a 'Detector (derived from model)' card (it's redundant — the model implies the detector)", () => {
     wrap(
       <InferenceSubForm
         type="predict"
@@ -120,8 +120,6 @@ describe("InferenceSubForm", () => {
         setConfig={() => {}}
       />,
     );
-    // Tag appears inside <code>, not inside a <select>
-    const tag = screen.getByText("v1.0.0");
-    expect(tag.tagName.toLowerCase()).toBe("code");
+    expect(screen.queryByText(/derived from model/i)).toBeNull();
   });
 });

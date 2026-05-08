@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useRegisteredModels, useModelVersions } from "@/api/queries/models";
-import { useDetector, useDetectorVersion } from "@/api/queries/detectors";
+import { useDetectorVersion } from "@/api/queries/detectors";
 import { useDatasets } from "@/api/queries/datasets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -42,7 +42,6 @@ export function InferenceSubForm(p: Props) {
     p.sourceModelOwner,
     p.sourceModelName,
   );
-  const { data: detector } = useDetector(p.derivedDetectorId);
   const { data: detectorVersionDetail } = useDetectorVersion(
     p.derivedDetectorId,
     p.derivedDetectorVersionTag,
@@ -143,24 +142,6 @@ export function InferenceSubForm(p: Props) {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Detector (derived from model)</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div>
-            <span className="text-muted-foreground">Detector:</span>{" "}
-            {detector
-              ? (detector as { display_name: string }).display_name
-              : "—"}
-          </div>
-          <div>
-            <span className="text-muted-foreground">Version:</span>{" "}
-            <code>{p.derivedDetectorVersionTag || "—"}</code>
           </div>
         </CardContent>
       </Card>
