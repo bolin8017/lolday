@@ -7,7 +7,8 @@
  * - JobsListPage: admin sees Priority column; non-admin does not
  * - usePatchJob is called on save in PriorityEditor
  */
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -104,7 +105,6 @@ describe("JobDetailShell — priority section", () => {
 
   it("admin sees Priority row in metadata", () => {
     renderShell(makeJob());
-    // At least one element matching "Priority" exists in the metadata card
     expect(screen.getAllByText(/priority/i).length).toBeGreaterThan(0);
   });
 
@@ -114,62 +114,45 @@ describe("JobDetailShell — priority section", () => {
     expect(screen.queryAllByText(/priority/i)).toHaveLength(0);
   });
 
-  it("shows editable input for queued_backend status", () => {
+  it("shows toggle for queued_backend status", () => {
     renderShell(makeJob({ status: "queued_backend", priority: 0 }));
+    expect(screen.getByRole("button", { name: /normal/i })).toBeInTheDocument();
     expect(
-      screen.getByRole("spinbutton", { name: /priority/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /save priority/i }),
+      screen.getByRole("button", { name: /priority/i }),
     ).toBeInTheDocument();
   });
 
-  it("shows read-only value for non-queued_backend status", () => {
-    renderShell(makeJob({ status: "running", priority: 5 }));
-    // no spin button — just a static span
-    expect(screen.queryByRole("spinbutton")).toBeNull();
-    expect(screen.getByText("5")).toBeInTheDocument();
+  it("shows read-only badge for non-queued_backend status (priority=1)", () => {
+    renderShell(makeJob({ status: "running", priority: 1 }));
+    expect(screen.queryByRole("button", { name: /normal/i })).toBeNull();
+    // Badge renders as a div/span with role "generic" — just confirm it's visible
+    expect(screen.getAllByText(/priority/i).length).toBeGreaterThan(0);
   });
 
-  it("save button is disabled when draft equals current priority", () => {
-    renderShell(makeJob({ status: "queued_backend", priority: 0 }));
-    const saveBtn = screen.getByRole("button", { name: /save priority/i });
-    expect(saveBtn).toBeDisabled();
+  it("shows read-only Normal text for non-queued_backend status (priority=0)", () => {
+    renderShell(makeJob({ status: "running", priority: 0 }));
+    expect(screen.queryByRole("button", { name: /normal/i })).toBeNull();
+    expect(screen.getByText(/normal/i)).toBeInTheDocument();
   });
 
-  it("save button is enabled after changing the draft value", async () => {
+  it("auto-saves on toggle without a separate Save button", async () => {
     renderShell(makeJob({ status: "queued_backend", priority: 0 }));
-    const input = screen.getByRole("spinbutton", { name: /priority/i });
-    fireEvent.change(input, { target: { value: "3" } });
-    const saveBtn = screen.getByRole("button", { name: /save priority/i });
-    expect(saveBtn).not.toBeDisabled();
-  });
-
-  it("calls usePatchJob mutate on save", async () => {
-    renderShell(makeJob({ status: "queued_backend", priority: 0 }));
-    const input = screen.getByRole("spinbutton", { name: /priority/i });
-    fireEvent.change(input, { target: { value: "2" } });
-    fireEvent.click(screen.getByRole("button", { name: /save priority/i }));
+    expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /priority/i }));
     await waitFor(() => {
-      expect(patchMutate).toHaveBeenCalledWith(
-        {
-          id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-          priority: 2,
-        },
-        expect.any(Object),
-      );
+      expect(patchMutate).toHaveBeenCalledWith({
+        id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        priority: 1,
+      });
     });
   });
 
-  it("shows UX warning when draft > 0", () => {
-    renderShell(makeJob({ status: "queued_backend", priority: 0 }));
-    const input = screen.getByRole("spinbutton", { name: /priority/i });
-    fireEvent.change(input, { target: { value: "1" } });
-    // Warning text (partial match to be locale-agnostic in unit tests)
+  it("shows warning when Priority is active", () => {
+    renderShell(makeJob({ status: "queued_backend", priority: 1 }));
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
-  it("does not show UX warning when draft is 0", () => {
+  it("does not show warning when Normal is active", () => {
     renderShell(makeJob({ status: "queued_backend", priority: 0 }));
     expect(screen.queryByRole("alert")).toBeNull();
   });

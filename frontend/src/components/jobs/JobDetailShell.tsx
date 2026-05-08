@@ -1,11 +1,11 @@
-import { ReactNode, useState } from "react";
+import { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { PriorityToggle } from "@/components/forms/PriorityToggle";
 import { OpenInMlflowButton } from "@/components/common/OpenInMlflowButton";
 import { useCancelJob, usePatchJob } from "@/api/queries/jobs";
 import { useAuth } from "@/hooks/useAuth";
@@ -20,55 +20,38 @@ type JobRead = components["schemas"]["JobRead"];
 function PriorityEditor({ job }: { job: JobRead }) {
   const { t } = useTranslation();
   const patch = usePatchJob();
-  const [draft, setDraft] = useState(job.priority ?? 0);
-  const [saved, setSaved] = useState(false);
-
   const canEdit = job.status === "queued_backend";
+  const current: 0 | 1 = (job.priority ?? 0) === 0 ? 0 : 1;
 
-  function save() {
-    if (draft === (job.priority ?? 0)) return;
-    patch.mutate(
-      { id: job.id, priority: draft },
-      {
-        onSuccess: () => setSaved(true),
-      },
-    );
+  function onChange(next: 0 | 1) {
+    if (next === current) return;
+    patch.mutate({ id: job.id, priority: next });
   }
 
   if (!canEdit) {
-    return <span>{job.priority ?? 0}</span>;
+    return current === 1 ? (
+      <Badge
+        variant="outline"
+        className="bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-300"
+      >
+        ⚡ {t("jobs.priority.high")}
+      </Badge>
+    ) : (
+      <span className="text-sm text-muted-foreground">
+        {t("jobs.priority.normal")}
+      </span>
+    );
   }
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Label htmlFor="detail-priority-input" className="sr-only">
-          {t("jobs.priority.label")}
-        </Label>
-        <Input
-          id="detail-priority-input"
-          type="number"
-          min={0}
-          step={1}
-          className="h-7 w-20 px-2 text-sm"
-          value={draft}
-          onChange={(e) => {
-            const v = parseInt(e.target.value, 10);
-            setDraft(isNaN(v) || v < 0 ? 0 : v);
-            setSaved(false);
-          }}
-        />
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={patch.isPending || draft === (job.priority ?? 0)}
-          onClick={save}
-        >
-          {patch.isPending ? "…" : t("jobs.priority.save")}
-        </Button>
-        {saved && <span className="text-xs text-muted-foreground">Saved</span>}
-      </div>
-      {draft > 0 && (
+      <PriorityToggle
+        value={current}
+        onChange={onChange}
+        disabled={patch.isPending}
+        size="sm"
+      />
+      {current === 1 && (
         <p
           className="text-sm rounded-md border border-amber-400/60 bg-amber-50 px-3 py-2 text-amber-900 dark:bg-amber-900/20 dark:text-amber-300"
           role="alert"
