@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 
 import httpx
+from cachetools import TTLCache, cached
 
 from app.config import settings
 
@@ -32,6 +33,11 @@ class GPUStatus:
     in_use_by_external: bool
     util_percent: float
     vram_used_mb: int
+
+
+_gpu_signal_cache: TTLCache = TTLCache(
+    maxsize=1, ttl=settings.GPU_SIGNAL_CACHE_TTL_SECONDS
+)
 
 
 @dataclass(frozen=True)
@@ -145,6 +151,7 @@ def _classify_gpus(
     return statuses
 
 
+@cached(_gpu_signal_cache)
 def compute_real_gpu_state() -> GPUState:
     """Single source of truth for host-aware GPU availability.
 

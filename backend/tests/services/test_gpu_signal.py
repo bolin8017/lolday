@@ -7,6 +7,13 @@ import pytest
 from app.services import gpu_signal
 
 
+@pytest.fixture(autouse=True)
+def _clear_gpu_signal_cache():
+    gpu_signal._gpu_signal_cache.clear()
+    yield
+    gpu_signal._gpu_signal_cache.clear()
+
+
 def test_module_exposes_dataclasses():
     """The module must expose GPUStatus and GPUState dataclasses."""
     assert hasattr(gpu_signal, "GPUStatus")
@@ -215,3 +222,20 @@ def test_state_fail_safe_when_prom_unavailable():
     assert st.free_count == 0
     assert "simulated" in (st.fail_safe_reason or "")
     assert st.per_gpu == []
+
+
+def test_compute_real_gpu_state_is_cached_within_ttl():
+    """Two calls within TTL should issue 0 extra Prom queries (3 total)."""
+    gpu_signal._gpu_signal_cache.clear()
+    with (
+        patch(
+            "app.services.gpu_signal._query_prometheus",
+            return_value=[],
+        ) as mock_q,
+        _override_settings(2),
+    ):
+        st1 = gpu_signal.compute_real_gpu_state()
+        st2 = gpu_signal.compute_real_gpu_state()
+    assert st1 == st2
+    # 3 queries on the first call (util, vram, k8s) + 0 on the second
+    assert mock_q.call_count == 3
