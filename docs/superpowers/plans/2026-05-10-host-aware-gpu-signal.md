@@ -1,0 +1,1742 @@
+# Host-aware GPU signal Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Make the Phase 6 backend FIFO scheduler and `/cluster/gpu-status` UI aware of non-K8s GPU usage on server30 by reading DCGM exporter metrics through Prometheus, so lolday no longer over-allocates GPU when other lab users use the GPU directly via SSH / docker / non-lolday namespaces.
+
+**Architecture:** A new module `backend/app/services/gpu_signal.py` queries Prometheus for DCGM `DCGM_FI_DEV_GPU_UTIL` / `DCGM_FI_DEV_FB_USED` per GPU, distinguishes K8s pod usage from external usage via the `exported_pod` / `exported_namespace` labels (gpu-operator's DCGM exporter ships `--kubernetes` by default), and exposes a `GPUState` dataclass consumed by both `cluster_status.get_gpu_allocation()` (UI) and `reconciler.fifo_scheduler._compute_cluster_free_gpu()` (scheduler). When Prometheus is unreachable the scheduler defaults to fail-closed (`free_count=0`), with an `GPU_SIGNAL_FAIL_SAFE_BLOCK=false` escape hatch that falls back to the existing K8s-only computation.
+
+**Tech Stack:** Python 3.12 + httpx + cachetools (backend); React 18 + TanStack Query + shadcn/ui (frontend); pytest + aiosqlite (backend tests); vitest (frontend tests); shell-based live smoke. Prometheus already scrapes DCGM via `charts/lolday/templates/monitoring/servicemonitor-dcgm.yaml`; no Helm changes needed.
+
+**Reference:** Spec — `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`.
+
+---
+
+## File Structure
+
+### Backend — to create
+
+| Path                                        | Responsibility                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/app/services/gpu_signal.py`        | Single source of truth for host-aware GPU state. Owns Prom query, label parsing, GPUState dataclass, cache, fail-safe behavior. |
+| `backend/tests/services/__init__.py`        | New package marker (if missing).                                                                                                |
+| `backend/tests/services/test_gpu_signal.py` | Unit tests for `gpu_signal` — mock httpx Prom responses through 7 scenarios.                                                    |
+
+### Backend — to modify
+
+| Path                                              | Change                                                                                                                                             |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/app/config.py`                           | Add 6 new `Settings` env vars under a new "Host-aware GPU signal" section.                                                                         |
+| `backend/app/services/cluster_status.py`          | Rewrite `get_gpu_allocation()` to read from `gpu_signal.compute_real_gpu_state()` and return the new schema. Remove the now-dead K8s pod GPU walk. |
+| `backend/app/reconciler/fifo_scheduler.py`        | Rewrite `_compute_cluster_free_gpu()` to use `gpu_signal`; add `_compute_free_gpu_k8s_only()` escape-hatch helper.                                 |
+| `backend/app/routers/cluster.py`                  | Response stays as `dict` (FastAPI passes it through); only the response shape changes. No router code changes; tests verify shape.                 |
+| `backend/tests/test_services_cluster_status.py`   | Replace pod-walk fixtures with `gpu_signal.compute_real_gpu_state` mocks.                                                                          |
+| `backend/tests/test_routers_cluster.py`           | Update mock + assertion to new schema.                                                                                                             |
+| `backend/tests/reconciler/test_fifo_scheduler.py` | Add fail-safe + external-use scenarios to FIFO tests.                                                                                              |
+
+### Frontend — to modify
+
+| Path                                                 | Change                                                                       |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `frontend/src/api/queries/cluster.ts`                | Replace `GpuStatus` type with the expanded shape.                            |
+| `frontend/src/api/schema.gen.ts`                     | Auto-regenerated by `pnpm gen-api-types`; do not hand-edit.                  |
+| `frontend/src/components/common/GpuStatusBanner.tsx` | Rewrite to render per-GPU chips, external/fail-safe states, and helper text. |
+| `frontend/tests/unit/GpuStatusBanner.test.tsx`       | New file — vitest covers 7 banner states.                                    |
+
+### Smoke + docs — to create / modify
+
+| Path                                              | Change                                                            |
+| ------------------------------------------------- | ----------------------------------------------------------------- |
+| `tests/2026-05-10-host-aware-gpu-signal-smoke.sh` | New live smoke (Tests A–D from spec §8.3).                        |
+| `docs/architecture.md`                            | Add "Host-aware GPU signal" entry referencing this spec / module. |
+| `docs/runbooks/troubleshooting.md`                | Add 2 SOPs (fail-safe banner; external-use false positive).       |
+| `.claude/rules/backend.md`                        | Mention the new `services/gpu_signal.py` in the services list.    |
+| `CLAUDE.md`                                       | Append one navigation hint under "How to navigate this codebase". |
+
+---
+
+## Task 1: Add `Settings` env vars
+
+**Files:**
+
+- Modify: `backend/app/config.py:66-71` (after the existing Phase 6 GPU block)
+
+- [ ] **Step 1: Read the existing Settings file to confirm insertion point**
+
+Run: `grep -n "FIFO_RECONCILER_PERIOD_SECONDS" backend/app/config.py`
+Expected: a line number around 71. The new block goes immediately after.
+
+- [ ] **Step 2: Add the new env vars**
+
+Edit `backend/app/config.py` — after the line `FIFO_RECONCILER_PERIOD_SECONDS: int = 30`, insert:
+
+```python
+    # Host-aware GPU signal (2026-05-10).
+    # Backend reads DCGM via Prometheus to detect non-K8s GPU usage on
+    # server30 (a shared lab server).  See
+    # docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md.
+    GPU_SIGNAL_PROMETHEUS_URL: str = (
+        "http://kps-prometheus.monitoring.svc:9090"
+    )
+    GPU_SIGNAL_QUERY_TIMEOUT_S: float = 5.0
+    GPU_SIGNAL_CACHE_TTL_S: int = 10
+    GPU_SIGNAL_UTIL_THRESHOLD_PERCENT: float = 5.0
+    GPU_SIGNAL_VRAM_THRESHOLD_MB: int = 500
+    # Fail-closed by default: when Prom is unreachable, the FIFO scheduler
+    # returns free_count=0 and stops dispatching.  Set to false as an
+    # escape hatch to fall back to the previous K8s-only computation.
+    GPU_SIGNAL_FAIL_SAFE_BLOCK: bool = True
+```
+
+- [ ] **Step 3: Verify boot still works**
+
+Run: `cd backend && uv run python -c "from app.config import settings; print(settings.GPU_SIGNAL_PROMETHEUS_URL)"`
+Expected: `http://kps-prometheus.monitoring.svc:9090`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add backend/app/config.py
+git commit -m "feat(config): add host-aware GPU signal settings"
+```
+
+---
+
+## Task 2: Create `gpu_signal` module skeleton + types (RED)
+
+**Files:**
+
+- Create: `backend/app/services/gpu_signal.py`
+- Create: `backend/tests/services/__init__.py` (empty marker)
+- Create: `backend/tests/services/test_gpu_signal.py`
+
+- [ ] **Step 1: Write the failing test for the dataclass shapes + module import**
+
+Create `backend/tests/services/__init__.py` — empty file.
+
+Create `backend/tests/services/test_gpu_signal.py`:
+
+```python
+"""Tests for app.services.gpu_signal — host-aware GPU state via DCGM/Prom."""
+
+from app.services import gpu_signal
+
+
+def test_module_exposes_dataclasses():
+    """The module must expose GPUStatus and GPUState dataclasses."""
+    assert hasattr(gpu_signal, "GPUStatus")
+    assert hasattr(gpu_signal, "GPUState")
+
+
+def test_gpustatus_fields():
+    s = gpu_signal.GPUStatus(
+        gpu_id=0,
+        in_use_by_k8s=True,
+        in_use_by_external=False,
+        util_percent=87.5,
+        vram_used_mb=9240,
+    )
+    assert s.gpu_id == 0
+    assert s.in_use_by_k8s is True
+    assert s.in_use_by_external is False
+    assert s.util_percent == 87.5
+    assert s.vram_used_mb == 9240
+
+
+def test_gpustate_fields():
+    s = gpu_signal.GPUState(
+        physical_total=2,
+        per_gpu=[],
+        free_count=2,
+        in_use_by_lolday_count=0,
+        in_use_by_external_count=0,
+        fail_safe_active=False,
+        fail_safe_reason=None,
+    )
+    assert s.physical_total == 2
+    assert s.free_count == 2
+    assert s.fail_safe_active is False
+    assert s.fail_safe_reason is None
+```
+
+- [ ] **Step 2: Run test to verify failure**
+
+Run: `cd backend && uv run pytest tests/services/test_gpu_signal.py -v`
+Expected: `ModuleNotFoundError: No module named 'app.services.gpu_signal'`
+
+- [ ] **Step 3: Implement minimal module + types**
+
+Create `backend/app/services/gpu_signal.py`:
+
+```python
+"""Host-aware GPU state — single source of truth for free-GPU counting.
+
+Reads DCGM exporter metrics through Prometheus to detect both K8s and
+non-K8s GPU usage on server30 (a shared lab server).  Used by both the
+``/cluster/gpu-status`` UI endpoint and the Phase 6 FIFO scheduler so
+they share one signal.
+
+Spec: docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class GPUStatus:
+    gpu_id: int
+    in_use_by_k8s: bool
+    in_use_by_external: bool
+    util_percent: float
+    vram_used_mb: int
+
+
+@dataclass(frozen=True)
+class GPUState:
+    physical_total: int
+    per_gpu: list[GPUStatus]
+    free_count: int
+    in_use_by_lolday_count: int
+    in_use_by_external_count: int
+    fail_safe_active: bool
+    fail_safe_reason: str | None
+```
+
+- [ ] **Step 4: Run test to verify pass**
+
+Run: `cd backend && uv run pytest tests/services/test_gpu_signal.py -v`
+Expected: 3 PASSED
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/services/gpu_signal.py backend/tests/services/
+git commit -m "feat(services): scaffold gpu_signal module with GPUStatus/GPUState"
+```
+
+---
+
+## Task 3: Implement Prometheus HTTP client (RED → GREEN)
+
+**Files:**
+
+- Modify: `backend/app/services/gpu_signal.py`
+- Modify: `backend/tests/services/test_gpu_signal.py`
+
+- [ ] **Step 1: Write failing test for `_query_prometheus`**
+
+Append to `backend/tests/services/test_gpu_signal.py`:
+
+```python
+from unittest.mock import MagicMock, patch
+
+import httpx
+
+
+def _prom_response(samples: list[dict]) -> dict:
+    """Shape of GET /api/v1/query response (Prometheus instant query)."""
+    return {
+        "status": "success",
+        "data": {"resultType": "vector", "result": samples},
+    }
+
+
+@patch("app.services.gpu_signal.httpx.Client")
+def test_query_prometheus_parses_instant_vector(mock_client_cls):
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.json.return_value = _prom_response(
+        [
+            {"metric": {"gpu": "0"}, "value": [1730000000, "87.5"]},
+            {"metric": {"gpu": "1"}, "value": [1730000000, "0.1"]},
+        ]
+    )
+    mock_response.raise_for_status.return_value = None
+    mock_client.get.return_value = mock_response
+    mock_client_cls.return_value.__enter__.return_value = mock_client
+
+    samples = gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+    assert len(samples) == 2
+    assert samples[0]["metric"]["gpu"] == "0"
+    assert samples[0]["value"] == 87.5
+
+
+@patch("app.services.gpu_signal.httpx.Client")
+def test_query_prometheus_raises_on_http_error(mock_client_cls):
+    mock_client = MagicMock()
+    mock_client.get.side_effect = httpx.HTTPError("connection refused")
+    mock_client_cls.return_value.__enter__.return_value = mock_client
+
+    import pytest as _pytest
+
+    with _pytest.raises(gpu_signal.PrometheusUnavailable):
+        gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+
+@patch("app.services.gpu_signal.httpx.Client")
+def test_query_prometheus_raises_on_non_success_status_field(mock_client_cls):
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"status": "error", "errorType": "bad_data"}
+    mock_response.raise_for_status.return_value = None
+    mock_client.get.return_value = mock_response
+    mock_client_cls.return_value.__enter__.return_value = mock_client
+
+    import pytest as _pytest
+
+    with _pytest.raises(gpu_signal.PrometheusUnavailable):
+        gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+```
+
+- [ ] **Step 2: Run test to verify failure**
+
+Run: `cd backend && uv run pytest tests/services/test_gpu_signal.py -v`
+Expected: 3 new tests fail with `AttributeError: module 'app.services.gpu_signal' has no attribute 'PrometheusUnavailable' / '_query_prometheus'`.
+
+- [ ] **Step 3: Implement `_query_prometheus` + `PrometheusUnavailable`**
+
+Add to `backend/app/services/gpu_signal.py`:
+
+```python
+import logging
+
+import httpx
+
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class PrometheusUnavailable(Exception):
+    """Raised when Prom is unreachable, times out, or returns a non-success
+    response.  The caller is expected to surface fail-safe behavior."""
+
+
+@dataclass(frozen=True)
+class _PromSample:
+    metric: dict[str, str]
+    value: float
+
+
+def _query_prometheus(query: str) -> list[dict]:
+    """Run an instant query against the configured Prometheus server.
+
+    Returns a list of {"metric": {label: value}, "value": float} dicts.
+    Raises PrometheusUnavailable on transport, HTTP, or non-"success" body.
+    """
+    url = f"{settings.GPU_SIGNAL_PROMETHEUS_URL}/api/v1/query"
+    timeout = settings.GPU_SIGNAL_QUERY_TIMEOUT_S
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(url, params={"query": query})
+            resp.raise_for_status()
+            body = resp.json()
+    except httpx.HTTPError as e:
+        raise PrometheusUnavailable(f"Prometheus HTTP error: {e}") from e
+    except ValueError as e:  # JSONDecodeError is a subclass
+        raise PrometheusUnavailable(f"Prometheus returned non-JSON: {e}") from e
+
+    if body.get("status") != "success":
+        raise PrometheusUnavailable(
+            f"Prometheus query failed: status={body.get('status')!r}"
+        )
+
+    out: list[dict] = []
+    for sample in body.get("data", {}).get("result", []) or []:
+        try:
+            metric = sample["metric"]
+            value = float(sample["value"][1])
+        except (KeyError, IndexError, ValueError, TypeError) as e:
+            logger.warning("malformed Prom sample skipped: %r (%s)", sample, e)
+            continue
+        out.append({"metric": metric, "value": value})
+    return out
+```
+
+Replace the test's reference to the type — the existing test does `samples[0]["value"] == 87.5`, which requires `value` to be a `float`. The implementation already coerces via `float(sample["value"][1])`, so the test will pass.
+
+- [ ] **Step 4: Run test to verify pass**
+
+Run: `cd backend && uv run pytest tests/services/test_gpu_signal.py -v`
+Expected: 6 PASSED (3 from Task 2 + 3 new)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/services/gpu_signal.py backend/tests/services/test_gpu_signal.py
+git commit -m "feat(services): add Prometheus HTTP client to gpu_signal"
+```
+
+---
+
+## Task 4: Implement `compute_real_gpu_state()` core logic (RED → GREEN)
+
+**Files:**
+
+- Modify: `backend/app/services/gpu_signal.py`
+- Modify: `backend/tests/services/test_gpu_signal.py`
+
+- [ ] **Step 1: Write failing tests for the 7 scenarios**
+
+Append to `backend/tests/services/test_gpu_signal.py`:
+
+```python
+def _sample(gpu: int, value: float, exported_namespace: str = "") -> dict:
+    metric = {"gpu": str(gpu)}
+    if exported_namespace:
+        metric["exported_namespace"] = exported_namespace
+        metric["exported_pod"] = f"job-pod-{gpu}"
+    return {"metric": metric, "value": value}
+
+
+def _patch_queries(util_samples, vram_samples, k8s_samples):
+    """Patch _query_prometheus to return three different shapes per call.
+
+    Call order in compute_real_gpu_state():
+      1. util query  -> util_samples
+      2. vram query  -> vram_samples
+      3. k8s query   -> k8s_samples
+    """
+    return patch(
+        "app.services.gpu_signal._query_prometheus",
+        side_effect=[util_samples, vram_samples, k8s_samples],
+    )
+
+
+def _override_settings(physical: int = 2):
+    return patch.object(
+        gpu_signal.settings, "CLUSTER_PHYSICAL_GPU_COUNT", physical
+    )
+
+
+def test_state_all_free():
+    with (
+        _patch_queries([], [], []),
+        _override_settings(2),
+    ):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 2
+    assert st.in_use_by_lolday_count == 0
+    assert st.in_use_by_external_count == 0
+    assert st.fail_safe_active is False
+    assert [g.gpu_id for g in st.per_gpu] == [0, 1]
+
+
+def test_state_lolday_on_gpu0_only():
+    util = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
+    vram = [_sample(0, 9240e6, exported_namespace="lolday-jobs")]
+    k8s = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 1
+    assert st.in_use_by_lolday_count == 1
+    assert st.in_use_by_external_count == 0
+    assert st.per_gpu[0].in_use_by_k8s is True
+    assert st.per_gpu[0].in_use_by_external is False
+    assert st.per_gpu[1].in_use_by_k8s is False
+    assert st.per_gpu[1].in_use_by_external is False
+
+
+def test_state_external_on_gpu1_only():
+    util = [_sample(1, 54.0)]  # no exported_namespace -> external
+    vram = [_sample(1, 7200e6)]
+    k8s: list[dict] = []
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 1
+    assert st.in_use_by_lolday_count == 0
+    assert st.in_use_by_external_count == 1
+    assert st.per_gpu[1].in_use_by_external is True
+    assert st.per_gpu[1].in_use_by_k8s is False
+
+
+def test_state_lolday_and_external_mixed():
+    util = [
+        _sample(0, 87.5, exported_namespace="lolday-jobs"),
+        _sample(1, 54.0),
+    ]
+    vram = [
+        _sample(0, 9240e6, exported_namespace="lolday-jobs"),
+        _sample(1, 7200e6),
+    ]
+    k8s = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 0
+    assert st.in_use_by_lolday_count == 1
+    assert st.in_use_by_external_count == 1
+
+
+def test_state_threshold_below_util_and_vram_means_idle():
+    # util 3% < 5% AND vram 200MB < 500MB -> not "in use"
+    util = [_sample(0, 3.0)]
+    vram = [_sample(0, 200e6)]
+    k8s: list[dict] = []
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 2
+    assert st.in_use_by_external_count == 0
+
+
+def test_state_high_vram_alone_counts_as_in_use():
+    # util 1% (idle) but vram 8GB -> still "in use" (someone has a process holding VRAM)
+    util = [_sample(0, 1.0)]
+    vram = [_sample(0, 8 * 1024 * 1024 * 1024)]
+    k8s: list[dict] = []
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 1
+    assert st.in_use_by_external_count == 1
+
+
+def test_state_fail_safe_when_prom_unavailable():
+    with patch(
+        "app.services.gpu_signal._query_prometheus",
+        side_effect=gpu_signal.PrometheusUnavailable("simulated"),
+    ), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.fail_safe_active is True
+    assert st.free_count == 0
+    assert "simulated" in (st.fail_safe_reason or "")
+    assert st.per_gpu == []
+```
+
+- [ ] **Step 2: Run tests to verify failure**
+
+Run: `cd backend && uv run pytest tests/services/test_gpu_signal.py -v`
+Expected: 7 new tests fail with `AttributeError: ... 'compute_real_gpu_state'`.
+
+- [ ] **Step 3: Implement `compute_real_gpu_state`**
+
+Append to `backend/app/services/gpu_signal.py`:
+
+```python
+def _classify_gpus(
+    util_samples: list[dict],
+    vram_samples: list[dict],
+    k8s_samples: list[dict],
+    physical_total: int,
+    util_threshold: float,
+    vram_threshold_bytes: float,
+) -> list[GPUStatus]:
+    util_by_gpu: dict[int, float] = {}
+    util_busy: set[int] = set()
+    for s in util_samples:
+        try:
+            gpu_id = int(s["metric"]["gpu"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        util_by_gpu[gpu_id] = max(util_by_gpu.get(gpu_id, 0.0), s["value"])
+        if s["value"] > util_threshold:
+            util_busy.add(gpu_id)
+
+    vram_by_gpu: dict[int, float] = {}
+    vram_busy: set[int] = set()
+    for s in vram_samples:
+        try:
+            gpu_id = int(s["metric"]["gpu"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        vram_by_gpu[gpu_id] = max(vram_by_gpu.get(gpu_id, 0.0), s["value"])
+        if s["value"] > vram_threshold_bytes:
+            vram_busy.add(gpu_id)
+
+    k8s_by_gpu: set[int] = set()
+    for s in k8s_samples:
+        try:
+            gpu_id = int(s["metric"]["gpu"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        k8s_by_gpu.add(gpu_id)
+
+    busy = util_busy | vram_busy
+    statuses: list[GPUStatus] = []
+    for gpu_id in range(physical_total):
+        is_active = gpu_id in busy
+        is_k8s = gpu_id in k8s_by_gpu
+        statuses.append(
+            GPUStatus(
+                gpu_id=gpu_id,
+                in_use_by_k8s=is_k8s,
+                in_use_by_external=is_active and not is_k8s,
+                util_percent=util_by_gpu.get(gpu_id, 0.0),
+                vram_used_mb=int(vram_by_gpu.get(gpu_id, 0.0) / (1024 * 1024)),
+            )
+        )
+    return statuses
+
+
+def compute_real_gpu_state() -> GPUState:
+    """Single source of truth for host-aware GPU availability.
+
+    Returns a snapshot reflecting both K8s allocations and host-level GPU
+    activity.  When Prometheus is unreachable, returns a fail-safe state
+    with free_count=0; the caller (FIFO scheduler) decides what to do.
+    """
+    physical = settings.CLUSTER_PHYSICAL_GPU_COUNT
+    util_threshold = settings.GPU_SIGNAL_UTIL_THRESHOLD_PERCENT
+    vram_threshold_bytes = (
+        settings.GPU_SIGNAL_VRAM_THRESHOLD_MB * 1024 * 1024
+    )
+
+    try:
+        util_samples = _query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+        vram_samples = _query_prometheus("DCGM_FI_DEV_FB_USED")
+        k8s_samples = _query_prometheus(
+            'DCGM_FI_DEV_GPU_UTIL{exported_namespace="lolday-jobs"}'
+        )
+    except PrometheusUnavailable as e:
+        return GPUState(
+            physical_total=physical,
+            per_gpu=[],
+            free_count=0,
+            in_use_by_lolday_count=0,
+            in_use_by_external_count=0,
+            fail_safe_active=True,
+            fail_safe_reason=str(e),
+        )
+
+    statuses = _classify_gpus(
+        util_samples,
+        vram_samples,
+        k8s_samples,
+        physical_total=physical,
+        util_threshold=util_threshold,
+        vram_threshold_bytes=vram_threshold_bytes,
+    )
+    in_use_by_lolday = sum(1 for s in statuses if s.in_use_by_k8s)
+    in_use_by_external = sum(1 for s in statuses if s.in_use_by_external)
+    free_count = sum(
+        1 for s in statuses
+        if not s.in_use_by_k8s and not s.in_use_by_external
+    )
+    return GPUState(
+        physical_total=physical,
+        per_gpu=statuses,
+        free_count=free_count,
+        in_use_by_lolday_count=in_use_by_lolday,
+        in_use_by_external_count=in_use_by_external,
+        fail_safe_active=False,
+        fail_safe_reason=None,
+    )
+```
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `cd backend && uv run pytest tests/services/test_gpu_signal.py -v`
+Expected: 13 PASSED (6 from earlier + 7 new).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/services/gpu_signal.py backend/tests/services/test_gpu_signal.py
+git commit -m "feat(services): add compute_real_gpu_state with host-aware classification"
+```
+
+---
+
+## Task 5: Add TTL cache around `compute_real_gpu_state` (RED → GREEN)
+
+**Files:**
+
+- Modify: `backend/app/services/gpu_signal.py`
+- Modify: `backend/tests/services/test_gpu_signal.py`
+
+- [ ] **Step 1: Write failing test for caching**
+
+Append to `backend/tests/services/test_gpu_signal.py`:
+
+```python
+def test_compute_real_gpu_state_is_cached_within_ttl():
+    """Two calls within TTL should issue 0 extra Prom queries (3 total)."""
+    gpu_signal._gpu_signal_cache.clear()
+    with patch(
+        "app.services.gpu_signal._query_prometheus",
+        return_value=[],
+    ) as mock_q, _override_settings(2):
+        st1 = gpu_signal.compute_real_gpu_state()
+        st2 = gpu_signal.compute_real_gpu_state()
+    assert st1 == st2
+    # 3 queries on the first call (util, vram, k8s) + 0 on the second
+    assert mock_q.call_count == 3
+```
+
+- [ ] **Step 2: Run test to verify failure**
+
+Run: `cd backend && uv run pytest tests/services/test_gpu_signal.py::test_compute_real_gpu_state_is_cached_within_ttl -v`
+Expected: `AttributeError: module 'app.services.gpu_signal' has no attribute '_gpu_signal_cache'` (or call_count == 6).
+
+- [ ] **Step 3: Add TTL cache**
+
+In `backend/app/services/gpu_signal.py`:
+
+1. Add the import near the top: `from cachetools import TTLCache, cached`.
+2. Add the cache below the dataclasses:
+
+```python
+_gpu_signal_cache: TTLCache = TTLCache(
+    maxsize=1, ttl=settings.GPU_SIGNAL_CACHE_TTL_S
+)
+```
+
+3. Decorate `compute_real_gpu_state` with `@cached(_gpu_signal_cache)`.
+
+The function signature stays parameter-free so the cache key is constant — the same as `cluster_status._gpu_cache`.
+
+- [ ] **Step 4: Run all gpu_signal tests, ensuring no regression**
+
+Run: `cd backend && uv run pytest tests/services/test_gpu_signal.py -v`
+Expected: 14 PASSED.
+
+Also add an autouse fixture to keep tests independent:
+
+```python
+@pytest.fixture(autouse=True)
+def _clear_gpu_signal_cache():
+    gpu_signal._gpu_signal_cache.clear()
+    yield
+    gpu_signal._gpu_signal_cache.clear()
+```
+
+(Add this near the top of `test_gpu_signal.py`, after the existing imports.)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/services/gpu_signal.py backend/tests/services/test_gpu_signal.py
+git commit -m "feat(services): cache gpu_signal state for GPU_SIGNAL_CACHE_TTL_S seconds"
+```
+
+---
+
+## Task 6: Rewrite `cluster_status.get_gpu_allocation()` to use `gpu_signal` (RED → GREEN)
+
+**Files:**
+
+- Modify: `backend/app/services/cluster_status.py`
+- Modify: `backend/tests/test_services_cluster_status.py`
+
+- [ ] **Step 1: Write failing tests for the new schema**
+
+Replace the GPU-allocation tests in `backend/tests/test_services_cluster_status.py` (`test_get_gpu_allocation_*`) with:
+
+```python
+from app.services import gpu_signal as _gs
+
+
+def _state(
+    physical: int = 2,
+    per_gpu: list | None = None,
+    free: int = 2,
+    lolday: int = 0,
+    external: int = 0,
+    fail_safe: bool = False,
+    reason: str | None = None,
+) -> _gs.GPUState:
+    return _gs.GPUState(
+        physical_total=physical,
+        per_gpu=per_gpu or [],
+        free_count=free,
+        in_use_by_lolday_count=lolday,
+        in_use_by_external_count=external,
+        fail_safe_active=fail_safe,
+        fail_safe_reason=reason,
+    )
+
+
+def test_get_gpu_allocation_returns_new_schema_all_free():
+    statuses = [
+        _gs.GPUStatus(0, False, False, 0.0, 0),
+        _gs.GPUStatus(1, False, False, 0.0, 0),
+    ]
+    with patch(
+        "app.services.cluster_status.gpu_signal.compute_real_gpu_state",
+        return_value=_state(per_gpu=statuses, free=2),
+    ):
+        result = cluster_status.get_gpu_allocation()
+    assert result["total"] == 2
+    assert result["free_count"] == 2
+    assert result["in_use_by_lolday"] == 0
+    assert result["in_use_by_external"] == 0
+    assert result["fail_safe_active"] is False
+    assert result["per_gpu"] == [
+        {"gpu_id": 0, "state": "free", "util_percent": 0.0, "vram_used_mb": 0},
+        {"gpu_id": 1, "state": "free", "util_percent": 0.0, "vram_used_mb": 0},
+    ]
+
+
+def test_get_gpu_allocation_marks_lolday_and_external_states():
+    statuses = [
+        _gs.GPUStatus(0, True, False, 87.5, 9240),
+        _gs.GPUStatus(1, False, True, 54.0, 7200),
+    ]
+    with patch(
+        "app.services.cluster_status.gpu_signal.compute_real_gpu_state",
+        return_value=_state(per_gpu=statuses, free=0, lolday=1, external=1),
+    ):
+        result = cluster_status.get_gpu_allocation()
+    assert result["per_gpu"][0]["state"] == "lolday"
+    assert result["per_gpu"][1]["state"] == "external"
+    assert result["in_use_by_lolday"] == 1
+    assert result["in_use_by_external"] == 1
+    assert result["free_count"] == 0
+
+
+def test_get_gpu_allocation_fail_safe_propagates():
+    with patch(
+        "app.services.cluster_status.gpu_signal.compute_real_gpu_state",
+        return_value=_state(free=0, fail_safe=True, reason="Prom timeout"),
+    ):
+        result = cluster_status.get_gpu_allocation()
+    assert result["fail_safe_active"] is True
+    assert result["fail_safe_reason"] == "Prom timeout"
+    assert result["free_count"] == 0
+    assert result["per_gpu"] == []
+```
+
+Delete the old GPU-allocation tests (`test_get_gpu_allocation_sums_node_allocatable`, `_counts_running_pods_with_gpu_limit`, `_ignores_non_running_pods`, `_ignores_pods_without_gpu_limit`, `_zero_nodes`, `_idle_clamped_non_negative`) and the `_node`, `_pod_with_gpu`, `_patched_core` helpers if no longer referenced. Keep the queue-related tests untouched.
+
+- [ ] **Step 2: Run tests to verify failure**
+
+Run: `cd backend && uv run pytest tests/test_services_cluster_status.py -v`
+Expected: 3 new tests fail with `AttributeError` on `cluster_status.gpu_signal` or wrong schema.
+
+- [ ] **Step 3: Rewrite `get_gpu_allocation`**
+
+Replace `backend/app/services/cluster_status.py:get_gpu_allocation` (currently lines ~53-75) with:
+
+```python
+from app.services import gpu_signal
+
+
+def _state_label(s: gpu_signal.GPUStatus) -> str:
+    if s.in_use_by_k8s:
+        return "lolday"
+    if s.in_use_by_external:
+        return "external"
+    return "free"
+
+
+@cached(_gpu_cache)
+def get_gpu_allocation() -> dict:
+    """Host-aware GPU allocation summary.
+
+    Reads from gpu_signal (Prometheus + DCGM) so non-K8s GPU usage on
+    server30 is reflected.  Returns the schema documented in
+    docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md §6.4.
+    """
+    state = gpu_signal.compute_real_gpu_state()
+    return {
+        "total": state.physical_total,
+        "free_count": state.free_count,
+        "in_use_by_lolday": state.in_use_by_lolday_count,
+        "in_use_by_external": state.in_use_by_external_count,
+        "fail_safe_active": state.fail_safe_active,
+        "fail_safe_reason": state.fail_safe_reason,
+        "per_gpu": [
+            {
+                "gpu_id": s.gpu_id,
+                "state": _state_label(s),
+                "util_percent": s.util_percent,
+                "vram_used_mb": s.vram_used_mb,
+            }
+            for s in state.per_gpu
+        ],
+    }
+```
+
+Remove the now-unused `_int_from_quantity` helper and the GPU-resource constant **only** if neither is used elsewhere in the file. Run `grep -n "_int_from_quantity\|GPU_RESOURCE" backend/app/services/cluster_status.py` and check; if `GPU_RESOURCE` is still used by queue logic (it isn't), keep it.
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `cd backend && uv run pytest tests/test_services_cluster_status.py -v`
+Expected: All tests PASS (3 new GPU + existing queue tests).
+
+- [ ] **Step 5: Update the router test**
+
+Edit `backend/tests/test_routers_cluster.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_gpu_status_returns_new_allocation_schema(user_client):
+    new_schema = {
+        "total": 2,
+        "free_count": 1,
+        "in_use_by_lolday": 1,
+        "in_use_by_external": 0,
+        "fail_safe_active": False,
+        "fail_safe_reason": None,
+        "per_gpu": [
+            {"gpu_id": 0, "state": "lolday", "util_percent": 87.5, "vram_used_mb": 9240},
+            {"gpu_id": 1, "state": "free", "util_percent": 0.0, "vram_used_mb": 0},
+        ],
+    }
+    with patch(
+        "app.routers.cluster.get_gpu_allocation",
+        return_value=new_schema,
+    ):
+        r = await user_client.get("/api/v1/cluster/gpu-status")
+    assert r.status_code == 200
+    assert r.json() == new_schema
+```
+
+Replace the existing `test_gpu_status_returns_allocation_dict` body with the above content (rename to `test_gpu_status_returns_new_allocation_schema`).
+
+Run: `cd backend && uv run pytest tests/test_routers_cluster.py -v`
+Expected: All PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend/app/services/cluster_status.py backend/tests/test_services_cluster_status.py backend/tests/test_routers_cluster.py
+git commit -m "feat(cluster_status): rewrite get_gpu_allocation to use gpu_signal
+
+Schema breaking change: response now contains free_count,
+in_use_by_lolday, in_use_by_external, fail_safe_active, per_gpu.
+Frontend caller updated in subsequent task."
+```
+
+---
+
+## Task 7: Rewrite `_compute_cluster_free_gpu` to use `gpu_signal` with K8s-only fallback (RED → GREEN)
+
+**Files:**
+
+- Modify: `backend/app/reconciler/fifo_scheduler.py`
+- Modify: `backend/tests/reconciler/test_fifo_scheduler.py`
+
+- [ ] **Step 1: Write failing tests for the new behavior**
+
+Append to `backend/tests/reconciler/test_fifo_scheduler.py` (3 new tests):
+
+```python
+from unittest.mock import patch
+from app.reconciler import fifo_scheduler
+from app.services import gpu_signal as _gs
+
+
+def _gpu_state(free=2, fail_safe=False):
+    return _gs.GPUState(
+        physical_total=2,
+        per_gpu=[],
+        free_count=free,
+        in_use_by_lolday_count=0,
+        in_use_by_external_count=0,
+        fail_safe_active=fail_safe,
+        fail_safe_reason=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_compute_cluster_free_gpu_uses_gpu_signal(async_session):
+    with patch(
+        "app.reconciler.fifo_scheduler.gpu_signal.compute_real_gpu_state",
+        return_value=_gpu_state(free=1),
+    ):
+        free = await fifo_scheduler._compute_cluster_free_gpu(async_session, k8s=None)
+    assert free == 1
+
+
+@pytest.mark.asyncio
+async def test_compute_cluster_free_gpu_blocks_in_fail_safe(async_session):
+    with (
+        patch(
+            "app.reconciler.fifo_scheduler.gpu_signal.compute_real_gpu_state",
+            return_value=_gpu_state(free=2, fail_safe=True),
+        ),
+        patch.object(fifo_scheduler.settings, "GPU_SIGNAL_FAIL_SAFE_BLOCK", True),
+    ):
+        free = await fifo_scheduler._compute_cluster_free_gpu(async_session, k8s=None)
+    assert free == 0
+
+
+@pytest.mark.asyncio
+async def test_compute_cluster_free_gpu_falls_back_to_k8s_when_escape_hatch(
+    async_session, k8s_stub_two_gpu_one_running
+):
+    with (
+        patch(
+            "app.reconciler.fifo_scheduler.gpu_signal.compute_real_gpu_state",
+            return_value=_gpu_state(free=2, fail_safe=True),
+        ),
+        patch.object(fifo_scheduler.settings, "GPU_SIGNAL_FAIL_SAFE_BLOCK", False),
+    ):
+        free = await fifo_scheduler._compute_cluster_free_gpu(
+            async_session, k8s=k8s_stub_two_gpu_one_running
+        )
+    # 2 physical - 1 running pod GPU = 1 free
+    assert free == 1
+```
+
+You will need a fixture `k8s_stub_two_gpu_one_running` — add it to the same test file:
+
+```python
+@pytest.fixture
+def k8s_stub_two_gpu_one_running():
+    """K8s CoreV1Api stub: returns 1 Running pod that holds 1 GPU."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    pod = SimpleNamespace(
+        status=SimpleNamespace(phase="Running"),
+        spec=SimpleNamespace(
+            containers=[
+                SimpleNamespace(
+                    resources=SimpleNamespace(limits={"nvidia.com/gpu": "1"})
+                )
+            ]
+        ),
+    )
+    pod_list = SimpleNamespace(items=[pod])
+    stub = MagicMock()
+    stub.list_namespaced_pod.return_value = pod_list
+    return stub
+```
+
+- [ ] **Step 2: Run tests to verify failure**
+
+Run: `cd backend && uv run pytest tests/reconciler/test_fifo_scheduler.py -v`
+Expected: 3 new tests fail (gpu_signal not yet imported in fifo_scheduler).
+
+- [ ] **Step 3: Rewrite `_compute_cluster_free_gpu`**
+
+Replace `backend/app/reconciler/fifo_scheduler.py:_compute_cluster_free_gpu` (lines ~56-94) with:
+
+```python
+from app.services import gpu_signal
+
+
+async def _compute_free_gpu_k8s_only(session: AsyncSession, k8s) -> int:
+    """Phase 6 K8s-only computation.  Used when host-aware path is in
+    fail-safe AND ``GPU_SIGNAL_FAIL_SAFE_BLOCK=false`` is set."""
+    physical: int = settings.CLUSTER_PHYSICAL_GPU_COUNT
+    pod_gpu = 0
+    try:
+        pod_list = await asyncio.to_thread(
+            k8s.list_namespaced_pod, namespace=settings.JOB_NAMESPACE
+        )
+        for pod in pod_list.items:
+            if not pod.status or pod.status.phase not in ("Running", "Pending"):
+                continue
+            for container in (pod.spec.containers or []) if pod.spec else []:
+                limits = (
+                    (container.resources.limits or {}) if container.resources else {}
+                )
+                with contextlib.suppress(TypeError, ValueError):
+                    pod_gpu += int(limits.get(GPU_RESOURCE, 0))
+    except Exception:
+        BACKEND_ERRORS.labels(stage="fifo_scheduler_pod_list").inc()
+        logger.exception(
+            "fifo_scheduler: failed to list pods for GPU accounting (k8s-only path)"
+        )
+        return 0
+    return max(0, physical - pod_gpu)
+
+
+async def _compute_cluster_free_gpu(session: AsyncSession, k8s) -> int:
+    """Return the number of GPUs available for new submissions.
+
+    Uses host-aware gpu_signal as the primary source (counts both K8s and
+    non-K8s GPU usage on server30).  When Prometheus is unreachable:
+    - GPU_SIGNAL_FAIL_SAFE_BLOCK=true (default) → return 0 (fail-closed)
+    - GPU_SIGNAL_FAIL_SAFE_BLOCK=false (escape hatch) → fall back to the
+      Phase 6 K8s-only computation.
+    """
+    state = await asyncio.to_thread(gpu_signal.compute_real_gpu_state)
+
+    if state.fail_safe_active:
+        if settings.GPU_SIGNAL_FAIL_SAFE_BLOCK:
+            return 0
+        return await _compute_free_gpu_k8s_only(session, k8s)
+
+    return state.free_count
+```
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `cd backend && uv run pytest tests/reconciler/test_fifo_scheduler.py -v`
+Expected: All FIFO tests PASS (existing + 3 new).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/app/reconciler/fifo_scheduler.py backend/tests/reconciler/test_fifo_scheduler.py
+git commit -m "feat(fifo): consume gpu_signal in scheduler with k8s-only fallback"
+```
+
+---
+
+## Task 8: Regenerate frontend OpenAPI types
+
+**Files:**
+
+- Auto-modify: `frontend/src/api/schema.gen.ts`
+
+- [ ] **Step 1: Confirm backend API generates the new schema**
+
+The router returns `dict`; FastAPI will infer the new shape from the runtime response when you regenerate. To get a typed-out OpenAPI, the cleanest path is to add an explicit response model — but our convention (per `.claude/rules/frontend.md`) is to live with whatever the openapi generator emits. Inspect with:
+
+Run: `cd backend && uv run python -c "from fastapi.openapi.utils import get_openapi; from app.main import app; import json; print(json.dumps(get_openapi(title='', version='', routes=app.routes)['paths']['/api/v1/cluster/gpu-status'], indent=2))"`
+
+If the response shows generic `Object`, that's expected — we'll cast in the queries file (Task 9).
+
+- [ ] **Step 2: Regenerate frontend types**
+
+Run: `cd frontend && pnpm gen-api-types`
+Expected: `schema.gen.ts` regenerates with `/api/v1/cluster/gpu-status` returning a generic Object. No diff shows up in the schema.gen.ts because the endpoint is untyped — this is fine; the strong typing happens in `queries/cluster.ts`.
+
+- [ ] **Step 3: Commit (only if `schema.gen.ts` actually changed)**
+
+If `git diff frontend/src/api/schema.gen.ts` is non-empty:
+
+```bash
+git add frontend/src/api/schema.gen.ts
+git commit -m "chore(frontend): regenerate openapi types for gpu-status"
+```
+
+If it's empty, skip the commit.
+
+---
+
+## Task 9: Update frontend `GpuStatus` type
+
+**Files:**
+
+- Modify: `frontend/src/api/queries/cluster.ts`
+
+- [ ] **Step 1: Replace the `GpuStatus` type**
+
+Edit `frontend/src/api/queries/cluster.ts`:
+
+Replace the line:
+
+```typescript
+export type GpuStatus = { total: number; in_use: number; idle: number };
+```
+
+with:
+
+```typescript
+export type PerGpu = {
+  gpu_id: number;
+  state: "lolday" | "external" | "free";
+  util_percent: number;
+  vram_used_mb: number;
+};
+
+export type GpuStatus = {
+  total: number;
+  free_count: number;
+  in_use_by_lolday: number;
+  in_use_by_external: number;
+  fail_safe_active: boolean;
+  fail_safe_reason: string | null;
+  per_gpu: PerGpu[];
+};
+```
+
+The `useClusterGpuStatus()` cast `as GpuStatus` already enforces the new shape at the call site.
+
+- [ ] **Step 2: Verify typecheck still passes (will fail at GpuStatusBanner — that's expected, fixed in Task 10)**
+
+Run: `cd frontend && pnpm typecheck`
+Expected: errors about `gpu.data?.in_use` and `gpu.data?.idle` referenced in `GpuStatusBanner.tsx` — those will be fixed in Task 10.
+
+- [ ] **Step 3: Do NOT commit yet** — wait until Task 10 fixes the consumer.
+
+---
+
+## Task 10: Rewrite `GpuStatusBanner` (RED → GREEN)
+
+**Files:**
+
+- Modify: `frontend/src/components/common/GpuStatusBanner.tsx`
+- Create: `frontend/tests/unit/GpuStatusBanner.test.tsx`
+
+- [ ] **Step 1: Write failing tests for the 7 banner states**
+
+Create `frontend/tests/unit/GpuStatusBanner.test.tsx`:
+
+```typescript
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { GpuStatusBanner } from "@/components/common/GpuStatusBanner";
+import type { GpuStatus } from "@/api/queries/cluster";
+
+vi.mock("@/api/queries/cluster", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/api/queries/cluster")
+  >("@/api/queries/cluster");
+  return {
+    ...actual,
+    useClusterGpuStatus: vi.fn(),
+    useClusterQueueDepth: vi.fn(),
+  };
+});
+
+import {
+  useClusterGpuStatus,
+  useClusterQueueDepth,
+} from "@/api/queries/cluster";
+
+function renderBanner() {
+  const qc = new QueryClient();
+  return render(
+    <QueryClientProvider client={qc}>
+      <GpuStatusBanner />
+    </QueryClientProvider>,
+  );
+}
+
+const mockGpu = (data: Partial<GpuStatus> | null) =>
+  vi.mocked(useClusterGpuStatus).mockReturnValue({
+    data: data as GpuStatus | undefined,
+    isLoading: data === null,
+    isError: false,
+  } as ReturnType<typeof useClusterGpuStatus>);
+
+const mockQueue = (depth: number) =>
+  vi.mocked(useClusterQueueDepth).mockReturnValue({
+    data: { depth },
+    isLoading: false,
+    isError: false,
+  } as ReturnType<typeof useClusterQueueDepth>);
+
+beforeEach(() => {
+  vi.mocked(useClusterGpuStatus).mockReset();
+  vi.mocked(useClusterQueueDepth).mockReset();
+  mockQueue(0);
+});
+
+describe("GpuStatusBanner", () => {
+  it("renders loading state", () => {
+    mockGpu(null);
+    renderBanner();
+    expect(screen.getByText(/loading cluster status/i)).toBeInTheDocument();
+  });
+
+  it("renders 2/2 free with no jobs", () => {
+    mockGpu({
+      total: 2,
+      free_count: 2,
+      in_use_by_lolday: 0,
+      in_use_by_external: 0,
+      fail_safe_active: false,
+      fail_safe_reason: null,
+      per_gpu: [
+        { gpu_id: 0, state: "free", util_percent: 0, vram_used_mb: 0 },
+        { gpu_id: 1, state: "free", util_percent: 0, vram_used_mb: 0 },
+      ],
+    });
+    renderBanner();
+    expect(screen.getByText(/2 of 2 GPUs free/i)).toBeInTheDocument();
+  });
+
+  it("renders 1 lolday running, 1 free", () => {
+    mockGpu({
+      total: 2,
+      free_count: 1,
+      in_use_by_lolday: 1,
+      in_use_by_external: 0,
+      fail_safe_active: false,
+      fail_safe_reason: null,
+      per_gpu: [
+        { gpu_id: 0, state: "lolday", util_percent: 87.5, vram_used_mb: 9240 },
+        { gpu_id: 1, state: "free", util_percent: 0, vram_used_mb: 0 },
+      ],
+    });
+    renderBanner();
+    expect(screen.getByText(/GPU 0/)).toBeInTheDocument();
+    expect(screen.getByText(/lolday/i)).toBeInTheDocument();
+    expect(screen.getByText(/87.5%/)).toBeInTheDocument();
+  });
+
+  it("flags external GPU activity and queue-paused state", () => {
+    mockGpu({
+      total: 2,
+      free_count: 0,
+      in_use_by_lolday: 1,
+      in_use_by_external: 1,
+      fail_safe_active: false,
+      fail_safe_reason: null,
+      per_gpu: [
+        { gpu_id: 0, state: "lolday", util_percent: 87, vram_used_mb: 9000 },
+        { gpu_id: 1, state: "external", util_percent: 54, vram_used_mb: 7200 },
+      ],
+    });
+    renderBanner();
+    expect(
+      screen.getByText(/external GPU activity detected/i),
+    ).toBeInTheDocument();
+  });
+
+  it("renders fail-safe state with reason", () => {
+    mockGpu({
+      total: 2,
+      free_count: 0,
+      in_use_by_lolday: 0,
+      in_use_by_external: 0,
+      fail_safe_active: true,
+      fail_safe_reason: "Prometheus HTTP error: connection refused",
+      per_gpu: [],
+    });
+    renderBanner();
+    expect(
+      screen.getByText(/GPU status unavailable/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/connection refused/i)).toBeInTheDocument();
+  });
+
+  it("renders error state when query errors", () => {
+    vi.mocked(useClusterGpuStatus).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    } as ReturnType<typeof useClusterGpuStatus>);
+    renderBanner();
+    expect(screen.getByText(/cluster status unavailable/i)).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run tests to verify failure**
+
+Run: `cd frontend && pnpm test GpuStatusBanner -t '' --run`
+Expected: All 6 tests FAIL — banner renders the old `in_use / idle` shape.
+
+- [ ] **Step 3: Rewrite `GpuStatusBanner`**
+
+Replace `frontend/src/components/common/GpuStatusBanner.tsx` entirely with:
+
+```typescript
+import {
+  useClusterGpuStatus,
+  useClusterQueueDepth,
+  type PerGpu,
+} from "@/api/queries/cluster";
+import { Card, CardContent } from "@/components/ui/card";
+import { AlertTriangle, Cpu, Loader2 } from "lucide-react";
+
+const STATE_BADGE: Record<PerGpu["state"], string> = {
+  lolday: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  external:
+    "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+  free: "bg-muted text-muted-foreground",
+};
+
+const STATE_LABEL: Record<PerGpu["state"], string> = {
+  lolday: "lolday",
+  external: "external",
+  free: "free",
+};
+
+function PerGpuChip({ gpu }: { gpu: PerGpu }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs ${STATE_BADGE[gpu.state]}`}
+      data-testid={`gpu-chip-${gpu.gpu_id}`}
+    >
+      <strong>GPU {gpu.gpu_id}</strong>
+      <span>{STATE_LABEL[gpu.state]}</span>
+      {gpu.state !== "free" && (
+        <span className="opacity-80">
+          {gpu.util_percent.toFixed(1)}% · {(gpu.vram_used_mb / 1024).toFixed(1)}GB
+        </span>
+      )}
+    </span>
+  );
+}
+
+export function GpuStatusBanner() {
+  const gpu = useClusterGpuStatus();
+  const queue = useClusterQueueDepth();
+
+  if (gpu.isLoading || queue.isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> loading cluster status…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (gpu.isError || queue.isError || !gpu.data) {
+    return (
+      <Card>
+        <CardContent className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+          <Cpu className="h-4 w-4" /> cluster status unavailable
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const data = gpu.data;
+
+  if (data.fail_safe_active) {
+    return (
+      <Card>
+        <CardContent className="flex items-start gap-2 py-3 text-sm">
+          <AlertTriangle className="h-4 w-4 mt-0.5 text-yellow-600" />
+          <div className="space-y-1">
+            <div className="font-medium">
+              GPU status unavailable — scheduler in fail-safe mode
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {data.fail_safe_reason ??
+                "DCGM signal unreachable; new jobs will be queued."}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-2 py-3 text-sm">
+        <div className="flex items-center gap-2">
+          <Cpu className="h-4 w-4 text-muted-foreground" />
+          <span>
+            <strong>{data.free_count}</strong> of{" "}
+            <strong>{data.total}</strong> GPUs free
+          </span>
+          <span className="text-muted-foreground">·</span>
+          <span>
+            <strong>{queue.data?.depth ?? 0}</strong> jobs queued
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {data.per_gpu.map((g) => (
+            <PerGpuChip key={g.gpu_id} gpu={g} />
+          ))}
+        </div>
+        {data.in_use_by_external > 0 && (
+          <div className="flex items-start gap-2 text-xs text-orange-700 dark:text-orange-300">
+            <AlertTriangle className="h-3 w-3 mt-0.5" />
+            <span>
+              External GPU activity detected — new lolday jobs will be queued
+              until external usage releases.
+            </span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+- [ ] **Step 4: Run vitest + typecheck**
+
+Run: `cd frontend && pnpm typecheck && pnpm test GpuStatusBanner --run`
+Expected: typecheck passes; 6 tests PASS.
+
+- [ ] **Step 5: Commit (bundles Task 9 changes)**
+
+```bash
+git add frontend/src/api/queries/cluster.ts frontend/src/components/common/GpuStatusBanner.tsx frontend/tests/unit/GpuStatusBanner.test.tsx
+git commit -m "feat(frontend): rewrite GpuStatusBanner for host-aware schema
+
+Includes per-GPU chips, external-activity warning, and fail-safe state."
+```
+
+---
+
+## Task 11: Add live smoke test
+
+**Files:**
+
+- Create: `tests/2026-05-10-host-aware-gpu-signal-smoke.sh`
+
+- [ ] **Step 1: Write the smoke script**
+
+Create `tests/2026-05-10-host-aware-gpu-signal-smoke.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Live smoke for host-aware GPU signal (spec 2026-05-10).
+#
+# Pre-reqs:
+#   - lolday backend deployed (helm upgrade succeeded)
+#   - kubectl context points at the same cluster
+#   - $LOLDAY_ADMIN_TOKEN exported (Bearer token w/ admin role)
+#   - $LOLDAY_API_BASE exported (e.g. https://lolday.connlabai.com/api/v1)
+#   - python3 + torch on the host (`python3 -c 'import torch'` works); if
+#     not, replace TestB with a different GPU-touching command (e.g.
+#     `cuda-samples deviceQuery`).
+#
+# Tests A-D from spec §8.3.
+
+set -euo pipefail
+
+API="${LOLDAY_API_BASE:?need LOLDAY_API_BASE}"
+TOKEN="${LOLDAY_ADMIN_TOKEN:?need LOLDAY_ADMIN_TOKEN}"
+H="-H 'Authorization: Bearer $TOKEN'"
+
+curl_status() {
+  curl -s -H "Authorization: Bearer $TOKEN" "$API/cluster/gpu-status"
+}
+
+free_count() {
+  curl_status | python3 -c 'import sys,json; print(json.load(sys.stdin)["free_count"])'
+}
+
+fail_safe() {
+  curl_status | python3 -c 'import sys,json; print(json.load(sys.stdin)["fail_safe_active"])'
+}
+
+external_count() {
+  curl_status | python3 -c 'import sys,json; print(json.load(sys.stdin)["in_use_by_external"])'
+}
+
+echo "=== Test A: cluster all-free ==="
+[[ "$(free_count)" == "2" ]] || { echo "FAIL: expected free_count=2"; exit 1; }
+echo "PASS"
+
+echo "=== Test B: host-level GPU usage ==="
+echo "Spawning host-level CUDA process for 120s..."
+python3 -c '
+import torch, time
+x = torch.zeros(int(1e8)).cuda()  # ~400MB+ VRAM
+print("VRAM allocated; sleeping 120s")
+time.sleep(120)
+' &
+PYPID=$!
+trap "kill $PYPID 2>/dev/null || true" EXIT
+sleep 30  # let DCGM scrape pick up
+
+if [[ "$(external_count)" -lt "1" ]]; then
+  echo "FAIL: expected in_use_by_external >= 1 within 30s"
+  exit 1
+fi
+if [[ "$(free_count)" != "1" && "$(free_count)" != "0" ]]; then
+  echo "FAIL: expected free_count <= 1 (got $(free_count))"
+  exit 1
+fi
+echo "PASS — external_count=$(external_count), free_count=$(free_count)"
+
+echo "=== Test C: kill host process, expect recovery ==="
+kill $PYPID
+trap - EXIT
+sleep 60  # DCGM scrape (15s) + Prom resolution + cache TTL (10s) margin
+[[ "$(free_count)" == "2" ]] || { echo "FAIL: free_count did not recover (got $(free_count))"; exit 1; }
+echo "PASS"
+
+echo "=== Test D: simulated Prom outage ==="
+kubectl -n monitoring scale --replicas=0 statefulset/kps-prometheus-prometheus
+sleep 30
+[[ "$(fail_safe)" == "True" ]] || { echo "FAIL: expected fail_safe_active=True"; kubectl -n monitoring scale --replicas=1 statefulset/kps-prometheus-prometheus; exit 1; }
+echo "PASS — restoring Prom"
+kubectl -n monitoring scale --replicas=1 statefulset/kps-prometheus-prometheus
+echo "Waiting for Prom to come back..."
+kubectl -n monitoring wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus --timeout=120s
+sleep 30
+[[ "$(fail_safe)" == "False" ]] || { echo "FAIL: fail-safe did not clear after Prom recovery"; exit 1; }
+echo "All smoke tests PASS"
+```
+
+Make it executable: `chmod +x tests/2026-05-10-host-aware-gpu-signal-smoke.sh`
+
+- [ ] **Step 2: Verify shellcheck (if available)**
+
+Run: `shellcheck tests/2026-05-10-host-aware-gpu-signal-smoke.sh`
+Expected: no errors. If shellcheck is not installed, skip.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/2026-05-10-host-aware-gpu-signal-smoke.sh
+git commit -m "test(smoke): add live smoke for host-aware GPU signal"
+```
+
+---
+
+## Task 12: Documentation updates
+
+**Files:**
+
+- Modify: `docs/architecture.md`
+- Modify: `docs/runbooks/troubleshooting.md`
+- Modify: `.claude/rules/backend.md`
+- Modify: `CLAUDE.md`
+
+- [ ] **Step 1: Add architecture entry**
+
+Find the section in `docs/architecture.md` that describes the GPU FIFO scheduler (search for `Phase 6` or `FIFO`). Add a new entry below it:
+
+```markdown
+### Host-aware GPU signal (2026-05-10)
+
+server30 is a shared lab server — non-lolday workloads (host-level SSH
+processes, other K8s namespaces, raw Docker) can use the GPUs. The Phase 6
+FIFO scheduler used to count only lolday-jobs ns pods, so it would
+over-allocate when external usage was active.
+
+`backend/app/services/gpu_signal.py` queries Prometheus for DCGM
+`DCGM_FI_DEV_GPU_UTIL` and `DCGM_FI_DEV_FB_USED`, distinguishes K8s pods
+from host processes via the `exported_namespace="lolday-jobs"` label
+(gpu-operator's DCGM exporter ships `--kubernetes` by default), and
+exposes a `GPUState` dataclass consumed by both the FIFO scheduler and
+the `/cluster/gpu-status` UI. Threshold: `util > 5%` OR `VRAM > 500MB`
+counts as in-use (conservative; tolerates false positives).
+
+When Prometheus is unreachable, the scheduler defaults fail-closed
+(`free_count=0`); set `GPU_SIGNAL_FAIL_SAFE_BLOCK=false` to fall back to
+the K8s-only computation as an escape hatch.
+
+Spec: `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`.
+```
+
+- [ ] **Step 2: Add troubleshooting SOPs**
+
+Append two SOPs to `docs/runbooks/troubleshooting.md`:
+
+```markdown
+## Symptom: GpuStatusBanner shows "scheduler in fail-safe mode"
+
+**Cause:** backend cannot reach Prometheus (kps pod restarting, DNS issue, network policy).
+
+**Diagnosis:**
+
+1. `kubectl -n monitoring get pods -l app.kubernetes.io/name=prometheus` — confirm pod is Ready.
+2. From a backend pod: `kubectl -n lolday exec deploy/backend -- curl -s http://kps-prometheus.monitoring.svc:9090/-/ready` — expect `Prometheus Server is Ready.`.
+3. Check NetworkPolicy: `kubectl -n lolday describe networkpolicy backend` — egress to monitoring ns must be allowed.
+
+**Mitigation (if Prom is genuinely down):**
+
+- Temporary escape hatch: `kubectl -n lolday set env deploy/backend GPU_SIGNAL_FAIL_SAFE_BLOCK=false` — falls back to K8s-only counting until Prom recovers. Revert once Prom is healthy.
+
+## Symptom: GpuStatusBanner flags external use, but no one is using GPU
+
+**Cause:** DCGM exporter `--kubernetes` flag is missing, so all GPU activity (including lolday's own) is classified as external because the `exported_namespace` label is empty.
+
+**Diagnosis:**
+
+1. `kubectl -n gpu-operator get ds -l app=nvidia-dcgm-exporter -o yaml | grep -- --kubernetes` — expect at least one match.
+2. If missing, check the gpu-operator ClusterPolicy: `kubectl get clusterpolicy gpu-cluster-policy -o yaml | grep kubernetes` — under `dcgmExporter`, look for `kubernetes: true` (default true).
+
+**Mitigation:** Re-apply the gpu-operator default ClusterPolicy. See gpu-operator docs.
+```
+
+- [ ] **Step 3: Update backend rule**
+
+Edit `.claude/rules/backend.md` — find the `services/` paragraph and add `gpu_signal` to the list:
+
+```diff
+- `services/` — external integrations and business logic: build, cluster_status, crypto, dataset, discord (embed builders), events_tail, git, harbor (init + main), job_config, jobs_params_validate, job_spec, job_tokens, k8s, manifest_store, mlflow_client, model_registry, notify (Discord HTTP delivery), rate_limit, validator.
++ `services/` — external integrations and business logic: build, cluster_status, crypto, dataset, discord (embed builders), events_tail, git, **gpu_signal** (host-aware GPU state via Prom + DCGM), harbor (init + main), job_config, jobs_params_validate, job_spec, job_tokens, k8s, manifest_store, mlflow_client, model_registry, notify (Discord HTTP delivery), rate_limit, validator.
+```
+
+- [ ] **Step 4: Add CLAUDE.md navigation hint**
+
+Edit `CLAUDE.md` — under `## How to navigate this codebase`, append below the existing Phase 6 line:
+
+```markdown
+- Host-aware GPU signal (DCGM + Prom + scheduler) → `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`、`backend/app/services/gpu_signal.py`
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add docs/architecture.md docs/runbooks/troubleshooting.md .claude/rules/backend.md CLAUDE.md
+git commit -m "docs: document host-aware GPU signal (architecture + runbook)"
+```
+
+---
+
+## Task 13: Full backend test run + lint + typecheck
+
+**Files:** none
+
+- [ ] **Step 1: Run all backend tests**
+
+Run: `cd backend && uv run pytest`
+Expected: PASSES across the whole suite (no regressions in the 80+ test files).
+
+- [ ] **Step 2: Run all frontend tests + typecheck**
+
+Run: `cd frontend && pnpm typecheck && pnpm test --run`
+Expected: All PASS.
+
+- [ ] **Step 3: Run pre-commit**
+
+Run: `pre-commit run --all-files`
+Expected: All hooks PASS (or auto-fix and re-stage).
+
+- [ ] **Step 4: If anything was modified by hooks, commit**
+
+```bash
+git add -u
+git commit -m "chore: pre-commit auto-fixes" || true
+```
+
+---
+
+## Task 14: Helm chart sanity (no chart changes expected)
+
+**Files:** none (verification only)
+
+- [ ] **Step 1: Verify chart is unchanged**
+
+Run: `git status charts/`
+Expected: clean working tree.
+
+- [ ] **Step 2: Helm lint + template still passes**
+
+Run: `helm lint charts/lolday`
+Expected: 0 chart(s) failed.
+
+Run: `helm template charts/lolday > /tmp/render.yaml`
+Expected: no errors.
+
+- [ ] **Step 3: No commit needed.**
+
+---
+
+## Task 15: Live smoke (operator-only, manual)
+
+**Files:** none
+
+> This task is operator-driven — it requires server30 SSH, GPU, and a deployed lolday with the new code merged. Skip in a CI / agentic run; the operator runs it manually post-deploy.
+
+- [ ] **Step 1: Deploy**
+
+```bash
+bash scripts/deploy.sh
+```
+
+- [ ] **Step 2: Run smoke**
+
+```bash
+LOLDAY_API_BASE=https://lolday.connlabai.com/api/v1 \
+LOLDAY_ADMIN_TOKEN="<your admin bearer>" \
+bash tests/2026-05-10-host-aware-gpu-signal-smoke.sh
+```
+
+Expected: 4 PASSes (Tests A–D from spec §8.3).
+
+- [ ] **Step 3: Manual UI inspection**
+
+Open `https://lolday.connlabai.com/jobs/new` while Test B is running (host-level GPU use active). Confirm:
+
+- Per-GPU chips render
+- Banner shows "External GPU activity detected"
+- Submit button is NOT disabled (job can still be queued)
+
+---
+
+## Done criteria
+
+- [ ] All 15 tasks above complete
+- [ ] `cd backend && uv run pytest` — green
+- [ ] `cd frontend && pnpm typecheck && pnpm test --run` — green
+- [ ] `pre-commit run --all-files` — green
+- [ ] `helm lint charts/lolday` — green
+- [ ] Operator has run `tests/2026-05-10-host-aware-gpu-signal-smoke.sh` end-to-end and confirmed 4 PASSes
+- [ ] Spec referenced in `docs/architecture.md`, `docs/runbooks/troubleshooting.md`, `.claude/rules/backend.md`, `CLAUDE.md`
+- [ ] No orphan code: old `_int_from_quantity` helper / pod-walk path in `cluster_status.py` removed if dead
+- [ ] PR opened with body including `Spec: docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md` and `Plan: docs/superpowers/plans/2026-05-10-host-aware-gpu-signal.md`
