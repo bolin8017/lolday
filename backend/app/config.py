@@ -70,6 +70,20 @@ class Settings(BaseSettings):
     # interval for a lightweight "what's queued → what's available" scan.
     FIFO_RECONCILER_PERIOD_SECONDS: int = 30
 
+    # Host-aware GPU signal (2026-05-10).
+    # Backend reads DCGM via Prometheus to detect non-K8s GPU usage on
+    # server30 (a shared lab server).  See
+    # docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md.
+    GPU_SIGNAL_PROMETHEUS_URL: str = "http://kps-prometheus.monitoring.svc:9090"
+    GPU_SIGNAL_QUERY_TIMEOUT_S: float = 5.0
+    GPU_SIGNAL_CACHE_TTL_S: int = 10
+    GPU_SIGNAL_UTIL_THRESHOLD_PERCENT: float = 5.0
+    GPU_SIGNAL_VRAM_THRESHOLD_MB: int = 500
+    # Fail-closed by default: when Prom is unreachable, the FIFO scheduler
+    # returns free_count=0 and stops dispatching.  Set to false as an
+    # escape hatch to fall back to the previous K8s-only computation.
+    GPU_SIGNAL_FAIL_SAFE_BLOCK: bool = True
+
     # Phase 7.4: Discord user-event notifications + UI base URL for embed links
     DISCORD_WEBHOOK_URL_EVENTS: str = ""
     DISCORD_HTTP_TIMEOUT_SECONDS: float = 5.0
