@@ -195,5 +195,5 @@ spec:
             severity: warning
           annotations:
             summary: "{{`{{ $value }}`}} CRITICAL CVE(s) detected across cluster images"
-            description: "Severity demoted from critical to warning per spec 2026-05-10-alerting-redesign-design (§5.6). Trivy Operator reports at least one image with a CRITICAL-severity vulnerability. List affected images with `kubectl get vulnerabilityreport -A`; each report's `.report.vulnerabilities[]` has CVE IDs and fix versions. Typical remediation: bump base image tag or upgrade the vulnerable dependency and re-build via the Phase 3 pipeline."
+            description: "Trivy Operator reports at least one image with a CRITICAL-severity vulnerability. List affected images with `kubectl get vulnerabilityreport -A`; each report's `.report.vulnerabilities[]` has CVE IDs and fix versions. Typical remediation: bump base image tag or upgrade the vulnerable dependency and re-build via the Phase 3 pipeline."
 {{- end }}
