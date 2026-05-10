@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 from app.services import gpu_signal
 
 
@@ -78,9 +79,7 @@ def test_query_prometheus_raises_on_http_error(mock_client_cls):
     mock_client.get.side_effect = httpx.HTTPError("connection refused")
     mock_client_cls.return_value.__enter__.return_value = mock_client
 
-    import pytest as _pytest
-
-    with _pytest.raises(gpu_signal.PrometheusUnavailable):
+    with pytest.raises(gpu_signal.PrometheusUnavailable):
         gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
 
 
@@ -93,7 +92,5 @@ def test_query_prometheus_raises_on_non_success_status_field(mock_client_cls):
     mock_client.get.return_value = mock_response
     mock_client_cls.return_value.__enter__.return_value = mock_client
 
-    import pytest as _pytest
-
-    with _pytest.raises(gpu_signal.PrometheusUnavailable):
+    with pytest.raises(gpu_signal.PrometheusUnavailable):
         gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
