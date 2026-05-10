@@ -1,8 +1,9 @@
 {{- if .Values.monitoring.enabled }}
 # Phase 7.1.1 — scrape the NVIDIA DCGM exporter so DCGM_FI_* metrics flow into
 # Prometheus. Without this SM the exporter Pod in the gpu-operator ns runs but
-# is invisible to Prometheus, so the GPUTemperatureHigh alert (alertmanager-
-# rules.yaml) silently never fires and dcgm.json dashboard stays empty.
+# is invisible to Prometheus, so the DCGMXIDError / DCGMThrottleReasonsPersistent
+# alerts (alertmanager-rules.yaml) silently never fire and dcgm.json dashboard
+# stays empty.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
