@@ -94,3 +94,124 @@ def test_query_prometheus_raises_on_non_success_status_field(mock_client_cls):
 
     with pytest.raises(gpu_signal.PrometheusUnavailable):
         gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+
+def _sample(gpu: int, value: float, exported_namespace: str = "") -> dict:
+    metric = {"gpu": str(gpu)}
+    if exported_namespace:
+        metric["exported_namespace"] = exported_namespace
+        metric["exported_pod"] = f"job-pod-{gpu}"
+    return {"metric": metric, "value": value}
+
+
+def _patch_queries(util_samples, vram_samples, k8s_samples):
+    """Patch _query_prometheus to return three different shapes per call.
+
+    Call order in compute_real_gpu_state():
+      1. util query  -> util_samples
+      2. vram query  -> vram_samples
+      3. k8s query   -> k8s_samples
+    """
+    return patch(
+        "app.services.gpu_signal._query_prometheus",
+        side_effect=[util_samples, vram_samples, k8s_samples],
+    )
+
+
+def _override_settings(physical: int = 2):
+    return patch.object(gpu_signal.settings, "CLUSTER_PHYSICAL_GPU_COUNT", physical)
+
+
+def test_state_all_free():
+    with (
+        _patch_queries([], [], []),
+        _override_settings(2),
+    ):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 2
+    assert st.in_use_by_lolday_count == 0
+    assert st.in_use_by_external_count == 0
+    assert st.fail_safe_active is False
+    assert [g.gpu_id for g in st.per_gpu] == [0, 1]
+
+
+def test_state_lolday_on_gpu0_only():
+    util = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
+    vram = [_sample(0, 9240e6, exported_namespace="lolday-jobs")]
+    k8s = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 1
+    assert st.in_use_by_lolday_count == 1
+    assert st.in_use_by_external_count == 0
+    assert st.per_gpu[0].in_use_by_k8s is True
+    assert st.per_gpu[0].in_use_by_external is False
+    assert st.per_gpu[1].in_use_by_k8s is False
+    assert st.per_gpu[1].in_use_by_external is False
+
+
+def test_state_external_on_gpu1_only():
+    util = [_sample(1, 54.0)]  # no exported_namespace -> external
+    vram = [_sample(1, 7200e6)]
+    k8s: list[dict] = []
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 1
+    assert st.in_use_by_lolday_count == 0
+    assert st.in_use_by_external_count == 1
+    assert st.per_gpu[1].in_use_by_external is True
+    assert st.per_gpu[1].in_use_by_k8s is False
+
+
+def test_state_lolday_and_external_mixed():
+    util = [
+        _sample(0, 87.5, exported_namespace="lolday-jobs"),
+        _sample(1, 54.0),
+    ]
+    vram = [
+        _sample(0, 9240e6, exported_namespace="lolday-jobs"),
+        _sample(1, 7200e6),
+    ]
+    k8s = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 0
+    assert st.in_use_by_lolday_count == 1
+    assert st.in_use_by_external_count == 1
+
+
+def test_state_threshold_below_util_and_vram_means_idle():
+    # util 3% < 5% AND vram 200MB < 500MB -> not "in use"
+    util = [_sample(0, 3.0)]
+    vram = [_sample(0, 200e6)]
+    k8s: list[dict] = []
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 2
+    assert st.in_use_by_external_count == 0
+
+
+def test_state_high_vram_alone_counts_as_in_use():
+    # util 1% (idle) but vram 8GB -> still "in use" (someone has a process holding VRAM)
+    util = [_sample(0, 1.0)]
+    vram = [_sample(0, 8 * 1024 * 1024 * 1024)]
+    k8s: list[dict] = []
+    with _patch_queries(util, vram, k8s), _override_settings(2):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.free_count == 1
+    assert st.in_use_by_external_count == 1
+
+
+def test_state_fail_safe_when_prom_unavailable():
+    with (
+        patch(
+            "app.services.gpu_signal._query_prometheus",
+            side_effect=gpu_signal.PrometheusUnavailable("simulated"),
+        ),
+        _override_settings(2),
+    ):
+        st = gpu_signal.compute_real_gpu_state()
+    assert st.fail_safe_active is True
+    assert st.free_count == 0
+    assert "simulated" in (st.fail_safe_reason or "")
+    assert st.per_gpu == []

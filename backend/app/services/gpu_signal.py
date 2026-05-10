@@ -78,3 +78,110 @@ def _query_prometheus(query: str) -> list[dict]:
             continue
         out.append({"metric": metric, "value": value})
     return out
+
+
+def _classify_gpus(
+    util_samples: list[dict],
+    vram_samples: list[dict],
+    k8s_samples: list[dict],
+    physical_total: int,
+    util_threshold: float,
+    vram_threshold_bytes: float,
+) -> list[GPUStatus]:
+    util_by_gpu: dict[int, float] = {}
+    util_busy: set[int] = set()
+    for s in util_samples:
+        try:
+            gpu_id = int(s["metric"]["gpu"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        util_by_gpu[gpu_id] = max(util_by_gpu.get(gpu_id, 0.0), s["value"])
+        if s["value"] > util_threshold:
+            util_busy.add(gpu_id)
+
+    vram_by_gpu: dict[int, float] = {}
+    vram_busy: set[int] = set()
+    for s in vram_samples:
+        try:
+            gpu_id = int(s["metric"]["gpu"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        vram_by_gpu[gpu_id] = max(vram_by_gpu.get(gpu_id, 0.0), s["value"])
+        if s["value"] > vram_threshold_bytes:
+            vram_busy.add(gpu_id)
+
+    k8s_by_gpu: set[int] = set()
+    for s in k8s_samples:
+        try:
+            gpu_id = int(s["metric"]["gpu"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        k8s_by_gpu.add(gpu_id)
+
+    busy = util_busy | vram_busy
+    statuses: list[GPUStatus] = []
+    for gpu_id in range(physical_total):
+        is_active = gpu_id in busy
+        is_k8s = gpu_id in k8s_by_gpu
+        statuses.append(
+            GPUStatus(
+                gpu_id=gpu_id,
+                in_use_by_k8s=is_k8s,
+                in_use_by_external=is_active and not is_k8s,
+                util_percent=util_by_gpu.get(gpu_id, 0.0),
+                vram_used_mb=int(vram_by_gpu.get(gpu_id, 0.0) / (1024 * 1024)),
+            )
+        )
+    return statuses
+
+
+def compute_real_gpu_state() -> GPUState:
+    """Single source of truth for host-aware GPU availability.
+
+    Returns a snapshot reflecting both K8s allocations and host-level GPU
+    activity.  When Prometheus is unreachable, returns a fail-safe state
+    with free_count=0; the caller (FIFO scheduler) decides what to do.
+    """
+    physical = settings.CLUSTER_PHYSICAL_GPU_COUNT
+    util_threshold = settings.GPU_SIGNAL_UTIL_THRESHOLD_PERCENT
+    vram_threshold_bytes = settings.GPU_SIGNAL_VRAM_THRESHOLD_MB * 1024 * 1024
+
+    try:
+        util_samples = _query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+        vram_samples = _query_prometheus("DCGM_FI_DEV_FB_USED")
+        k8s_samples = _query_prometheus(
+            'DCGM_FI_DEV_GPU_UTIL{exported_namespace="lolday-jobs"}'
+        )
+    except PrometheusUnavailable as e:
+        return GPUState(
+            physical_total=physical,
+            per_gpu=[],
+            free_count=0,
+            in_use_by_lolday_count=0,
+            in_use_by_external_count=0,
+            fail_safe_active=True,
+            fail_safe_reason=str(e),
+        )
+
+    statuses = _classify_gpus(
+        util_samples,
+        vram_samples,
+        k8s_samples,
+        physical_total=physical,
+        util_threshold=util_threshold,
+        vram_threshold_bytes=vram_threshold_bytes,
+    )
+    in_use_by_lolday = sum(1 for s in statuses if s.in_use_by_k8s)
+    in_use_by_external = sum(1 for s in statuses if s.in_use_by_external)
+    free_count = sum(
+        1 for s in statuses if not s.in_use_by_k8s and not s.in_use_by_external
+    )
+    return GPUState(
+        physical_total=physical,
+        per_gpu=statuses,
+        free_count=free_count,
+        in_use_by_lolday_count=in_use_by_lolday,
+        in_use_by_external_count=in_use_by_external,
+        fail_safe_active=False,
+        fail_safe_reason=None,
+    )
