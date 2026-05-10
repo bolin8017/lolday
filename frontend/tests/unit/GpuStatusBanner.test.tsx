@@ -29,24 +29,6 @@ function renderBanner() {
   );
 }
 
-// Match across multiple child text nodes by walking the element's full
-// textContent. The plan's banner JSX wraps numbers in <strong>, so the
-// parent <span>'s direct text doesn't include them — getByText's default
-// matcher (childNodes only, see @testing-library/dom getNodeText) misses
-// the joined string. Recommended pattern from testing-library docs.
-const textAcrossNodes =
-  (needle: RegExp) => (_content: string, node: Element | null) => {
-    if (!node) return false;
-    const normalized = (node.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (!needle.test(normalized)) return false;
-    // Return the deepest match so getByText doesn't error on multiple matches
-    // up the tree (e.g. <span> inside <div> inside <body>).
-    const childMatches = Array.from(node.children).some((child) =>
-      needle.test((child.textContent ?? "").replace(/\s+/g, " ").trim()),
-    );
-    return !childMatches;
-  };
-
 const mockGpu = (data: Partial<GpuStatus> | null) =>
   vi.mocked(useClusterGpuStatus).mockReturnValue({
     data: data as GpuStatus | undefined,
@@ -88,9 +70,8 @@ describe("GpuStatusBanner", () => {
       ],
     });
     renderBanner();
-    expect(
-      screen.getByText(textAcrossNodes(/2 of 2 GPUs free/i)),
-    ).toBeInTheDocument();
+    expect(screen.getByText("2 of 2")).toBeInTheDocument();
+    expect(screen.getByText(/GPUs free/i)).toBeInTheDocument();
   });
 
   it("renders 1 lolday running, 1 free", () => {

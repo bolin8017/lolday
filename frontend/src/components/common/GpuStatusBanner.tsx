@@ -13,12 +13,6 @@ const STATE_BADGE: Record<PerGpu["state"], string> = {
   free: "bg-muted text-muted-foreground",
 };
 
-const STATE_LABEL: Record<PerGpu["state"], string> = {
-  lolday: "lolday",
-  external: "external",
-  free: "free",
-};
-
 function PerGpuChip({ gpu }: { gpu: PerGpu }) {
   return (
     <span
@@ -26,7 +20,7 @@ function PerGpuChip({ gpu }: { gpu: PerGpu }) {
       data-testid={`gpu-chip-${gpu.gpu_id}`}
     >
       <strong>GPU {gpu.gpu_id}</strong>
-      <span>{STATE_LABEL[gpu.state]}</span>
+      <span>{gpu.state}</span>
       {gpu.state !== "free" && (
         <span className="opacity-80">
           {gpu.util_percent.toFixed(1)}% ·{" "}
@@ -88,12 +82,15 @@ export function GpuStatusBanner() {
         <div className="flex items-center gap-2">
           <Cpu className="h-4 w-4 text-muted-foreground" />
           <span>
-            <strong>{data.free_count}</strong> of <strong>{data.total}</strong>{" "}
+            <span className="font-semibold">
+              {data.free_count} of {data.total}
+            </span>{" "}
             GPUs free
           </span>
           <span className="text-muted-foreground">·</span>
           <span>
-            <strong>{queue.data?.depth ?? 0}</strong> jobs queued
+            <span className="font-semibold">{queue.data?.depth ?? 0}</span> jobs
+            queued
           </span>
         </div>
         <div className="flex flex-wrap gap-1">
