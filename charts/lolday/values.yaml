@@ -41,7 +41,7 @@ cloudflare:
 # =============================================================================
 backend:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/lolday-backend:v0.20.7
+  image: harbor.lolday.svc:80/lolday/lolday-backend:v0.20.8
   replicas: 1
   # Auth is Cloudflare Access SSO (see CF_ACCESS_* under env below); no
   # backend-side password secrets / firstAdmin seed / cookie config.
@@ -267,7 +267,7 @@ jobs:
 # Frontend (React SPA served by nginx-unprivileged)
 # =============================================================================
 frontend:
-  image: harbor.lolday.svc:80/lolday/lolday-frontend:v0.20.7
+  image: harbor.lolday.svc:80/lolday/lolday-frontend:v0.20.8
   host: lolday.connlabai.com
   replicas: 1
   resources:
