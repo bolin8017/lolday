@@ -2,11 +2,11 @@
 
 from contextlib import contextmanager
 from datetime import UTC
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from app.services import cluster_status
+from app.services import gpu_signal as _gs
 
 
 @pytest.fixture(autouse=True)
@@ -17,40 +17,6 @@ def _clear_cluster_caches():
     yield
     cluster_status._gpu_cache.clear()
     cluster_status._queue_cache.clear()
-
-
-def _node(gpu_count: str):
-    return SimpleNamespace(
-        status=SimpleNamespace(allocatable={"nvidia.com/gpu": gpu_count})
-    )
-
-
-def _pod_with_gpu(phase: str, gpu: str | None):
-    containers = [
-        SimpleNamespace(
-            resources=SimpleNamespace(limits={"nvidia.com/gpu": gpu} if gpu else {})
-        )
-    ]
-    return SimpleNamespace(
-        status=SimpleNamespace(phase=phase),
-        spec=SimpleNamespace(containers=containers),
-    )
-
-
-@contextmanager
-def _patched_core(nodes, pods):
-    class Stub:
-        def list_node(self):
-            return SimpleNamespace(items=nodes)
-
-        def list_namespaced_pod(self, namespace=None):
-            # Phase 7.5: get_gpu_allocation now reads only from the job
-            # namespace. The stub returns the seeded list regardless of the
-            # namespace arg since tests don't exercise cross-ns filtering.
-            return SimpleNamespace(items=pods)
-
-    with patch("app.services.cluster_status.core_v1", return_value=Stub()):
-        yield
 
 
 @contextmanager
@@ -72,56 +38,77 @@ def _vjob(name: str, queue: str, phase: str | None, created: str):
     }
 
 
+def _state(
+    physical: int = 2,
+    per_gpu: list | None = None,
+    free: int = 2,
+    lolday: int = 0,
+    external: int = 0,
+    fail_safe: bool = False,
+    reason: str | None = None,
+) -> _gs.GPUState:
+    return _gs.GPUState(
+        physical_total=physical,
+        per_gpu=per_gpu or [],
+        free_count=free,
+        in_use_by_lolday_count=lolday,
+        in_use_by_external_count=external,
+        fail_safe_active=fail_safe,
+        fail_safe_reason=reason,
+    )
+
+
 # --- GPU allocation ---
 
 
-def test_get_gpu_allocation_sums_node_allocatable():
-    with _patched_core([_node("2"), _node("1")], []):
-        result = cluster_status.get_gpu_allocation()
-    assert result["total"] == 3
-
-
-def test_get_gpu_allocation_counts_running_pods_with_gpu_limit():
-    with _patched_core(
-        [_node("2")],
-        [_pod_with_gpu("Running", "1"), _pod_with_gpu("Running", "1")],
+def test_get_gpu_allocation_returns_new_schema_all_free():
+    statuses = [
+        _gs.GPUStatus(0, False, False, 0.0, 0),
+        _gs.GPUStatus(1, False, False, 0.0, 0),
+    ]
+    with patch(
+        "app.services.cluster_status.gpu_signal.compute_real_gpu_state",
+        return_value=_state(per_gpu=statuses, free=2),
     ):
         result = cluster_status.get_gpu_allocation()
-    assert result == {"total": 2, "in_use": 2, "idle": 0}
+    assert result["total"] == 2
+    assert result["free_count"] == 2
+    assert result["in_use_by_lolday"] == 0
+    assert result["in_use_by_external"] == 0
+    assert result["fail_safe_active"] is False
+    assert result["per_gpu"] == [
+        {"gpu_id": 0, "state": "free", "util_percent": 0.0, "vram_used_mb": 0},
+        {"gpu_id": 1, "state": "free", "util_percent": 0.0, "vram_used_mb": 0},
+    ]
 
 
-def test_get_gpu_allocation_ignores_non_running_pods():
-    with _patched_core(
-        [_node("2")],
-        [_pod_with_gpu("Pending", "1"), _pod_with_gpu("Succeeded", "1")],
+def test_get_gpu_allocation_marks_lolday_and_external_states():
+    statuses = [
+        _gs.GPUStatus(0, True, False, 87.5, 9240),
+        _gs.GPUStatus(1, False, True, 54.0, 7200),
+    ]
+    with patch(
+        "app.services.cluster_status.gpu_signal.compute_real_gpu_state",
+        return_value=_state(per_gpu=statuses, free=0, lolday=1, external=1),
     ):
         result = cluster_status.get_gpu_allocation()
-    assert result == {"total": 2, "in_use": 0, "idle": 2}
+    assert result["per_gpu"][0]["state"] == "lolday"
+    assert result["per_gpu"][1]["state"] == "external"
+    assert result["in_use_by_lolday"] == 1
+    assert result["in_use_by_external"] == 1
+    assert result["free_count"] == 0
 
 
-def test_get_gpu_allocation_ignores_pods_without_gpu_limit():
-    with _patched_core(
-        [_node("2")],
-        [_pod_with_gpu("Running", None), _pod_with_gpu("Running", "1")],
+def test_get_gpu_allocation_fail_safe_propagates():
+    with patch(
+        "app.services.cluster_status.gpu_signal.compute_real_gpu_state",
+        return_value=_state(free=0, fail_safe=True, reason="Prom timeout"),
     ):
         result = cluster_status.get_gpu_allocation()
-    assert result == {"total": 2, "in_use": 1, "idle": 1}
-
-
-def test_get_gpu_allocation_zero_nodes():
-    with _patched_core([], []):
-        result = cluster_status.get_gpu_allocation()
-    assert result == {"total": 0, "in_use": 0, "idle": 0}
-
-
-def test_get_gpu_allocation_idle_clamped_non_negative():
-    # Over-subscribed edge case: if accounting drifts, never return negative idle.
-    with _patched_core(
-        [_node("1")],
-        [_pod_with_gpu("Running", "2")],
-    ):
-        result = cluster_status.get_gpu_allocation()
-    assert result["idle"] == 0
+    assert result["fail_safe_active"] is True
+    assert result["fail_safe_reason"] == "Prom timeout"
+    assert result["free_count"] == 0
+    assert result["per_gpu"] == []
 
 
 # --- Queue depth ---

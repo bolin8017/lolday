@@ -1,15 +1,13 @@
 """Cluster-level status queries for the lolday UI.
 
-GPU allocation answers "can my job start right now?" — we sum
-node-level `allocatable."nvidia.com/gpu"` and subtract the same resource
-from Running pods' container limits. For `nvidia.com/gpu` the device
-plugin enforces `requests == limits`, so this matches what the scheduler
-sees; using limits lets us share one code path with CPU/RAM accounting
-should we extend it later.
+GPU allocation is host-aware: it reads DCGM/Prometheus metrics via
+``gpu_signal.compute_real_gpu_state()`` so that non-K8s GPU usage on
+server30 is reflected in the free-GPU count exposed to the UI and the
+Phase 6 FIFO scheduler.
 
-Results are memoised with a 10 s TTL cache — `/cluster/gpu-status`
+Results are memoised with a 10 s TTL cache — ``/cluster/gpu-status``
 is polled every 15 s per logged-in UI client, so without the cache a
-handful of users would multiply list_pod_for_all_namespaces traffic by N.
+handful of users would multiply Prometheus traffic by N.
 """
 
 from __future__ import annotations
@@ -21,17 +19,16 @@ from cachetools import TTLCache, cached
 
 from app.config import settings
 from app.metrics import BACKEND_ERRORS, JOBS_PENDING_TOTAL, VOLCANO_PENDING_STALE
+from app.services import gpu_signal
 from app.services.k8s import (
     VOLCANO_BATCH_GROUP,
     VOLCANO_BATCH_VERSION,
     VOLCANO_JOB_PLURAL,
-    core_v1,
     volcano_v1alpha1,
 )
 
 logger = logging.getLogger(__name__)
 
-GPU_RESOURCE = "nvidia.com/gpu"
 DEFAULT_QUEUE = "lolday-training"
 VOLCANO_STALE_SECONDS = 1800  # 30m — alert on Pending jobs older than this
 _TERMINAL_PHASES = {"Completed", "Failed", "Aborted", "Terminated"}
@@ -41,38 +38,40 @@ _gpu_cache: TTLCache = TTLCache(maxsize=1, ttl=10)
 _queue_cache: TTLCache = TTLCache(maxsize=8, ttl=10)
 
 
-def _int_from_quantity(value: str | int | None) -> int:
-    if value is None:
-        return 0
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
+def _state_label(s: gpu_signal.GPUStatus) -> str:
+    if s.in_use_by_k8s:
+        return "lolday"
+    if s.in_use_by_external:
+        return "external"
+    return "free"
 
 
 @cached(_gpu_cache)
 def get_gpu_allocation() -> dict:
-    """GPU allocation summary. Pods are scoped to `settings.JOB_NAMESPACE`
-    (Phase 7.5 RBAC narrow) — GPU workloads only run in the lolday ns via
-    Volcano, so counting other namespaces was pure over-grant."""
-    c = core_v1()
-    total = 0
-    for node in c.list_node().items:
-        allocatable = (node.status.allocatable or {}) if node.status else {}
-        total += _int_from_quantity(allocatable.get(GPU_RESOURCE))
+    """Host-aware GPU allocation summary.
 
-    in_use = 0
-    for pod in c.list_namespaced_pod(namespace=settings.JOB_NAMESPACE).items:
-        if not pod.status or pod.status.phase != "Running":
-            continue
-        for container in (pod.spec.containers or []) if pod.spec else []:
-            limits = (container.resources.limits or {}) if container.resources else {}
-            in_use += _int_from_quantity(limits.get(GPU_RESOURCE))
-
-    idle = total - in_use
-    if idle < 0:
-        idle = 0
-    return {"total": total, "in_use": in_use, "idle": idle}
+    Reads from gpu_signal (Prometheus + DCGM) so non-K8s GPU usage on
+    server30 is reflected.  Returns the schema documented in
+    docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md §6.4.
+    """
+    state = gpu_signal.compute_real_gpu_state()
+    return {
+        "total": state.physical_total,
+        "free_count": state.free_count,
+        "in_use_by_lolday": state.in_use_by_lolday_count,
+        "in_use_by_external": state.in_use_by_external_count,
+        "fail_safe_active": state.fail_safe_active,
+        "fail_safe_reason": state.fail_safe_reason,
+        "per_gpu": [
+            {
+                "gpu_id": s.gpu_id,
+                "state": _state_label(s),
+                "util_percent": s.util_percent,
+                "vram_used_mb": s.vram_used_mb,
+            }
+            for s in state.per_gpu
+        ],
+    }
 
 
 def _list_queue_jobs(queue_name: str) -> list[dict]:
