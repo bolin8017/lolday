@@ -33,7 +33,7 @@ paths:
 
 ## `templates/monitoring/` subfolder
 
-- `alertmanager-rules.yaml` + `alertmanager-config-discord.yaml` — alerting rules + Discord receiver.
+- `alertmanager-rules.yaml` + `alertmanager-config-discord.yaml` — alerting rules + Discord receivers + 5 inhibition rules + per-severity routing. 16 alert rules total (議題 B redesign 2026-05-10). Receivers wire to two distinct Discord channels via Secret keys `webhook-url-critical` (Captain Hook, @here) and `webhook-url-warning` (Spidey Warnings, no @here). See `docs/superpowers/specs/2026-05-10-alerting-redesign-design.md`.
 - `deadmans-switch.yaml` — CronJob that posts to a Discord webhook on a schedule. Uses an **independent** env var `DISCORD_URL`, **distinct** from the backend's `DISCORD_WEBHOOK_URL_EVENTS`. Missing `DISCORD_URL` causes fail-fast (RuntimeError) — by design (see `charts/lolday/files/deadmans_switch/check.py`).
 - `grafana-admin-secret.yaml`, `grafana-dashboards.yaml` — Grafana wiring.
 - `namespace.yaml` — monitoring namespace.

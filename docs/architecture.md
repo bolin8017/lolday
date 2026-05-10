@@ -395,7 +395,7 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 12. **`Role.SERVICE_TOKEN: -1`** in `deps.py:ROLE_HIERARCHY` is an intentional negative weight; don't raise.
 13. **Host RAM partition** — kubelet runs with `kube-reserved=memory=2Gi`, `system-reserved=memory=4Gi`, `eviction-hard=memory.available<1Gi`, `eviction-soft=memory.available<2Gi grace 2m` since 2026-05-05 (Phase 0 of `docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md`). Allocatable memory is therefore **62 GB − 7 GB = 55 GB**, not the raw Capacity. Bumping these requires editing both `scripts/setup-k3s.sh` (fresh installs) and re-running `sudo bash scripts/patch-k3s-kubelet-args.sh --apply` (existing cluster). Don't forget the second one.
 
-14. **Phase 4 resource-pressure alerts route to Discord** — `LoldayNodeMemoryPressure` / `LoldayNodeDiskPressure` (critical, 1m) → critical webhook; `LoldayGPUVRAMHigh` / `LoldayJobsQuotaMemoryNearLimit` / `LoldayJobsQuotaCPUNearLimit` / `LoldayPendingJobsHigh` (warning, 3-10m) → warning webhook. Routing matrix in `templates/monitoring/alertmanager-config-discord.yaml`. The `lolday_jobs_pending_total` Gauge backing the last alert is set inside `services/cluster_status.get_queue_depth()` — same 10s refresh path as `lolday_volcano_pending_stale`.
+14. **Phase 4 resource-pressure alerts route to Discord** — `LoldayNodeMemoryPressure` / `LoldayNodeDiskPressure` (critical, 1m) → critical webhook; `LoldayJobsQuotaMemoryNearLimit` / `LoldayJobsQuotaCPUNearLimit` / `LoldayPendingJobsHigh` (warning, 3-10m) → warning webhook (note: `LoldayGPUVRAMHigh` was removed in the 2026-05-10 alerting redesign — see item 18; GPU thermal signal is now `DCGMThrottleReasonsPersistent`). Routing matrix in `templates/monitoring/alertmanager-config-discord.yaml`. The `lolday_jobs_pending_total` Gauge backing the last alert is set inside `services/cluster_status.get_queue_depth()` — same 10s refresh path as `lolday_volcano_pending_stale`.
 
 15. **Phase 2 per-user Volcano queues are created lazily, not in the chart** — `services/k8s.ensure_user_queue(user.id)` is called on every POST /jobs and idempotently creates `lolday-u-<id12>` (cluster-scoped Queue, `weight=1, reclaimable=true, capability={cpu=8, memory=30Gi, nvidia.com/gpu=2}`). 409 → silent success. The chart only ships the fallback `lolday-training` queue (same capability for safety). Volcano scheduler config (`drf` + `proportion` plugins) is **already enabled by the upstream sub-chart defaults** since Phase 7.3 — no scheduler ConfigMap edit needed. Backend ClusterRole grants `scheduling.volcano.sh/queues create,get,list` cluster-wide. Listing per-user queues: `kubectl get queues.scheduling.volcano.sh -l lolday.io/role=user-queue`. Phase 6 added an application-layer FIFO scheduler (lolday backend) on top of Volcano to handle the multi-GPU leapfrog that Volcano's `sla` plugin could not prevent (Volcano upstream issue #5044). See `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md` §4.5/§4.6 for empirical evidence, and `docs/runbooks/admin-priority.md` for operator guidance.
 
@@ -420,4 +420,29 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 
     Spec: `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`.
 
-18. **Harbor `image_digest` ≡ manifest GC unit, not tag** — `DetectorVersion.image_digest` maps to Harbor's manifest digest; one manifest can carry multiple tags (BuildKit cache hits on identical content, retag conventions, admin retags). `DELETE /api/v2.0/.../artifacts/{digest}` is digest-level: Harbor GCs the manifest and untags every tag pointing at it. Lolday must always go through `HarborClient.delete_tag_or_artifact(...)`, which reads `with_tag=true` first and uses tag-level `DELETE .../tags/{tag}` whenever more than one tag exists on the artifact. Footgun source: 2026-05-08 (`4.1.0` and `v4.1.0` shared a digest after a retag-convention change; digest-level delete pulled both). Fixed in PR #116.
+18. **Alerting redesign (2026-05-10)** — Reshapes Discord alerting to follow Google SRE's symptom-based-alerting
+    model + NVIDIA's gpu-operator fault-detection guidance:
+    - 16 alerts (12 keep + 4 new; 2 removed). Removed: `GPUTemperatureHigh`,
+      `LoldayGPUVRAMHigh` — both fired during normal ML training because they
+      treated telemetry (temp / VRAM occupancy) as faults. Replaced by
+      `DCGMXIDError` (driver-level fault, critical) and
+      `DCGMThrottleReasonsPersistent` (sustained thermal throttle, warning).
+      Added `GpuSignalFailSafeStuck` + `GpuSignalCountMismatch` to surface
+      silent degradation modes from the host-aware GPU signal (item 17).
+    - 4 Discord channels (was 3): `Captain Hook` (critical only, @here),
+      new `Spidey Warnings` (warning only, no @here), `Spidey heartbeat`
+      (DeadMansSwitch, unchanged), `Spidey service-alerts` (backend
+      notify\_\*, unchanged).
+    - 5 inhibition rules suppress predictable cascade (e.g. backend-down
+      suppresses error-rate-elevated and volcano-pending-stale).
+    - Per-route repeatInterval: critical 4h, warning 24h.
+
+    `scripts/deploy.sh` already requires both `DISCORD_WEBHOOK_URL_CRITICAL`
+    and `DISCORD_WEBHOOK_URL_WARNING` env vars; the only operator-side
+    change is repointing `DISCORD_WEBHOOK_URL_WARNING` at the new channel
+    (see runbook).
+
+    Spec: `docs/superpowers/specs/2026-05-10-alerting-redesign-design.md`.
+    Plan: `docs/superpowers/plans/2026-05-10-alerting-redesign.md`.
+
+19. **Harbor `image_digest` ≡ manifest GC unit, not tag** — `DetectorVersion.image_digest` maps to Harbor's manifest digest; one manifest can carry multiple tags (BuildKit cache hits on identical content, retag conventions, admin retags). `DELETE /api/v2.0/.../artifacts/{digest}` is digest-level: Harbor GCs the manifest and untags every tag pointing at it. Lolday must always go through `HarborClient.delete_tag_or_artifact(...)`, which reads `with_tag=true` first and uses tag-level `DELETE .../tags/{tag}` whenever more than one tag exists on the artifact. Footgun source: 2026-05-08 (`4.1.0` and `v4.1.0` shared a digest after a retag-convention change; digest-level delete pulled both). Fixed in PR #116.
