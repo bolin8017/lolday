@@ -133,22 +133,27 @@ async def test_single_job_fits_submits(db_session, mock_dispatch):
 async def test_single_job_not_fit_no_submit(db_session, mock_dispatch):
     """A GPU2 job does NOT submit when only 1 GPU is free."""
     from app.reconciler.fifo_scheduler import reconcile_fifo_queue
+    from app.services.gpu_signal import GPUState
 
     job = _make_job(resource_profile=ResourceProfile.GPU2)
     db_session.add(job)
     await db_session.commit()
 
-    # 1 physical GPU, 0 in use → free_gpu = 1; GPU2 needs 2 → doesn't fit
+    # gpu_signal reports 1 free; GPU2 needs 2 → doesn't fit
     mock_k8s = MagicMock()
-    mock_k8s.list_namespaced_pod.return_value = MagicMock(items=[])
 
     with (
         patch("app.reconciler.fifo_scheduler.dispatch_job_to_volcano", mock_dispatch),
         patch(
-            "app.reconciler.fifo_scheduler.settings",
-            MagicMock(
-                CLUSTER_PHYSICAL_GPU_COUNT=1,
-                JOB_NAMESPACE="lolday",
+            "app.reconciler.fifo_scheduler.gpu_signal.compute_real_gpu_state",
+            return_value=GPUState(
+                physical_total=1,
+                per_gpu=[],
+                free_count=1,
+                in_use_by_lolday_count=0,
+                in_use_by_external_count=0,
+                fail_safe_active=False,
+                fail_safe_reason=None,
             ),
         ),
     ):
@@ -258,6 +263,7 @@ async def test_higher_priority_submits_first(db_session, mock_dispatch):
 async def test_head_not_fit_halts_iteration(db_session, mock_dispatch):
     """When HEAD doesn't fit, the loop breaks — smaller later jobs are NOT submitted."""
     from app.reconciler.fifo_scheduler import reconcile_fifo_queue
+    from app.services.gpu_signal import GPUState
 
     now = datetime.now(UTC)
     # HEAD: GPU2 job (needs 2 GPUs) — older, higher priority → will be first
@@ -275,15 +281,19 @@ async def test_head_not_fit_halts_iteration(db_session, mock_dispatch):
 
     # Only 1 GPU free → GPU2 HEAD doesn't fit → loop must stop, GPU1 tail NOT submitted
     mock_k8s = MagicMock()
-    mock_k8s.list_namespaced_pod.return_value = MagicMock(items=[])
 
     with (
         patch("app.reconciler.fifo_scheduler.dispatch_job_to_volcano", mock_dispatch),
         patch(
-            "app.reconciler.fifo_scheduler.settings",
-            MagicMock(
-                CLUSTER_PHYSICAL_GPU_COUNT=1,
-                JOB_NAMESPACE="lolday",
+            "app.reconciler.fifo_scheduler.gpu_signal.compute_real_gpu_state",
+            return_value=GPUState(
+                physical_total=1,
+                per_gpu=[],
+                free_count=1,
+                in_use_by_lolday_count=0,
+                in_use_by_external_count=0,
+                fail_safe_active=False,
+                fail_safe_reason=None,
             ),
         ),
     ):
