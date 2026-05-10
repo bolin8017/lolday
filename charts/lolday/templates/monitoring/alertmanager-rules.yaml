@@ -25,23 +25,23 @@ spec:
             summary: "Node disk > 85% on {{`{{ $labels.instance }}`}} ({{`{{ $labels.mountpoint }}`}})"
             description: "Filesystem {{`{{ $labels.mountpoint }}`}} on {{`{{ $labels.instance }}`}} is above 85% used for 10m."
 
-        - alert: GPUTemperatureHigh
-          expr: DCGM_FI_DEV_GPU_TEMP > 85
-          for: 5m
+        - alert: DCGMXIDError
+          expr: DCGM_FI_DEV_XID_ERRORS > 0
+          for: 1m
           labels:
             severity: critical
           annotations:
-            summary: "GPU {{`{{ $labels.gpu }}`}} on {{`{{ $labels.Hostname }}`}} exceeded 85°C"
-            description: "GPU temperature > 85°C for 5m on {{`{{ $labels.Hostname }}`}}."
+            summary: "GPU {{`{{ $labels.gpu }}`}} on {{`{{ $labels.Hostname }}`}} reported NVIDIA XID error"
+            description: "DCGM reported a non-zero XID error code on GPU {{`{{ $labels.gpu }}`}} ({{`{{ $labels.Hostname }}`}}). XID codes indicate driver-level faults (memory error, MMU fault, falling off the bus, etc.). See https://docs.nvidia.com/deploy/xid-errors/ to interpret the code; some are transient (kernel preempt) but most indicate hardware degradation. Investigate `dcgmi diag` output before lolday job submissions resume."
 
         - alert: PodCrashLoopBackOff
           expr: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1
-          for: 5m
+          for: 15m
           labels:
             severity: warning
           annotations:
             summary: "Pod {{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}} is CrashLoopBackOff"
-            description: "Container {{`{{ $labels.container }}`}} in pod {{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}} has been CrashLoopBackOff for 5m."
+            description: "Container {{`{{ $labels.container }}`}} in pod {{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}} has been CrashLoopBackOff for 15m."
 
         - alert: LoldayCoreServiceDown
           expr: up{job=~"backend|postgres-exporter|harbor"} == 0
@@ -111,21 +111,32 @@ spec:
             summary: "{{`{{ $labels.node }}`}} entered DiskPressure — kubelet evicting pods"
             description: "Node {{`{{ $labels.node }}`}} fell below eviction-hard nodefs/imagefs<10%. kubelet is evicting pods. Free disk: prune Harbor old tags, prune old Prometheus TSDB blocks, or `docker system prune` on root LV. See spec §5.5."
 
-        # Phase 4 — VRAM early warning. NVIDIA does not expose a K8s-native
-        # GPU memory limit primitive (no MIG on 2080 Ti, no HAMi by hard rule),
-        # so VRAM exhaustion surfaces only as a CUDA OOM mid-training.
-        # This alert lets us see the high-water before the next batch fails.
-        - alert: LoldayGPUVRAMHigh
-          expr: |
-            max by (gpu, Hostname) (
-              DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)
-            ) > 0.9
-          for: 3m
+        - alert: DCGMThrottleReasonsPersistent
+          expr: DCGM_FI_DEV_CLOCKS_THROTTLE_REASON_HW_THERMAL_SLOWDOWN > 0
+          for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "GPU {{`{{ $labels.gpu }}`}} VRAM > 90% for 3m"
-            description: "GPU {{`{{ $labels.gpu }}`}} on {{`{{ $labels.Hostname }}`}} has used >90% of its physical VRAM (currently {{`{{ $value | humanizePercentage }}`}}) for the last 3m. Next allocation by the running detector will trigger CUDA OOM. Inspect: `kubectl -n lolday-jobs logs <vcjob-pod> -c detector`. Mitigation: lower batch_size in maldet config or use the smaller `gpu1` resource_profile (Phase 3)."
+            summary: "GPU {{`{{ $labels.gpu }}`}} on {{`{{ $labels.Hostname }}`}} sustained HW thermal throttle for 10m"
+            description: "DCGM reports the GPU has been in hardware thermal slowdown for 10 minutes — sustained throttle indicates either an inadequate cooling solution or a thermal event in progress. Distinct from a brief temperature spike during normal training (which we deliberately do NOT alert on; spec §4.1). Investigate fan / chassis airflow / ambient temperature."
+
+        - alert: GpuSignalFailSafeStuck
+          expr: lolday_gpu_signal_fail_safe_active == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "lolday gpu_signal in fail-safe for 30m — scheduler not dispatching"
+            description: "The host-aware GPU signal (議題 A) has been in fail-safe (Prometheus unreachable from backend) for 30 minutes. The FIFO scheduler is fail-closed: new jobs queued but not dispatched. Check `kubectl -n monitoring get pods -l app.kubernetes.io/name=prometheus` and the backend → kps-prometheus.monitoring.svc network path. Spec: docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md §7."
+
+        - alert: GpuSignalCountMismatch
+          expr: increase(lolday_backend_errors_total{stage="gpu_signal_count_mismatch"}[10m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "DCGM reports gpu_id outside CLUSTER_PHYSICAL_GPU_COUNT — env var stale?"
+            description: "Backend gpu_signal saw a DCGM sample with a gpu label beyond `CLUSTER_PHYSICAL_GPU_COUNT`. Hardware was likely upgraded without bumping the env var; lolday is silently dropping the extra GPU(s). Action: bump `CLUSTER_PHYSICAL_GPU_COUNT` in chart values + redeploy."
 
         # Phase 4 — quota saturation. The `lolday-jobs-quota` from Phase 1
         # caps total cluster usage of the workload ns; once it's near full,
@@ -181,7 +192,7 @@ spec:
           expr: sum(trivy_image_vulnerabilities{severity="Critical"}) > 0
           for: 10m
           labels:
-            severity: critical
+            severity: warning
           annotations:
             summary: "{{`{{ $value }}`}} CRITICAL CVE(s) detected across cluster images"
             description: "Trivy Operator reports at least one image with a CRITICAL-severity vulnerability. List affected images with `kubectl get vulnerabilityreport -A`; each report's `.report.vulnerabilities[]` has CVE IDs and fix versions. Typical remediation: bump base image tag or upgrade the vulnerable dependency and re-build via the Phase 3 pipeline."

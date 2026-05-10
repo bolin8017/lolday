@@ -1,0 +1,136 @@
+# Promtool unit tests for 議題 B (alerting redesign).
+# Run: promtool test rules tests/2026-05-10-alerting-redesign-promtool.yaml
+#
+# Each test loads the rendered PrometheusRule and asserts firing/non-firing
+# at specific time slices. The rule_files entry uses helm template output;
+# the operator generates it before running:
+#
+#   helm template lolday charts/lolday <set ...> > /tmp/render.yaml
+#   yq eval-all 'select(.kind == "PrometheusRule" and .metadata.name == "lolday-baseline")' \
+#     /tmp/render.yaml | yq eval '.spec' - > /tmp/rules.yaml
+#   promtool test rules tests/2026-05-10-alerting-redesign-promtool.yaml
+#
+# The rule_files in this fixture references that /tmp/rules.yaml.
+
+rule_files:
+  - /tmp/rules.yaml
+
+tests:
+  # ---------------------------------------------------------------------------
+  # DCGMXIDError — fires after 1m of XID > 0
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'DCGM_FI_DEV_XID_ERRORS{gpu="0", Hostname="server30"}'
+        values: "0 0 5 5 5 5"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: DCGMXIDError
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: DCGMXIDError
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              gpu: "0"
+              Hostname: server30
+
+  # ---------------------------------------------------------------------------
+  # DCGMThrottleReasonsPersistent — fires only after 10m sustained
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'DCGM_FI_DEV_CLOCKS_THROTTLE_REASON_HW_THERMAL_SLOWDOWN{gpu="0"}'
+        values: "1+0x12" # 13 minutes of "1"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DCGMThrottleReasonsPersistent
+        exp_alerts: [] # below 10m hysteresis
+      - eval_time: 11m
+        alertname: DCGMThrottleReasonsPersistent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              gpu: "0"
+
+  # ---------------------------------------------------------------------------
+  # GpuSignalFailSafeStuck — fires after 30m fail-safe; clears if it drops
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: "lolday_gpu_signal_fail_safe_active"
+        values: "1+0x35" # 36 minutes of "1"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GpuSignalFailSafeStuck
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: GpuSignalFailSafeStuck
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+
+  - interval: 1m
+    input_series:
+      # Goes 1 for 20m, then back to 0 — must NOT fire (toggled below 30m)
+      - series: "lolday_gpu_signal_fail_safe_active"
+        values: "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GpuSignalFailSafeStuck
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: GpuSignalFailSafeStuck
+        exp_alerts: [] # transitioned back to 0 at 20m, never spent 30m at 1
+
+  # ---------------------------------------------------------------------------
+  # GpuSignalCountMismatch — fires when increase>0 in last 10m
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'lolday_backend_errors_total{stage="gpu_signal_count_mismatch"}'
+        values: "0 0 0 0 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: GpuSignalCountMismatch
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: GpuSignalCountMismatch
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+
+  # ---------------------------------------------------------------------------
+  # PodCrashLoopBackOff — must NOT fire at 10m, must fire at 16m (15m hysteresis)
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff", namespace="lolday", pod="backend-abc", container="backend"}'
+        values: "1+0x18"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PodCrashLoopBackOff
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PodCrashLoopBackOff
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: lolday
+              pod: backend-abc
+              container: backend
+              reason: CrashLoopBackOff
+
+  # ---------------------------------------------------------------------------
+  # TrivyCriticalCVE — must label as warning now (severity demoted)
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'trivy_image_vulnerabilities{severity="Critical", image_repository="harbor/lolday/sample"}'
+        values: "1+0x12"
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: TrivyCriticalCVE
+        exp_alerts:
+          - exp_labels:
+              severity: warning # was 'critical' pre-2026-05-10

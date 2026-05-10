@@ -287,3 +287,56 @@ def test_state_count_mismatch_emits_metric_and_warning(caplog):
     ), "warning log must mention beyond-physical-count drop"
     # gpu_id=2 dropped (only 2 physical GPUs); per_gpu still has 0 and 1
     assert len(st.per_gpu) == 2
+
+
+def test_metric_set_to_one_on_fail_safe():
+    """When Prom is unreachable, fail-safe metric must be 1."""
+    from app.metrics import GPU_SIGNAL_FAIL_SAFE_ACTIVE
+
+    with (
+        patch(
+            "app.services.gpu_signal._query_prometheus",
+            side_effect=gpu_signal.PrometheusUnavailable("simulated"),
+        ),
+        _override_settings(2),
+    ):
+        gpu_signal.compute_real_gpu_state()
+
+    assert GPU_SIGNAL_FAIL_SAFE_ACTIVE._value.get() == 1.0
+
+
+def test_metric_set_to_zero_on_success():
+    """When Prom returns cleanly, fail-safe metric must be 0."""
+    from app.metrics import GPU_SIGNAL_FAIL_SAFE_ACTIVE
+
+    # Pre-set to 1 to verify it actually transitions
+    GPU_SIGNAL_FAIL_SAFE_ACTIVE.set(1)
+
+    with _patch_queries([], [], []), _override_settings(2):
+        gpu_signal.compute_real_gpu_state()
+
+    assert GPU_SIGNAL_FAIL_SAFE_ACTIVE._value.get() == 0.0
+
+
+def test_metric_value_updates_when_state_transitions():
+    """Sequential calls must reflect each call's outcome."""
+    from app.metrics import GPU_SIGNAL_FAIL_SAFE_ACTIVE
+
+    # Round 1: success -> 0
+    with _patch_queries([], [], []), _override_settings(2):
+        gpu_signal.compute_real_gpu_state()
+    assert GPU_SIGNAL_FAIL_SAFE_ACTIVE._value.get() == 0.0
+
+    # Round 2: fail-safe -> 1
+    # Clear cache so the second call actually executes (TTL cache would
+    # otherwise return the Round-1 hit without touching the Gauge).
+    gpu_signal._gpu_signal_cache.clear()
+    with (
+        patch(
+            "app.services.gpu_signal._query_prometheus",
+            side_effect=gpu_signal.PrometheusUnavailable("simulated"),
+        ),
+        _override_settings(2),
+    ):
+        gpu_signal.compute_real_gpu_state()
+    assert GPU_SIGNAL_FAIL_SAFE_ACTIVE._value.get() == 1.0

@@ -203,3 +203,51 @@ Detector images are not in CI's GHCR registry today (CI builds backend / fronten
 2. If missing, check the gpu-operator ClusterPolicy: `kubectl get clusterpolicy gpu-cluster-policy -o yaml | grep kubernetes` — under `dcgmExporter`, look for `kubernetes: true` (default true).
 
 **Mitigation:** Re-apply the gpu-operator default ClusterPolicy. See gpu-operator docs.
+
+## Symptom: DCGMXIDError fired
+
+**Cause:** NVIDIA driver reported a non-zero XID error code on a GPU.
+
+**Diagnosis:**
+
+1. Note the `gpu` and `Hostname` labels from the Discord alert.
+2. SSH to the affected host and run:
+   ```
+   sudo dmesg | grep -i "NVRM: Xid"
+   ```
+3. Match the XID code to https://docs.nvidia.com/deploy/xid-errors/.
+   Common codes: `13` (graphics engine exception, often app bug), `31`
+   (GPU memory page fault, often app bug), `48`/`63`/`64`/`74` (uncorrectable
+   ECC / row remap — hardware degradation, replace card if recurring).
+4. Check `dcgmi diag -r 1` (level-1 health check) on the host.
+
+**Mitigation:**
+
+- App-bug-level XIDs (13, 31): may be transient — restart the offending
+  pod / vcjob. If persistent, investigate the workload.
+- Hardware-degradation XIDs: schedule the card for replacement.
+  Cordon the node; lolday will fail-safe (no dispatch).
+
+## Symptom: GpuSignalFailSafeStuck fired
+
+**Cause:** Backend's host-aware GPU signal (議題 A) has been in fail-safe
+mode for 30+ minutes — Prometheus is unreachable.
+
+**Diagnosis:** Same as the existing
+"GpuStatusBanner shows 'scheduler in fail-safe mode'" SOP above. This
+alert is the 30-min escalation of that condition.
+
+## Symptom: Discord critical channel suddenly noisy from a single incident
+
+**Cause:** Inhibition rule failed to apply.
+
+**Diagnosis:**
+
+1. Inspect the rules:
+   ```
+   amtool --alertmanager.url=http://localhost:9093 \
+     config show | yq eval '.inhibitRules' -
+   ```
+2. Confirm 5 inhibitRules are present (see spec §6.2).
+3. If a rule is missing or malformed, the chart-side yaml has drifted.
+   Re-render with `helm template` and compare to the chart source.

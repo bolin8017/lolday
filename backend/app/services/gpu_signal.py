@@ -17,7 +17,7 @@ import httpx
 from cachetools import TTLCache, cached
 
 from app.config import settings
-from app.metrics import BACKEND_ERRORS
+from app.metrics import BACKEND_ERRORS, GPU_SIGNAL_FAIL_SAFE_ACTIVE
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +186,7 @@ def compute_real_gpu_state() -> GPUState:
             f'DCGM_FI_DEV_GPU_UTIL{{exported_namespace="{k8s_namespace}"}}'
         )
     except PrometheusUnavailable as e:
+        GPU_SIGNAL_FAIL_SAFE_ACTIVE.set(1)
         return GPUState(
             physical_total=physical,
             per_gpu=[],
@@ -204,6 +205,7 @@ def compute_real_gpu_state() -> GPUState:
         util_threshold=util_threshold,
         vram_threshold_bytes=vram_threshold_bytes,
     )
+    GPU_SIGNAL_FAIL_SAFE_ACTIVE.set(0)
     in_use_by_lolday = sum(1 for s in statuses if s.in_use_by_k8s)
     in_use_by_external = sum(1 for s in statuses if s.in_use_by_external)
     free_count = sum(

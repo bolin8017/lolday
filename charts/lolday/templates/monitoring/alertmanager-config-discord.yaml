@@ -20,18 +20,47 @@ spec:
     groupBy: [alertname, severity]
     groupWait: 30s
     groupInterval: 5m
-    repeatInterval: 4h
+    repeatInterval: 24h
     routes:
       - receiver: discord-critical
         matchers:
           - name: severity
             value: critical
             matchType: "="
+        repeatInterval: 4h
       - receiver: discord-warning
         matchers:
           - name: severity
             value: warning
             matchType: "="
+        repeatInterval: 24h
+  inhibitRules:
+    - sourceMatch:
+        - { name: alertname, value: LoldayCoreServiceDown, matchType: "=" }
+        - { name: job, value: backend, matchType: "=" }
+      targetMatch:
+        - { name: alertname, value: LoldayBackendErrorRateElevated, matchType: "=" }
+      equal: []
+    - sourceMatch:
+        - { name: alertname, value: LoldayCoreServiceDown, matchType: "=" }
+      targetMatch:
+        - { name: alertname, value: VolcanoJobsStuckPending, matchType: "=" }
+      equal: []
+    - sourceMatch:
+        - { name: alertname, value: LoldayNodeMemoryPressure, matchType: "=" }
+      targetMatch:
+        - { name: alertname, value: PodCrashLoopBackOff, matchType: "=" }
+      equal: []
+    - sourceMatch:
+        - { name: alertname, value: LoldayNodeDiskPressure, matchType: "=" }
+      targetMatch:
+        - { name: alertname, value: PodCrashLoopBackOff, matchType: "=" }
+      equal: []
+    - sourceMatch:
+        - { name: alertname, value: DCGMXIDError, matchType: "=" }
+      targetMatch:
+        - { name: alertname, value: DCGMThrottleReasonsPersistent, matchType: "=" }
+      equal: []
   receivers:
     - name: discord-critical
       discordConfigs:

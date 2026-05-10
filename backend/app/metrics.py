@@ -47,3 +47,12 @@ PRIORITY_BUMP_TOTAL = Counter(
     "Increments only when the new value actually differs from the stored value "
     "(no-op patches don't count).",
 )
+
+# 議題 B (alerting redesign) — exposes gpu_signal's fail-safe state as a
+# Gauge so Alertmanager can fire `GpuSignalFailSafeStuck` when Prometheus
+# is unreachable for >30 min.  See
+# docs/superpowers/specs/2026-05-10-alerting-redesign-design.md §6.5.
+GPU_SIGNAL_FAIL_SAFE_ACTIVE = Gauge(
+    "lolday_gpu_signal_fail_safe_active",
+    "1 when gpu_signal cannot reach Prom (fail-safe path active), else 0.",
+)
