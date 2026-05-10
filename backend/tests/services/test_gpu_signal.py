@@ -143,8 +143,10 @@ def test_state_all_free():
 
 
 def test_state_lolday_on_gpu0_only():
+    # DCGM_FI_DEV_FB_USED is reported in MiB (per dcgm-exporter
+    # dcp-metrics-included.csv); 9240 ≈ 9 GiB.
     util = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
-    vram = [_sample(0, 9240e6, exported_namespace="lolday-jobs")]
+    vram = [_sample(0, 9240, exported_namespace="lolday-jobs")]
     k8s = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
     with _patch_queries(util, vram, k8s), _override_settings(2):
         st = gpu_signal.compute_real_gpu_state()
@@ -159,7 +161,7 @@ def test_state_lolday_on_gpu0_only():
 
 def test_state_external_on_gpu1_only():
     util = [_sample(1, 54.0)]  # no exported_namespace -> external
-    vram = [_sample(1, 7200e6)]
+    vram = [_sample(1, 7200)]  # MiB, ≈ 7 GiB
     k8s: list[dict] = []
     with _patch_queries(util, vram, k8s), _override_settings(2):
         st = gpu_signal.compute_real_gpu_state()
@@ -176,8 +178,8 @@ def test_state_lolday_and_external_mixed():
         _sample(1, 54.0),
     ]
     vram = [
-        _sample(0, 9240e6, exported_namespace="lolday-jobs"),
-        _sample(1, 7200e6),
+        _sample(0, 9240, exported_namespace="lolday-jobs"),  # MiB
+        _sample(1, 7200),
     ]
     k8s = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
     with _patch_queries(util, vram, k8s), _override_settings(2):
@@ -188,9 +190,9 @@ def test_state_lolday_and_external_mixed():
 
 
 def test_state_threshold_below_util_and_vram_means_idle():
-    # util 3% < 5% AND vram 200MB < 500MB -> not "in use"
+    # util 3% < 5% AND vram 200 MiB < 500 MiB -> not "in use"
     util = [_sample(0, 3.0)]
-    vram = [_sample(0, 200e6)]
+    vram = [_sample(0, 200)]
     k8s: list[dict] = []
     with _patch_queries(util, vram, k8s), _override_settings(2):
         st = gpu_signal.compute_real_gpu_state()
@@ -199,9 +201,10 @@ def test_state_threshold_below_util_and_vram_means_idle():
 
 
 def test_state_high_vram_alone_counts_as_in_use():
-    # util 1% (idle) but vram 8GB -> still "in use" (someone has a process holding VRAM)
+    # util 1% (idle) but vram 8192 MiB (= 8 GiB) -> still "in use" (someone
+    # has a process holding VRAM, e.g. model loaded but no batch running)
     util = [_sample(0, 1.0)]
-    vram = [_sample(0, 8 * 1024 * 1024 * 1024)]
+    vram = [_sample(0, 8192)]
     k8s: list[dict] = []
     with _patch_queries(util, vram, k8s), _override_settings(2):
         st = gpu_signal.compute_real_gpu_state()
@@ -267,7 +270,7 @@ def test_state_count_mismatch_emits_metric_and_warning(caplog):
     from app.metrics import BACKEND_ERRORS
 
     util = [_sample(0, 87.5, exported_namespace="lolday-jobs"), _sample(2, 50.0)]
-    vram = [_sample(0, 9240e6, exported_namespace="lolday-jobs"), _sample(2, 1e9)]
+    vram = [_sample(0, 9240, exported_namespace="lolday-jobs"), _sample(2, 1024)]
     k8s = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
 
     before = BACKEND_ERRORS.labels(stage="gpu_signal_count_mismatch")._value.get()

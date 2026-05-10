@@ -127,12 +127,13 @@ def _classify_gpus(
     k8s_samples: list[dict],
     physical_total: int,
     util_threshold: float,
-    vram_threshold_bytes: float,
+    vram_threshold_mib: float,
 ) -> list[GPUStatus]:
     util_by_gpu, util_busy = _reduce_threshold_samples(util_samples, util_threshold)
-    vram_by_gpu, vram_busy = _reduce_threshold_samples(
-        vram_samples, vram_threshold_bytes
-    )
+    # DCGM_FI_DEV_FB_USED is reported in MiB (per dcgm-exporter
+    # dcp-metrics-included.csv); compare and report directly without
+    # bytes-scale conversion.
+    vram_by_gpu, vram_busy = _reduce_threshold_samples(vram_samples, vram_threshold_mib)
     k8s_by_gpu = _gpu_ids_from_samples(k8s_samples)
 
     busy = util_busy | vram_busy
@@ -160,7 +161,7 @@ def _classify_gpus(
                 in_use_by_k8s=is_k8s,
                 in_use_by_external=is_active and not is_k8s,
                 util_percent=util_by_gpu.get(gpu_id, 0.0),
-                vram_used_mb=int(vram_by_gpu.get(gpu_id, 0.0) / (1024 * 1024)),
+                vram_used_mb=int(vram_by_gpu.get(gpu_id, 0.0)),
             )
         )
     return statuses
@@ -176,7 +177,7 @@ def compute_real_gpu_state() -> GPUState:
     """
     physical = settings.CLUSTER_PHYSICAL_GPU_COUNT
     util_threshold = settings.GPU_SIGNAL_UTIL_THRESHOLD_PERCENT
-    vram_threshold_bytes = settings.GPU_SIGNAL_VRAM_THRESHOLD_MB * 1024 * 1024
+    vram_threshold_mib = settings.GPU_SIGNAL_VRAM_THRESHOLD_MB
 
     try:
         util_samples = _query_prometheus("DCGM_FI_DEV_GPU_UTIL")
@@ -203,7 +204,7 @@ def compute_real_gpu_state() -> GPUState:
         k8s_samples,
         physical_total=physical,
         util_threshold=util_threshold,
-        vram_threshold_bytes=vram_threshold_bytes,
+        vram_threshold_mib=vram_threshold_mib,
     )
     GPU_SIGNAL_FAIL_SAFE_ACTIVE.set(0)
     in_use_by_lolday = sum(1 for s in statuses if s.in_use_by_k8s)
