@@ -61,8 +61,10 @@ read -r
 
 echo "==> Test D: GpuSignalFailSafeStuck end-to-end"
 echo "  This requires Prometheus actually unreachable for 30+ min."
-echo "  To simulate quickly: scale kps-prometheus down for ~31 min:"
-echo "    kubectl -n monitoring scale --replicas=0 statefulset/kps-prometheus-prometheus"
+echo "  To simulate quickly:"
+echo "    PROM_STS=\$(kubectl -n monitoring get statefulset \\"
+echo "      -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')"
+echo "    kubectl -n monitoring scale --replicas=0 \"statefulset/\$PROM_STS\""
 echo "  Wait 31 minutes (or skip this test — it overlaps with 議題 A's smoke Test D)."
 echo "  Press Enter to skip, or wait + observe in Spidey Warnings."
 read -r

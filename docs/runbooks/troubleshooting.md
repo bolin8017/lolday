@@ -251,3 +251,33 @@ alert is the 30-min escalation of that condition.
 2. Confirm 5 inhibitRules are present (see spec §6.2).
 3. If a rule is missing or malformed, the chart-side yaml has drifted.
    Re-render with `helm template` and compare to the chart source.
+
+## Symptom: GpuStatusBanner shows util > 0% but vram_used_mb = 0
+
+**Cause:** DCGM exporter is reporting `DCGM_FI_DEV_GPU_UTIL` but not
+`DCGM_FI_DEV_FB_USED` (or the FB metric is consistently 0). Observed live
+on 2026-05-10 post-deploy: GPUs showed `state="external"` with util 95–97%
+but `vram_used_mb=0`.
+
+**Diagnosis:**
+
+1. Check what DCGM is exposing on the cluster:
+   ```bash
+   kubectl -n monitoring port-forward svc/kps-prometheus 9090:9090 &
+   curl -s 'http://localhost:9090/api/v1/query?query=DCGM_FI_DEV_FB_USED' \
+     | jq .data.result
+   ```
+2. If empty: gpu-operator's DCGM exporter ConfigMap may not include the
+   `DCGM_FI_DEV_FB_USED` field. Check the metric list:
+   ```bash
+   kubectl -n gpu-operator get configmap -l app=nvidia-dcgm-exporter \
+     -o yaml | grep -A1 DCGM_FI_DEV_FB_USED
+   ```
+3. If missing, the metric needs to be added to the dcgm-exporter ConfigMap
+   (gpu-operator default config covers most fields, but custom overlays
+   may have trimmed it).
+
+**Mitigation:** UI-side `vram_used_mb=0` is cosmetic — the classification
+logic uses an OR of util-threshold and vram-threshold, so external GPU
+detection still works via util alone. Fix the metric for accurate UI
+display, but it does not block the scheduler decision.
