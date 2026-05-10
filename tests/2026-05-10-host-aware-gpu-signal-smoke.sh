@@ -68,11 +68,18 @@ sleep 60  # DCGM scrape (15s) + Prom resolution + cache TTL (10s) margin
 echo "PASS"
 
 echo "=== Test D: simulated Prom outage ==="
-kubectl -n monitoring scale --replicas=0 statefulset/kps-prometheus-prometheus
+# Kube-prometheus-stack may install the StatefulSet under different names
+# depending on chart version / release name. Discover at runtime.
+PROM_STS="$(kubectl -n monitoring get statefulset \
+  -l app.kubernetes.io/name=prometheus \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+[ -n "$PROM_STS" ] || { echo "FAIL: cannot find prometheus StatefulSet in monitoring ns"; exit 1; }
+echo "  Using StatefulSet: $PROM_STS"
+kubectl -n monitoring scale --replicas=0 "statefulset/$PROM_STS"
 sleep 30
-[[ "$(fail_safe)" == "True" ]] || { echo "FAIL: expected fail_safe_active=True"; kubectl -n monitoring scale --replicas=1 statefulset/kps-prometheus-prometheus; exit 1; }
+[[ "$(fail_safe)" == "True" ]] || { echo "FAIL: expected fail_safe_active=True"; kubectl -n monitoring scale --replicas=1 "statefulset/$PROM_STS"; exit 1; }
 echo "PASS — restoring Prom"
-kubectl -n monitoring scale --replicas=1 statefulset/kps-prometheus-prometheus
+kubectl -n monitoring scale --replicas=1 "statefulset/$PROM_STS"
 echo "Waiting for Prom to come back..."
 kubectl -n monitoring wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus --timeout=120s
 sleep 30

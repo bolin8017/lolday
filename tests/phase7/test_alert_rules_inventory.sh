@@ -107,5 +107,13 @@ WARN_CONTENT="$(yq eval '.spec.receivers[] | select(.name == "discord-warning") 
 [ -z "$WARN_CONTENT" ] || fail "discord-warning must NOT set content (no @here ping); got '$WARN_CONTENT'"
 pass "@here ping policy: critical only"
 
+# Note: `amtool config check` was considered as drift insurance per Plan
+# §Task 4 step 3 ("Optional but recommended"), but its parser expects
+# native `alertmanager.yml` syntax — not the AlertmanagerConfig CRD that
+# Prometheus Operator translates at runtime. The yq+helm assertions above
+# already verify the CRD's structural invariants; native-config validation
+# happens inside the prom-operator alertmanager-config-reloader sidecar
+# at deploy time. No amtool wiring here.
+
 echo ""
 echo "All assertions passed."
