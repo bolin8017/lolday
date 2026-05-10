@@ -315,12 +315,6 @@ class PrometheusUnavailable(Exception):
     response.  The caller is expected to surface fail-safe behavior."""
 
 
-@dataclass(frozen=True)
-class _PromSample:
-    metric: dict[str, str]
-    value: float
-
-
 def _query_prometheus(query: str) -> list[dict]:
     """Run an instant query against the configured Prometheus server.
 
