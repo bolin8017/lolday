@@ -78,8 +78,8 @@ Edit `backend/app/config.py` — after the line `FIFO_RECONCILER_PERIOD_SECONDS:
     GPU_SIGNAL_PROMETHEUS_URL: str = (
         "http://kps-prometheus.monitoring.svc:9090"
     )
-    GPU_SIGNAL_QUERY_TIMEOUT_S: float = 5.0
-    GPU_SIGNAL_CACHE_TTL_S: int = 10
+    GPU_SIGNAL_QUERY_TIMEOUT_SECONDS: float = 5.0
+    GPU_SIGNAL_CACHE_TTL_SECONDS: int = 10
     GPU_SIGNAL_UTIL_THRESHOLD_PERCENT: float = 5.0
     GPU_SIGNAL_VRAM_THRESHOLD_MB: int = 500
     # Fail-closed by default: when Prom is unreachable, the FIFO scheduler
@@ -328,7 +328,7 @@ def _query_prometheus(query: str) -> list[dict]:
     Raises PrometheusUnavailable on transport, HTTP, or non-"success" body.
     """
     url = f"{settings.GPU_SIGNAL_PROMETHEUS_URL}/api/v1/query"
-    timeout = settings.GPU_SIGNAL_QUERY_TIMEOUT_S
+    timeout = settings.GPU_SIGNAL_QUERY_TIMEOUT_SECONDS
     try:
         with httpx.Client(timeout=timeout) as client:
             resp = client.get(url, params={"query": query})
@@ -678,7 +678,7 @@ In `backend/app/services/gpu_signal.py`:
 
 ```python
 _gpu_signal_cache: TTLCache = TTLCache(
-    maxsize=1, ttl=settings.GPU_SIGNAL_CACHE_TTL_S
+    maxsize=1, ttl=settings.GPU_SIGNAL_CACHE_TTL_SECONDS
 )
 ```
 
@@ -707,7 +707,7 @@ def _clear_gpu_signal_cache():
 
 ```bash
 git add backend/app/services/gpu_signal.py backend/tests/services/test_gpu_signal.py
-git commit -m "feat(services): cache gpu_signal state for GPU_SIGNAL_CACHE_TTL_S seconds"
+git commit -m "feat(services): cache gpu_signal state for GPU_SIGNAL_CACHE_TTL_SECONDS seconds"
 ```
 
 ---

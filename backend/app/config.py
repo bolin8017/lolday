@@ -75,8 +75,8 @@ class Settings(BaseSettings):
     # server30 (a shared lab server).  See
     # docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md.
     GPU_SIGNAL_PROMETHEUS_URL: str = "http://kps-prometheus.monitoring.svc:9090"
-    GPU_SIGNAL_QUERY_TIMEOUT_S: float = 5.0
-    GPU_SIGNAL_CACHE_TTL_S: int = 10
+    GPU_SIGNAL_QUERY_TIMEOUT_SECONDS: float = 5.0
+    GPU_SIGNAL_CACHE_TTL_SECONDS: int = 10
     GPU_SIGNAL_UTIL_THRESHOLD_PERCENT: float = 5.0
     GPU_SIGNAL_VRAM_THRESHOLD_MB: int = 500
     # Fail-closed by default: when Prom is unreachable, the FIFO scheduler
