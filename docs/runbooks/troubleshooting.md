@@ -178,3 +178,28 @@ docker push harbor.lolday.svc:80/detectors/<name>:<tag>
 Detector images are not in CI's GHCR registry today (CI builds backend / frontend / helpers; detector images are operator-built). The fallback applies only if a workstation kept the image in its local docker cache.
 
 **Prevention** — v0.20.7+ uses tag-level Harbor delete; multi-tag-shared-digest scenarios no longer cascade.
+
+## Symptom: GpuStatusBanner shows "scheduler in fail-safe mode"
+
+**Cause:** backend cannot reach Prometheus (kps pod restarting, DNS issue, network policy).
+
+**Diagnosis:**
+
+1. `kubectl -n monitoring get pods -l app.kubernetes.io/name=prometheus` — confirm pod is Ready.
+2. From a backend pod: `kubectl -n lolday exec deploy/backend -- curl -s http://kps-prometheus.monitoring.svc:9090/-/ready` — expect `Prometheus Server is Ready.`.
+3. Check NetworkPolicy: `kubectl -n lolday describe networkpolicy backend` — egress to monitoring ns must be allowed.
+
+**Mitigation (if Prom is genuinely down):**
+
+- Temporary escape hatch: `kubectl -n lolday set env deploy/backend GPU_SIGNAL_FAIL_SAFE_BLOCK=false` — falls back to K8s-only counting until Prom recovers. Revert once Prom is healthy.
+
+## Symptom: GpuStatusBanner flags external use, but no one is using GPU
+
+**Cause:** DCGM exporter `--kubernetes` flag is missing, so all GPU activity (including lolday's own) is classified as external because the `exported_namespace` label is empty.
+
+**Diagnosis:**
+
+1. `kubectl -n gpu-operator get ds -l app=nvidia-dcgm-exporter -o yaml | grep -- --kubernetes` — expect at least one match.
+2. If missing, check the gpu-operator ClusterPolicy: `kubectl get clusterpolicy gpu-cluster-policy -o yaml | grep kubernetes` — under `dcgmExporter`, look for `kubernetes: true` (default true).
+
+**Mitigation:** Re-apply the gpu-operator default ClusterPolicy. See gpu-operator docs.

@@ -12,14 +12,31 @@ async def test_gpu_status_requires_auth(client):
 
 
 @pytest.mark.asyncio
-async def test_gpu_status_returns_allocation_dict(user_client):
+async def test_gpu_status_returns_new_allocation_schema(user_client):
+    new_schema = {
+        "total": 2,
+        "free_count": 1,
+        "in_use_by_lolday": 1,
+        "in_use_by_external": 0,
+        "fail_safe_active": False,
+        "fail_safe_reason": None,
+        "per_gpu": [
+            {
+                "gpu_id": 0,
+                "state": "lolday",
+                "util_percent": 87.5,
+                "vram_used_mb": 9240,
+            },
+            {"gpu_id": 1, "state": "free", "util_percent": 0.0, "vram_used_mb": 0},
+        ],
+    }
     with patch(
         "app.routers.cluster.get_gpu_allocation",
-        return_value={"total": 2, "in_use": 1, "idle": 1},
+        return_value=new_schema,
     ):
         r = await user_client.get("/api/v1/cluster/gpu-status")
     assert r.status_code == 200
-    assert r.json() == {"total": 2, "in_use": 1, "idle": 1}
+    assert r.json() == new_schema
 
 
 @pytest.mark.asyncio

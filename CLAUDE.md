@@ -15,6 +15,7 @@
 - 事故 postmortem → `docs/postmortems/`
 - Phase 設計 / 實作計畫 → `docs/superpowers/specs/`、`docs/superpowers/plans/`
 - Backend FIFO scheduler (Phase 6) → `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md`、`docs/runbooks/admin-priority.md`
+- Host-aware GPU signal (DCGM + Prom + scheduler) → `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`、`backend/app/services/gpu_signal.py`
 
 ## Hard rules（每個 session 都必須記得）
 

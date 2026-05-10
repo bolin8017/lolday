@@ -11,7 +11,7 @@ paths:
 
 - Entry: `backend/app/main.py` (FastAPI app + lifespan + Prometheus instrumentator + router registration).
 - `routers/` — one router per resource: admin, builds, cluster, credentials, datasets, detectors, experiments_proxy (MLflow proxy), internal, jobs, models_registry, users_me.
-- `services/` — external integrations and business logic: build, cluster_status, crypto, dataset, discord (embed builders), events_tail, git, harbor (init + main), job_config, jobs_params_validate, job_spec, job_tokens, k8s, manifest_store, mlflow_client, model_registry, notify (Discord HTTP delivery), rate_limit, validator.
+- `services/` — external integrations and business logic: build, cluster_status, crypto, dataset, discord (embed builders), events_tail, git, **gpu_signal** (host-aware GPU state via Prom + DCGM), harbor (init + main), job_config, jobs_params_validate, job_spec, job_tokens, k8s, manifest_store, mlflow_client, model_registry, notify (Discord HTTP delivery), rate_limit, validator.
 - `models/` (SQLAlchemy 2.0 async ORM classes) and `schemas/` (Pydantic v2) are strictly separate. Keep DB types out of API responses.
 - `auth/cf_access.py` is the only auth path. JWT is verified against Cloudflare Access JWKS.
 - `deps.py` holds shared FastAPI `Depends(...)` factories: `current_active_user`, `require_role(...)`, `load_detector`, `require_detector_access`, `require_job_token`.

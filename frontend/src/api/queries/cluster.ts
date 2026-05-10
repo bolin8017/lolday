@@ -1,7 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { client } from "@/api/client";
 
-export type GpuStatus = { total: number; in_use: number; idle: number };
+export type PerGpu = {
+  gpu_id: number;
+  state: "lolday" | "external" | "free";
+  util_percent: number;
+  vram_used_mb: number;
+};
+
+export type GpuStatus = {
+  total: number;
+  free_count: number;
+  in_use_by_lolday: number;
+  in_use_by_external: number;
+  fail_safe_active: boolean;
+  fail_safe_reason: string | null;
+  per_gpu: PerGpu[];
+};
 export type QueueDepth = { depth: number };
 export type QueuePosition = { position: number | null };
 

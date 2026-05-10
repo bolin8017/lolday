@@ -1,4 +1,4 @@
-"""Application-layer FIFO scheduler (Phase 6d).
+"""Application-layer FIFO scheduler (Phase 6d + Phase A host-aware GPU signal).
 
 :func:`reconcile_fifo_queue` runs every 30 s (env: FIFO_RECONCILER_PERIOD_SECONDS).
 It pulls all jobs with ``status=queued_backend``, sorts them by
@@ -10,11 +10,17 @@ are NOT submitted even if they would fit individually.  This prevents
 multi-GPU jobs from being perpetually leapfrogged by smaller jobs (the
 problem that motivated Phase 6).
 
-Free-GPU accounting:
-- Physical GPU count comes from ``settings.CLUSTER_PHYSICAL_GPU_COUNT``.
-- In-use count is derived from Running + Pending pods in ``JOB_NAMESPACE``
-  (pod resource limits are the K8s-enforced allocations; the device plugin
-  enforces ``requests == limits`` for ``nvidia.com/gpu``).
+Free-GPU accounting (Phase A — host-aware):
+- Primary source: ``gpu_signal.compute_real_gpu_state()``.  Reads DCGM
+  metrics via Prometheus to detect both K8s and non-K8s GPU usage on
+  server30 (a shared lab server).  ``free_count`` reflects GPUs not held
+  by any process — K8s or otherwise.
+- Fail-safe handling: when Prometheus is unreachable ``gpu_signal`` sets
+  ``fail_safe_active=True``.  The scheduler then:
+  - ``GPU_SIGNAL_FAIL_SAFE_BLOCK=true`` (default) → return 0 (fail-closed,
+    no new dispatches until Prometheus recovers).
+  - ``GPU_SIGNAL_FAIL_SAFE_BLOCK=false`` (escape hatch) → fall back to the
+    Phase 6 K8s-only computation (pod resource limits in ``JOB_NAMESPACE``).
 - Within a single reconciler cycle, each successful submission decrements
   the local ``free_gpu`` counter so we don't over-commit in one pass.
 
@@ -46,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.metrics import BACKEND_ERRORS
 from app.models.job import Job, JobStatus
+from app.services import gpu_signal
 from app.services.jobs_dispatch import dispatch_job_to_volcano
 
 logger = logging.getLogger(__name__)
@@ -53,20 +60,9 @@ logger = logging.getLogger(__name__)
 GPU_RESOURCE = "nvidia.com/gpu"
 
 
-async def _compute_cluster_free_gpu(
-    session: AsyncSession, k8s
-) -> int:  # k8s: kubernetes.client.CoreV1Api (injected in prod; mock in tests)
-    """Return the number of GPUs available for new submissions.
-
-    Counts GPUs held by Running or Pending pods in ``JOB_NAMESPACE``
-    (pod resource limits are the scheduler-allocated values).  Pods are the
-    actual resource holders; a vcjob with no spawned pod yet does NOT consume
-    GPU from the scheduler's perspective.
-
-    The reconciler decrements its local ``free_gpu`` counter after each
-    successful submission within the same cycle so a burst of fits in one
-    pass doesn't over-commit.
-    """
+async def _compute_free_gpu_k8s_only(session: AsyncSession, k8s) -> int:
+    """Phase 6 K8s-only computation.  Used when host-aware path is in
+    fail-safe AND ``GPU_SIGNAL_FAIL_SAFE_BLOCK=false`` is set."""
     physical: int = settings.CLUSTER_PHYSICAL_GPU_COUNT
     pod_gpu = 0
     try:
@@ -87,11 +83,36 @@ async def _compute_cluster_free_gpu(
                     pod_gpu += int(limits.get(GPU_RESOURCE, 0))
     except Exception:
         BACKEND_ERRORS.labels(stage="fifo_scheduler_pod_list").inc()
-        logger.exception("fifo_scheduler: failed to list pods for GPU accounting")
-        # Conservative: assume no GPUs free so we don't over-submit on a bad read.
+        logger.exception(
+            "fifo_scheduler: failed to list pods for GPU accounting (k8s-only path)"
+        )
         return 0
-
     return max(0, physical - pod_gpu)
+
+
+async def _compute_cluster_free_gpu(
+    session: AsyncSession, k8s
+) -> int:  # k8s: kubernetes.client.CoreV1Api (injected in prod; mock in tests)
+    """Return the number of GPUs available for new submissions.
+
+    Uses host-aware gpu_signal as the primary source (counts both K8s and
+    non-K8s GPU usage on server30).  When Prometheus is unreachable:
+    - GPU_SIGNAL_FAIL_SAFE_BLOCK=true (default) → return 0 (fail-closed)
+    - GPU_SIGNAL_FAIL_SAFE_BLOCK=false (escape hatch) → fall back to the
+      Phase 6 K8s-only computation.
+
+    The reconciler decrements its local ``free_gpu`` counter after each
+    successful submission within the same cycle so a burst of fits in one
+    pass doesn't over-commit.
+    """
+    state = await asyncio.to_thread(gpu_signal.compute_real_gpu_state)
+
+    if state.fail_safe_active:
+        if settings.GPU_SIGNAL_FAIL_SAFE_BLOCK:
+            return 0
+        return await _compute_free_gpu_k8s_only(session, k8s)
+
+    return state.free_count
 
 
 async def reconcile_fifo_queue(

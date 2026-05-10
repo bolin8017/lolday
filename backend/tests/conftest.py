@@ -343,7 +343,7 @@ def mock_k8s_batch(monkeypatch):
     # un-patched calls reach a live cluster; in CI there is no cluster.
     for _mod, _names in [
         ("app.services.harbor_init", ["core_v1"]),
-        ("app.services.cluster_status", ["core_v1", "volcano_v1alpha1"]),
+        ("app.services.cluster_status", ["volcano_v1alpha1"]),
         # Phase 6d: vcjob + token Secret creation moved into jobs_dispatch;
         # patch the new home so integration tests don't reach a live cluster.
         ("app.services.jobs_dispatch", ["core_v1", "volcano_v1alpha1"]),
