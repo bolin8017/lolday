@@ -80,6 +80,40 @@ def _query_prometheus(query: str) -> list[dict]:
     return out
 
 
+def _reduce_threshold_samples(
+    samples: list[dict],
+    threshold: float,
+) -> tuple[dict[int, float], set[int]]:
+    """Reduce per-GPU samples into (max_value_per_gpu, busy_gpu_ids).
+
+    A GPU is "busy" when any of its samples exceeds ``threshold``.
+    Malformed samples (missing/non-int gpu label) are skipped silently —
+    `_query_prometheus` already logs them at warning level upstream.
+    """
+    by_gpu: dict[int, float] = {}
+    busy: set[int] = set()
+    for s in samples:
+        try:
+            gpu_id = int(s["metric"]["gpu"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        by_gpu[gpu_id] = max(by_gpu.get(gpu_id, 0.0), s["value"])
+        if s["value"] > threshold:
+            busy.add(gpu_id)
+    return by_gpu, busy
+
+
+def _gpu_ids_from_samples(samples: list[dict]) -> set[int]:
+    """Extract the set of distinct gpu IDs present in a list of Prom samples."""
+    out: set[int] = set()
+    for s in samples:
+        try:
+            out.add(int(s["metric"]["gpu"]))
+        except (KeyError, ValueError, TypeError):
+            continue
+    return out
+
+
 def _classify_gpus(
     util_samples: list[dict],
     vram_samples: list[dict],
@@ -88,35 +122,11 @@ def _classify_gpus(
     util_threshold: float,
     vram_threshold_bytes: float,
 ) -> list[GPUStatus]:
-    util_by_gpu: dict[int, float] = {}
-    util_busy: set[int] = set()
-    for s in util_samples:
-        try:
-            gpu_id = int(s["metric"]["gpu"])
-        except (KeyError, ValueError, TypeError):
-            continue
-        util_by_gpu[gpu_id] = max(util_by_gpu.get(gpu_id, 0.0), s["value"])
-        if s["value"] > util_threshold:
-            util_busy.add(gpu_id)
-
-    vram_by_gpu: dict[int, float] = {}
-    vram_busy: set[int] = set()
-    for s in vram_samples:
-        try:
-            gpu_id = int(s["metric"]["gpu"])
-        except (KeyError, ValueError, TypeError):
-            continue
-        vram_by_gpu[gpu_id] = max(vram_by_gpu.get(gpu_id, 0.0), s["value"])
-        if s["value"] > vram_threshold_bytes:
-            vram_busy.add(gpu_id)
-
-    k8s_by_gpu: set[int] = set()
-    for s in k8s_samples:
-        try:
-            gpu_id = int(s["metric"]["gpu"])
-        except (KeyError, ValueError, TypeError):
-            continue
-        k8s_by_gpu.add(gpu_id)
+    util_by_gpu, util_busy = _reduce_threshold_samples(util_samples, util_threshold)
+    vram_by_gpu, vram_busy = _reduce_threshold_samples(
+        vram_samples, vram_threshold_bytes
+    )
+    k8s_by_gpu = _gpu_ids_from_samples(k8s_samples)
 
     busy = util_busy | vram_busy
     statuses: list[GPUStatus] = []
