@@ -239,3 +239,51 @@ def test_compute_real_gpu_state_is_cached_within_ttl():
     assert st1 == st2
     # 3 queries on the first call (util, vram, k8s) + 0 on the second
     assert mock_q.call_count == 3
+
+
+def test_state_query_uses_configured_job_namespace():
+    """Q2 query must use settings.JOB_NAMESPACE, not a hardcoded string."""
+    captured: list[str] = []
+
+    def _capture(query: str) -> list[dict]:
+        captured.append(query)
+        return []
+
+    with (
+        patch("app.services.gpu_signal._query_prometheus", side_effect=_capture),
+        patch.object(gpu_signal.settings, "JOB_NAMESPACE", "custom-jobs-ns"),
+        _override_settings(2),
+    ):
+        gpu_signal.compute_real_gpu_state()
+
+    # Third query is the K8s-pod filter; must reference the configured namespace
+    assert any("custom-jobs-ns" in q for q in captured), captured
+    assert all("lolday-jobs" not in q for q in captured), captured
+
+
+def test_state_count_mismatch_emits_metric_and_warning(caplog):
+    """gpu samples with id >= CLUSTER_PHYSICAL_GPU_COUNT must trigger
+    BACKEND_ERRORS{stage='gpu_signal_count_mismatch'} + warning log."""
+    from app.metrics import BACKEND_ERRORS
+
+    util = [_sample(0, 87.5, exported_namespace="lolday-jobs"), _sample(2, 50.0)]
+    vram = [_sample(0, 9240e6, exported_namespace="lolday-jobs"), _sample(2, 1e9)]
+    k8s = [_sample(0, 87.5, exported_namespace="lolday-jobs")]
+
+    before = BACKEND_ERRORS.labels(stage="gpu_signal_count_mismatch")._value.get()
+
+    with (
+        _patch_queries(util, vram, k8s),
+        _override_settings(2),
+        caplog.at_level("WARNING"),
+    ):
+        st = gpu_signal.compute_real_gpu_state()
+
+    after = BACKEND_ERRORS.labels(stage="gpu_signal_count_mismatch")._value.get()
+    assert after > before, "metric must increment when out-of-range gpu_id seen"
+    assert any(
+        "gpu_signal_count_mismatch" not in r.message and "beyond" in r.message
+        for r in caplog.records
+    ), "warning log must mention beyond-physical-count drop"
+    # gpu_id=2 dropped (only 2 physical GPUs); per_gpu still has 0 and 1
+    assert len(st.per_gpu) == 2

@@ -17,6 +17,7 @@ import httpx
 from cachetools import TTLCache, cached
 
 from app.config import settings
+from app.metrics import BACKEND_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,20 @@ def _classify_gpus(
     k8s_by_gpu = _gpu_ids_from_samples(k8s_samples)
 
     busy = util_busy | vram_busy
+
+    # Spec §7: detect CLUSTER_PHYSICAL_GPU_COUNT vs actual hardware mismatch
+    seen_gpu_ids = set(util_by_gpu) | set(vram_by_gpu) | k8s_by_gpu
+    out_of_range = {g for g in seen_gpu_ids if g >= physical_total}
+    if out_of_range:
+        BACKEND_ERRORS.labels(stage="gpu_signal_count_mismatch").inc()
+        logger.warning(
+            "DCGM samples reference gpu ids %s beyond CLUSTER_PHYSICAL_GPU_COUNT=%d "
+            "— these are silently dropped; check if hardware was upgraded without "
+            "bumping the env var",
+            sorted(out_of_range),
+            physical_total,
+        )
+
     statuses: list[GPUStatus] = []
     for gpu_id in range(physical_total):
         is_active = gpu_id in busy
@@ -166,8 +181,9 @@ def compute_real_gpu_state() -> GPUState:
     try:
         util_samples = _query_prometheus("DCGM_FI_DEV_GPU_UTIL")
         vram_samples = _query_prometheus("DCGM_FI_DEV_FB_USED")
+        k8s_namespace = settings.JOB_NAMESPACE
         k8s_samples = _query_prometheus(
-            'DCGM_FI_DEV_GPU_UTIL{exported_namespace="lolday-jobs"}'
+            f'DCGM_FI_DEV_GPU_UTIL{{exported_namespace="{k8s_namespace}"}}'
         )
     except PrometheusUnavailable as e:
         return GPUState(
