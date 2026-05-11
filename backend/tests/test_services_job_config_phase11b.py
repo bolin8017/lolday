@@ -110,3 +110,34 @@ def test_unflatten_rejects_flat_dict_conflicting_with_dotted_key() -> None:
             mlflow_run_id=None,
             mlflow_experiment_id=None,
         )
+
+
+def test_render_config_yaml_includes_lolday_meta_when_provided() -> None:
+    """Spec § 5.4 / § 6.5 — platform-injected lolday.* keys land in the YAML."""
+    renderer = _make_renderer()
+    yaml_text = renderer.render_config_yaml(
+        stage="train",
+        user_params={},
+        mlflow_tracking_uri="http://m",
+        mlflow_run_id="run-1",
+        mlflow_experiment_id="42",
+        lolday_meta={
+            "train_dataset_id": "abc-123",
+            "job_id": "job-9",
+        },
+    )
+    assert "lolday:" in yaml_text
+    assert "train_dataset_id: abc-123" in yaml_text
+    assert "job_id: job-9" in yaml_text
+
+
+def test_render_config_yaml_empty_lolday_block_when_no_meta() -> None:
+    renderer = _make_renderer()
+    yaml_text = renderer.render_config_yaml(
+        stage="train",
+        user_params={},
+        mlflow_tracking_uri="http://m",
+        mlflow_run_id="run-1",
+        mlflow_experiment_id="42",
+    )
+    assert "lolday: {}" in yaml_text
