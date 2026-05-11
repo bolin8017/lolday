@@ -209,9 +209,19 @@ This Job runs once per Helm install/upgrade and performs all storage-layer initi
 
 Design: the Job uses a **two-initContainer + main container** pattern because the `quay.io/minio/mc` image has no `kubectl`, and the `bitnami/kubectl` image has no `mc`. All three containers share an `emptyDir` volume `/creds`:
 
-- initContainer 1 (`kubectl-probe`, `bitnami/kubectl:1.30.6`) — for each app, if the K8s secret `<app>-s3-cred` already exists, decode its `access-key` and `secret-key` into `/creds/<app>-access-key` and `/creds/<app>-secret-key`. Else do nothing.
+- initContainer 1 (`kubectl-probe`, `bitnami/kubectl:1.30.6`) — for each app, if the K8s secret `<app>-s3-cred` already exists, decode its per-app keys into `/creds/<app>-access-key` and `/creds/<app>-secret-key`. Key names differ by app (see table below). Else do nothing.
 - initContainer 2 (`mc-setup`, `quay.io/minio/mc:...`) — always (idempotent): create buckets, lifecycle, and IAM policies. Per app: if `/creds/<app>-access-key` was populated by the probe, re-assert that exact svcacct in MinIO via `mc admin user svcacct add ... || true`. Else generate a fresh random AK/SK pair, create the svcacct, and stage to `/creds`.
-- main container (`kubectl-secret-writer`, `bitnami/kubectl:1.30.6`) — for each app, if the K8s secret already exists, skip (preserves credentials, never overwrites). Else read `/creds` and create the secret.
+- main container (`kubectl-secret-writer`, `bitnami/kubectl:1.30.6`) — for each app, if the K8s secret already exists, skip (preserves credentials, never overwrites). Else read `/creds` and create the secret with per-app key names.
+
+**Per-app K8s Secret key names** (verified against `helm show values charts/lolday/charts/harbor-1.18.3.tgz`):
+
+| App    | Secret name      | Key names                                                        |
+| ------ | ---------------- | ---------------------------------------------------------------- |
+| mlflow | `mlflow-s3-cred` | `access-key`, `secret-key`                                       |
+| harbor | `harbor-s3-cred` | `REGISTRY_STORAGE_S3_ACCESSKEY`, `REGISTRY_STORAGE_S3_SECRETKEY` |
+| loki   | `loki-s3-cred`   | `access-key`, `secret-key`                                       |
+
+Harbor's registry binary maps the secret keys directly to env vars via `existingSecret`; they must be the literal env-var names.
 
 **Why three containers, not two?** The naive design (sentinel `/creds/done` in emptyDir to gate svcacct creation) is **not idempotent across pod runs** — emptyDir is recreated on every Job invocation, so the sentinel never exists on a re-run. On Helm upgrade, that means mc-setup would always regenerate svcacct keys, but kubectl-secret-writer would skip writing because the K8s secret already exists with the OLD keys → mismatch, apps lose access. The fix is to invert the source of truth: gate svcacct creation on whether the K8s secret already exists (read from K8s API in the probe), not on an in-pod sentinel.
 
@@ -323,20 +333,26 @@ spec:
             - |
               set -eu
               # For each app: if the K8s secret already exists, decode its
-              # access-key + secret-key into /creds. Cross-run source-of-truth
-              # so mc-setup can re-assert (rather than regenerate) svcacct keys
-              # after a MinIO data wipe.
-              for app in mlflow harbor loki; do
-                if kubectl -n {{ .Values.global.namespace }} get secret ${app}-s3-cred >/dev/null 2>&1; then
-                  echo "kubectl-probe: ${app}-s3-cred found — staging existing keys"
-                  kubectl -n {{ .Values.global.namespace }} get secret ${app}-s3-cred \
-                    -o jsonpath='{.data.access-key}' | base64 -d > /creds/${app}-access-key
-                  kubectl -n {{ .Values.global.namespace }} get secret ${app}-s3-cred \
-                    -o jsonpath='{.data.secret-key}' | base64 -d > /creds/${app}-secret-key
+              # per-app keys into /creds. Key names differ by app — Harbor's
+              # registry binary expects REGISTRY_STORAGE_S3_ACCESSKEY /
+              # REGISTRY_STORAGE_S3_SECRETKEY; mlflow and loki use access-key /
+              # secret-key. Cross-run source-of-truth so mc-setup can re-assert
+              # (rather than regenerate) svcacct keys after a MinIO data wipe.
+              read_existing() {
+                local app=$1; local secret=$2; local ak_key=$3; local sk_key=$4
+                if kubectl -n {{ .Values.global.namespace }} get secret "$secret" >/dev/null 2>&1; then
+                  echo "kubectl-probe: $secret found — staging existing keys"
+                  kubectl -n {{ .Values.global.namespace }} get secret "$secret" \
+                    -o jsonpath="{.data.${ak_key}}" | base64 -d > /creds/${app}-access-key
+                  kubectl -n {{ .Values.global.namespace }} get secret "$secret" \
+                    -o jsonpath="{.data.${sk_key}}" | base64 -d > /creds/${app}-secret-key
                 else
-                  echo "kubectl-probe: ${app}-s3-cred absent — mc-setup will generate"
+                  echo "kubectl-probe: $secret absent — mc-setup will generate"
                 fi
-              done
+              }
+              read_existing mlflow mlflow-s3-cred access-key secret-key
+              read_existing harbor harbor-s3-cred REGISTRY_STORAGE_S3_ACCESSKEY REGISTRY_STORAGE_S3_SECRETKEY
+              read_existing loki   loki-s3-cred   access-key secret-key
               echo "kubectl-probe: done"
         - name: mc-setup
           image: quay.io/minio/mc:RELEASE.2025-09-07T16-13-09Z
@@ -443,21 +459,27 @@ spec:
             - |
               set -eu
               # For each app: never overwrite an existing K8s secret. Create
-              # only when absent and /creds has staged keys.
-              for app in mlflow harbor loki; do
-                if kubectl -n {{ .Values.global.namespace }} get secret ${app}-s3-cred >/dev/null 2>&1; then
-                  echo "kubectl-secret-writer: ${app}-s3-cred already exists — keep"
-                  continue
+              # only when absent and /creds has staged keys. Key names differ by
+              # app — Harbor needs REGISTRY_STORAGE_S3_ACCESSKEY /
+              # REGISTRY_STORAGE_S3_SECRETKEY; mlflow/loki use access-key / secret-key.
+              write_secret() {
+                local app=$1; local secret=$2; local ak_key=$3; local sk_key=$4
+                if kubectl -n {{ .Values.global.namespace }} get secret "$secret" >/dev/null 2>&1; then
+                  echo "kubectl-secret-writer: $secret already exists — keep"
+                  return
                 fi
                 if [ ! -s /creds/${app}-access-key ] || [ ! -s /creds/${app}-secret-key ]; then
                   echo "kubectl-secret-writer: ${app} creds missing in /creds — skip"
-                  continue
+                  return
                 fi
-                kubectl -n {{ .Values.global.namespace }} create secret generic ${app}-s3-cred \
-                  --from-file=access-key=/creds/${app}-access-key \
-                  --from-file=secret-key=/creds/${app}-secret-key
-                echo "kubectl-secret-writer: created ${app}-s3-cred"
-              done
+                kubectl -n {{ .Values.global.namespace }} create secret generic "$secret" \
+                  --from-file=${ak_key}=/creds/${app}-access-key \
+                  --from-file=${sk_key}=/creds/${app}-secret-key
+                echo "kubectl-secret-writer: created $secret"
+              }
+              write_secret mlflow mlflow-s3-cred access-key secret-key
+              write_secret harbor harbor-s3-cred REGISTRY_STORAGE_S3_ACCESSKEY REGISTRY_STORAGE_S3_SECRETKEY
+              write_secret loki   loki-s3-cred   access-key secret-key
               echo "kubectl-secret-writer: done"
 {{- end }}
 ```
