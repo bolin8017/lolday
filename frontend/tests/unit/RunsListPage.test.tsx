@@ -13,6 +13,8 @@ vi.mock("@/api/queries/runs", () => ({
         start_time: 0,
         end_time: 0,
         tags: { "lolday.job_id": "job-A" },
+        lolday_started_at: "2026-05-11T10:05:00+00:00",
+        lolday_finished_at: "2026-05-11T10:15:00+00:00",
       },
       {
         run_id: "orphan-run-id-654321",
@@ -21,6 +23,8 @@ vi.mock("@/api/queries/runs", () => ({
         start_time: 0,
         end_time: 0,
         tags: {},
+        lolday_started_at: null,
+        lolday_finished_at: null,
       },
     ],
     isLoading: false,
@@ -67,5 +71,26 @@ describe("RunsListPage cell linking", () => {
   it("does not render a separate Job column", () => {
     wrap();
     expect(screen.queryByRole("columnheader", { name: /^job$/i })).toBeNull();
+  });
+
+  it("renders Compute time from lolday timestamps when present", () => {
+    wrap();
+    // 10:15:00 - 10:05:00 = 10 minutes
+    expect(screen.getByText(/10m\b/i)).toBeInTheDocument();
+  });
+
+  it("renders em dash when lolday timestamps are null (orphan run)", () => {
+    wrap();
+    // orphan row has both timestamps null; the duration cell renders em dash.
+    // There are no other em-dash placeholders in this fixture, so finding any
+    // proves the fall-through behaves.
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("column header is 'Compute time' not 'Duration'", () => {
+    wrap();
+    expect(
+      screen.getByRole("columnheader", { name: /compute time/i }),
+    ).toBeInTheDocument();
   });
 });

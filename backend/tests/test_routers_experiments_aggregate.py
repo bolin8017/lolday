@@ -172,3 +172,32 @@ async def test_get_run_returns_flat_shape(async_client, auth_owner_headers):
     assert body["run_id"] == "r1"
     assert body["params"] == {"lr": "0.01"}
     assert "info" not in body
+
+
+def test_flatten_run_attaches_lolday_timestamps_when_meta_provided() -> None:
+    """Spec § 5.1 / § 6.8 — flat dict surfaces lolday Job timestamps for the FE Duration column."""
+    raw = _run("r9", "FINISHED", 0, tags={"lolday.job_id": "job-9"})
+    meta = {
+        "job-9": {
+            "started_at": "2026-05-11T10:05:00+00:00",
+            "finished_at": "2026-05-11T10:15:00+00:00",
+        }
+    }
+    flat = _flatten_run(raw, lolday_job_meta=meta)
+    assert flat["lolday_started_at"] == "2026-05-11T10:05:00+00:00"
+    assert flat["lolday_finished_at"] == "2026-05-11T10:15:00+00:00"
+
+
+def test_flatten_run_lolday_timestamps_none_when_no_meta() -> None:
+    raw = _run("r10", "FINISHED", 0, tags={"lolday.job_id": "job-orphan"})
+    flat = _flatten_run(raw, lolday_job_meta={})
+    assert flat["lolday_started_at"] is None
+    assert flat["lolday_finished_at"] is None
+
+
+def test_flatten_run_lolday_timestamps_none_when_tag_missing() -> None:
+    raw = _run("r11", "FINISHED", 0, tags={})  # no lolday.job_id tag
+    meta = {"job-9": {"started_at": "2026-05-11T10:00:00+00:00", "finished_at": None}}
+    flat = _flatten_run(raw, lolday_job_meta=meta)
+    assert flat["lolday_started_at"] is None
+    assert flat["lolday_finished_at"] is None

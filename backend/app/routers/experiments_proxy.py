@@ -8,8 +8,11 @@ from urllib.parse import quote
 import httpx
 from cachetools import TTLCache
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.db import get_async_session
 from app.models import User
 from app.services.mlflow_client import MlflowClient, MlflowError
 from app.users import current_active_user
@@ -50,20 +53,31 @@ def _client() -> MlflowClient:
     )
 
 
-def _flatten_run(r: dict[str, Any]) -> dict[str, Any]:
+def _flatten_run(
+    r: dict[str, Any],
+    *,
+    lolday_job_meta: dict[str, dict[str, str | None]] | None = None,
+) -> dict[str, Any]:
     """MLflow REST returns runs as {info: {...}, data: {metrics: [{key,value}], ...}}.
 
     The frontend (and our aggregate logic) wants flat
     {run_id, status, metrics: {key: value}, params: {...}, tags: {...}}.
     Centralising the conversion here keeps the proxy contract simple and
     matches what callers already assume.
+
+    ``lolday_job_meta`` (spec § 5.1 / § 6.8) maps the ``lolday.job_id`` tag
+    value to its lolday-side ``Job.started_at`` / ``Job.finished_at`` ISO
+    timestamps. The frontend Runs page renders Duration from those two so the
+    column reflects compute time rather than wall-clock-from-submit (which is
+    what MLflow's own ``info.start_time`` / ``info.end_time`` measure).
     """
     info = r.get("info") or {}
     data = r.get("data") or {}
     metrics_list = data.get("metrics") or []
     params_list = data.get("params") or []
     tags_list = data.get("tags") or []
-    return {
+    tags = {t["key"]: t["value"] for t in tags_list if "key" in t}
+    out: dict[str, Any] = {
         "run_id": info.get("run_id") or info.get("run_uuid"),
         "run_name": info.get("run_name"),
         "experiment_id": info.get("experiment_id"),
@@ -74,7 +88,39 @@ def _flatten_run(r: dict[str, Any]) -> dict[str, Any]:
         "lifecycle_stage": info.get("lifecycle_stage"),
         "metrics": {m["key"]: m["value"] for m in metrics_list if "key" in m},
         "params": {p["key"]: p["value"] for p in params_list if "key" in p},
-        "tags": {t["key"]: t["value"] for t in tags_list if "key" in t},
+        "tags": tags,
+        "lolday_started_at": None,
+        "lolday_finished_at": None,
+    }
+    job_id = tags.get("lolday.job_id")
+    if lolday_job_meta and job_id and job_id in lolday_job_meta:
+        out["lolday_started_at"] = lolday_job_meta[job_id]["started_at"]
+        out["lolday_finished_at"] = lolday_job_meta[job_id]["finished_at"]
+    return out
+
+
+async def _fetch_lolday_job_meta(
+    run_ids: list[str],
+    session: AsyncSession,
+) -> dict[str, dict[str, str | None]]:
+    """Map lolday Job.id (string) → {started_at, finished_at} ISO strings.
+
+    Lookup is by ``Job.mlflow_run_id`` IN (...) so it can batch any number of
+    runs in one query. The frontend joins on the ``lolday.job_id`` tag, so the
+    return-dict is keyed by ``Job.id`` as a string.
+    """
+    from app.models.job import Job
+
+    if not run_ids:
+        return {}
+    stmt = select(Job).where(Job.mlflow_run_id.in_(run_ids))
+    rows = (await session.execute(stmt)).scalars().all()
+    return {
+        str(j.id): {
+            "started_at": j.started_at.isoformat() if j.started_at else None,
+            "finished_at": j.finished_at.isoformat() if j.finished_at else None,
+        }
+        for j in rows
     }
 
 
@@ -132,6 +178,7 @@ async def _experiment_stats(experiment_id: str) -> dict:
 @router.get("/experiments/{experiment_id}/runs")
 async def list_runs(
     experiment_id: str,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
     max_results: int = Query(100, ge=1, le=1000),
 ):
@@ -141,19 +188,29 @@ async def list_runs(
         )
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    return [_flatten_run(r) for r in raw]
+
+    run_ids: list[str] = []
+    for r in raw:
+        info = r.get("info") or {}
+        rid = info.get("run_id") or info.get("run_uuid")
+        if isinstance(rid, str) and rid:
+            run_ids.append(rid)
+    lolday_meta = await _fetch_lolday_job_meta(run_ids, session)
+    return [_flatten_run(r, lolday_job_meta=lolday_meta) for r in raw]
 
 
 @router.get("/runs/{run_id}")
 async def get_run(
     run_id: str,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
 ):
     try:
         raw = await _client().get_run(run_id)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    return _flatten_run(raw)
+    lolday_meta = await _fetch_lolday_job_meta([run_id], session)
+    return _flatten_run(raw, lolday_job_meta=lolday_meta)
 
 
 @router.get("/runs/{run_id}/artifacts")
