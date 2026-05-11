@@ -1,5 +1,5 @@
 # ---- build stage ----
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 # pnpm >=11 runs `runDepsStatusCheck` before `pnpm run <script>` and refuses
 # to proceed in non-CI environments without an explicit affirmation. GHA
 # sets CI=true automatically, but local `docker build` does not — pin the
