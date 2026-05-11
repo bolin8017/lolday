@@ -97,9 +97,22 @@ class MlflowClient:
 
     # runs
     async def create_run(
-        self, experiment_id: str, tags: list[dict[str, str]] | None = None
+        self,
+        experiment_id: str,
+        *,
+        start_time_ms: int,
+        tags: list[dict[str, str]] | None = None,
     ) -> str:
-        payload: dict[str, Any] = {"experiment_id": experiment_id}
+        """Create an MLflow run.
+
+        ``start_time_ms`` is REQUIRED because the MLflow REST API defaults
+        the field to 0 (Unix epoch) when omitted — unlike the Python SDK
+        which auto-fills ``int(time.time() * 1000)``. Spec § 4.2.
+        """
+        payload: dict[str, Any] = {
+            "experiment_id": experiment_id,
+            "start_time": start_time_ms,
+        }
         if tags:
             payload["tags"] = tags
         resp = await self._request("POST", "/runs/create", json=payload)
@@ -127,15 +140,30 @@ class MlflowClient:
     async def update_run(
         self,
         run_id: str,
+        *,
         status: str | None = None,
-        end_time: int | None = None,
+        end_time_ms: int | None = None,
     ) -> None:
         payload: dict[str, Any] = {"run_id": run_id}
         if status:
             payload["status"] = status
-        if end_time:
-            payload["end_time"] = end_time
+        if end_time_ms:
+            payload["end_time"] = end_time_ms
         await self._request("POST", "/runs/update", json=payload)
+
+    async def set_experiment_tag(
+        self, experiment_id: str, key: str, value: str
+    ) -> None:
+        """Set an experiment-level tag.
+
+        ``mlflow.note.content`` is rendered as Markdown by the MLflow native
+        UI on the experiment page header.
+        """
+        await self._request(
+            "POST",
+            "/experiments/set-experiment-tag",
+            json={"experiment_id": experiment_id, "key": key, "value": value},
+        )
 
     async def set_run_tag(self, run_id: str, key: str, value: str) -> None:
         await self._request(

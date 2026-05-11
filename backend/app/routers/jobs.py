@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
@@ -307,6 +308,7 @@ async def create_job(
         await session.flush()
     run_id = await client.create_run(
         dv.mlflow_experiment_id,
+        start_time_ms=int(time.time() * 1000),
         tags=[
             {"key": "mlflow.runName", "value": run_name},
             {"key": "maldet.action", "value": body.type.value},

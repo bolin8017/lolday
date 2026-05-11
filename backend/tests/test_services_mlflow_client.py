@@ -55,7 +55,7 @@ async def test_create_run_returns_run_id():
         return_value=httpx.Response(200, json=RUN_CREATED)
     )
     c = MlflowClient("http://mlflow")
-    rid = await c.create_run("42")
+    rid = await c.create_run("42", start_time_ms=1700000000000)
     assert rid == "abc123def456"
 
 

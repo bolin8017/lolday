@@ -391,10 +391,13 @@ def mock_mlflow(request, monkeypatch):
             self.experiment_creates.append(name)
             return f"exp-{_Stub.exp_counter}"
 
-        async def create_run(self, experiment_id, tags=None):
+        async def create_run(self, experiment_id, *, start_time_ms, tags=None):
             _Stub.run_counter += 1
             self.runs_created.append((experiment_id, list(tags or [])))
             return f"run-{_Stub.run_counter}"
+
+        async def set_experiment_tag(self, experiment_id, key, value):
+            self.run_tags_set.append((experiment_id, key, value))
 
         async def get_run(self, run_id):
             return {
