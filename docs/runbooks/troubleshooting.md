@@ -89,6 +89,8 @@ The alert fires on Pending jobs older than `VOLCANO_STALE_SECONDS` (default 1800
 
 ### Symptom: Discord notifications missing
 
+> Channel directory + webhook env mapping: `docs/operations.md` §Discord channels. 4 channels post-2026-05-10 議題 B redesign — Captain Hook (critical, `_CRITICAL`) / Spidey Warnings (warning, `_WARNING`) / Spidey Service Alerts (backend events, `_EVENTS`) / Spidey Heartbeat (DeadMansSwitch CronJob, `DISCORD_URL`).
+
 **Cause hypothesis:** Webhook URL secret empty / wrong, or delivery is failing silently (fire-and-forget swallows exceptions).
 
 **Action:** Check the Prom counter:

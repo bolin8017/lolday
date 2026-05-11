@@ -79,7 +79,7 @@ pnpm typecheck       # tsc --noEmit
 ## Tests
 
 - `pnpm test` — vitest, unit + component (`frontend/tests/unit/`).
-- `pnpm playwright test` — E2E (`frontend/tests/e2e/`). Some tests require the backend running.
+- `pnpm playwright test` — E2E (`frontend/tests/e2e/`). Requires backend up with `AUTH_DEV_MODE=true` + `AUTH_DEV_EMAIL=<admin>` set (synthetic dev user via `cf_access_user` bypass; production rejects `AUTH_DEV_MODE=true` at boot). Legacy `E2E_ADMIN_EMAIL` / `E2E_ADMIN_PASSWORD` env vars are vestigial — password auth retired in Phase 10.2. See `frontend/README.md` §Dev and `frontend/tests/e2e/helpers.ts` for the dev-auth flow.
 - Run `pnpm typecheck && pnpm lint` before commit.
 
 ## Stray config build emits (gitignored)

@@ -242,7 +242,7 @@ Grouped:
 - **Job** — `JOB_NAMESPACE`, `JOB_HELPER_IMAGE`, `JOB_ACTIVE_DEADLINE_TRAIN_SECONDS` (6h), `JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS` (30m), `JOB_ACTIVE_DEADLINE_PREDICT_SECONDS` (1h), `JOB_TTL_SECONDS_AFTER_FINISHED` (7d), `JOB_NODE_SELECTOR_HOSTNAME`, `JOB_PER_USER_CONCURRENCY`, `JOB_IDEMPOTENCY_WINDOW_SECONDS`, `JOB_BACKEND_URL`
 - **MLflow** — `MLFLOW_TRACKING_URI`, `MLFLOW_HTTP_TIMEOUT_SECONDS`, `MLFLOW_HTTP_RETRIES`
 - **Dataset** — `DATASET_CSV_MAX_BYTES`, `DATASET_SPOT_CHECK_COUNT`, `DATASET_SPOT_CHECK_MISSING_THRESHOLD`, `SAMPLES_ROOT`, `SAMPLES_LOCAL_ROOT`
-- **Discord** — `DISCORD_WEBHOOK_URL_EVENTS`, `DISCORD_HTTP_TIMEOUT_SECONDS`
+- **Discord** — `DISCORD_WEBHOOK_URL_EVENTS`, `DISCORD_WEBHOOK_URL_WARNING`, `DISCORD_WEBHOOK_URL_CRITICAL`, `DISCORD_HTTP_TIMEOUT_SECONDS`. Channel directory + behaviour map: `docs/operations.md` §Discord channels.
 - **Host-aware GPU signal** (item 17) — `GPU_SIGNAL_PROMETHEUS_URL` (in-cluster Prom service), `GPU_SIGNAL_QUERY_TIMEOUT_SECONDS` (httpx timeout, default 5.0), `GPU_SIGNAL_CACHE_TTL_SECONDS` (default 10), `GPU_SIGNAL_UTIL_THRESHOLD_PERCENT` (default 5.0), `GPU_SIGNAL_VRAM_THRESHOLD_MB` (default 500), `GPU_SIGNAL_FAIL_SAFE_BLOCK` (default true; set false as escape hatch to fall back to K8s-only counting)
 - **Cloudflare Access SSO** — `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_APP_AUD`, `CF_ACCESS_JWKS_CACHE_TTL_SECONDS`, `AUTH_DEV_MODE` (forbidden in production), `AUTH_DEV_EMAIL`
 
@@ -386,7 +386,7 @@ cd frontend && pnpm typecheck && pnpm lint
 
 - **Cloudflare Access** — SSO. JWKS at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. Backend rejects boot in production if `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_APP_AUD` is empty.
 - **Cloudflare Tunnel (cloudflared)** — exposes the cluster to the public internet. Token in `.lolday-secrets.env` as `CF_TUNNEL_TOKEN`.
-- **Discord webhooks (× 2)** — events (`DISCORD_WEBHOOK_URL_EVENTS` on backend Deployment env via Helm) + deadmans-switch (`DISCORD_URL` on the CronJob env). Different channels.
+- **Discord webhooks (× 4 channels)** — Alertmanager critical (`DISCORD_WEBHOOK_URL_CRITICAL` → Captain Hook) + Alertmanager warning (`DISCORD_WEBHOOK_URL_WARNING` → Spidey Warnings) + backend user-events (`DISCORD_WEBHOOK_URL_EVENTS` → Spidey Service Alerts) + deadmans-switch heartbeat (`DISCORD_URL` on the CronJob env → Spidey Heartbeat; independent secret). Channel directory + behaviour map: `docs/operations.md` §Discord channels. The 2 → 4 split was the 2026-05-10 議題 B alerting redesign.
 - **GitHub** — code host. No Actions configured.
 - **maldet (PyPI)** — external detector framework. Pin `maldet>=1.1,<2`. Bumping requires reading the maldet repo CHANGELOG.
 - **NVIDIA GPU operator** — installed via upstream Helm chart (NOT lolday's chart). DCGM exporter feeds Prometheus.

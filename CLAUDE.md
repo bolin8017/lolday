@@ -15,7 +15,7 @@ Day-to-day operator data (Discord channel IDs, `.env` files, server access): `do
 
 - 系統架構 / 模組責任 / 外部服務 / env vars / 技術債 → `docs/architecture.md`
 - 部署 / 維運 → `docs/runbooks/deploy.md`、`docs/runbooks/troubleshooting.md`
-- MLflow 全清 + gc（一次性 destructive；用於 cutover / 重置） → `docs/runbooks/wipe-mlflow.md`
+- MLflow 全清 + gc（一次性 destructive；用於 cutover / 重置） → `docs/runbooks/wipe-mlflow.md` ⚠️ pre-MinIO，待重寫
 - 命名 / 分支 / commit / migration 慣例 → `docs/conventions.md`
 - Detector repo 清單（cutover / 升 maldet 用） → `docs/detector-repos.md`
 - 在 `backend/` / `frontend/` / `charts/` / `scripts/` / `backend/migrations/` 工作 →
@@ -27,7 +27,7 @@ Day-to-day operator data (Discord channel IDs, `.env` files, server access): `do
 - Host-aware GPU signal (DCGM + Prom + scheduler) → `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`、`backend/app/services/gpu_signal.py`
 - MLflow data-model redesign (2026-05-11) → `docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`、`backend/app/services/mlflow_client.py`、`backend/app/reconciler/jobs.py::_finalize_mlflow_run`
 - 儲存層架構 / SSD 擴充 / object vs block 分層 → `docs/architecture.md` §6、`docs/superpowers/specs/2026-05-11-storage-architecture-redesign-design.md`(spec 寫的 endpoint `minio.lolday.svc:9000` 實作後修正為 `lolday-minio.lolday.svc:9000`)
-- 加新 SSD 的 step-by-step → `docs/runbooks/add-ssd.md`
+- 加新 SSD 的 step-by-step → `docs/runbooks/add-ssd.md` ⚠️ MinIO chart 限制，需重新設計
 - 一次性 storage migration (filesystem→S3) → `docs/runbooks/storage-migration.md`
 
 ## Hard rules（每個 session 都必須記得）

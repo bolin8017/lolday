@@ -1,5 +1,30 @@
 # Wipe MLflow runbook
 
+> ⚠️ **THIS RUNBOOK PREDATES THE 2026-05-11 MINIO MIGRATION — DO NOT USE AS-IS.**
+>
+> After the storage architecture redesign (spec
+> `docs/superpowers/specs/2026-05-11-storage-architecture-redesign-design.md`,
+> shipped in commit `99c833c`), MLflow artifacts live in the MinIO S3 bucket
+> `mlflow-artifacts`, not on a filesystem PV. References below to
+> `/mlflow-artifacts` PV / `tar -cz -C /mlflow-artifacts` / `du -sh
+/mlflow-artifacts` are **obsolete**:
+>
+> - Backup: needs `mc mirror local/mlflow-artifacts <dest>` (or `aws s3 sync`),
+>   not `tar` from a Pod path.
+> - Verification: needs `mc ls local/mlflow-artifacts` against the bucket,
+>   not `du` against a directory.
+> - The `mlflow gc` step is unchanged in spirit (MLflow orchestrates artifact
+>   deletion via the configured S3 backend), but verify the running MLflow
+>   image actually has the S3 driver (`mlflow-server:v2.20.3-boto3` per
+>   `docs/runbooks/storage-migration.md` §Lessons learned).
+>
+> If you need to wipe MLflow today, **open a follow-up task to revise this
+> runbook against the MinIO-backed model** before running anything.
+
+---
+
+# Wipe MLflow runbook (ORIGINAL DRAFT — see warning above)
+
 > Operator runbook for `scripts/wipe-mlflow-history.sh`. **Irreversible.** Read the entire page before running. SSH safety hard rule does not apply (no host changes), but data-loss safety does — back up before continuing.
 
 ## 1. What it does

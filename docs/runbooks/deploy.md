@@ -45,13 +45,10 @@ Copy from the committed example and fill in values out-of-band (password manager
 ```bash
 cp .lolday-secrets.env.example .lolday-secrets.env
 chmod 600 .lolday-secrets.env
-# fill: GRAFANA_ADMIN_PASSWORD, PG_EXPORTER_PASSWORD, CF_ENABLED,
-# CF_TUNNEL_TOKEN, DISCORD_WEBHOOK_URL_EVENTS, HARBOR_ADMIN_PASSWORD,
-# FERNET_KEY, plus other operator-managed values.
-# CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (machine-principal
-# service token) are also in this file but only sourced manually
-# for /users/me svctoken debug — see
-# docs/phase-history/phase12.1-role-enum-bug.md.
+# Fill values out-of-band per the committed template
+# .lolday-secrets.env.example (canonical key list with inline comments).
+# Full reference: docs/architecture.md §5.2.
+# Day-to-day .env / Discord channel quick-ref: docs/operations.md.
 ```
 
 `FERNET_KEY` generation:

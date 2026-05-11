@@ -6,50 +6,47 @@
 [![helm](https://github.com/bolin8017/lolday/actions/workflows/helm.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/helm.yml)
 [![images](https://github.com/bolin8017/lolday/actions/workflows/images.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/images.yml)
 [![helpers](https://github.com/bolin8017/lolday/actions/workflows/helpers.yml/badge.svg)](https://github.com/bolin8017/lolday/actions/workflows/helpers.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Internal ML platform for ISLab malware detector management.
+Internal ML platform for ISLab's malware detector lifecycle — build, schedule, track, deliver.
 
-## Prerequisites
+## What it is
 
-- NVIDIA drivers installed on host (`nvidia-smi` must work)
-- Temporary sudo access for K3s installation
+Lolday is the K3s-on-server30 runtime that builds, schedules, and serves ISLab's
+malware detectors. Researchers tune detectors in their own repos (`elfrfdet`,
+`elfcnndet`, …), tag a release, and lolday handles **build → Harbor push →
+vcjob scheduling → MLflow tracking → user notification**. The framework
+detectors import is [`maldet`](https://github.com/bolin8017/maldet) (PyPI).
 
-## Setup
+Core stack: FastAPI backend + Vite/React frontend + PostgreSQL + Redis + MLflow +
+Harbor (OCI registry) + Volcano (GPU batch queue) + kube-prometheus-stack +
+Loki + Cloudflare Access SSO. **MinIO is the unified S3 backend** for MLflow
+artifacts / Harbor blobs / Loki chunks (since spec 2026-05-11).
+
+Lolday is a **deploy platform, not a development platform** — it runs
+already-tuned detectors. Hyperparameter sweeps, threshold selection, and
+calibration belong in the detector authors' own repos. See
+[`docs/architecture.md` §1.2](docs/architecture.md).
+
+## Quick start
 
 ```bash
-# 1. Install CLI tools (no sudo)
-bash scripts/install-tools.sh
-
-# 2. Install K3s (requires sudo — run with a sudo-capable account)
-sudo bash scripts/setup-k3s.sh
-
-# 3. Install GPU Operator (no sudo)
-helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
-helm repo update
-helm install gpu-operator nvidia/gpu-operator \
-  -n gpu-operator --create-namespace \
-  --set driver.enabled=false \
-  --set toolkit.enabled=true \
-  --set devicePlugin.enabled=true \
-  --set dcgmExporter.enabled=true \
+bash scripts/install-tools.sh              # CLI tools, no sudo → ~/.local/bin/
+sudo bash scripts/setup-k3s.sh             # K3s install, requires sudo
+helm install gpu-operator nvidia/gpu-operator -n gpu-operator --create-namespace \
+  --set driver.enabled=false --set toolkit.enabled=true \
+  --set devicePlugin.enabled=true --set dcgmExporter.enabled=true \
   --wait --timeout 5m
-
-# 4. Deploy the platform — first round (no sudo)
-#    Brings up Harbor + monitoring; backend will CrashLoopBackOff until
-#    helper images are pushed in step 6.
-bash scripts/deploy.sh
-
-# 5. Bootstrap Harbor projects + robot account
-bash scripts/recover-harbor.sh
-
-# 6. Build and push helper images (writes/refreshes charts/lolday/helpers.lock)
-bash scripts/build-helpers.sh
-
-# 7. Deploy again — backend now starts clean
-bash scripts/deploy.sh
+bash scripts/deploy.sh                     # first round; backend CrashLoopBackOff until helpers pushed
+bash scripts/recover-harbor.sh             # Harbor projects + robot account
+bash scripts/build-helpers.sh              # build + push helper images; refresh helpers.lock
+bash scripts/deploy.sh                     # second round; backend clean
 ```
 
-## Teardown
+Full procedure with pre-requisites, sysctls, verification, rollback, and SSH
+safety steps: **[docs/runbooks/deploy.md](docs/runbooks/deploy.md)**.
+
+Teardown:
 
 ```bash
 bash scripts/teardown.sh
@@ -57,21 +54,39 @@ bash scripts/teardown.sh
 
 ## Documentation
 
-Start here for any new contributor / Claude Code session:
+Start here:
 
-- [System architecture](docs/architecture.md) — components, data flows, env vars, tech debt, gotchas
-- [Deploy runbook](docs/runbooks/deploy.md) — pre-requisites, K3s, GPU operator, Helm, verify, rollback
-- [Troubleshooting](docs/runbooks/troubleshooting.md) — symptom → action lookup
-- [Conventions](docs/conventions.md) — branch / commit / PR / phase / migration naming
+- **[Architecture](docs/architecture.md)** — components, data flows, env vars, tech debt, gotchas
+- **[Operations quick reference](docs/operations.md)** — Discord channels, `.env` files, server access
+- **[Deploy runbook](docs/runbooks/deploy.md)** — pre-requisites, K3s, GPU operator, Helm, verify, rollback
+- **[Troubleshooting](docs/runbooks/troubleshooting.md)** — symptom → action lookup
+- **[Conventions](docs/conventions.md)** — branch / commit / PR / spec naming / CI
 
-Phase planning & history:
+Runbooks for specific operations:
 
-- [Phase specs](docs/superpowers/specs/) — per-phase design docs
-- [Phase plans](docs/superpowers/plans/) — per-phase implementation plans
-- [Phase history](docs/phase-history/) — past E2E checklists, retirement findings, debug write-ups
-- [Postmortems](docs/postmortems/)
+- [Releasing helper images](docs/runbooks/release-helpers.md)
+- [Adding an SSD](docs/runbooks/add-ssd.md) (invalidated; see warning at top)
+- [Storage migration](docs/runbooks/storage-migration.md) (one-time, historical)
+- [Wiping MLflow](docs/runbooks/wipe-mlflow.md) (pre-MinIO; see warning at top)
+- [Admin priority bump](docs/runbooks/admin-priority.md)
 
-Originals (kept for traceability):
+Audit trail (immutable):
+
+- [Specs](docs/superpowers/specs/) — per-topic design docs (`YYYY-MM-DD-<topic>-design.md`)
+- [Plans](docs/superpowers/plans/) — per-topic implementation plans
+- [Phase history](docs/phase-history/) — past E2E checklists, retirement findings
+- [Postmortems](docs/postmortems/) — incident write-ups
+
+Originals (traceability):
 
 - [Original platform design spec](docs/superpowers/specs/2026-03-30-lolday-platform-design.md)
 - [Phase 1 plan](docs/superpowers/plans/2026-03-30-phase1-infrastructure.md)
+
+## Contributing
+
+Internal ISLab platform. Branch / commit / PR conventions, path-scoped Claude
+rules, testing commands: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+
+## License
+
+[Apache-2.0](LICENSE).

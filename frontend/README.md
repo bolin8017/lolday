@@ -9,23 +9,35 @@ pnpm install
 pnpm dev
 ```
 
-## Unit tests
+Requires a reachable backend on `http://localhost:8000`. Auth: run the backend
+with `AUTH_DEV_MODE=true` + `AUTH_DEV_EMAIL=<admin@your-domain>` so
+`cf_access_user` returns a synthetic admin user without a real Cloudflare JWT.
+Production rejects `AUTH_DEV_MODE=true` at boot (intentional — see
+`.claude/rules/backend.md` §Startup fail-fast).
+
+## Tests
 
 ```bash
-pnpm test
+pnpm typecheck         # tsc --noEmit
+pnpm test              # vitest unit + component
+pnpm playwright test   # E2E; requires backend up with AUTH_DEV_MODE=true
 ```
 
-## E2E
+E2E specs see the dev user via the bypass; the helper at
+`frontend/tests/e2e/helpers.ts` documents the flow plus open TODOs around
+multi-persona test fixtures (tracked in `docs/architecture.md` §10 #13). The
+legacy `E2E_ADMIN_EMAIL` / `E2E_ADMIN_PASSWORD` env vars are vestigial — the
+password-based auth flow was retired in Phase 10.2 when Cloudflare Access took
+over.
 
-Requires the backend to be reachable on `http://localhost:8000` and credentials in env:
+## E2E against a deployed stack
 
-```bash
-source ~/.lolday-secrets.env
-export E2E_ADMIN_EMAIL=$ADMIN_EMAIL E2E_ADMIN_PASSWORD=$ADMIN_PASSWORD
-pnpm dev &
-pnpm test:e2e
-```
+Deployed stacks use real CF Access SSO, which the suite currently has no helper
+for. Most specs will `test.skip(...)` against a deployed backend until a
+test-seeding surface lands (tracked in `docs/architecture.md` §10 #12).
 
-## E2E against deployed stack
+## Project context
 
-Set `E2E_BASE_URL=http://lolday.islab.local` and the admin creds, then `pnpm test:e2e`. The host must resolve via `/etc/hosts` or DNS.
+- Project overview, stack, quick-start: [../README.md](../README.md)
+- Architecture and data flows: [../docs/architecture.md](../docs/architecture.md)
+- Frontend rules (Vite / shadcn / CSP / TanStack / RJSF): [../.claude/rules/frontend.md](../.claude/rules/frontend.md)
