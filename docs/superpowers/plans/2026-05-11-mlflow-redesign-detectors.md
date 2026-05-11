@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bump `elfrfdet` and `elfcnndet` to pull maldet 2.2.0 — exercises the new MLflow event routing, MLflow Models flavor save/load, and dataset lineage automatically. **Detector source code does NOT need changes** because the MLflow integration is entirely inside maldet.
+**Goal:** Bump `elfrfdet` and `elfcnndet` to pull maldet 2.2.1 — exercises the new MLflow event routing, MLflow Models flavor save/load, and dataset lineage automatically. **Detector source code does NOT need changes** because the MLflow integration is entirely inside maldet.
 
 **Architecture:** Minimal bump — `pyproject.toml` `maldet>=2.2,<3.0`, `maldet.toml` `compat.min_maldet = "2.2"`, version bump for both detectors, CHANGELOG entry. Lolday's build pipeline rebuilds the Docker images on the next `POST /detectors/{name}/builds` from a fresh git tag; image push to Harbor is handled by the existing platform, not this plan.
 
 **Tech Stack:** Python 3.12, hatchling, uv (build/test). Tests are pytest unit suites; no infrastructure beyond `uv run pytest`.
 
-**Reference:** Spec — `docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`. Depends on **Plan A** (maldet 2.2.0 published to PyPI).
+**Reference:** Spec — `docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`. Depends on **Plan A** (maldet 2.2.1 published to PyPI).
 
 ---
 
@@ -42,13 +42,13 @@
 
 ## Pre-condition check
 
-- [ ] **Confirm maldet 2.2.0 is on PyPI before starting this plan.**
+- [ ] **Confirm maldet 2.2.1 is on PyPI before starting this plan.**
 
 ```bash
 curl -s https://pypi.org/pypi/maldet/json | python -c "import sys,json; print(json.load(sys.stdin)['info']['version'])"
 ```
 
-Expected: `2.2.0`. If it prints `2.1.0` or older, finish Plan A first.
+Expected: `2.2.1`. If it prints `2.1.0` or `2.2.0`, finish Plan A first.
 
 ---
 
@@ -70,7 +70,7 @@ Edit `pyproject.toml`:
 - description = "Random Forest ELF malware detector — reference template for the lolday platform on the maldet 2.0 framework"
 + description = "Random Forest ELF malware detector — reference template for the lolday platform on the maldet 2.2 framework"
 - "maldet[mlflow]>=2.0,<3.0",
-+ "maldet[mlflow]>=2.2,<3.0",
++ "maldet[mlflow]>=2.2.1,<3.0",
 ```
 
 - [ ] **Step 2: Bump min_maldet in manifest**
@@ -143,7 +143,7 @@ Edit `pyproject.toml`:
 - version = "4.1.0"
 + version = "4.2.0"
 - "maldet[lightning,mlflow]>=2.0,<3.0",
-+ "maldet[lightning,mlflow]>=2.2,<3.0",
++ "maldet[lightning,mlflow]>=2.2.1,<3.0",
 ```
 
 Update the description line analogously to elfrfdet ("maldet 2.0 framework" → "maldet 2.2 framework").
@@ -230,7 +230,7 @@ Create the file:
 # Live smoke test for the 2026-05-11 MLflow data-model redesign.
 #
 # Pre-requisites:
-#   - maldet 2.2.0 on PyPI
+#   - maldet 2.2.1 on PyPI
 #   - elfrfdet 4.2.0 + elfcnndet 4.2.0 image pushed to Harbor
 #   - lolday backend deployed with Plan B changes
 #   - base image pytorch-cu12-base:v5+
@@ -367,6 +367,6 @@ Expected: all 7 numbered checks pass.
 
 ## Self-review
 
-- **Spec coverage**: Plan C's only obligation is consuming Plan A's published maldet 2.2.0 and Plan B's lolday changes. The smoke script (Task 4) validates the full spec §8.3 acceptance criteria including the negative orphan-run test.
+- **Spec coverage**: Plan C's only obligation is consuming Plan As published maldet 2.2.1 and Plan B's lolday changes. The smoke script (Task 4) validates the full spec §8.3 acceptance criteria including the negative orphan-run test.
 - **Type consistency**: this plan only bumps pin strings — no type interactions.
 - **No placeholders**: every step has concrete code or commands. The smoke script's `LOLDAY_COOKIE` is a runtime credential the operator supplies; not a placeholder in the planning sense.
