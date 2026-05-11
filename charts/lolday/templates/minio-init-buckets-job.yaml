@@ -117,7 +117,9 @@ spec:
           emptyDir: {}
       initContainers:
         - name: kubectl-probe
-          image: bitnami/kubectl:1.30.6
+          # bitnami/kubectl — only `latest` tag is published; pin by digest.
+          # Digest sha256:3220dcc... = v1.36.0 (2025-05). Compatible with K8s ≤1.36.
+          image: bitnami/kubectl@sha256:3220dcc839f55be732a29548043a1ddf635a0dd6c8781b0f2a0bcdc19029c7d3
           resources:
             requests:
               cpu: 50m
@@ -149,7 +151,9 @@ spec:
               done
               echo "kubectl-probe: done"
         - name: mc-setup
-          image: quay.io/minio/mc:RELEASE.2025-09-07T16-13-09Z
+          # Pin to the same mc release as the minio Helm chart's mcImage default.
+          # sha256:993e8c4... = RELEASE.2024-11-21T17-21-54Z (matches chart mcImage.tag).
+          image: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
           resources:
             requests:
               cpu: 50m
@@ -162,6 +166,10 @@ spec:
               valueFrom: { secretKeyRef: { name: minio-root-cred, key: rootUser } }
             - name: MINIO_ROOT_PASSWORD
               valueFrom: { secretKeyRef: { name: minio-root-cred, key: rootPassword } }
+            # mc writes its config to MC_CONFIG_DIR. Default is ~/.mc which resolves
+            # to /.mc under UID 65534 (nobody) — no write permission. Redirect to /tmp.
+            - name: MC_CONFIG_DIR
+              value: /tmp/mc
           volumeMounts:
             - { name: creds, mountPath: /creds }
           command:
@@ -171,7 +179,7 @@ spec:
               set -eux
               trap 'rm -f /tmp/*.json' EXIT
               # Wait for MinIO API ready.
-              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
+              until mc alias set local http://{{ .Release.Name }}-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
                 echo "waiting for minio..."
                 sleep 2
               done
@@ -225,14 +233,16 @@ spec:
                   AK=$(cat /creds/${app}-access-key)
                   SK=$(cat /creds/${app}-secret-key)
                   echo "mc-setup: re-asserting svcacct for ${app} (existing key)"
+                  # --policy takes a JSON file path, not a policy name.
                   mc admin user svcacct add local "$MINIO_ROOT_USER" \
-                    --access-key "$AK" --secret-key "$SK" --policy ${app}-rw || true
+                    --access-key "$AK" --secret-key "$SK" --policy /tmp/${app}-rw.json || true
                 else
                   AK=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 20)
                   SK=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 40)
                   echo "mc-setup: generating fresh svcacct for ${app}"
+                  # --policy takes a JSON file path, not a policy name.
                   mc admin user svcacct add local "$MINIO_ROOT_USER" \
-                    --access-key "$AK" --secret-key "$SK" --policy ${app}-rw
+                    --access-key "$AK" --secret-key "$SK" --policy /tmp/${app}-rw.json
                   printf '%s' "$AK" > /creds/${app}-access-key
                   printf '%s' "$SK" > /creds/${app}-secret-key
                 fi
@@ -240,7 +250,9 @@ spec:
               echo "mc-setup: done"
       containers:
         - name: kubectl-secret-writer
-          image: bitnami/kubectl:1.30.6
+          # bitnami/kubectl — only `latest` tag is published; pin by digest.
+          # Digest sha256:3220dcc... = v1.36.0 (2025-05). Compatible with K8s ≤1.36.
+          image: bitnami/kubectl@sha256:3220dcc839f55be732a29548043a1ddf635a0dd6c8781b0f2a0bcdc19029c7d3
           resources:
             requests:
               cpu: 50m

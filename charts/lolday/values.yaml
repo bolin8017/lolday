@@ -701,4 +701,39 @@ volcano:
 # MinIO Object Storage
 # =============================================================================
 minio:
-  enabled: false # flipped to true in Task 4
+  enabled: true
+  mode: standalone # Single-node-single-drive; multi-pool via extraArgs later
+  rootUser: minio-admin
+  existingSecret: minio-root-cred
+  replicas: 1
+  drivesPerNode: 1
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 100Gi
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 2
+      memory: 4Gi
+  service:
+    type: ClusterIP
+    port: "9000"
+  consoleService:
+    type: ClusterIP
+    port: "9001"
+  metrics:
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: lolday
+  # Buckets / svcaccts are created by our own Job (templates/minio-init-buckets-job.yaml),
+  # NOT via the chart's buckets/policies block — gives us full control of lifecycle + IAM.
+  buckets: []
+  policies: []
+  # Override the default console user created by the chart (chart default: console/console123)
+  # We manage IAM entirely via the init Job; no chart-managed users.
+  users: []
