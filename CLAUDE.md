@@ -1,6 +1,15 @@
 # Lolday — internal ML platform for ISLab malware detector management
 
 @README.md
+@docs/operations.md
+
+## What this is (TL;DR)
+
+Lolday is the K3s-on-server30 runtime that builds, schedules, and serves ISLab's malware detectors. Researchers tune detectors in their own repos (`elfrfdet`, `elfcnndet`, …), tag a release, and lolday handles **build → Harbor push → vcjob scheduling → MLflow tracking → user notification**. The framework detectors import is `maldet` (PyPI). Authoritative detector inventory: `docs/detector-repos.md`.
+
+Core stack: FastAPI backend + Vite/React frontend + PostgreSQL + Redis + MLflow + Harbor (OCI registry) + Volcano (GPU batch queue) + kube-prometheus-stack + Loki + Cloudflare Access SSO. **MinIO is the unified S3 backend** for MLflow artifacts / Harbor blobs / Loki chunks (since spec 2026-05-11). System diagram + per-component table: `docs/architecture.md` §2-3.
+
+Day-to-day operator data (Discord channel IDs, `.env` files, server access): `docs/operations.md` — already loaded via the `@import` above.
 
 ## How to navigate this codebase
 
