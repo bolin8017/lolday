@@ -92,6 +92,10 @@ class DetectorVersion(Base):
     image_digest: Mapped[str] = mapped_column(String(100), nullable=False)
     manifest: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
     mlflow_experiment_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # MLflow provenance tag source. Captured at build time from parsed
+    # manifest's [compat] min_maldet. Nullable: pre-2026-05-11 rows have no
+    # value. Spec § 5.8.
+    maldet_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     built_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

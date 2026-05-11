@@ -170,6 +170,18 @@ async def _finalize_clean_scan(
                 )
                 return
 
+            # MLflow provenance — capture maldet framework version from the
+            # parsed manifest's ``[compat] min_maldet`` field. Detector authors
+            # pin ``maldet>={X},<{X+1}`` in pyproject.toml, so when the latest
+            # available is X, floor == installed. Pragmatic v1 — see spec § 5.8
+            # and Plan B Task 6 for the build-helper callback follow-up.
+            compat_section = (manifest_dict or {}).get("compat") or {}
+            maldet_floor: str | None = None
+            if isinstance(compat_section, dict):
+                raw = compat_section.get("min_maldet")
+                if isinstance(raw, str):
+                    maldet_floor = raw
+
             version = DetectorVersion(
                 detector_id=b.detector_id,
                 git_tag=b.git_tag,
@@ -177,6 +189,7 @@ async def _finalize_clean_scan(
                 harbor_image=f"{settings.HARBOR_IMAGE_PREFIX}/detectors/{detector.name}:{b.git_tag}",
                 image_digest=digest,
                 manifest=manifest_dict,
+                maldet_version=maldet_floor,
                 status=DetectorVersionStatus.ACTIVE,
             )
             session.add(version)
