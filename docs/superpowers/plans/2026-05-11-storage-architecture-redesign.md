@@ -145,23 +145,35 @@ Create `charts/lolday/templates/minio-root-cred-secret.yaml`:
 
 ```yaml
 {{- if .Values.minio.enabled }}
+{{- $existing := lookup "v1" "Secret" .Values.global.namespace "minio-root-cred" }}
+{{- $password := "" }}
+{{- if and $existing $existing.data }}
+{{- $password = (index $existing.data "rootPassword" | b64dec) }}
+{{- else }}
+{{- $password = (randAlphaNum 32) }}
+{{- end }}
 apiVersion: v1
 kind: Secret
 metadata:
   name: minio-root-cred
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/managed-by: helm
-    app.kubernetes.io/part-of: lolday-storage
+    {{- include "lolday.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   rootUser: minio-admin
-  # 32-char random; regenerated only on first install (lookup keeps existing).
-  rootPassword: {{ (lookup "v1" "Secret" .Release.Namespace "minio-root-cred").data.rootPassword | default (randAlphaNum 32 | b64enc) | b64dec | quote }}
+  # 32-char random; regenerated only on first install (lookup keeps existing on upgrade).
+  # Multi-line var pattern is nil-safe: `lookup` returns empty dict on first install,
+  # `(empty dict).data` is nil, so we guard with `and $existing $existing.data` before access.
+  rootPassword: {{ $password | quote }}
 {{- end }}
 ```
 
-> The `lookup` + `default` pattern is the **mainstream Helm idiom** for self-rotating-only-on-first-install passwords. Subsequent `helm upgrade` reads the existing secret and keeps the same password.
+> The multi-line variable-assignment pattern is the **nil-safe Helm idiom** for self-rotating-only-on-first-install passwords. On first install, `lookup` returns an empty dict, and `(empty dict).data` is nil — the guard `and $existing $existing.data` prevents the panic. Subsequent `helm upgrade` reads the existing secret and keeps the same password.
+>
+> **Namespace:** Uses `{{ .Values.global.namespace }}` (matching lolday convention across all secrets like `cloudflared-secret.yaml`, `harbor-admin-secret.yaml`) rather than `.Release.Namespace`, ensuring consistency with how the umbrella chart is deployed.
+>
+> **Labels:** Uses the `lolday.labels` helper (defined in `_helpers.tpl`) instead of hardcoded labels, keeping all secrets aligned with the standard lolday label set (`app.kubernetes.io/name`, `app.kubernetes.io/instance`, `app.kubernetes.io/version`, `app.kubernetes.io/managed-by`).
 
 - [ ] **Step 2: Render-check the template**
 
