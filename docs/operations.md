@@ -16,12 +16,12 @@ Lolday uses four Discord group channels. Channel IDs come from
 `~/.claude/channels/discord/access.json` `groups` key. Webhook URLs are
 filled by the operator into `~/.lolday-secrets.env` and consumed via Helm.
 
-| Channel name          | Channel ID            | Source                                                                                | Behaviour                                                  |
-| --------------------- | --------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Captain Hook          | `1495778266907279410` | Alertmanager `severity=critical` (議題 B redesign 2026-05-10)                         | `@here` ping; 訊息一律必須立即處理                         |
-| Spidey Warnings       | `1502975656252670173` | Alertmanager `severity=warning` (議題 B 新增 2026-05-10)                              | 無 `@here`，FYI 性質                                       |
-| Spidey Heartbeat      | `1495780321239502919` | `deadmans-switch` CronJob (`charts/lolday/templates/monitoring/deadmans-switch.yaml`) | 有訊息 = 健康；沒訊息才是異常                              |
-| Spidey Service Alerts | `1495967957992603788` | backend Discord notify (`backend/app/services/discord.py` + `notify.py`)              | 給特定 user 的事件 (`@bolin8017` / `@service-<id>.access`) |
+| Channel name          | Channel ID            | Source                                                                                | Behaviour                                                                 |
+| --------------------- | --------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Captain Hook          | `1495778266907279410` | Alertmanager `severity=critical` (alerting redesign 2026-05-10)                       | `@here` ping; messages always require immediate action                    |
+| Spidey Warnings       | `1502975656252670173` | Alertmanager `severity=warning` (added in alerting redesign 2026-05-10)               | No `@here`; FYI-only                                                      |
+| Spidey Heartbeat      | `1495780321239502919` | `deadmans-switch` CronJob (`charts/lolday/templates/monitoring/deadmans-switch.yaml`) | Messages mean healthy; absence is the anomaly                             |
+| Spidey Service Alerts | `1495967957992603788` | backend Discord notify (`backend/app/services/discord.py` + `notify.py`)              | Events targeted at specific users (`@bolin8017` / `@service-<id>.access`) |
 
 Webhook env mapping (`~/.lolday-secrets.env`):
 
@@ -34,14 +34,14 @@ Webhook env mapping (`~/.lolday-secrets.env`):
 
 Debug entry points:
 
-- Captain Hook `@here` 暴衝 → `kubectl -n monitoring port-forward svc/kps-prometheus 9090` 後 `curl 'http://localhost:9090/api/v1/query?query=count by (alertname,severity) (count_over_time(ALERTS{alertstate="firing"}[7d]))'`
-- Spidey Warnings 噴大量同類 alert → inhibit rule 失效；`amtool config show` 比對 spec `2026-05-10-alerting-redesign-design.md` §6.2 的 5 條 `inhibitRules`
-- Spidey Heartbeat 斷掉 → `kubectl -n lolday get cronjob deadmans-switch`（suspended? last successful?）+ 確認 `DISCORD_URL` env 仍有效
-- Service alert embed 內容不明 → grep `backend/app/services/discord.py` 找對應 embed builder
+- Captain Hook `@here` surge → `kubectl -n monitoring port-forward svc/kps-prometheus 9090`, then `curl 'http://localhost:9090/api/v1/query?query=count by (alertname,severity) (count_over_time(ALERTS{alertstate="firing"}[7d]))'`
+- Spidey Warnings spamming many similar alerts → inhibit rule failed; `amtool config show` and compare against the 5 `inhibitRules` in spec `2026-05-10-alerting-redesign-design.md` §6.2
+- Spidey Heartbeat drops out → `kubectl -n lolday get cronjob deadmans-switch` (suspended? last successful?) + verify the `DISCORD_URL` env is still valid
+- Service alert embed content unclear → grep `backend/app/services/discord.py` for the matching embed builder
 
 History notes:
 
-- 2026-05-10 議題 B redesign 把 Alertmanager 流量拆成兩個 channel（critical → Captain Hook with `@here`、warning → Spidey Warnings no ping），讓 critical 頻道乾淨。Spidey Warnings 沒帶 "Bot" 前綴，命名不完全一致；要對齊就 rename Discord channel（不影響 webhook URL / routing）。
+- The 2026-05-10 alerting redesign split Alertmanager traffic into two channels (critical → Captain Hook with `@here`, warning → Spidey Warnings without ping), keeping the critical channel clean. Spidey Warnings doesn't carry the "Bot" prefix, so naming isn't fully consistent; to align, rename the Discord channel (no impact on webhook URL / routing).
 
 ## Env / secrets files
 

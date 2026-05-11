@@ -69,7 +69,7 @@ echo "[step 2] verifying..."
 - `[step N] ...` echo-format logs to stdout, errors to stderr (`>&2`)
 - Idempotent where possible
 
-## Engineering hygiene 紀律
+## Engineering hygiene discipline
 
 Repo-wide formatting / linting / type-check is governed by `pre-commit`. Config is at repo root (`.pre-commit-config.yaml`); install + activation happens in `scripts/install-tools.sh`.
 
@@ -92,7 +92,7 @@ pre-commit install                    # re-activate the git hook (idempotent)
 
 `phase4-pre-deploy-check.sh` and `phase6-pre-deploy-check.sh` exist as templates. New phases that touch deploy should add an analogous pre-check (verify required env is set, required PVCs exist, required CRDs installed, etc.). Avoid one-off checklists in markdown — code is more reliable.
 
-## Helper image release 紀律
+## Helper image release discipline
 
 `scripts/build-helpers.sh` is the only sanctioned way to push `build-helper` and `job-helper` images. Tags are content-addressable (12-char subtree SHA from `git rev-parse HEAD:<path>`) and pinned in `charts/lolday/helpers.lock`.
 

@@ -13,28 +13,28 @@ Day-to-day operator data (Discord channel IDs, `.env` files, server access): `do
 
 ## How to navigate this codebase
 
-- 系統架構 / 模組責任 / 外部服務 / env vars / 技術債 → `docs/architecture.md`
-- 部署 / 維運 → `docs/runbooks/deploy.md`、`docs/runbooks/troubleshooting.md`
-- MLflow 全清 + gc（一次性 destructive；用於 cutover / 重置） → `docs/runbooks/wipe-mlflow.md` ⚠️ pre-MinIO，待重寫
-- 命名 / 分支 / commit / migration 慣例 → `docs/conventions.md`
-- Detector repo 清單（cutover / 升 maldet 用） → `docs/detector-repos.md`
-- 在 `backend/` / `frontend/` / `charts/` / `scripts/` / `backend/migrations/` 工作 →
-  自動載入對應 `.claude/rules/<area>.md`（path-scoped）
-- 過去 Phase 紀錄 / E2E checklists → `docs/phase-history/`
-- 事故 postmortem → `docs/postmortems/`
-- Phase 設計 / 實作計畫 → `docs/superpowers/specs/`、`docs/superpowers/plans/`
-- Backend FIFO scheduler (Phase 6) → `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md`、`docs/runbooks/admin-priority.md`
-- Host-aware GPU signal (DCGM + Prom + scheduler) → `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`、`backend/app/services/gpu_signal.py`
-- MLflow data-model redesign (2026-05-11) → `docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`、`backend/app/services/mlflow_client.py`、`backend/app/reconciler/jobs.py::_finalize_mlflow_run`
-- 儲存層架構 / SSD 擴充 / object vs block 分層 → `docs/architecture.md` §6、`docs/superpowers/specs/2026-05-11-storage-architecture-redesign-design.md`(spec 寫的 endpoint `minio.lolday.svc:9000` 實作後修正為 `lolday-minio.lolday.svc:9000`)
-- 加新 SSD 的 step-by-step → `docs/runbooks/add-ssd.md` ⚠️ MinIO chart 限制，需重新設計
-- 一次性 storage migration (filesystem→S3) → `docs/runbooks/storage-migration.md`
+- System architecture / module responsibilities / external services / env vars / tech debt → `docs/architecture.md`
+- Deploy / operations → `docs/runbooks/deploy.md`, `docs/runbooks/troubleshooting.md`
+- MLflow full wipe + gc (one-time destructive; for cutover / reset) → `docs/runbooks/wipe-mlflow.md` ⚠️ pre-MinIO, pending rewrite
+- Naming / branch / commit / migration conventions → `docs/conventions.md`
+- Detector repo inventory (cutover / maldet bump) → `docs/detector-repos.md`
+- Working under `backend/` / `frontend/` / `charts/` / `scripts/` / `backend/migrations/` →
+  the matching `.claude/rules/<area>.md` loads automatically (path-scoped)
+- Past phase records / E2E checklists → `docs/phase-history/`
+- Incident postmortems → `docs/postmortems/`
+- Phase designs / implementation plans → `docs/superpowers/specs/`, `docs/superpowers/plans/`
+- Backend FIFO scheduler (Phase 6) → `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md`, `docs/runbooks/admin-priority.md`
+- Host-aware GPU signal (DCGM + Prom + scheduler) → `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`, `backend/app/services/gpu_signal.py`
+- MLflow data-model redesign (2026-05-11) → `docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`, `backend/app/services/mlflow_client.py`, `backend/app/reconciler/jobs.py::_finalize_mlflow_run`
+- Storage architecture / SSD expansion / object-vs-block layering → `docs/architecture.md` §6, `docs/superpowers/specs/2026-05-11-storage-architecture-redesign-design.md` (spec wrote endpoint `minio.lolday.svc:9000`; corrected to `lolday-minio.lolday.svc:9000` during implementation)
+- Step-by-step for adding an SSD → `docs/runbooks/add-ssd.md` ⚠️ MinIO chart limitation, needs redesign
+- One-time storage migration (filesystem → S3) → `docs/runbooks/storage-migration.md`
 
-## Hard rules（每個 session 都必須記得）
+## Hard rules (every session must remember)
 
 ### SSH safety on server30
 
-A broken SSH causes 重大的損失 — server30 has no IPMI / out-of-band fallback. On 2026-03-31 a Cilium CNI install broke SSH and required physical recovery (see `docs/postmortems/2026-03-31-cilium-ssh-incident.md`).
+A broken SSH causes severe loss — server30 has no IPMI / out-of-band fallback. On 2026-03-31 a Cilium CNI install broke SSH and required physical recovery (see `docs/postmortems/2026-03-31-cilium-ssh-incident.md`).
 
 - Before any network / firewall / iptables / UFW / CNI / sysctl change, verify SSH will not be affected.
 - Never modify UFW rules, iptables, or CNI config without dry-running and prompting the operator to verify SSH in a fresh session.
@@ -60,13 +60,13 @@ ISLab is a Taiwanese security research lab. Default to English-ecosystem / GitHu
 - Vite is an accepted gray zone (now Vercel-backed).
 - Exception: use a China-origin tool when it has a clear advantage and no reasonable alternative — flag it explicitly first.
 
-### Lint / format 不繞過
+### Lint / format: no bypass
 
-紀律由 `pre-commit` 自動套用。任何形式的 bypass 都是破壞紀律。
+Discipline is enforced by `pre-commit`. Any form of bypass breaks the discipline.
 
-- `git commit --no-verify` 視同破壞紀律。Hook 失敗請查 root cause，不要 bypass。
-- 任何 `# noqa: <code>` / `# type: ignore[<code>]` 必須在同一行附 reason 註解。
-- `# fmt: off` / `# fmt: on` 區段是 ruff 官方支援的「此處刻意保留 layout」標記，可用，但要附理由（若意圖非顯而易見）。
+- `git commit --no-verify` is treated as a bypass. If a hook fails, find the root cause; do not bypass.
+- Any `# noqa: <code>` / `# type: ignore[<code>]` must include an inline reason comment on the same line.
+- `# fmt: off` / `# fmt: on` blocks are the ruff-supported markers for intentionally preserving layout; use them but add a reason when the intent is not self-evident.
 
 ### Prefer open-source packages over custom code
 
@@ -85,15 +85,15 @@ Precedents (footgun removals):
 
 Full reasoning: `docs/architecture.md` §1.2 + §1.3.
 
-### 儲存層僅透過 MinIO，不要回退 filesystem
+### Storage layer goes through MinIO only — do not fall back to filesystem
 
-MLflow artifact、Harbor blob、Loki chunk 在 spec `2026-05-11-storage-architecture-redesign-design.md` 落地後**全部**走 MinIO S3 backend。在這些元件的 chart / values 改動裡：
+After spec `2026-05-11-storage-architecture-redesign-design.md` landed, MLflow artifacts, Harbor blobs, and Loki chunks **all** go through the MinIO S3 backend. In chart / values changes for these components:
 
-- 不要再加 PVC mount 到 `/mlflow-artifacts`、`/storage`(Harbor registry)、`/var/loki/chunks`
-- 不要在 Helm values 把 storage type 改回 `filesystem`
-- 若有「先暫存到本地、稍後上傳」需求，用 MinIO 的 presigned URL 或 multipart upload，不要繞回 PVC
+- Do not add PVC mounts to `/mlflow-artifacts`, `/storage` (Harbor registry), or `/var/loki/chunks`
+- Do not flip Helm values storage type back to `filesystem`
+- If you need a "stage locally, upload later" path, use MinIO presigned URLs or multipart upload — do not loop back through a PVC
 
-回退會破壞：統一 retention 策略、SSD 擴充流程、未來 multi-node 升級路徑。
+Reverting breaks: the unified retention policy, the SSD expansion workflow, and the future multi-node upgrade path.
 
 ## Quickstart commands
 
