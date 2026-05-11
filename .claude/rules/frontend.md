@@ -51,7 +51,7 @@ The production frontend is served by `nginxinc/nginx-unprivileged` with CSP `def
 
 If something works in `pnpm dev` but breaks in the built container, suspect CSP first. Test against the built image, not just the dev server.
 
-## Format 紀律
+## Format discipline
 
 Tooling: **Prettier** owns formatting; **ESLint** owns lint. They do not overlap (`eslint-config-prettier/flat` is appended to `eslint.config.js` to disable formatting rules in ESLint).
 

@@ -124,7 +124,7 @@ C4Container
 
 ### Platform
 
-| 元件                  | 技術                                          | 進入點                                       | 主要責任                                                          | 對應 rules / specs                      |
+| Component             | Tech                                          | Entry point                                  | Primary responsibility                                            | Related rules / specs                   |
 | --------------------- | --------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------- |
 | backend               | FastAPI 0.115 + Py3.12 + uv                   | `backend/app/main.py`                        | REST API + reconciler loop                                        | `.claude/rules/backend.md`              |
 | frontend              | Vite + React 18 + TS 5.5 + nginx-unprivileged | `frontend/src/main.tsx`                      | SPA UI; pulls API via TanStack Query                              | `.claude/rules/frontend.md`             |
@@ -386,7 +386,7 @@ cd frontend && pnpm typecheck && pnpm lint
 
 - **Cloudflare Access** — SSO. JWKS at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. Backend rejects boot in production if `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_APP_AUD` is empty.
 - **Cloudflare Tunnel (cloudflared)** — exposes the cluster to the public internet. Token in `.lolday-secrets.env` as `CF_TUNNEL_TOKEN`.
-- **Discord webhooks (× 4 channels)** — Alertmanager critical (`DISCORD_WEBHOOK_URL_CRITICAL` → Captain Hook) + Alertmanager warning (`DISCORD_WEBHOOK_URL_WARNING` → Spidey Warnings) + backend user-events (`DISCORD_WEBHOOK_URL_EVENTS` → Spidey Service Alerts) + deadmans-switch heartbeat (`DISCORD_URL` on the CronJob env → Spidey Heartbeat; independent secret). Channel directory + behaviour map: `docs/operations.md` §Discord channels. The 2 → 4 split was the 2026-05-10 議題 B alerting redesign.
+- **Discord webhooks (× 4 channels)** — Alertmanager critical (`DISCORD_WEBHOOK_URL_CRITICAL` → Captain Hook) + Alertmanager warning (`DISCORD_WEBHOOK_URL_WARNING` → Spidey Warnings) + backend user-events (`DISCORD_WEBHOOK_URL_EVENTS` → Spidey Service Alerts) + deadmans-switch heartbeat (`DISCORD_URL` on the CronJob env → Spidey Heartbeat; independent secret). Channel directory + behaviour map: `docs/operations.md` §Discord channels. The 2 → 4 split was the 2026-05-10 alerting redesign.
 - **GitHub** — code host. No Actions configured.
 - **maldet (PyPI)** — external detector framework. Pin `maldet>=1.1,<2`. Bumping requires reading the maldet repo CHANGELOG.
 - **NVIDIA GPU operator** — installed via upstream Helm chart (NOT lolday's chart). DCGM exporter feeds Prometheus.

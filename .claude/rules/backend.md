@@ -74,7 +74,7 @@ Both checks run inside the FastAPI lifespan. A misconfigured deploy crashes the 
 - Do not write OIDC / JWT verification yourself — use fastapi-users / cf-access.
 - Do not write retry logic yourself — use `httpx` + `tenacity` (or whatever is already in `pyproject.toml`).
 
-## Lint / Format / Type-check 紀律
+## Lint / format / type-check discipline
 
 Tooling: **ruff** (lint + format) and **mypy** (type check). Config is at repo root: `ruff.toml` and `mypy.ini` — **do not** add `[tool.ruff]` or `[tool.mypy]` sections to `backend/pyproject.toml` (they would shadow the root config).
 

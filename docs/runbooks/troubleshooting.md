@@ -89,7 +89,7 @@ The alert fires on Pending jobs older than `VOLCANO_STALE_SECONDS` (default 1800
 
 ### Symptom: Discord notifications missing
 
-> Channel directory + webhook env mapping: `docs/operations.md` §Discord channels. 4 channels post-2026-05-10 議題 B redesign — Captain Hook (critical, `_CRITICAL`) / Spidey Warnings (warning, `_WARNING`) / Spidey Service Alerts (backend events, `_EVENTS`) / Spidey Heartbeat (DeadMansSwitch CronJob, `DISCORD_URL`).
+> Channel directory + webhook env mapping: `docs/operations.md` §Discord channels. 4 channels post-2026-05-10 alerting redesign — Captain Hook (critical, `_CRITICAL`) / Spidey Warnings (warning, `_WARNING`) / Spidey Service Alerts (backend events, `_EVENTS`) / Spidey Heartbeat (DeadMansSwitch CronJob, `DISCORD_URL`).
 
 **Cause hypothesis:** Webhook URL secret empty / wrong, or delivery is failing silently (fire-and-forget swallows exceptions).
 
@@ -232,7 +232,7 @@ Detector images are not in CI's GHCR registry today (CI builds backend / fronten
 
 ## Symptom: GpuSignalFailSafeStuck fired
 
-**Cause:** Backend's host-aware GPU signal (議題 A) has been in fail-safe
+**Cause:** Backend's host-aware GPU signal has been in fail-safe
 mode for 30+ minutes — Prometheus is unreachable.
 
 **Diagnosis:** Same as the existing
