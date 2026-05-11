@@ -168,8 +168,15 @@ def _detector_container(
             # MLflow 2.8+ built-in system metrics logging. Requires psutil
             # and pynvml in the detector base image (pytorch-cu12-base:v5+).
             # Spec § 5.6.
+            #
+            # Sampling interval = 1s: MLflow's system_metrics_monitor is a
+            # background thread that does ``sleep(interval) → sample``; runs
+            # shorter than the interval never get a sample written. With 1s,
+            # any run ≥ 2s captures at least one snapshot. Mainstream MLOps
+            # platforms (W&B, Kubeflow, Databricks) accept that sub-second
+            # runs are not worth profiling.
             {"name": "MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING", "value": "true"},
-            {"name": "MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL", "value": "10"},
+            {"name": "MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL", "value": "1"},
             # ``USER`` short-circuits ``getpass.getuser()`` so it doesn't fall
             # through to ``pwd.getpwuid(os.getuid())`` — UID 1000 has no
             # ``/etc/passwd`` entry under our ``runAsUser`` security context,

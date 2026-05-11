@@ -110,7 +110,7 @@ def test_detector_container_has_system_metrics_env() -> None:
     container = m["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
     env = {e["name"]: e.get("value") for e in container["env"]}
     assert env["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] == "true"
-    assert env["MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL"] == "10"
+    assert env["MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL"] == "1"
 
 
 def test_model_fetcher_init_on_evaluate() -> None:

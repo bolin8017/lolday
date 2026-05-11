@@ -10,12 +10,15 @@ dependencies:
   version: 7.0.0
 - name: alloy
   repository: https://grafana.github.io/helm-charts
-  version: 1.8.0
+  version: 1.8.1
 - name: trivy-operator
   repository: https://aquasecurity.github.io/helm-charts
   version: 0.32.1
 - name: volcano
   repository: https://volcano-sh.github.io/helm-charts
-  version: 1.14.1
-digest: sha256:8b48724a7c98165dbcca9d7f5ff9eeb786195b0003adee83b7f618d94dc42d9c
-generated: "2026-04-28T09:15:01.593905018+08:00"
+  version: 1.14.2
+- name: minio
+  repository: https://charts.min.io/
+  version: 5.4.0
+digest: sha256:225442c032aba6213921381fc1c19c72a48306c11c80a5486e09d54a33281377
+generated: "2026-05-11T13:58:40.624996748+08:00"

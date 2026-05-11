@@ -277,7 +277,54 @@ If you see a default in `config.py` that uses `harbor.lolday.svc`, it's likely a
 - Backend SA (`lolday/backend`) has two Roles: same-ns Role for secrets / configmaps / PVCs; cross-ns Role `backend-jobs` in `lolday-jobs` for pods / batch / batch.volcano.sh.
 - NetworkPolicies on `lolday-job-egress` / `lolday-build-egress` use `namespaceSelector kubernetes.io/metadata.name: lolday` to target backend / mlflow / harbor across the namespace boundary.
 
-## 6. Build / Test / Release
+## 6. Storage architecture
+
+lolday runs a layered storage strategy:
+
+| Layer                            | Backend                                                | Used by                                                                                                 |
+| -------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| **Object store** (S3-compatible) | MinIO single-node, scale via multi-pool SSDs           | MLflow artifacts, Harbor container blobs, Loki log chunks                                               |
+| **OLTP / TSDB (block)**          | K3s local-path-provisioner on NVMe                     | PostgreSQL (lolday + mlflow + harbor metadata), Prometheus TSDB, Grafana, Alertmanager, Trivy DB, Redis |
+| **Read-only big static**         | hostPath at `/mnt/ssd500g/data/samples` (separate SSD) | Malware samples (600 GB ROX)                                                                            |
+
+### 6.1 Why this split
+
+- **Object** for write-once-read-many, append-mostly, large file workloads — fits MLflow models, container layers, log chunks
+- **Block** for transactional small writes, mmap, page-cache-friendly workloads — fits PostgreSQL and Prometheus
+- **Read-only hostPath** for big static input data — avoids copying it through PVs
+
+### 6.2 SSD expansion
+
+Adding capacity = mount new SSD + add as new MinIO server pool. See `docs/runbooks/add-ssd.md`. The MinIO multi-pool approach gives **zero-downtime, zero-rebalance** SSD addition. Application config (MLflow / Harbor / Loki) is not touched.
+
+### 6.3 Multi-node future
+
+MinIO supports distributed mode (multi-node-multi-drive). When a second server joins, MinIO transitions to distributed deployment using the same S3 endpoint. **No application changes needed**. See spec `2026-05-11-storage-architecture-redesign-design.md` §5.6.
+
+### 6.4 Retention / lifecycle
+
+- MLflow artifacts: **versioned, no auto-expiration** (model is a first-class asset)
+- Harbor blobs: cleaned by **Harbor's own GC** (do not set MinIO lifecycle — see Harbor docs)
+- Loki chunks: **7-day MinIO lifecycle** (object expiration, applied automatically by init Job)
+
+### 6.5 Backup
+
+**Currently**: not implemented. Server30 is a single point of failure. Mainstream pattern is MinIO site-replication to a backup site; future scope when a backup node exists.
+
+### 6.6 Capacity thresholds & alerts
+
+Discord alert (#lolday-service-alerts) triggers when:
+
+- MinIO cluster free < 10 GB
+- Any individual bucket → projected growth crosses spec §5.4 thresholds
+
+Alert source: `minio_cluster_capacity_usable_free_bytes` and `minio_bucket_usage_total_bytes` Prometheus metrics.
+
+### Tech debt — vcjob TTL
+
+The `lolday-controllers` Deployment doesn't honor vcjob `ttlSecondsAfterFinished` (no Volcano controller-manager running). Stale vcjobs accumulate, currently cleared manually. **Follow-up spec planned.**
+
+## 7. Build / Test / Release
 
 ### CI/CD overview
 
@@ -335,7 +382,7 @@ cd frontend && pnpm typecheck && pnpm lint
 
 `bash scripts/deploy.sh` — runs `helm dependency update charts/lolday`, then `helm upgrade --install lolday charts/lolday -n lolday`. Migrations run via `templates/alembic-upgrade-hook.yaml` (Helm `pre-upgrade` Job), which produces `alembic_version = head` before the new backend pod boots. Backend boot then double-checks via `_assert_schema_at_head()`.
 
-## 7. External dependencies
+## 8. External dependencies
 
 - **Cloudflare Access** — SSO. JWKS at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. Backend rejects boot in production if `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_APP_AUD` is empty.
 - **Cloudflare Tunnel (cloudflared)** — exposes the cluster to the public internet. Token in `.lolday-secrets.env` as `CF_TUNNEL_TOKEN`.
@@ -344,7 +391,7 @@ cd frontend && pnpm typecheck && pnpm lint
 - **maldet (PyPI)** — external detector framework. Pin `maldet>=1.1,<2`. Bumping requires reading the maldet repo CHANGELOG.
 - **NVIDIA GPU operator** — installed via upstream Helm chart (NOT lolday's chart). DCGM exporter feeds Prometheus.
 
-## 8. Phase progression (legacy naming)
+## 9. Phase progression (legacy naming)
 
 > The `phaseN-X` numbering convention is **retired** as of 2026-04-29 — see `docs/conventions.md` §4. The table below is the historical record of work done under the old convention. New work uses `YYYY-MM-DD-<short-kebab-desc>` filenames; trace it via `docs/superpowers/specs|plans/` listings sorted by date.
 
@@ -372,7 +419,7 @@ cd frontend && pnpm typecheck && pnpm lint
 
 Operational checklists & retrospective findings: `docs/phase-history/`.
 
-## 9. Known tech debt
+## 10. Known tech debt
 
 1. ~~**`backend/app/reconciler.py` (57KB)**~~ — resolved 2026-04-30 in `chore/reconciler-split` (PR #53): the single file was split into a 9-submodule package (`__init__.py`, `notify.py`, `log_capture.py`, `builds.py`, `build_finalize.py`, `jobs.py`, `projections.py`, `orphans.py`, `model_sync.py`, `loop.py`), every file ≤ 15 KB. Plan: `docs/superpowers/plans/2026-04-30-reconciler-split.md`.
 2. ~~**No CI/CD.**~~ — resolved 2026-04-30 in `feat/github-actions-cicd`. Six GitHub Actions workflows under `.github/workflows/` enforce lint / tests / image build on every PR; GHCR receives `main` / tag pushes. Production deploy (`scripts/deploy.sh`) remains operator-driven by design. Spec: `docs/superpowers/specs/2026-04-30-github-actions-cicd-design.md`. Discipline rules: `.claude/rules/github-actions.md`. Conventions: `docs/conventions.md` §10.
@@ -408,7 +455,7 @@ Operational checklists & retrospective findings: `docs/phase-history/`.
 
 22. **Predict / Evaluate emergency path when training detector_version is retired** — Inference always uses the model's training detector_version (no override; v0.20.3 briefly shipped a footgun toggle, removed in the next release). If that detector_version is deleted / disabled, the chosen model becomes unusable: backend job-submit responds 422 with detail `detector_version_id <X> is no longer active`. The frontend does not yet surface this gracefully — a Predict / Evaluate submit just shows the raw 422. Mitigation candidates: (a) frontend reads `DetectorVersion.status` for `model.detector_version_id` and disables the model option with a "training version retired — retrain to use this model" tooltip; (b) backend extends `ModelVersionRead` with a derived `is_runnable: bool` that bakes the check in. Mainstream practice is to retrain rather than try to hot-swap runtimes (model artifacts are bound to their training stack — see MLflow Model Registry / SageMaker / BentoML). Owner: backend + frontend.
 
-## 10. Common gotchas
+## 11. Common gotchas
 
 1. **SSH on server30** — see hard rule. Cilium 2026-03-31 incident in `docs/postmortems/2026-03-31-cilium-ssh-incident.md`.
 2. **Alembic autogenerate is unreliable** for enums, indexes, server_default. Phase 12.1 / 12.2 / 12.3 are the receipts. Always review by hand. See `.claude/rules/alembic-migrations.md`.

@@ -1,16 +1,4 @@
 {{- if .Values.mlflow.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mlflow-artifacts
-  namespace: {{ .Values.global.namespace }}
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: {{ .Values.mlflow.storageClassName | quote }}
-  resources:
-    requests:
-      storage: {{ .Values.mlflow.storage }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -44,8 +32,8 @@ spec:
             - --host=0.0.0.0
             - --port={{ .Values.mlflow.service.port }}
             - --backend-store-uri=postgresql+psycopg2://$(PG_USER):$(PG_PASSWORD)@postgresql.{{ .Values.global.namespace }}.svc:5432/$(PG_DB)
-            - --default-artifact-root=mlflow-artifacts:/
-            - --artifacts-destination=/mlflow-artifacts
+            - --default-artifact-root=s3://mlflow-artifacts/
+            - --artifacts-destination=s3://mlflow-artifacts/
             - --serve-artifacts
             - --static-prefix=/mlflow
           env:
@@ -62,12 +50,23 @@ spec:
             # the URI shape in two places.
             - name: MLFLOW_BACKEND_STORE_URI
               value: "postgresql+psycopg2://$(PG_USER):$(PG_PASSWORD)@postgresql.{{ .Values.global.namespace }}.svc:5432/$(PG_DB)"
+            # S3 backend credentials and endpoint
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: http://lolday-minio.{{ .Values.global.namespace }}.svc:9000
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: { name: mlflow-s3-cred, key: access-key }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: mlflow-s3-cred, key: secret-key }
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: MLFLOW_S3_IGNORE_TLS
+              value: "true"
           ports:
             - containerPort: {{ .Values.mlflow.service.port }}
               name: http
           volumeMounts:
-            - name: artifacts
-              mountPath: /mlflow-artifacts
             - name: tmp
               mountPath: /tmp
           resources:
@@ -85,9 +84,6 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
       volumes:
-        - name: artifacts
-          persistentVolumeClaim:
-            claimName: mlflow-artifacts
         - name: tmp
           emptyDir: { sizeLimit: 512Mi, medium: Memory }
 ---

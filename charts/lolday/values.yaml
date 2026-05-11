@@ -172,7 +172,7 @@ harbor:
     enabled: true
     persistentVolumeClaim:
       registry:
-        size: 100Gi
+        size: 1Gi # minimum required by chart schema; not used when imageChartStorage.type=s3
       jobservice:
         size: 2Gi
       database:
@@ -181,6 +181,17 @@ harbor:
         size: 2Gi
       trivy:
         size: 10Gi
+    imageChartStorage:
+      type: s3
+      disableredirect: true # serve via Harbor, not S3 presigned URL
+      s3:
+        region: us-east-1
+        bucket: harbor-blobs
+        regionendpoint: http://lolday-minio.lolday.svc:9000
+        existingSecret: harbor-s3-cred
+        skipverify: true
+        v4auth: true
+        secure: false
   trivy:
     enabled: true
     skipUpdate: false
@@ -228,7 +239,7 @@ harbor:
 # =============================================================================
 mlflow:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/mlflow-server:v2.20.3
+  image: harbor.lolday.svc:80/lolday/mlflow-server:v2.20.3-boto3
   storage: 100Gi
   storageClassName: local-path
   service:
@@ -416,34 +427,50 @@ loki:
   test:
     enabled: false
   loki:
+    auth_enabled: false
     commonConfig:
       replication_factor: 1
+      path_prefix: /tmp/loki # no PVC; compactor working dir uses tmpfs
+    storage:
+      type: s3
+      bucketNames:
+        chunks: loki-chunks
+        ruler: loki-ruler
+      s3:
+        endpoint: lolday-minio.lolday.svc:9000
+        region: us-east-1
+        accessKeyId: "" # filled by extraEnv below via AWS_ACCESS_KEY_ID
+        secretAccessKey: "" # filled by extraEnv below via AWS_SECRET_ACCESS_KEY
+        s3ForcePathStyle: true # required for MinIO path-style addressing
+        insecure: true # internal cluster, http only
     schemaConfig:
       configs:
-        - from: 2024-04-01
+        - from: "2024-01-01"
           store: tsdb
-          object_store: filesystem
+          object_store: s3
           schema: v13
           index:
             prefix: loki_index_
             period: 24h
-    storage:
-      type: filesystem
-      bucketNames:
-        chunks: loki-chunks
-        ruler: loki-ruler
-        admin: loki-admin
-    auth_enabled: false
     limits_config:
       retention_period: 168h # 7 days
       reject_old_samples: true
       reject_old_samples_max_age: 168h
   singleBinary:
     replicas: 1
+    extraEnv:
+      - name: AWS_ACCESS_KEY_ID
+        valueFrom:
+          secretKeyRef:
+            name: loki-s3-cred
+            key: access-key
+      - name: AWS_SECRET_ACCESS_KEY
+        valueFrom:
+          secretKeyRef:
+            name: loki-s3-cred
+            key: secret-key
     persistence:
-      enabled: true
-      storageClass: local-path
-      size: 30Gi
+      enabled: false # state in S3, not local
     resources:
       requests: { cpu: 200m, memory: 512Mi }
       limits: { cpu: 1, memory: 2Gi }
@@ -696,3 +723,44 @@ volcano:
     # provides the real KSM + Prometheus + Grafana for the cluster. The
     # master `metrics_enable` flag gates those three extra templates only.
     metrics_enable: false
+
+# =============================================================================
+# MinIO Object Storage
+# =============================================================================
+minio:
+  enabled: true
+  mode: standalone # Single-node-single-drive; multi-pool via extraArgs later
+  rootUser: minio-admin
+  existingSecret: minio-root-cred
+  replicas: 1
+  drivesPerNode: 1
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 100Gi
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 2
+      memory: 4Gi
+  service:
+    type: ClusterIP
+    port: "9000"
+  consoleService:
+    type: ClusterIP
+    port: "9001"
+  metrics:
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: lolday
+  # Buckets / svcaccts are created by our own Job (templates/minio-init-buckets-job.yaml),
+  # NOT via the chart's buckets/policies block — gives us full control of lifecycle + IAM.
+  buckets: []
+  policies: []
+  # Override the default console user created by the chart (chart default: console/console123)
+  # We manage IAM entirely via the init Job; no chart-managed users.
+  users: []

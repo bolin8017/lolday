@@ -332,3 +332,92 @@ trigger a new build from the lolday Detectors page.
 GPU metrics also require the NVIDIA driver to be visible to the
 container. On a CPU-only detector, expect `system/cpu_*` and
 `system/system_memory_*` but no `system/gpu_<N>_*`.
+
+## MinIO storage layer
+
+### `MinIO API returns 503` from MLflow / Harbor / Loki
+
+Check pod state first:
+
+```bash
+kubectl get pod -n lolday | grep minio
+```
+
+If `Pending`: PVC not bound. Inspect `kubectl describe pvc -n lolday lolday-minio`. On fresh install, the local-path-provisioner Job creates the host directory lazily on first claim — wait 10 seconds and re-check.
+
+If `CrashLoopBackOff`:
+
+```bash
+kubectl logs -n lolday $(kubectl get pods -n lolday | grep minio | awk '{print $1}') --tail 100
+```
+
+Common causes:
+
+- Permissions on `/mnt/ssdN/minio` wrong — `sudo chown 1001:1001 /mnt/ssdN`
+- Drive arg mismatch — `args` reference `/dataN` but only `/data1` mounted
+- Image pull failure — check imagePullSecrets and harbor connectivity
+
+### `Access Denied` errors from applications
+
+An application's K8s secret (`mlflow-s3-cred` / `harbor-s3-cred` / `loki-s3-cred`) has stale credentials, or the matching MinIO service account was deleted manually.
+
+To regenerate:
+
+```bash
+kubectl delete secret -n lolday <app>-s3-cred
+helm upgrade lolday charts/lolday -n lolday --reuse-values   # re-runs the init Job → regenerates secret
+```
+
+Then rollout-restart the affected application:
+
+```bash
+kubectl rollout restart -n lolday deploy/<app>
+```
+
+> **Harbor exception**: the `harbor-s3-cred` secret must contain keys literally named `REGISTRY_STORAGE_S3_ACCESSKEY` and `REGISTRY_STORAGE_S3_SECRETKEY` (not `access-key` / `secret-key`). Verify with:
+>
+> ```bash
+> kubectl get secret -n lolday harbor-s3-cred -o jsonpath='{.data}' | python3 -c "import json,sys; print(list(json.load(sys.stdin).keys()))"
+> ```
+
+### Bucket is full / capacity warning
+
+Check usage:
+
+```bash
+bash scripts/storage-audit.sh
+```
+
+If a single bucket dominates, investigate retention:
+
+- `loki-chunks` should have 7-day expiration — verify with `mc ilm rule ls`
+- `mlflow-artifacts` has no auto-expiration; if dominant, operator may need to delete old MLflow runs (use MLflow UI's Delete Run, which removes the run + artifacts)
+- `harbor-blobs` cleaned by Harbor's own GC; check Harbor admin UI Retention page
+
+If you need **more storage**, follow `docs/runbooks/add-ssd.md`.
+
+### MinIO console (web UI) for ad-hoc inspection
+
+The console runs on port 9001 in-cluster. Port-forward:
+
+```bash
+kubectl port-forward -n lolday svc/lolday-minio-console 9001:9001
+```
+
+Open `http://localhost:9001/` in browser; login with credentials from `minio-root-cred` secret:
+
+```bash
+kubectl get secret -n lolday minio-root-cred -o jsonpath='{.data.rootUser}' | base64 -d
+kubectl get secret -n lolday minio-root-cred -o jsonpath='{.data.rootPassword}' | base64 -d
+```
+
+> The console is for ops debugging only — **do not expose externally**. There is intentionally no Cloudflare Access ingress configured for it.
+
+### Migration / Helm upgrade pitfalls
+
+If a `helm upgrade --reuse-values` doesn't take a chart change (e.g., storage backend stuck on `filesystem` after editing `values.yaml`), the old release's values are sticking. Two recovery options:
+
+1. Use explicit `--set` overrides on top of `--reuse-values` (surgical)
+2. Use `bash scripts/deploy.sh` (full re-render from values.yaml)
+
+This is well-documented in spec `2026-05-11-storage-architecture-redesign-design.md` migration notes and in `docs/runbooks/storage-migration.md`.

@@ -1,0 +1,305 @@
+{{- if .Values.minio.enabled }}
+# Storage-layer init: provision MinIO buckets, IAM policies, service accounts,
+# and per-app K8s secrets. Runs as a Helm post-install / post-upgrade hook.
+#
+# Why 3 containers? The mc image (quay.io/minio/mc) has no kubectl, and the
+# bitnami/kubectl image has no mc. We split via an emptyDir /creds:
+#
+#   1) kubectl-probe (initContainer)
+#      For each app, if the K8s secret <app>-s3-cred already exists, read its
+#      access-key + secret-key out of the API and stage them under /creds.
+#      This is the source-of-truth pre-load that gives us cross-run idempotence
+#      across MinIO data wipes (emptyDir vanishes between pod runs, so we can't
+#      rely on a /creds sentinel for "did we already generate keys").
+#
+#   2) mc-setup (initContainer)
+#      Always (idempotent): create buckets, lifecycle rules, IAM policies.
+#      Per app: if /creds/<app>-access-key was populated by the probe, re-assert
+#      that exact svcacct in MinIO (`svcacct add ... || true` — no-op if already
+#      present, recreate-from-known-key if MinIO data was wiped). Else generate
+#      a fresh random AK/SK pair, create the svcacct, and stage to /creds.
+#
+#   3) kubectl-secret-writer (main container)
+#      For each app: if the K8s secret already exists, skip (preserves existing
+#      credentials, never overwrites). Else read /creds and create the secret.
+#
+# Net effect:
+#   - First install: probe finds nothing → mc-setup generates → writer creates
+#     the 3 K8s secrets.
+#   - Helm upgrade: probe reads existing K8s secrets → mc-setup re-asserts the
+#     same keys (no-op) → writer skips because secrets already exist.
+#   - MinIO data wipe + re-install: probe reads existing K8s secrets → mc-setup
+#     recreates the svcaccts from those keys → writer skips. Apps reconnect
+#     seamlessly because the AK/SK they hold is still valid.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minio-init-buckets
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: minio-init-buckets
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  # `get`  — kubectl-probe reads existing per-app K8s secrets to pre-load keys.
+  # `list` — kubectl-probe / kubectl-secret-writer may list-check existence.
+  # `create` — kubectl-secret-writer creates the secret when absent.
+  # We deliberately omit `update` / `patch` / `delete`: this Job never mutates
+  # an existing secret. Rotation must be an explicit operator action.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: minio-init-buckets
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: minio-init-buckets
+subjects:
+  - kind: ServiceAccount
+    name: minio-init-buckets
+    namespace: {{ .Values.global.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init-buckets
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "lolday.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: minio-init-buckets
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: creds
+          emptyDir: {}
+      initContainers:
+        - name: kubectl-probe
+          # bitnami/kubectl — only `latest` tag is published; pin by digest.
+          # Digest sha256:3220dcc... = v1.36.0 (2025-05). Compatible with K8s ≤1.36.
+          image: bitnami/kubectl@sha256:3220dcc839f55be732a29548043a1ddf635a0dd6c8781b0f2a0bcdc19029c7d3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - { name: creds, mountPath: /creds }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # For each app: if the K8s secret already exists, decode its
+              # per-app keys into /creds/<app>-access-key and /creds/<app>-secret-key.
+              # Key names differ by app — Harbor's registry binary expects the literal
+              # env-var names REGISTRY_STORAGE_S3_ACCESSKEY / REGISTRY_STORAGE_S3_SECRETKEY,
+              # while mlflow and loki use access-key / secret-key.
+              # This is the cross-run source-of-truth that lets mc-setup re-assert
+              # (rather than regenerate) svcacct keys after a MinIO data wipe.
+              read_existing() {
+                local app=$1; local secret=$2; local ak_key=$3; local sk_key=$4
+                if kubectl -n {{ .Values.global.namespace }} get secret "$secret" >/dev/null 2>&1; then
+                  echo "kubectl-probe: $secret found — staging existing keys"
+                  kubectl -n {{ .Values.global.namespace }} get secret "$secret" \
+                    -o jsonpath="{.data.${ak_key}}" | base64 -d > /creds/${app}-access-key
+                  kubectl -n {{ .Values.global.namespace }} get secret "$secret" \
+                    -o jsonpath="{.data.${sk_key}}" | base64 -d > /creds/${app}-secret-key
+                else
+                  echo "kubectl-probe: $secret absent — mc-setup will generate"
+                fi
+              }
+              read_existing mlflow mlflow-s3-cred access-key secret-key
+              read_existing harbor harbor-s3-cred REGISTRY_STORAGE_S3_ACCESSKEY REGISTRY_STORAGE_S3_SECRETKEY
+              read_existing loki   loki-s3-cred   access-key secret-key
+              echo "kubectl-probe: done"
+        - name: mc-setup
+          # Pin to the same mc release as the minio Helm chart's mcImage default.
+          # sha256:993e8c4... = RELEASE.2024-11-21T17-21-54Z (matches chart mcImage.tag).
+          image: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: minio-root-cred, key: rootUser } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: minio-root-cred, key: rootPassword } }
+            # mc writes its config to MC_CONFIG_DIR. Default is ~/.mc which resolves
+            # to /.mc under UID 65534 (nobody) — no write permission. Redirect to /tmp.
+            - name: MC_CONFIG_DIR
+              value: /tmp/mc
+          volumeMounts:
+            - { name: creds, mountPath: /creds }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eux
+              trap 'rm -f /tmp/*.json' EXIT
+              # Wait for MinIO API ready.
+              until mc alias set local http://{{ .Release.Name }}-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
+                echo "waiting for minio..."
+                sleep 2
+              done
+
+              # Idempotent bucket creation.
+              mc mb --ignore-existing local/mlflow-artifacts
+              mc mb --ignore-existing local/harbor-blobs
+              mc mb --ignore-existing local/loki-chunks
+              mc mb --ignore-existing local/loki-ruler
+
+              # MLflow artifact versioning — best-effort; single-drive standalone
+              # mode does not support versioning, but the spec calls for it once
+              # we move to multi-pool. Failing here would block first install.
+              mc version enable local/mlflow-artifacts || true
+
+              # Lifecycle: 7-day expiration on Loki chunks.
+              cat > /tmp/loki-lifecycle.json <<JSON
+              {"Rules":[{"ID":"loki-7d-expire","Status":"Enabled","Expiration":{"Days":7},"Filter":{"Prefix":""}}]}
+              JSON
+              mc ilm import local/loki-chunks < /tmp/loki-lifecycle.json
+
+              # Per-app IAM policies — separate JSON per app to keep them readable.
+              cat > /tmp/mlflow-rw.json <<'JSON'
+              {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],
+                "Resource":["arn:aws:s3:::mlflow-artifacts","arn:aws:s3:::mlflow-artifacts/*"]}]}
+              JSON
+              cat > /tmp/harbor-rw.json <<'JSON'
+              {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],
+                "Resource":["arn:aws:s3:::harbor-blobs","arn:aws:s3:::harbor-blobs/*"]}]}
+              JSON
+              cat > /tmp/loki-rw.json <<'JSON'
+              {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],
+                "Resource":["arn:aws:s3:::loki-chunks","arn:aws:s3:::loki-chunks/*",
+                            "arn:aws:s3:::loki-ruler","arn:aws:s3:::loki-ruler/*"]}]}
+              JSON
+              for app in mlflow harbor loki; do
+                mc admin policy create local ${app}-rw /tmp/${app}-rw.json || \
+                  mc admin policy update local ${app}-rw /tmp/${app}-rw.json
+              done
+
+              # Per-app service accounts. Idempotence model:
+              #   - /creds/<app>-access-key populated by kubectl-probe (K8s
+              #     secret already exists) → re-assert that exact svcacct in
+              #     MinIO. `svcacct add` errors if the AK is already present;
+              #     `|| true` makes this a no-op on first re-run and a recovery
+              #     path after a MinIO data wipe.
+              #   - /creds/<app>-access-key absent → first install. Generate a
+              #     random AK/SK pair, create svcacct, stage to /creds.
+              for app in mlflow harbor loki; do
+                if [ -s /creds/${app}-access-key ] && [ -s /creds/${app}-secret-key ]; then
+                  AK=$(cat /creds/${app}-access-key)
+                  SK=$(cat /creds/${app}-secret-key)
+                  echo "mc-setup: re-asserting svcacct for ${app} (existing key)"
+                  # --policy takes a JSON file path, not a policy name.
+                  mc admin user svcacct add local "$MINIO_ROOT_USER" \
+                    --access-key "$AK" --secret-key "$SK" --policy /tmp/${app}-rw.json || true
+                else
+                  AK=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 20)
+                  SK=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 40)
+                  echo "mc-setup: generating fresh svcacct for ${app}"
+                  # --policy takes a JSON file path, not a policy name.
+                  mc admin user svcacct add local "$MINIO_ROOT_USER" \
+                    --access-key "$AK" --secret-key "$SK" --policy /tmp/${app}-rw.json
+                  printf '%s' "$AK" > /creds/${app}-access-key
+                  printf '%s' "$SK" > /creds/${app}-secret-key
+                fi
+              done
+              echo "mc-setup: done"
+      containers:
+        - name: kubectl-secret-writer
+          # bitnami/kubectl — only `latest` tag is published; pin by digest.
+          # Digest sha256:3220dcc... = v1.36.0 (2025-05). Compatible with K8s ≤1.36.
+          image: bitnami/kubectl@sha256:3220dcc839f55be732a29548043a1ddf635a0dd6c8781b0f2a0bcdc19029c7d3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - { name: creds, mountPath: /creds, readOnly: true }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # For each app: never overwrite an existing K8s secret. Create
+              # only when absent and /creds has the staged keys. The Role
+              # intentionally omits update/patch/delete — rotation is an
+              # explicit operator action, not an init-job side effect.
+              #
+              # Key names differ by app:
+              #   mlflow / loki → access-key, secret-key (standard convention)
+              #   harbor        → REGISTRY_STORAGE_S3_ACCESSKEY, REGISTRY_STORAGE_S3_SECRETKEY
+              #                   (Harbor registry binary maps these directly to env vars)
+              write_secret() {
+                local app=$1; local secret=$2; local ak_key=$3; local sk_key=$4
+                if kubectl -n {{ .Values.global.namespace }} get secret "$secret" >/dev/null 2>&1; then
+                  echo "kubectl-secret-writer: $secret already exists — keep"
+                  return
+                fi
+                if [ ! -s /creds/${app}-access-key ] || [ ! -s /creds/${app}-secret-key ]; then
+                  echo "kubectl-secret-writer: ${app} creds missing in /creds — skip"
+                  return
+                fi
+                kubectl -n {{ .Values.global.namespace }} create secret generic "$secret" \
+                  --from-file=${ak_key}=/creds/${app}-access-key \
+                  --from-file=${sk_key}=/creds/${app}-secret-key
+                echo "kubectl-secret-writer: created $secret"
+              }
+              write_secret mlflow mlflow-s3-cred access-key secret-key
+              write_secret harbor harbor-s3-cred REGISTRY_STORAGE_S3_ACCESSKEY REGISTRY_STORAGE_S3_SECRETKEY
+              write_secret loki   loki-s3-cred   access-key secret-key
+              echo "kubectl-secret-writer: done"
+{{- end }}
