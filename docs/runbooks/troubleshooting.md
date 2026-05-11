@@ -272,3 +272,63 @@ curl -s 'http://localhost:9090/api/v1/query?query=DCGM_FI_DEV_FB_USED' \
 If Prom returns empty / 0, the metric isn't being scraped — check
 gpu-operator ClusterPolicy DCGM exporter config or the
 `servicemonitor-dcgm.yaml` ServiceMonitor.
+
+## Symptom: MLflow run stuck RUNNING after lolday job ended
+
+**Cause:** reconciler couldn't reach the MLflow server when finalizing
+the run (network blip, pod restart mid-loop, or MLflow 502). lolday
+treats finalize as best-effort to avoid blocking DB transitions, but
+that means transient failures leave the MLflow side dangling.
+
+**Diagnose:**
+
+```bash
+kubectl logs -n lolday deploy/backend | grep mlflow_finalize | tail
+```
+
+Look for `mlflow finalize failed for job <id>: ...`. Note the job UUID
+and the underlying error.
+
+**Repair (one-off):**
+
+```bash
+# Query lolday DB for the run_id corresponding to the job.
+kubectl exec -n lolday deploy/postgres -- psql -U lolday -d lolday -c \
+  "SELECT id, status, mlflow_run_id FROM job WHERE id='<job-uuid>';"
+
+# Then ask the MLflow API to update the run status. Replace STATUS
+# with FAILED / KILLED / FINISHED to match the lolday Job.status.
+kubectl run -n lolday curl-once --rm -i --restart=Never \
+  --image=curlimages/curl:8.10.1 --quiet -- \
+  -s -X POST -H "Content-Type: application/json" \
+  http://mlflow.lolday.svc.cluster.local:5000/api/2.0/mlflow/runs/update \
+  -d '{"run_id":"<run_id>","status":"FAILED","end_time":<unix_ms>}'
+```
+
+For a bulk sweep of legacy orphans (pre-2026-05-11 backend), see
+`docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`
+§7.4 — the spec calls for an optional one-shot script; not part of the
+core code path.
+
+## Symptom: MLflow run has no `system/*` metrics
+
+**Cause:** the detector container is missing `psutil` and/or `pynvml`,
+so MLflow 2.8+ silently no-ops the system metrics module even when
+`MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING=true` is set.
+
+**Diagnose:**
+
+```bash
+kubectl exec -it <detector-pod> -n lolday -- python -c \
+  "import psutil, pynvml; print(psutil.__version__, pynvml.__version__)"
+```
+
+If either import errors, the detector image is on a pre-2026-05-11 build.
+
+**Fix:** rebuild the detector against `maldet[mlflow]>=2.2.1` (which now
+pulls in `psutil` + `pynvml`) or rebase on `pytorch-cu12-base:v5+`. Then
+trigger a new build from the lolday Detectors page.
+
+GPU metrics also require the NVIDIA driver to be visible to the
+container. On a CPU-only detector, expect `system/cpu_*` and
+`system/system_memory_*` but no `system/gpu_<N>_*`.

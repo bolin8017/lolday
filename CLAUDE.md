@@ -16,6 +16,7 @@
 - Phase 設計 / 實作計畫 → `docs/superpowers/specs/`、`docs/superpowers/plans/`
 - Backend FIFO scheduler (Phase 6) → `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md`、`docs/runbooks/admin-priority.md`
 - Host-aware GPU signal (DCGM + Prom + scheduler) → `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`、`backend/app/services/gpu_signal.py`
+- MLflow data-model redesign (2026-05-11) → `docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`、`backend/app/services/mlflow_client.py`、`backend/app/reconciler/jobs.py::_finalize_mlflow_run`
 
 ## Hard rules（每個 session 都必須記得）
 

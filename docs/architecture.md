@@ -197,6 +197,34 @@ Service-token-driven jobs skip notify (Phase 12) — machine principals don't pi
 
 The `deadmans-switch` is a separate channel via its own webhook; missing config causes CrashLoopBackOff intentionally.
 
+### 4.6 MLflow data-model (2026-05-11 redesign)
+
+Source: `docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`. Three-layer integration (lolday backend / maldet framework / detector containers) producing a single coherent MLflow surface.
+
+**Run lifecycle**
+
+- `routers/jobs.py` creates the MLflow run at job submit with `start_time_ms = now` (REST API defaults the field to `0` aka Unix epoch when omitted — `MlflowClient.create_run` now requires `start_time_ms` as a kwarg to prevent the regression).
+- `reconciler.jobs._finalize_mlflow_run` updates the run to terminal status on every Job state-machine transition (`FAILED` / `KILLED` / `FINISHED`). Best-effort: a flaky MLflow does not block the DB transition; failures bump `BACKEND_ERRORS{stage="mlflow_finalize"}`.
+
+**Tag taxonomy** (set at create_run; spec §5.7)
+
+- `mlflow.runName`, `mlflow.source.{name,type,git.commit}` — MLflow native conventions the Python SDK fills automatically; we set them explicitly since we use the REST API.
+- `maldet.action` — `train` / `evaluate` / `predict`.
+- `lolday.{job_id, user, user_id, detector_version, detector_version_id, detector_image_digest, maldet_version, resource_profile, gpu_count}` — full reproducibility recipe.
+- `lolday.{train,test,predict}_dataset_id`, `lolday.source_model_version_id` — dataset / source-model lineage (lightweight queryable counterparts to the `mlflow.log_input` artifact emitted by `maldet.runner._log_dataset_input`).
+
+**Experiment description** — first time an experiment is created, `set_experiment_tag` writes `mlflow.note.content` (Markdown rendered in the MLflow native UI header) plus four `lolday.*` indexing tags.
+
+**Structured payloads as artifacts (not tags)** — the `maldet 2.2+` `MlflowEventLogger` (in the framework, not this repo) emits `confusion_matrix.json` / `per_class_metrics.json` via `log_dict`; per-sample `warning` / `error` events are buffered and flushed as `warnings.jsonl` / `errors.jsonl` on `close()`. The earlier behaviour (stringified Python `repr()` in tags, with multi-warning data loss via tag overwrite) is removed.
+
+**Per-run system metrics** — detector containers carry `MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING=true` + `MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL=10`. MLflow 2.8+ auto-logs `system/cpu_utilization_percentage`, `system/system_memory_usage_megabytes`, and per-GPU `system/gpu_<N>_*` at the configured interval. The required runtime deps (`psutil`, `pynvml`) ship via `maldet[mlflow]>=2.2.1`; future GPU-heavy detectors that build on `pytorch-cu12-base:v5+` get the same via the base image.
+
+**Provenance schema** — `DetectorVersion.maldet_version` (Alembic revision `1afdf61e18f9`, nullable VARCHAR(16)) is captured at build-finalize time from the parsed manifest's `[compat] min_maldet` value (pragmatic v1; a build-helper callback for the actually-installed pip version is a follow-up).
+
+**Frontend Duration column** — `frontend/src/routes/_authed.runs.$expId.tsx` reads `lolday_started_at` / `lolday_finished_at` from each flattened run. The backend `experiments_proxy._flatten_run` joins MLflow runs to lolday `Job` rows via `Job.mlflow_run_id` so the column reflects compute wall-clock (RUNNING → terminal), not submit-to-terminal.
+
+**Detector framework floor** — requires `maldet >= 2.2.1`. Detector authors bump `[compat] min_maldet = "2.2"` and `pyproject.toml` `maldet[mlflow]>=2.2.1,<3.0`.
+
 ## 5. Env vars & config sources
 
 `backend/app/config.py` (Pydantic Settings) is the single source of truth for runtime config. This section is a navigational summary; the file itself is the spec.
