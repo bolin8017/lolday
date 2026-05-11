@@ -172,7 +172,7 @@ harbor:
     enabled: true
     persistentVolumeClaim:
       registry:
-        size: 100Gi
+        size: 1Gi # minimum required by chart schema; not used when imageChartStorage.type=s3
       jobservice:
         size: 2Gi
       database:
@@ -181,6 +181,17 @@ harbor:
         size: 2Gi
       trivy:
         size: 10Gi
+    imageChartStorage:
+      type: s3
+      disableredirect: true # serve via Harbor, not S3 presigned URL
+      s3:
+        region: us-east-1
+        bucket: harbor-blobs
+        regionendpoint: http://lolday-minio.lolday.svc:9000
+        existingSecret: harbor-s3-cred
+        skipverify: true
+        v4auth: true
+        secure: false
   trivy:
     enabled: true
     skipUpdate: false

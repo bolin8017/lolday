@@ -969,14 +969,30 @@ harbor:
       s3:
         region: us-east-1
         bucket: harbor-blobs
-        regionendpoint: http://minio.lolday.svc:9000
-        existingSecret: harbor-s3-cred # chart looks for keys access-key/secret-key
+        regionendpoint: http://lolday-minio.lolday.svc:9000
+        existingSecret: harbor-s3-cred
         skipverify: true
         v4auth: true
         secure: false
 ```
 
-> **Reference**: [Harbor Helm chart values § storage.s3](https://github.com/goharbor/harbor-helm/blob/master/values.yaml). `existingSecret` reads the access-key + secret-key fields from the K8s secret (the `harbor-s3-cred` we created in Phase 1 Task 3).
+> **Reference**: [Harbor Helm chart values § storage.s3](https://github.com/goharbor/harbor-helm/blob/master/values.yaml). `existingSecret` references the K8s secret `harbor-s3-cred` created in Task 3. When using `secretRef`, Harbor injects **all keys** from the secret as environment variables; keys must be named `REGISTRY_STORAGE_S3_ACCESSKEY` and `REGISTRY_STORAGE_S3_SECRETKEY` for the registry binary to recognize them.
+>
+> **CRITICAL FIX NEEDED (Task 3 bug)**: Task 3 creates the secret with keys `access-key` and `secret-key`, but Harbor's registry binary expects env vars `REGISTRY_STORAGE_S3_ACCESSKEY` and `REGISTRY_STORAGE_S3_SECRETKEY`. The secret must be recreated with the correct key names, OR Task 3's kubectl-secret-writer must be updated to use the correct key names:
+>
+> ```bash
+> # WRONG (current):
+> kubectl create secret generic ${app}-s3-cred \
+>   --from-file=access-key=/creds/${app}-access-key \
+>   --from-file=secret-key=/creds/${app}-secret-key
+>
+> # RIGHT (needed for Harbor):
+> kubectl create secret generic ${app}-s3-cred \
+>   --from-file=REGISTRY_STORAGE_S3_ACCESSKEY=/creds/${app}-access-key \
+>   --from-file=REGISTRY_STORAGE_S3_SECRETKEY=/creds/${app}-secret-key
+> ```
+>
+> Task 9's migration script will also need to be updated to use the correct secret keys.
 
 - [ ] **Step 3: Render-check the rendered registry config**
 
@@ -984,7 +1000,7 @@ harbor:
 helm template charts/lolday | grep -B2 -A 20 "storage:" | grep -A 15 "s3:" | head -25
 ```
 
-Expected: the rendered Harbor registry ConfigMap shows `storage.s3.bucket: harbor-blobs` and `regionendpoint: http://minio.lolday.svc:9000`.
+Expected: the rendered Harbor registry ConfigMap shows `storage.s3.bucket: harbor-blobs` and `regionendpoint: http://lolday-minio.lolday.svc:9000`.
 
 - [ ] **Step 4: helm lint**
 
@@ -1061,7 +1077,7 @@ EOF
 kubectl wait -n $NS --for=condition=Ready --timeout=2m pod/harbor-blob-copier
 
 echo "==> Configure mc alias and mirror"
-kubectl exec -n $NS harbor-blob-copier -- mc alias set s3 http://minio.lolday.svc:9000 \
+kubectl exec -n $NS harbor-blob-copier -- mc alias set s3 http://lolday-minio.lolday.svc:9000 \
   "$(kubectl get secret -n $NS harbor-s3-cred -o jsonpath='{.data.access-key}' | base64 -d)" \
   "$(kubectl get secret -n $NS harbor-s3-cred -o jsonpath='{.data.secret-key}' | base64 -d)"
 
