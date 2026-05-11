@@ -207,10 +207,13 @@ This Job runs once per Helm install/upgrade and performs all storage-layer initi
 5. Writes the service-account credentials to 3 K8s secrets: `mlflow-s3-cred`, `harbor-s3-cred`, `loki-s3-cred` (only if not already present)
 6. Applies lifecycle rule: 7-day object expiration on `loki-chunks`
 
-Design: the Job uses an **initContainer + main container** pattern because the `quay.io/minio/mc` image has no `kubectl`, and the `bitnami/kubectl` image has no `mc`. The two containers share an `emptyDir` volume `/creds`:
+Design: the Job uses a **two-initContainer + main container** pattern because the `quay.io/minio/mc` image has no `kubectl`, and the `bitnami/kubectl` image has no `mc`. All three containers share an `emptyDir` volume `/creds`:
 
-- initContainer (`mc-setup`) — provisions buckets / policies / service accounts in MinIO; writes generated credentials to `/creds/<app>-access-key` and `/creds/<app>-secret-key`
-- main container (`kubectl-secret-writer`) — reads `/creds/*`, creates K8s secrets only if they don't already exist (idempotent)
+- initContainer 1 (`kubectl-probe`, `bitnami/kubectl:1.30.6`) — for each app, if the K8s secret `<app>-s3-cred` already exists, decode its `access-key` and `secret-key` into `/creds/<app>-access-key` and `/creds/<app>-secret-key`. Else do nothing.
+- initContainer 2 (`mc-setup`, `quay.io/minio/mc:...`) — always (idempotent): create buckets, lifecycle, and IAM policies. Per app: if `/creds/<app>-access-key` was populated by the probe, re-assert that exact svcacct in MinIO via `mc admin user svcacct add ... || true`. Else generate a fresh random AK/SK pair, create the svcacct, and stage to `/creds`.
+- main container (`kubectl-secret-writer`, `bitnami/kubectl:1.30.6`) — for each app, if the K8s secret already exists, skip (preserves credentials, never overwrites). Else read `/creds` and create the secret.
+
+**Why three containers, not two?** The naive design (sentinel `/creds/done` in emptyDir to gate svcacct creation) is **not idempotent across pod runs** — emptyDir is recreated on every Job invocation, so the sentinel never exists on a re-run. On Helm upgrade, that means mc-setup would always regenerate svcacct keys, but kubectl-secret-writer would skip writing because the K8s secret already exists with the OLD keys → mismatch, apps lose access. The fix is to invert the source of truth: gate svcacct creation on whether the K8s secret already exists (read from K8s API in the probe), not on an in-pod sentinel.
 
 - [ ] **Step 1: Write the full Job template**
 
@@ -222,32 +225,46 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: minio-init-buckets
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: minio-init-buckets
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 rules:
+  # `get`    — kubectl-probe reads per-app K8s secrets to pre-load keys.
+  # `list`   — defensive: existence probing under restrictive RBAC.
+  # `create` — kubectl-secret-writer creates secrets when absent.
+  # `update`/`patch`/`delete` intentionally omitted: this Job never mutates
+  # an existing secret; rotation is an explicit operator action.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "create"]
+    verbs: ["get", "list", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: minio-init-buckets
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -255,16 +272,15 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: minio-init-buckets
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ .Values.global.namespace }}
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: minio-init-buckets
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/managed-by: helm
-    app.kubernetes.io/part-of: lolday-storage
+    {{- include "lolday.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "0"
@@ -273,15 +289,64 @@ spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 3600
   template:
+    metadata:
+      labels:
+        {{- include "lolday.labels" . | nindent 8 }}
     spec:
       restartPolicy: OnFailure
       serviceAccountName: minio-init-buckets
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
       volumes:
         - name: creds
           emptyDir: {}
       initContainers:
+        - name: kubectl-probe
+          image: bitnami/kubectl:1.30.6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - { name: creds, mountPath: /creds }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # For each app: if the K8s secret already exists, decode its
+              # access-key + secret-key into /creds. Cross-run source-of-truth
+              # so mc-setup can re-assert (rather than regenerate) svcacct keys
+              # after a MinIO data wipe.
+              for app in mlflow harbor loki; do
+                if kubectl -n {{ .Values.global.namespace }} get secret ${app}-s3-cred >/dev/null 2>&1; then
+                  echo "kubectl-probe: ${app}-s3-cred found — staging existing keys"
+                  kubectl -n {{ .Values.global.namespace }} get secret ${app}-s3-cred \
+                    -o jsonpath='{.data.access-key}' | base64 -d > /creds/${app}-access-key
+                  kubectl -n {{ .Values.global.namespace }} get secret ${app}-s3-cred \
+                    -o jsonpath='{.data.secret-key}' | base64 -d > /creds/${app}-secret-key
+                else
+                  echo "kubectl-probe: ${app}-s3-cred absent — mc-setup will generate"
+                fi
+              done
+              echo "kubectl-probe: done"
         - name: mc-setup
           image: quay.io/minio/mc:RELEASE.2025-09-07T16-13-09Z
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           env:
             - name: MINIO_ROOT_USER
               valueFrom: { secretKeyRef: { name: minio-root-cred, key: rootUser } }
@@ -294,28 +359,30 @@ spec:
             - -c
             - |
               set -eux
-              # Wait for MinIO API ready
+              trap 'rm -f /tmp/*.json' EXIT
+              # Wait for MinIO API ready.
               until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
                 echo "waiting for minio..."
                 sleep 2
               done
 
-              # Idempotent bucket creation
+              # Idempotent bucket creation.
               mc mb --ignore-existing local/mlflow-artifacts
               mc mb --ignore-existing local/harbor-blobs
               mc mb --ignore-existing local/loki-chunks
               mc mb --ignore-existing local/loki-ruler
 
-              # MLflow artifact versioning (best-effort — single-drive mode doesn't support it but the spec calls for it once multi-pool is online)
+              # MLflow artifact versioning — best-effort (single-drive standalone
+              # does not support versioning, but the spec calls for it under multi-pool).
               mc version enable local/mlflow-artifacts || true
 
-              # Lifecycle: 7-day expiration on Loki chunks
+              # Lifecycle: 7-day expiration on Loki chunks.
               cat > /tmp/loki-lifecycle.json <<JSON
               {"Rules":[{"ID":"loki-7d-expire","Status":"Enabled","Expiration":{"Days":7},"Filter":{"Prefix":""}}]}
               JSON
               mc ilm import local/loki-chunks < /tmp/loki-lifecycle.json
 
-              # Per-app IAM policies — separate JSON per app to keep them readable
+              # Per-app IAM policies.
               cat > /tmp/mlflow-rw.json <<'JSON'
               {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],
                 "Resource":["arn:aws:s3:::mlflow-artifacts","arn:aws:s3:::mlflow-artifacts/*"]}]}
@@ -334,65 +401,108 @@ spec:
                   mc admin policy update local ${app}-rw /tmp/${app}-rw.json
               done
 
-              # Per-app service accounts — generate access/secret key and persist to shared volume.
-              # `mc admin user svcacct add` errors if the access key already exists, so we
-              # generate fresh keys only on first install (no /creds/done sentinel exists).
-              if [ ! -f /creds/done ]; then
-                for app in mlflow harbor loki; do
+              # Per-app service accounts:
+              #   - /creds/<app>-access-key already populated by kubectl-probe →
+              #     re-assert that exact svcacct (`|| true` handles already-exists
+              #     on Helm upgrade, and is the recovery path after MinIO data wipe).
+              #   - /creds/<app>-access-key absent → first install. Generate random
+              #     AK/SK, create svcacct, stage to /creds.
+              for app in mlflow harbor loki; do
+                if [ -s /creds/${app}-access-key ] && [ -s /creds/${app}-secret-key ]; then
+                  AK=$(cat /creds/${app}-access-key)
+                  SK=$(cat /creds/${app}-secret-key)
+                  echo "mc-setup: re-asserting svcacct for ${app} (existing key)"
+                  mc admin user svcacct add local "$MINIO_ROOT_USER" \
+                    --access-key "$AK" --secret-key "$SK" --policy ${app}-rw || true
+                else
                   AK=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 20)
                   SK=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 40)
+                  echo "mc-setup: generating fresh svcacct for ${app}"
                   mc admin user svcacct add local "$MINIO_ROOT_USER" \
                     --access-key "$AK" --secret-key "$SK" --policy ${app}-rw
                   printf '%s' "$AK" > /creds/${app}-access-key
                   printf '%s' "$SK" > /creds/${app}-secret-key
-                done
-                touch /creds/done
-              fi
+                fi
+              done
               echo "mc-setup: done"
       containers:
         - name: kubectl-secret-writer
           image: bitnami/kubectl:1.30.6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           volumeMounts:
             - { name: creds, mountPath: /creds, readOnly: true }
           command:
             - /bin/sh
             - -c
             - |
-              set -eux
-              # Skip creating K8s secrets that already exist (preserves credentials
-              # if init-job re-runs from a Helm upgrade; the apps mid-flight keep
-              # using the unchanged secret).
-              if [ ! -f /creds/done ]; then
-                echo "no creds to write (already present from prior install)"
-                exit 0
-              fi
+              set -eu
+              # For each app: never overwrite an existing K8s secret. Create
+              # only when absent and /creds has staged keys.
               for app in mlflow harbor loki; do
-                if kubectl -n {{ .Release.Namespace }} get secret ${app}-s3-cred >/dev/null 2>&1; then
-                  echo "${app}-s3-cred already exists — keep"
+                if kubectl -n {{ .Values.global.namespace }} get secret ${app}-s3-cred >/dev/null 2>&1; then
+                  echo "kubectl-secret-writer: ${app}-s3-cred already exists — keep"
                   continue
                 fi
-                kubectl -n {{ .Release.Namespace }} create secret generic ${app}-s3-cred \
+                if [ ! -s /creds/${app}-access-key ] || [ ! -s /creds/${app}-secret-key ]; then
+                  echo "kubectl-secret-writer: ${app} creds missing in /creds — skip"
+                  continue
+                fi
+                kubectl -n {{ .Values.global.namespace }} create secret generic ${app}-s3-cred \
                   --from-file=access-key=/creds/${app}-access-key \
                   --from-file=secret-key=/creds/${app}-secret-key
+                echo "kubectl-secret-writer: created ${app}-s3-cred"
               done
               echo "kubectl-secret-writer: done"
 {{- end }}
 ```
 
-> **Idempotence model**: on re-runs (Helm upgrade post-hook), `mc-setup` re-asserts buckets, policies, and lifecycle (all `--ignore-existing` or upsert-style); `mc admin user svcacct add` is skipped via the `/creds/done` sentinel; and `kubectl-secret-writer` skips writes when the K8s secret already exists. Net effect: zero-op after first successful install.
+> **Idempotence model** (3-container flow):
+>
+> - **First install**: `kubectl-probe` finds no K8s secrets → `/creds` empty → `mc-setup` generates random AK/SK per app and writes to `/creds` → `kubectl-secret-writer` creates the 3 K8s secrets.
+> - **Helm upgrade (re-run)**: `kubectl-probe` reads existing K8s secrets → stages keys to `/creds` → `mc-setup` re-asserts those exact svcaccts (`|| true` makes already-exists a no-op) → `kubectl-secret-writer` skips because the K8s secrets already exist.
+> - **MinIO data wipe + re-install**: `kubectl-probe` reads existing K8s secrets → stages keys to `/creds` → `mc-setup` recreates the svcaccts from those exact AK/SK → `kubectl-secret-writer` skips. Apps reconnect seamlessly because the AK/SK they hold is still valid.
+>
+> Note: the earlier draft of this plan used a `/creds/done` sentinel inside emptyDir to skip svcacct creation on re-runs. That is **wrong** — emptyDir is recreated on every Job invocation, so the sentinel never exists on a re-run, mc-setup would always regenerate keys, and kubectl-secret-writer would skip writing because the K8s secret exists with the OLD keys → app credentials mismatch. The fix is to invert the check: gate on whether the K8s secret already exists (read from K8s API in the probe), not on an in-pod sentinel.
 
 - [ ] **Step 2: Render-check**
 
 ```bash
-helm template charts/lolday --set minio.enabled=true \
-  | grep -E "^(kind:|name: minio-init|image: (quay.io/minio/mc|bitnami/kubectl))" | head -20
+# Use the same dummy --set flags as Task 2's render check to satisfy
+# `required` value gates from other templates.
+helm template charts/lolday \
+  --set minio.enabled=true \
+  --set monitoring.postgresExporter.password=x \
+  --set monitoring.grafana.adminPassword=x \
+  --set mlflow.db.password=x \
+  --set backend.harborAdminPassword=x \
+  --set backend.fernetKey=x \
+  --set cloudflare.enabled=false \
+  | awk '/^# Source: lolday\/templates\/minio-init-buckets-job/,/^---$/' \
+  | grep -E "^(kind:|  name:|        - name:|          image:)" | head -20
+
+# Verify hidden when minio disabled (no resources should render)
+helm template charts/lolday \
+  --set monitoring.postgresExporter.password=x \
+  --set monitoring.grafana.adminPassword=x \
+  --set mlflow.db.password=x \
+  --set backend.harborAdminPassword=x \
+  --set backend.fernetKey=x \
+  --set cloudflare.enabled=false \
+  | grep -c "minio-init"  # expect 0
 ```
 
 Expected:
 
-- `kind: ServiceAccount`, `kind: Role`, `kind: RoleBinding`, `kind: Job` all renderable
-- 1 initContainer image `quay.io/minio/mc:RELEASE.2025-09-07T16-13-09Z`
-- 1 main container image `bitnami/kubectl:1.30.6`
+- `kind: ServiceAccount`, `kind: Role`, `kind: RoleBinding`, `kind: Job` all renderable (4 resources)
+- 2 containers with image `bitnami/kubectl:1.30.6` (kubectl-probe initContainer + kubectl-secret-writer main container)
+- 1 container with image `quay.io/minio/mc:RELEASE.2025-09-07T16-13-09Z` (mc-setup initContainer)
+- Empty render when `minio.enabled=false`
 
 - [ ] **Step 3: helm lint**
 
