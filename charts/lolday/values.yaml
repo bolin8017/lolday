@@ -430,6 +430,7 @@ loki:
     auth_enabled: false
     commonConfig:
       replication_factor: 1
+      path_prefix: /tmp/loki # no PVC; compactor working dir uses tmpfs
     storage:
       type: s3
       bucketNames:
