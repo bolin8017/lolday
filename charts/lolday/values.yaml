@@ -696,3 +696,9 @@ volcano:
     # provides the real KSM + Prometheus + Grafana for the cluster. The
     # master `metrics_enable` flag gates those three extra templates only.
     metrics_enable: false
+
+# =============================================================================
+# MinIO Object Storage
+# =============================================================================
+minio:
+  enabled: false # flipped to true in Task 4
