@@ -228,7 +228,7 @@ harbor:
 # =============================================================================
 mlflow:
   enabled: true
-  image: harbor.lolday.svc:80/lolday/mlflow-server:v2.20.3
+  image: harbor.lolday.svc:80/lolday/mlflow-server:v2.20.3-boto3
   storage: 100Gi
   storageClassName: local-path
   service:
