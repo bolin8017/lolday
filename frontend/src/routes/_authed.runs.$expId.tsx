@@ -28,6 +28,11 @@ interface Row {
   metrics?: Record<string, number>;
   params?: Record<string, string>;
   tags?: Record<string, string>;
+  // Spec § 5.1 / § 6.8 — lolday Job started_at / finished_at, ISO 8601.
+  // Backend experiments_proxy enriches each run from the lolday DB by
+  // joining on the lolday.job_id tag. Duration column reads from these.
+  lolday_started_at?: string | null;
+  lolday_finished_at?: string | null;
 }
 
 const DEFAULT_COLS = ["metrics.f1", "metrics.accuracy"];
@@ -122,15 +127,16 @@ export default function RunsListPage() {
     },
     {
       id: "duration",
-      header: "Duration",
-      cell: ({ row }) =>
-        row.original.start_time && row.original.end_time
-          ? formatDuration(
-              new Date(row.original.start_time).toISOString(),
-              new Date(row.original.end_time).toISOString(),
-            )
-          : "—",
-      meta: { cardLabel: "Duration", cardSlot: "body" },
+      header: "Compute time",
+      cell: ({ row }) => {
+        // Spec § 5.1 — use lolday Job timestamps so duration reflects compute
+        // wall-clock (RUNNING → terminal), not submit-to-terminal.
+        const s = row.original.lolday_started_at;
+        const e = row.original.lolday_finished_at;
+        if (!s || !e) return "—";
+        return formatDuration(s, e);
+      },
+      meta: { cardLabel: "Compute time", cardSlot: "body" },
     },
     ...selectedCols.map((key): ColumnDef<Row> => {
       const [kind, name] = key.split(".", 2);

@@ -20,6 +20,7 @@ call for success) and clean up the job-token secret.
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -81,6 +82,7 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
             j.failure_reason = "k8s_job_missing"
             j.finished_at = datetime.now(UTC)
             await session.commit()
+            await _finalize_mlflow_run(j, "FAILED")
             await _fire_job_failed_notify(session, j, "k8s_job_missing")
         return
 
@@ -108,6 +110,7 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
         j.failure_reason = "detector_timeout"
         j.finished_at = datetime.now(UTC)
         await session.commit()
+        await _finalize_mlflow_run(j, "KILLED")
         await _fire_job_failed_notify(session, j, "detector_timeout")
         await _cleanup_job_secret(j)
         return
@@ -215,6 +218,9 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
     # must not block job termination — it's an opportunistic read-model
     # refresh, not part of the state machine transition.
     await session.commit()
+    # Idempotent MLflow finalize — maldet typically already wrote FINISHED,
+    # this is the controller's safety net.
+    await _finalize_mlflow_run(j, "FINISHED")
 
     try:
         await _project_summary_metrics(session, j.id)
@@ -367,6 +373,7 @@ async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
     j.log_tail = log_tail
     j.finished_at = datetime.now(UTC)
     await session.commit()
+    await _finalize_mlflow_run(j, "FAILED")
 
     # Phase 11e: failed jobs may still have meaningful early-stage metrics
     # (e.g. an evaluator that produced a result before the process exited).
@@ -414,6 +421,36 @@ async def _extract_job_failure_reason(j: Job) -> str:
             if ec not in (0, None):
                 return "detector_exit_nonzero"
     return "unknown_failure"
+
+
+async def _finalize_mlflow_run(
+    j: Job,
+    status: str,
+    *,
+    end_time_ms: int | None = None,
+) -> None:
+    """Update the MLflow run to a terminal status when lolday terminates the Job.
+
+    Idempotent: maldet typically writes ``FINISHED`` itself on success, so a
+    second update is a no-op overwrite from MLflow's side. Critical for
+    ``FAILED`` / ``KILLED`` cases where the pod died before maldet could
+    write ``end_run()``.
+
+    Best-effort: a flaky MLflow server must NOT block the DB-side state
+    machine transition.  Spec § 5.5.
+    """
+    if not j.mlflow_run_id:
+        return
+    client = MlflowClient(settings.MLFLOW_TRACKING_URI)
+    try:
+        await client.update_run(
+            j.mlflow_run_id,
+            status=status,
+            end_time_ms=end_time_ms or int(time.time() * 1000),
+        )
+    except Exception as exc:
+        logger.warning("mlflow finalize failed for job %s: %s", j.id, exc)
+        BACKEND_ERRORS.labels(stage="mlflow_finalize").inc()
 
 
 async def _cleanup_job_secret(j: Job) -> None:

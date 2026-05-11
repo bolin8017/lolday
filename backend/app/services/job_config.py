@@ -112,6 +112,7 @@ class JobConfigRenderer:
         mlflow_tracking_uri: str,
         mlflow_run_id: str | None,
         mlflow_experiment_id: str | None,
+        lolday_meta: dict[str, str] | None = None,
     ) -> str:
         base: dict[str, Any] = {
             "defaults": ["_self_"],
@@ -132,6 +133,10 @@ class JobConfigRenderer:
                 "run_id": mlflow_run_id,
                 "experiment_id": mlflow_experiment_id,
             },
+            # Platform-injected provenance keys consumed by
+            # ``maldet.runner._log_dataset_input`` for dataset lineage.
+            # Spec § 5.4 / § 6.5.
+            "lolday": dict(lolday_meta or {}),
         }
         nested = _unflatten(copy.deepcopy(user_params))
         merged = _deep_merge(base, nested)

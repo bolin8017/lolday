@@ -48,6 +48,10 @@ RUN pip install --no-cache-dir \
 
 # Baseline scientific stack every detector uses. All pinned exact so
 # the Trivy scan of this base image is reproducible across rebuilds.
+#
+# psutil + pynvml: required by MLflow 2.8+ system metrics logging
+# (MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING in detector pod spec). Without
+# both, mlflow silently no-ops the system/* metrics. Spec § 5.6.
 RUN pip install --no-cache-dir \
         numpy==2.2.3 \
         pandas==2.2.3 \
@@ -55,6 +59,8 @@ RUN pip install --no-cache-dir \
         pyelftools==0.32 \
         structlog==25.1.0 \
         typer==0.15.2 \
+        psutil==6.1.1 \
+        pynvml==12.0.0 \
         "islab-malware-detector[mlflow]==0.5.0"
 
 # Default non-root user expected by lolday's detector pod spec.

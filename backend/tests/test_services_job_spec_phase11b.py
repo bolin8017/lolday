@@ -104,6 +104,15 @@ def test_detector_container_has_user_env_for_torch_getuser() -> None:
     assert env.get("USER")  # any non-empty value is fine
 
 
+def test_detector_container_has_system_metrics_env() -> None:
+    """MLflow 2.8+ system metrics logging is enabled via env vars; spec § 5.6."""
+    m = _build()
+    container = m["spec"]["tasks"][0]["template"]["spec"]["containers"][0]
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    assert env["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] == "true"
+    assert env["MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL"] == "10"
+
+
 def test_model_fetcher_init_on_evaluate() -> None:
     """Evaluate job must include model-fetcher init container."""
     m = build_volcano_job_manifest(

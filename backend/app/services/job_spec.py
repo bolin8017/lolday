@@ -165,6 +165,11 @@ def _detector_container(
             {"name": "MALDET_DISTRIBUTED_STRATEGY", "value": effective_strategy},
             {"name": "TMPDIR", "value": "/tmp"},
             {"name": "HOME", "value": "/tmp"},
+            # MLflow 2.8+ built-in system metrics logging. Requires psutil
+            # and pynvml in the detector base image (pytorch-cu12-base:v5+).
+            # Spec § 5.6.
+            {"name": "MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING", "value": "true"},
+            {"name": "MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL", "value": "10"},
             # ``USER`` short-circuits ``getpass.getuser()`` so it doesn't fall
             # through to ``pwd.getpwuid(os.getuid())`` — UID 1000 has no
             # ``/etc/passwd`` entry under our ``runAsUser`` security context,

@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
@@ -33,7 +34,12 @@ from app.models import (
     User,
 )
 from app.models.dataset import DatasetVisibility
-from app.models.job import NON_TERMINAL_STATUSES, JobStatus, JobType
+from app.models.job import (
+    NON_TERMINAL_STATUSES,
+    RESOURCE_PROFILE_GPU_COUNT,
+    JobStatus,
+    JobType,
+)
 from app.models.user import Role
 from app.schemas.job import JobCreate, JobList, JobPatch, JobRead, JobSummary
 from app.schemas.job_event import JobEventOut, JobEventsPage
@@ -53,7 +59,7 @@ from app.services.k8s import (
     batch_v1,
     core_v1,
 )
-from app.services.mlflow_client import MlflowClient
+from app.services.mlflow_client import MlflowClient, MlflowError
 from app.services.rate_limit import rate_limit_user
 from app.services.validator import JobSubmissionError, validate_job_submission
 from app.users import current_active_user
@@ -302,19 +308,80 @@ async def create_job(
     run_name = f"{body.type.value}-{job_id.hex[:8]}"
 
     client = _get_mlflow_client()
+    newly_created_experiment = False
     if not dv.mlflow_experiment_id:
         dv.mlflow_experiment_id = await client.get_or_create_experiment(exp_name)
+        newly_created_experiment = True
         await session.flush()
+
+    if newly_created_experiment:
+        # Spec § 5.9 — populate the MLflow native UI's experiment page header
+        # with a human-readable description on first creation. Best-effort:
+        # tag failures don't block job submission.
+        note = (
+            f"**Detector**: `{det.name}` @ `{dv.git_tag}`\n\n"
+            f"**Owner**: `{user.handle}`\n\n"
+            f"**Description**: {(det.description or '_no description_')}\n\n"
+            f"**Maldet framework**: `{dv.maldet_version or '_unknown_'}`\n"
+        )
+        for k, v in (
+            ("mlflow.note.content", note),
+            ("lolday.detector_id", str(det.id)),
+            ("lolday.detector_version_id", str(dv.id)),
+            ("lolday.owner_id", str(user.id)),
+            ("lolday.owner_handle", user.handle),
+        ):
+            try:
+                await client.set_experiment_tag(dv.mlflow_experiment_id, k, v)
+            except MlflowError as exc:
+                logger.warning(
+                    "set_experiment_tag failed for %s key=%s: %s",
+                    dv.mlflow_experiment_id,
+                    k,
+                    exc,
+                )
+
+    gpu_count_val = RESOURCE_PROFILE_GPU_COUNT[body.resource_profile]
     run_id = await client.create_run(
         dv.mlflow_experiment_id,
+        start_time_ms=int(time.time() * 1000),
         tags=[
+            # MLflow native conventions (Python SDK fills these automatically;
+            # we use the REST API so populate them explicitly).
             {"key": "mlflow.runName", "value": run_name},
+            {"key": "mlflow.source.name", "value": detector_version_label},
+            {"key": "mlflow.source.type", "value": "JOB"},
+            {"key": "mlflow.source.git.commit", "value": dv.git_sha or ""},
+            # maldet stage identifier
             {"key": "maldet.action", "value": body.type.value},
+            # lolday namespace — Job <-> MLflow run correlation
             {"key": "lolday.job_id", "value": str(job_id)},
             {"key": "lolday.user", "value": user.handle},
             {"key": "lolday.user_id", "value": str(user.id)},
             {"key": "lolday.detector_version", "value": detector_version_label},
             {"key": "lolday.detector_version_id", "value": str(dv.id)},
+            # Provenance — reproducibility recipe (spec § 5.7)
+            {"key": "lolday.detector_image_digest", "value": dv.image_digest or ""},
+            {"key": "lolday.maldet_version", "value": dv.maldet_version or ""},
+            {"key": "lolday.resource_profile", "value": body.resource_profile.value},
+            {"key": "lolday.gpu_count", "value": str(gpu_count_val)},
+            # Dataset lineage — lightweight queryable companions to log_input
+            {
+                "key": "lolday.train_dataset_id",
+                "value": str(train_ds.id) if train_ds else "",
+            },
+            {
+                "key": "lolday.test_dataset_id",
+                "value": str(test_ds.id) if test_ds else "",
+            },
+            {
+                "key": "lolday.predict_dataset_id",
+                "value": str(predict_ds.id) if predict_ds else "",
+            },
+            {
+                "key": "lolday.source_model_version_id",
+                "value": str(source_model.id) if source_model else "",
+            },
         ],
     )
 
@@ -331,6 +398,13 @@ async def create_job(
         mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
         mlflow_run_id=run_id,
         mlflow_experiment_id=dv.mlflow_experiment_id,
+        lolday_meta={
+            "train_dataset_id": str(train_ds.id) if train_ds else "",
+            "test_dataset_id": str(test_ds.id) if test_ds else "",
+            "predict_dataset_id": str(predict_ds.id) if predict_ds else "",
+            "source_model_version_id": str(source_model.id) if source_model else "",
+            "job_id": str(job_id),
+        },
     )
     resolved = {"yaml": resolved_yaml}
 
