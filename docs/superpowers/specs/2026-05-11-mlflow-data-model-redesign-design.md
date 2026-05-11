@@ -269,8 +269,10 @@ async def _finalize_mlflow_run(j: Job, status: str, *, end_time: int | None = No
 
 ```python
 {"name": "MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING", "value": "true"},
-{"name": "MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL", "value": "10"},
+{"name": "MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL", "value": "1"},
 ```
+
+> **Sampling interval = 1s 的理由**（2026-05-11 實地驗證後校正）：MLflow 的 `system_metrics_monitor` 是 daemon thread 做 `sleep(interval) → sample → repeat`，**run 結束時不會 flush 部分 sample**。若 interval > run 長度則 run 內 0 sample。Sklearn small-dataset train ~5s，與 default 10s interval 衝突。改 1s 後，任何 ≥ 2s 的 run 都會有至少一個快照；sub-second run 不在觀測範圍內（也沒 profiling 價值），這與 W&B / Kubeflow / Databricks 的主流預期一致。
 
 前置：`charts/lolday/helpers/pytorch-cu12-base/Dockerfile` 加 `pip install psutil pynvml`。
 
