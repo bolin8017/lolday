@@ -236,7 +236,25 @@ server30
 
 ### 5.5 SSD 擴充流程 — 走 MinIO server pool
 
-**選定的 mainstream pattern**:每加一顆新 SSD,在 MinIO StatefulSet 加一個 **新 server pool**(各 pool 獨立)。MinIO 把每個獨立的 `/path` 參數視為一個 pool(see [MinIO server pool semantics](https://min.io/docs/minio/linux/operations/install-deploy-manage/deploy-minio-multi-node-multi-drive.html#minio-mnmd-server-pools)),所以 multi-pool 配置就是用**分開的 path 參數**而非 expansion-set 語法:
+> ⚠️ **2026-05-11 Validation finding**: The runbook based on this section
+> (`docs/runbooks/add-ssd.md`) was **invalidated** during Task 18 loop-device
+> validation. The `minio/minio` Helm chart 5.4.0 in `mode: standalone`
+> hardcodes `/export` as the primary mount path and does NOT support
+> injecting additional pools via `extraArgs` / `extraVolumeMounts`. The
+> "server pool expansion" approach described below is **architecturally
+> correct for MinIO** but **not achievable with the chart we currently
+> use**.
+>
+> Alternatives (operator's choice, follow-up spec):
+>
+> - OS-level RAID/LVM merge of old + new disk into one logical volume
+> - Switch to MinIO Operator (supports pool expansion natively)
+> - Vendor a custom MinIO StatefulSet (drop the chart)
+>
+> See `docs/runbooks/add-ssd.md` "Validation history" section for the full
+> root-cause analysis of the chart limitation.
+
+**選定的 mainstream pattern (失效 — 留作未來重新設計參考)**:每加一顆新 SSD,在 MinIO StatefulSet 加一個 **新 server pool**(各 pool 獨立)。MinIO 把每個獨立的 `/path` 參數視為一個 pool(see [MinIO server pool semantics](https://min.io/docs/minio/linux/operations/install-deploy-manage/deploy-minio-multi-node-multi-drive.html#minio-mnmd-server-pools)),所以 multi-pool 配置就是用**分開的 path 參數**而非 expansion-set 語法:
 
 ```
 Phase 1 (initial):
