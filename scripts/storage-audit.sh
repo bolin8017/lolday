@@ -6,7 +6,7 @@
 set -euo pipefail
 
 NS=lolday
-MINIO_POD="$(kubectl get pods -n "$NS" 2>/dev/null | grep -i minio | awk '{print $1}' | head -1)"
+MINIO_POD="$(kubectl get pod -n "$NS" -l app=minio,release=lolday -o name 2>/dev/null | head -1 | sed 's|pod/||')"
 
 if [ -z "$MINIO_POD" ]; then
   echo "FATAL: no MinIO pod found in namespace $NS" >&2

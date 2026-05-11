@@ -377,7 +377,7 @@ spec:
               set -eux
               trap 'rm -f /tmp/*.json' EXIT
               # Wait for MinIO API ready.
-              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
+              until mc alias set local http://lolday-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
                 echo "waiting for minio..."
                 sleep 2
               done
@@ -623,7 +623,7 @@ Expected: all 3 secrets exist.
 - [ ] **Step 6: Smoke-test MinIO API**
 
 ```bash
-kubectl exec -n lolday minio-0 -- mc alias set local http://minio:9000 \
+kubectl exec -n lolday minio-0 -- mc alias set local http://lolday-minio:9000 \
   "$(kubectl get secret -n lolday minio-root-cred -o jsonpath='{.data.rootUser}' | base64 -d)" \
   "$(kubectl get secret -n lolday minio-root-cred -o jsonpath='{.data.rootPassword}' | base64 -d)"
 
@@ -797,7 +797,7 @@ kubectl rollout status -n $NS statefulset/minio --timeout=2m
 echo "==> Configure mc alias in MinIO pod"
 ROOT_USER=$(kubectl get secret -n $NS minio-root-cred -o jsonpath='{.data.rootUser}' | base64 -d)
 ROOT_PASS=$(kubectl get secret -n $NS minio-root-cred -o jsonpath='{.data.rootPassword}' | base64 -d)
-kubectl exec -n $NS $MINIO_POD -- mc alias set local http://minio:9000 "$ROOT_USER" "$ROOT_PASS"
+kubectl exec -n $NS $MINIO_POD -- mc alias set local http://lolday-minio:9000 "$ROOT_USER" "$ROOT_PASS"
 
 echo "==> Find existing MLflow pod (it still has /mlflow-artifacts PVC mounted pre-rollout)"
 MLFLOW_POD="$(kubectl get pod -n $NS -l app.kubernetes.io/component=mlflow -o name | head -1)"

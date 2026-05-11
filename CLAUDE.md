@@ -17,7 +17,7 @@
 - Backend FIFO scheduler (Phase 6) → `docs/superpowers/specs/2026-05-05-gpu-fifo-anti-starvation-design.md`、`docs/runbooks/admin-priority.md`
 - Host-aware GPU signal (DCGM + Prom + scheduler) → `docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md`、`backend/app/services/gpu_signal.py`
 - MLflow data-model redesign (2026-05-11) → `docs/superpowers/specs/2026-05-11-mlflow-data-model-redesign-design.md`、`backend/app/services/mlflow_client.py`、`backend/app/reconciler/jobs.py::_finalize_mlflow_run`
-- 儲存層架構 / SSD 擴充 / object vs block 分層 → `docs/architecture.md` §6、`docs/superpowers/specs/2026-05-11-storage-architecture-redesign-design.md`
+- 儲存層架構 / SSD 擴充 / object vs block 分層 → `docs/architecture.md` §6、`docs/superpowers/specs/2026-05-11-storage-architecture-redesign-design.md`(spec 寫的 endpoint `minio.lolday.svc:9000` 實作後修正為 `lolday-minio.lolday.svc:9000`)
 - 加新 SSD 的 step-by-step → `docs/runbooks/add-ssd.md`
 - 一次性 storage migration (filesystem→S3) → `docs/runbooks/storage-migration.md`
 
