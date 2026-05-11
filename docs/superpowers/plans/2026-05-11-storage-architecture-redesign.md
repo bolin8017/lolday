@@ -1185,7 +1185,7 @@ git commit --allow-empty -m "chore(storage): Phase 3 (Harbor S3) verified pull+p
 grep -n "^loki:" -A 60 charts/lolday/values.yaml | head -80
 ```
 
-- [ ] **Step 2: Modify Loki storage config**
+- [x] **Step 2: Modify Loki storage config**
 
 Replace the current `loki:` block (whichever filesystem-based config is there) with:
 
@@ -1200,12 +1200,13 @@ loki:
       bucketNames:
         chunks: loki-chunks
         ruler: loki-ruler
+      # admin bucket omitted — only needed when auth_enabled: true (multi-tenant GEL)
       s3:
-        endpoint: minio.lolday.svc:9000
+        endpoint: lolday-minio.lolday.svc:9000 # literal; values.yaml is NOT templated
         region: us-east-1
-        accessKeyId: "" # filled by extraEnvFrom below
-        secretAccessKey: ""
-        s3ForcePathStyle: true
+        accessKeyId: "" # filled by AWS_ACCESS_KEY_ID env var below
+        secretAccessKey: "" # filled by AWS_SECRET_ACCESS_KEY env var below
+        s3ForcePathStyle: true # required for MinIO path-style addressing
         insecure: true # internal cluster, http only
     schemaConfig:
       configs:
@@ -1213,26 +1214,53 @@ loki:
           store: tsdb
           object_store: s3
           schema: v13
-          index: { prefix: loki_index_, period: 24h }
+          index:
+            prefix: loki_index_
+            period: 24h
+    limits_config:
+      retention_period: 168h
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
   singleBinary:
     replicas: 1
-    extraEnvFrom:
-      - secretRef: { name: loki-s3-cred }
+    # extraEnvFrom (bulk secretRef) is intentionally absent — explicit valueFrom
+    # per env var is cleaner and avoids injecting unexpected keys from the secret.
     extraEnv:
       - name: AWS_ACCESS_KEY_ID
-        valueFrom: { secretKeyRef: { name: loki-s3-cred, key: access-key } }
+        valueFrom:
+          secretKeyRef:
+            name: loki-s3-cred
+            key: access-key
       - name: AWS_SECRET_ACCESS_KEY
-        valueFrom: { secretKeyRef: { name: loki-s3-cred, key: secret-key } }
+        valueFrom:
+          secretKeyRef:
+            name: loki-s3-cred
+            key: secret-key
     persistence:
       enabled: false # state in S3, not local
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { cpu: 1, memory: 2Gi }
   gateway:
-    enabled: true # keep existing read path
-  monitoring:
-    serviceMonitor:
-      enabled: true
+    enabled: false # internal only; no ingress path needed
+  chunksCache: { enabled: false }
+  resultsCache: { enabled: false }
+  sidecar:
+    image:
+      tag: 2.7.1 # CVE-2025-15467 patch (OpenSSL 3.5.5-r0)
 ```
 
-> **Reference**: [Grafana Loki Helm chart § Object Storage](https://grafana.com/docs/loki/latest/setup/install/helm/install-monolithic/#object-storage). `s3ForcePathStyle: true` is required for MinIO (otherwise Loki defaults to virtual-hosted-style URLs which MinIO doesn't expose by default).
+> **Schema deviations vs. original plan draft**:
+>
+> - Endpoint: `lolday-minio.lolday.svc:9000` (not `minio.lolday.svc:9000` — fullnameOverride is `lolday-minio`)
+> - `admin` bucket dropped (auth_enabled: false → no GEL admin API)
+> - `extraEnvFrom` dropped; using explicit `valueFrom.secretKeyRef` per env var instead
+> - `gateway.enabled: false` kept (no ingress path; plan draft had `true`)
+> - `limits_config` retained (7-day retention, reject old samples)
+> - `sidecar.image.tag: 2.7.1` retained (CVE patch)
+> - `monitoring.serviceMonitor` dropped (already handled by kube-prometheus-stack ServiceMonitors)
+
+> **Reference**: [Grafana Loki Helm chart § Object Storage](https://grafana.com/docs/loki/latest/setup/install/helm/install-monolithic/#object-storage). `s3ForcePathStyle: true` is required for MinIO (otherwise Loki defaults to virtual-hosted-style URLs which MinIO doesn't expose by default). Loki's S3 client reads `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` automatically via the AWS SDK when YAML fields are empty strings.
 
 - [ ] **Step 3: Render-check**
 
