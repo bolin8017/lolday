@@ -686,7 +686,7 @@ In the same container's `env:` list (after the existing `PG_*` and other env var
 
 ```yaml
 - name: MLFLOW_S3_ENDPOINT_URL
-  value: http://minio.lolday.svc:9000
+  value: http://lolday-minio.{{ .Values.global.namespace }}.svc:9000
 - name: AWS_ACCESS_KEY_ID
   valueFrom:
     secretKeyRef: { name: mlflow-s3-cred, key: access-key }
@@ -727,7 +727,7 @@ helm template charts/lolday | sed -n '/kind: Deployment$/,/^---/p' | grep -A3 -E
 Expected:
 
 - `--default-artifact-root=s3://mlflow-artifacts/`
-- `MLFLOW_S3_ENDPOINT_URL = http://minio.lolday.svc:9000`
+- `MLFLOW_S3_ENDPOINT_URL = http://lolday-minio.{{ .Values.global.namespace }}.svc:9000`
 - AWS env vars referenced via secret
 - No `/mlflow-artifacts` mount path
 
@@ -863,7 +863,7 @@ git commit -m "feat(scripts): one-shot MLflow artifact migration to MinIO S3"
 kubectl exec -n lolday deploy/mlflow -- printenv MLFLOW_S3_ENDPOINT_URL AWS_ACCESS_KEY_ID | head -5
 ```
 
-Expected: `MLFLOW_S3_ENDPOINT_URL=http://minio.lolday.svc:9000` and `AWS_ACCESS_KEY_ID` is set (the value is the actual access key).
+Expected: `MLFLOW_S3_ENDPOINT_URL=http://lolday-minio.{{ .Values.global.namespace }}.svc:9000` and `AWS_ACCESS_KEY_ID` is set (the value is the actual access key).
 
 - [ ] **Step 2: Submit a small test train job**
 
