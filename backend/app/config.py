@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     MLFLOW_HTTP_TIMEOUT_SECONDS: float = 10.0
     MLFLOW_HTTP_RETRIES: int = 3
     DATASET_CSV_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MiB
+    BODY_SIZE_MAX_BYTES: int = 12 * 1024 * 1024  # 12 MiB; headroom over 10 MiB CSV cap
     DATASET_SPOT_CHECK_COUNT: int = 100  # files per job dispatch
     DATASET_SPOT_CHECK_MISSING_THRESHOLD: int = 1  # fail if >= this many missing
     SAMPLES_ROOT: str = "/mnt/samples"  # parent of malware/, benign/

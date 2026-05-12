@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
-from app.models import User
+from app.models import Role, User
+from app.services.http_headers import build_content_disposition
 from app.services.mlflow_client import MlflowClient, MlflowError
 from app.users import current_active_user
 
@@ -21,23 +22,53 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _build_content_disposition(filename: str) -> str:
-    """RFC 6266 dual-form ``Content-Disposition`` for artifact downloads.
+# ---------------------------------------------------------------------------
+# H-1 / H-2: per-user ACL + artifact path-traversal guard.
+#
+# All five MLflow proxy handlers authenticate via ``current_active_user`` but
+# previously returned data regardless of which lolday user owned the run.
+# Every job-spawned run carries ``tags["lolday.user_id"]`` (set in
+# ``routers/jobs.py`` at run creation). The ACL strategy: admin sees all;
+# non-admin sees only runs whose ``lolday.user_id`` matches their UUID.
+# Runs that lack the tag are treated as platform-internal (admin-only).
+# ---------------------------------------------------------------------------
 
-    Output: ``attachment; filename="<ascii>"; filename*=UTF-8''<percent-encoded>``.
 
-    - ``filename``: ASCII fallback for legacy clients. Non-ASCII chars become ``?``
-      via ``encode("ascii", errors="replace")`` and quotes are scrubbed to ``_`` to
-      defend against header-injection.
-    - ``filename*``: RFC 5987 percent-encoded UTF-8 form, used by every modern
-      browser. Lab-produced detectors may emit Chinese-named files, so the dual
-      form is required (the ASCII fallback alone would lose the filename).
+def _user_can_see_run(user: User, run_tags: dict[str, str]) -> bool:
+    """Owner-or-admin check against the run's ``lolday.user_id`` tag.
+
+    Returns True iff the caller is admin OR the tag matches the caller's
+    UUID. Runs without the tag are treated as platform-internal (admin-only).
     """
-    ascii_fallback = (
-        filename.encode("ascii", errors="replace").decode("ascii").replace('"', "_")
-    )
-    quoted = quote(filename, safe="")
-    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quoted}"
+    if user.role == Role.ADMIN:
+        return True
+    owner_id = run_tags.get("lolday.user_id")
+    return owner_id is not None and owner_id == str(user.id)
+
+
+def _user_can_see_run_dict(user: User, raw_run: dict) -> bool:
+    """Same as :func:`_user_can_see_run` but works on the raw MLflow REST run shape."""
+    data = raw_run.get("data") or {}
+    tags_list = data.get("tags") or []
+    tags = {t["key"]: t["value"] for t in tags_list if "key" in t}
+    return _user_can_see_run(user, tags)
+
+
+def _validate_artifact_path(path: str) -> str:
+    """Reject path-traversal and absolute paths in the user-supplied artifact path.
+
+    Returns the path unchanged on success; raises :class:`HTTPException` (400)
+    otherwise. The MLflow proxy interpolates ``path`` into the upstream URL,
+    so unfiltered ``..`` segments allow cross-run artifact reads.
+    """
+    if not path:
+        raise HTTPException(status_code=400, detail="path is required")
+    if path.startswith("/") or path.startswith("\\"):
+        raise HTTPException(status_code=400, detail="absolute path forbidden")
+    parts = PurePosixPath(path).parts
+    if any(p in (".", "..") for p in parts):
+        raise HTTPException(status_code=400, detail="path traversal forbidden")
+    return path
 
 
 _stats_cache: TTLCache[str, dict] = TTLCache(maxsize=64, ttl=30)
@@ -134,6 +165,26 @@ async def list_experiments(
         experiments = await _client().search_experiments(max_results=max_results)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+
+    # H-1: per-experiment owner filter for non-admin callers — an experiment
+    # is visible iff it has at least one run tagged with the caller's
+    # ``lolday.user_id``. One ``search_runs`` per experiment is acceptable at
+    # lab-scale (< 50 experiments).
+    if user.role != Role.ADMIN:
+        kept = []
+        for exp in experiments:
+            try:
+                runs = await _client().search_runs(
+                    experiment_ids=[exp["experiment_id"]],
+                    max_results=1,
+                    filter_string=f"tags.\"lolday.user_id\" = '{user.id!s}'",
+                )
+            except MlflowError:
+                runs = []
+            if runs:
+                kept.append(exp)
+        experiments = kept
+
     if include != "stats":
         return experiments
 
@@ -189,14 +240,16 @@ async def list_runs(
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
+    # H-1: drop runs the caller does not own (admin sees all).
+    visible_raw = [r for r in raw if _user_can_see_run_dict(user, r)]
     run_ids: list[str] = []
-    for r in raw:
+    for r in visible_raw:
         info = r.get("info") or {}
         rid = info.get("run_id") or info.get("run_uuid")
         if isinstance(rid, str) and rid:
             run_ids.append(rid)
     lolday_meta = await _fetch_lolday_job_meta(run_ids, session)
-    return [_flatten_run(r, lolday_job_meta=lolday_meta) for r in raw]
+    return [_flatten_run(r, lolday_job_meta=lolday_meta) for r in visible_raw]
 
 
 @router.get("/runs/{run_id}")
@@ -209,6 +262,9 @@ async def get_run(
         raw = await _client().get_run(run_id)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+    # H-1: 404 (not 403) for non-owners to avoid leaking run existence.
+    if not _user_can_see_run_dict(user, raw):
+        raise HTTPException(status_code=404, detail="run not found")
     lolday_meta = await _fetch_lolday_job_meta([run_id], session)
     return _flatten_run(raw, lolday_job_meta=lolday_meta)
 
@@ -219,6 +275,16 @@ async def list_artifacts(
     user: Annotated[User, Depends(current_active_user)],
     path: str | None = None,
 ):
+    # H-1: authorise via get_run before doing any artifact listing.
+    try:
+        run = await _client().get_run(run_id)
+    except MlflowError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    if not _user_can_see_run_dict(user, run):
+        raise HTTPException(status_code=404, detail="run not found")
+    # H-2: block traversal / absolute paths on the optional ``path`` param.
+    if path is not None:
+        _validate_artifact_path(path)
     url = f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow/artifacts/list"
     params = {"run_id": run_id}
     if path:
@@ -236,7 +302,15 @@ async def download_artifact(
     path: str,
     user: Annotated[User, Depends(current_active_user)],
 ) -> Response:
-    run = await _client().get_run(run_id)
+    try:
+        run = await _client().get_run(run_id)
+    except MlflowError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    # H-1: ACL on owner.
+    if not _user_can_see_run_dict(user, run):
+        raise HTTPException(status_code=404, detail="run not found")
+    # H-2: block traversal / absolute paths before interpolating ``path``.
+    _validate_artifact_path(path)
     artifact_uri: str = run["info"]["artifact_uri"]
     prefix = "mlflow-artifacts:/"
     if not artifact_uri.startswith(prefix):
@@ -245,7 +319,14 @@ async def download_artifact(
             detail=f"unexpected artifact_uri scheme: {artifact_uri!r}",
         )
     relative = artifact_uri[len(prefix) :].rstrip("/")
-    url = f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow-artifacts/artifacts/{relative}/{path}"
+    # Percent-encode each segment defensively — ``..`` is already rejected
+    # by ``_validate_artifact_path``, but unencoded ``#`` / ``?`` / ``%``
+    # would otherwise truncate the upstream URL or get re-interpreted.
+    safe_path = "/".join(quote(p, safe="") for p in PurePosixPath(path).parts)
+    url = (
+        f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow-artifacts/artifacts/"
+        f"{relative}/{safe_path}"
+    )
     async with httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS) as c:
         r = await c.get(url)
     if r.status_code != 200:
@@ -258,5 +339,5 @@ async def download_artifact(
     return Response(
         content=r.content,
         media_type=media_type,
-        headers={"Content-Disposition": _build_content_disposition(filename)},
+        headers={"Content-Disposition": build_content_disposition(filename)},
     )

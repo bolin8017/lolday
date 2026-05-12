@@ -17,7 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_async_session
-from app.models.detector import Detector, DetectorBuild
+from app.deps import load_detector
+from app.models.detector import DetectorBuild
 from app.models.user import User
 from app.schemas.detector import BuildRead
 from app.users import current_active_user
@@ -34,10 +35,8 @@ async def get_build_flat(
     build = await session.get(DetectorBuild, build_id)
     if build is None:
         raise HTTPException(status_code=404, detail="build not found")
-    # Fetch the parent detector so the schema validator can render
-    # harbor_image etc. — and to give us a single place to extend with
-    # per-detector ACLs if the nested route ever tightens read access.
-    detector = await session.get(Detector, build.detector_id)
-    if detector is None:
-        raise HTTPException(status_code=404, detail="build not found")
+    # Re-use load_detector for the soft-delete check (same semantics as the
+    # nested route). load_detector raises HTTPException(404) on missing /
+    # soft-deleted; let it propagate.
+    await load_detector(detector_id=build.detector_id, session=session)
     return BuildRead.model_validate(build)

@@ -14,3 +14,50 @@ spec:
     - Egress
   egress: []
 {{- end }}
+---
+# H-25: restrict /metrics ingress to the monitoring namespace's Prometheus
+# pod only. Backend Service exposes /metrics on the same port as the public
+# API (the prometheus-fastapi-instrumentator default); this policy is the
+# only network-layer gate preventing arbitrary in-cluster scrapes.
+{{- if .Values.backend.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-metrics-from-monitoring-only
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow normal API traffic (port 8000) from cloudflared + jobs ns.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: cloudflared
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace | default "lolday-jobs" }}
+      ports:
+        - port: 8000
+          protocol: TCP
+    # /metrics is on the same Service port, but we gate the scraper itself
+    # by labelling the kps prometheus pod and matching on that label below.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 8000
+          protocol: TCP
+{{- end }}

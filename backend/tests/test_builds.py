@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
@@ -150,3 +151,14 @@ async def test_flat_builds_get_unknown_id_404(auth_client_developer):
     bogus = "00000000-0000-0000-0000-000000000000"
     resp = await auth_client_developer.get(f"/api/v1/builds/{bogus}")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_flat_build_route_404s_if_parent_detector_deleted(
+    user_client: "AsyncClient", soft_deleted_detector_with_build
+):
+    """Belt-and-braces: the nested route correctly 404s on soft-deleted
+    parent; the flat route must too."""
+    build_id = soft_deleted_detector_with_build.build_id
+    r = await user_client.get(f"/api/v1/builds/{build_id}")
+    assert r.status_code == 404, r.text

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -139,3 +139,63 @@ class JobInternalConfig(BaseModel):
     train_csv: str | None
     test_csv: str | None
     predict_csv: str | None
+
+
+# All kind strings emitted by maldet (EventKind enum + logger methods) and any
+# future/alternative names used by the plan.  Expand here when maldet adds a
+# new EventKind; do NOT change the Literal at call sites — update only here.
+EVENT_KIND = Literal[
+    # maldet EventKind enum (kinds.py)
+    "stage_begin",
+    "stage_end",
+    "data_loaded",
+    "epoch_begin",
+    "epoch_end",
+    "metric",
+    "artifact_written",
+    "checkpoint_saved",
+    "warning",
+    "error",
+    "confusion_matrix",
+    "per_class",
+    # maldet logger methods not in EventKind enum
+    "params",
+    "tags",
+    "model_logged",
+    # plan / forward-compat names
+    "init_start",
+    "init_end",
+    "train_start",
+    "train_progress",
+    "epoch",
+    "train_end",
+    "evaluate_start",
+    "evaluate_end",
+    "predict_start",
+    "predict_end",
+    "metric_logged",
+    "info",
+]
+
+
+class JobInternalEvent(BaseModel):
+    """Typed payload accepted by ``POST /api/v1/internal/jobs/{id}/events``.
+
+    Only ``kind`` is constrained to the EVENT_KIND allowlist. Extra
+    top-level keys are allowed (the maldet wire contract puts data
+    fields at the top level, e.g. ``{"kind": "metric", "name": "loss",
+    "value": 0.5}``). The whole event must serialize under 64 KiB.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    kind: EVENT_KIND
+
+    @model_validator(mode="after")
+    def _whole_event_under_64k(self) -> "JobInternalEvent":
+        import json
+
+        size = len(json.dumps(self.model_dump(), default=str).encode("utf-8"))
+        if size > 64 * 1024:
+            raise ValueError("event exceeds 64 KiB")
+        return self

@@ -19,6 +19,12 @@ from typing import Any
 
 import yaml
 
+# H-5: top-level keys injected by the platform that user_params must not touch.
+# Includes the flat form ("mlflow") and all dotted children ("mlflow.tracking_uri").
+RESERVED_TOP_LEVEL_KEYS: frozenset[str] = frozenset(
+    {"mlflow", "paths", "data", "defaults", "lolday", "stage"}
+)
+
 
 def compute_idempotency_key(
     *,
@@ -114,6 +120,17 @@ class JobConfigRenderer:
         mlflow_experiment_id: str | None,
         lolday_meta: dict[str, str] | None = None,
     ) -> str:
+        # H-5: reject user-supplied keys that would collide with the
+        # platform-injected namespace. Includes both the flat form
+        # ("mlflow") and the dotted form ("mlflow.tracking_uri").
+        for raw_key in user_params:
+            top = raw_key.split(".", 1)[0]
+            if top in RESERVED_TOP_LEVEL_KEYS:
+                raise ValueError(
+                    f"user_params key {raw_key!r} collides with platform-reserved "
+                    f"top-level namespace {sorted(RESERVED_TOP_LEVEL_KEYS)!r}"
+                )
+
         base: dict[str, Any] = {
             "defaults": ["_self_"],
             "stage": stage,

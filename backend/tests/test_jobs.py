@@ -114,6 +114,29 @@ async def test_concurrency_limit_enforced(
 
 
 @pytest.mark.asyncio
+async def test_create_job_rejects_reserved_param_key(
+    user_client, seed_detector_version, seed_dataset
+):
+    """H-5: reserved top-level namespace in user params must return 400."""
+    dv_id = await seed_detector_version()
+    train_ds = await seed_dataset(name="tr-reserved")
+    test_ds = await seed_dataset(name="te-reserved")
+
+    r = await user_client.post(
+        "/api/v1/jobs",
+        json={
+            "type": "train",
+            "detector_version_id": dv_id,
+            "train_dataset_id": train_ds,
+            "test_dataset_id": test_ds,
+            "params": {"mlflow": {"tracking_uri": "http://evil"}},
+        },
+    )
+    assert r.status_code == 400
+    assert "reserved" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_list_jobs_owner_scoped(
     user_client, second_user_client, seed_detector_version, seed_dataset
 ):
