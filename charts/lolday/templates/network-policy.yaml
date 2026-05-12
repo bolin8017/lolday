@@ -1,3 +1,7 @@
+# H-25 + M-backend-np: this policy is both the backend's full ingress allow
+# list AND the metrics-source gate. Under H-12's default-deny on the lolday
+# ns (templates/netpol-lolday-default-deny.yaml), nothing else reaches the
+# backend pod.
 # H-25: restrict /metrics ingress to the monitoring namespace's Prometheus
 # pod only. Backend Service exposes /metrics on the same port as the public
 # API (the prometheus-fastapi-instrumentator default); this policy is the
