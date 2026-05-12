@@ -203,6 +203,23 @@ async def test_create_dataset_accepts_unicode_dash_and_dot(user_client: AsyncCli
 
 
 @pytest.mark.asyncio
+async def test_csv_download_uses_rfc6266_header(user_client: AsyncClient):
+    # Create with a unicode-bearing name; the regex from H-6a allows ASCII
+    # only, so the unicode case is purely for the encoding helper.
+    create = await user_client.post(
+        "/api/v1/datasets",
+        json={"name": "ds-test", "csv_content": FIXTURE_CSV},
+    )
+    ds_id = create.json()["id"]
+    r = await user_client.get(f"/api/v1/datasets/{ds_id}/csv")
+    assert r.status_code == 200
+    cd = r.headers["content-disposition"]
+    # Dual-form: ASCII fallback + RFC 5987 percent-encoded UTF-8.
+    assert cd.startswith('attachment; filename="')
+    assert "filename*=UTF-8''" in cd
+
+
+@pytest.mark.asyncio
 async def test_delete_dataset_blocked_by_active_job(
     user_client, seed_detector_version, seed_dataset
 ):

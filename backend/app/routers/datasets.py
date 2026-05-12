@@ -19,6 +19,7 @@ from app.schemas.dataset import (
     DatasetConfigUpdate,
 )
 from app.services.dataset import DatasetValidationError, parse_csv
+from app.services.http_headers import build_content_disposition
 from app.users import current_active_user
 
 router = APIRouter()
@@ -161,7 +162,7 @@ async def get_dataset_csv(
     return Response(
         content=ds.csv_content,
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{ds.name}.csv"'},
+        headers={"Content-Disposition": build_content_disposition(f"{ds.name}.csv")},
     )
 
 

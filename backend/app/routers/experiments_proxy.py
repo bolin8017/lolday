@@ -3,7 +3,6 @@ import logging
 import mimetypes
 from pathlib import PurePosixPath
 from typing import Annotated, Any
-from urllib.parse import quote
 
 import httpx
 from cachetools import TTLCache
@@ -14,30 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db import get_async_session
 from app.models import User
+from app.services.http_headers import build_content_disposition
 from app.services.mlflow_client import MlflowClient, MlflowError
 from app.users import current_active_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _build_content_disposition(filename: str) -> str:
-    """RFC 6266 dual-form ``Content-Disposition`` for artifact downloads.
-
-    Output: ``attachment; filename="<ascii>"; filename*=UTF-8''<percent-encoded>``.
-
-    - ``filename``: ASCII fallback for legacy clients. Non-ASCII chars become ``?``
-      via ``encode("ascii", errors="replace")`` and quotes are scrubbed to ``_`` to
-      defend against header-injection.
-    - ``filename*``: RFC 5987 percent-encoded UTF-8 form, used by every modern
-      browser. Lab-produced detectors may emit Chinese-named files, so the dual
-      form is required (the ASCII fallback alone would lose the filename).
-    """
-    ascii_fallback = (
-        filename.encode("ascii", errors="replace").decode("ascii").replace('"', "_")
-    )
-    quoted = quote(filename, safe="")
-    return f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quoted}"
 
 
 _stats_cache: TTLCache[str, dict] = TTLCache(maxsize=64, ttl=30)
@@ -258,5 +239,5 @@ async def download_artifact(
     return Response(
         content=r.content,
         media_type=media_type,
-        headers={"Content-Disposition": _build_content_disposition(filename)},
+        headers={"Content-Disposition": build_content_disposition(filename)},
     )
