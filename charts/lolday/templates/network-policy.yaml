@@ -44,3 +44,28 @@ spec:
         - port: 8000
           protocol: TCP
 {{- end }}
+---
+# M-minio-console: MinIO Console is sub-chart-rendered as a ClusterIP at
+# port 9001. The sub-chart doesn't support disabling it; this NP blocks
+# ingress to the Console pod port instead. Operator port-forward still
+# works (it bypasses the cluster network).
+{{- if .Values.minio.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-console-no-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow only the S3 API port (9000). Console (9001) gets no ingress.
+    - ports:
+        - port: 9000
+          protocol: TCP
+{{- end }}
