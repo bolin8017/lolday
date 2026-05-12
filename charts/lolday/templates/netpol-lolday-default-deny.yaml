@@ -1,0 +1,167 @@
+# H-12: default-deny ingress for the lolday infra namespace, plus per-
+# service allow rules. NB:
+#   - The backend ingress NP is in templates/network-policy.yaml
+#     (added by P1 H-25), not here.
+#   - cloudflared ingress NP is added in T11 below.
+#   - jobs-ns ingress NPs are already in templates/job-networkpolicy.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lolday-default-deny-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  # No `ingress:` block = deny all by default. Allow rules below add back
+  # what each service legitimately needs.
+---
+# Postgres: reachable from backend, mlflow, and postgres-exporter.
+# postgres-exporter is deployed in the lolday namespace (same ns — no
+# namespaceSelector needed; podSelector alone is sufficient).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgresql-ingress-allow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: postgresql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: mlflow
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-exporter
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# Redis: reachable from backend only.
+# NB: harbor also runs a redis pod in this namespace with the same
+# app.kubernetes.io/component: redis label. We scope this policy to our
+# lolday redis only by requiring the absence of the harbor-specific
+# app: harbor label via matchExpressions.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress-allow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [redis]
+      - key: app
+        operator: NotIn
+        values: [harbor]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+      ports:
+        - port: 6379
+          protocol: TCP
+---
+# MLflow: reachable from backend (proxy) and Traefik (for ForwardAuth-gated
+# /mlflow/ routes). Direct access from jobs ns is BLOCKED — jobs must use
+# the Traefik route. The Traefik IngressController lives in kube-system
+# on K3s; identify by its standard label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mlflow-ingress-allow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: mlflow
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: {{ .Values.mlflow.service.port | int }}
+          protocol: TCP
+---
+# Harbor nginx (entry point): reachable from backend (build orchestration) and
+# from job pods (image pull at runtime). Cross-ns selector for jobs ns.
+# NB: harbor.lolday.svc:80 routes to the harbor-nginx pod (component: nginx).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: harbor-nginx-ingress-allow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: harbor
+      component: nginx
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace }}
+      ports:
+        - port: 80
+          protocol: TCP
+---
+# Harbor internal: all harbor components (core, portal, registry, jobservice,
+# database, redis, trivy, exporter, nginx) need to communicate with each other.
+# A single pod-to-pod allow within the lolday ns using the shared app: harbor
+# label covers all intra-harbor traffic. Without this, the default-deny above
+# would break harbor entirely.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: harbor-internal-ingress-allow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: harbor
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: harbor
