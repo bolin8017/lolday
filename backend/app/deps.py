@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_async_session
 from app.models import Job, Role, User
 from app.models.detector import Detector
+from app.models.job import NON_TERMINAL_STATUSES
 from app.services.job_tokens import verify_token
 from app.users import current_active_user
 
@@ -71,13 +72,16 @@ async def require_job_token(
 ) -> Job:
     """Authenticate as a given job's init container via one-time token.
 
-    Expected header: `Authorization: Bearer <token>`
+    Expected header: `Authorization: Bearer <token>`. Terminal jobs are
+    rejected outright (H-20) even if a stale token_hash row exists.
     """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="missing bearer token")
     token = authorization[7:]
     job = await session.get(Job, job_id)
     if job is None or job.token_hash is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status not in NON_TERMINAL_STATUSES:
         raise HTTPException(status_code=404, detail="job not found")
     if not verify_token(token, job.token_hash):
         raise HTTPException(status_code=403, detail="invalid token")

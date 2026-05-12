@@ -81,6 +81,9 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
             j.status = JobStatus.FAILED
             j.failure_reason = "k8s_job_missing"
             j.finished_at = datetime.now(UTC)
+            j.token_hash = (
+                None  # H-20: invalidate init-container token on terminal transition
+            )
             await session.commit()
             await _finalize_mlflow_run(j, "FAILED")
             await _fire_job_failed_notify(session, j, "k8s_job_missing")
@@ -109,6 +112,9 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
         j.status = JobStatus.TIMEOUT
         j.failure_reason = "detector_timeout"
         j.finished_at = datetime.now(UTC)
+        j.token_hash = (
+            None  # H-20: invalidate init-container token on terminal transition
+        )
         await session.commit()
         await _finalize_mlflow_run(j, "KILLED")
         await _fire_job_failed_notify(session, j, "detector_timeout")
@@ -206,6 +212,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
     j.log_tail = log_tail
     j.status = JobStatus.SUCCEEDED
     j.finished_at = datetime.now(UTC)
+    j.token_hash = None  # H-20: invalidate init-container token on terminal transition
 
     if j.type == JobType.TRAIN:
         try:
@@ -372,6 +379,7 @@ async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
     j.failure_reason = reason
     j.log_tail = log_tail
     j.finished_at = datetime.now(UTC)
+    j.token_hash = None  # H-20: invalidate init-container token on terminal transition
     await session.commit()
     await _finalize_mlflow_run(j, "FAILED")
 

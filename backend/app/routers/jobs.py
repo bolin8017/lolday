@@ -649,6 +649,7 @@ async def cancel_job(
         "cancelled_by_user" if job.owner_id == user.id else "cancelled_by_admin"
     )
     job.finished_at = datetime.now(UTC)
+    job.token_hash = None  # H-20: invalidate the init-container token on cancel
     await session.commit()
     await session.refresh(job)
     # Same defensive ``dv if dv else None`` guard as ``get_job`` — the
