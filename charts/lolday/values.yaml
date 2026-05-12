@@ -49,7 +49,7 @@ backend:
   fernetKey: "" # --set at deploy time
   harborAdminPassword: "" # --set at deploy time (shared with Harbor release)
   env:
-    DOCS_ENABLED: "true"
+    DOCS_ENABLED: "false"
     # NEW for Phase 3:
     HARBOR_URL: "http://harbor.lolday.svc.cluster.local:80"
     HARBOR_ADMIN_USERNAME: "admin"
