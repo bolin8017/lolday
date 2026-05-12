@@ -29,6 +29,8 @@ Day-to-day operator data (Discord channel IDs, `.env` files, server access): `do
 - Storage architecture / SSD expansion / object-vs-block layering → `docs/architecture.md` §6, `docs/superpowers/specs/2026-05-11-storage-architecture-redesign-design.md` (spec wrote endpoint `minio.lolday.svc:9000`; corrected to `lolday-minio.lolday.svc:9000` during implementation)
 - Step-by-step for adding an SSD → `docs/runbooks/add-ssd.md` ⚠️ MinIO chart limitation, needs redesign
 - One-time storage migration (filesystem → S3) → `docs/runbooks/storage-migration.md`
+- NFS dataset union mount onboarding (since 2026-05-12) → `docs/runbooks/add-nfs-dataset.md`
+- NFS dataset union mount design (mergerfs over NFSv4.2) → `docs/superpowers/specs/2026-05-12-nfs-dataset-union-mount-design.md`
 
 ## Hard rules (every session must remember)
 
