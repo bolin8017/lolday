@@ -392,20 +392,23 @@ async def create_job(
         output_mount="/mnt/output",
         source_model_mount="/mnt/source-model",
     )
-    resolved_yaml = renderer.render_config_yaml(
-        stage=body.type.value,
-        user_params=body.params,
-        mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
-        mlflow_run_id=run_id,
-        mlflow_experiment_id=dv.mlflow_experiment_id,
-        lolday_meta={
-            "train_dataset_id": str(train_ds.id) if train_ds else "",
-            "test_dataset_id": str(test_ds.id) if test_ds else "",
-            "predict_dataset_id": str(predict_ds.id) if predict_ds else "",
-            "source_model_version_id": str(source_model.id) if source_model else "",
-            "job_id": str(job_id),
-        },
-    )
+    try:
+        resolved_yaml = renderer.render_config_yaml(
+            stage=body.type.value,
+            user_params=body.params,
+            mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
+            mlflow_run_id=run_id,
+            mlflow_experiment_id=dv.mlflow_experiment_id,
+            lolday_meta={
+                "train_dataset_id": str(train_ds.id) if train_ds else "",
+                "test_dataset_id": str(test_ds.id) if test_ds else "",
+                "predict_dataset_id": str(predict_ds.id) if predict_ds else "",
+                "source_model_version_id": str(source_model.id) if source_model else "",
+                "job_id": str(job_id),
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     resolved = {"yaml": resolved_yaml}
 
     # 10. Priority: admin-only field. Non-admin submitting priority != 0 → 403.
