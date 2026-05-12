@@ -58,6 +58,50 @@ Runtime cluster secrets are wired via `charts/lolday/templates/*-secret.yaml`,
 filled out-of-band by the operator into K8s `Secret` objects — **not** mounted
 from the files above. See `docs/runbooks/deploy.md` for the wiring.
 
+## NFS dataset sources
+
+Detector samples are **not** stored on server30's local SSD. They live on an
+NFS share exported by server14 and are combined into a single
+`samples_root` view via mergerfs.
+
+| Path on server30        | Backing                                                                    |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `/mnt/server14/dataset` | NFSv4.2 from `140.118.155.14:/mnt/hdd4t/dataset` (ro, `nofail`, `_netdev`) |
+| `/mnt/lolday-samples`   | mergerfs union — branches ordered: 2025 → 2024 → benignware                |
+
+The chart `samples.hostPath` (`charts/lolday/values.yaml`) points at
+`/mnt/lolday-samples`. Detector vcjob pods mount the resulting PVC at
+`/mnt/samples` (`SAMPLES_ROOT`). The backend pod itself does NOT mount
+the samples PVC by design (`spot_check_samples` is best-effort, skipped
+when the local path doesn't exist).
+
+**Branch order = dedup priority.** A SHA-256 present in multiple banks
+resolves to the file from the first matching branch (2025 wins over 2024
+wins over benignware). Verifiable via:
+
+```bash
+python3 -c "import os; print(os.getxattr('/mnt/lolday-samples/<prefix>/<sha256>', 'user.mergerfs.fullpath').decode())"
+```
+
+**Adding / removing a dataset bank** — see `docs/runbooks/add-nfs-dataset.md`.
+Short version:
+
+1. Mount new NFS source at `/mnt/<src>` (ro, `nofail`, `_netdev`)
+2. Edit `/etc/fstab` mergerfs line — insert path at desired priority
+   position (leftmost = highest priority)
+3. `sudo systemctl daemon-reload && sudo umount /mnt/lolday-samples && sudo mount -a`
+4. Upload the bank's CSV as a fresh lolday `DatasetConfig`
+
+No chart or backend change required.
+
+**Cosmetic note**: server30 displays NFS file group as `diskaccess` after
+2026-05-12 GID alignment (`diskaccess` was on GID 1001 locally, NFS sends
+raw GID 1002 = server14's `diskaccess`). Pre-alignment displays showed
+`campbell` (user owning GID 1002 locally before the swap). This has no
+functional impact — files are world-readable.
+
+Spec: `docs/superpowers/specs/2026-05-12-nfs-dataset-union-mount-design.md`.
+
 ## Server access
 
 - Primary host: **server30** (single-node K3s; no IPMI / out-of-band — broken SSH = physical recovery)

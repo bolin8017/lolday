@@ -281,11 +281,11 @@ If you see a default in `config.py` that uses `harbor.lolday.svc`, it's likely a
 
 lolday runs a layered storage strategy:
 
-| Layer                            | Backend                                                | Used by                                                                                                 |
-| -------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| **Object store** (S3-compatible) | MinIO single-node, scale via multi-pool SSDs           | MLflow artifacts, Harbor container blobs, Loki log chunks                                               |
-| **OLTP / TSDB (block)**          | K3s local-path-provisioner on NVMe                     | PostgreSQL (lolday + mlflow + harbor metadata), Prometheus TSDB, Grafana, Alertmanager, Trivy DB, Redis |
-| **Read-only big static**         | hostPath at `/mnt/ssd500g/data/samples` (separate SSD) | Malware samples (600 GB ROX)                                                                            |
+| Layer                            | Backend                                                                       | Used by                                                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Object store** (S3-compatible) | MinIO single-node, scale via multi-pool SSDs                                  | MLflow artifacts, Harbor container blobs, Loki log chunks                                               |
+| **OLTP / TSDB (block)**          | K3s local-path-provisioner on NVMe                                            | PostgreSQL (lolday + mlflow + harbor metadata), Prometheus TSDB, Grafana, Alertmanager, Trivy DB, Redis |
+| **Read-only big static**         | NFS (server14) → mergerfs union at `/mnt/lolday-samples` (host) → hostPath PV | Malware / benign samples (multi-bank union, 600 GB+ ROX) — see §6.7                                     |
 
 ### 6.1 Why this split
 
@@ -319,6 +319,57 @@ Discord alert (#lolday-service-alerts) triggers when:
 - Any individual bucket → projected growth crosses spec §5.4 thresholds
 
 Alert source: `minio_cluster_capacity_usable_free_bytes` and `minio_bucket_usage_total_bytes` Prometheus metrics.
+
+### 6.7 Detector samples (NFS-backed union mount, since 2026-05-12)
+
+Detector samples are **not** stored on server30's local SSD. They are served
+from server14 (`140.118.155.14:/mnt/hdd4t/dataset`) via NFSv4.2 and combined
+into a single read-only view via a mergerfs FUSE union at
+`/mnt/lolday-samples`. The chart's `samples.hostPath` points at the union,
+so backend and detector job pods see one flat `<root>/<prefix>/<sha256>`
+layout regardless of which underlying bank a sample physically lives in.
+
+```
+NFS source (server14, ro):                          mergerfs union (host):
+/mnt/server14/dataset/
+├── benignware/data/         (00..ff)       ─┐
+├── nict202403/nictMalware/  (00..ff)       ─┼──→  /mnt/lolday-samples (00..ff)
+└── nict202503/nictMalware/  (00..ff)       ─┘     (samples.hostPath)
+```
+
+**Branch order = dedup priority.** A SHA-256 present in multiple banks
+resolves to the file from the first matching branch (currently `2025 wins
+over 2024 wins over benignware`). Verified via `user.mergerfs.fullpath`
+xattr.
+
+**lolday backend / chart contract**:
+
+- `samples.hostPath` is a single directory (chart values)
+- backend `_sample_path(root, sha256) = root / sha256[:2] / sha256` —
+  union view satisfies this unchanged
+- `DatasetConfig` has no filesystem-side dataset dimension; dataset
+  boundary lives inside the uploaded CSV. Cross-bank training CSVs are
+  built in user-side pandas (dedup `keep="first"` mirrors mergerfs branch
+  priority)
+
+**Adding / removing a sample bank**: `docs/runbooks/add-nfs-dataset.md`
+(no chart change, no backend redeploy).
+
+**Caveats**:
+
+- `nofail` is **not** in the mergerfs fstab line (mergerfs v2.33.5 has a
+  bug where it forwards `nofail` to the FUSE driver which rejects it).
+  Boot safety still holds: NFS source mount uses `nofail` + `_netdev`, so
+  server14 unreachable means the NFS layer doesn't mount and mergerfs
+  silently degrades to "no branches" rather than blocking boot.
+- FUSE crash is **not** auto-restarted by fstab alone; manual `umount -lf
+/mnt/lolday-samples && mount -a` recovers. Future: convert to a systemd
+  `.mount` unit with `Restart=on-failure` (out of scope for this spec).
+- NFS `sec=sys` (no Kerberos) means raw UID/GIDs are exchanged; ISLab
+  uses manual GID alignment across servers rather than LDAP/FreeIPA.
+  This is unrelated to the union mount itself.
+
+Spec: `docs/superpowers/specs/2026-05-12-nfs-dataset-union-mount-design.md`.
 
 ### Tech debt — vcjob TTL
 
