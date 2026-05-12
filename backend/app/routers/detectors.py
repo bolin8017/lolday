@@ -55,6 +55,7 @@ from app.services.git import (
 from app.services.harbor import HarborClient
 from app.services.k8s import batch_v1, core_v1
 from app.services.rate_limit import rate_limit_user
+from app.services.search import escape_like_pattern
 from app.services.validator import StaticValidationError, validate_repo_static
 from app.users import current_active_user
 
@@ -266,8 +267,8 @@ async def list_detectors(
     if owner_id:
         stmt = stmt.where(Detector.owner_id == owner_id)
     if search:
-        pattern = f"%{search}%"
-        stmt = stmt.where(Detector.name.ilike(pattern))
+        pattern = f"%{escape_like_pattern(search)}%"
+        stmt = stmt.where(Detector.name.ilike(pattern, escape="\\"))
     stmt = stmt.order_by(Detector.created_at.desc()).limit(limit).offset(offset)
     res = await session.execute(stmt)
     items = res.scalars().all()

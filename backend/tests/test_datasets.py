@@ -240,3 +240,19 @@ async def test_delete_dataset_blocked_by_active_job(
 
     r = await user_client.delete(f"/api/v1/datasets/{tr}")
     assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_list_datasets_escapes_percent_wildcard(user_client: AsyncClient):
+    # Create two datasets with unrelated names.
+    for n in ("alpha-one", "beta-two"):
+        r = await user_client.post(
+            "/api/v1/datasets",
+            json={"name": n, "csv_content": FIXTURE_CSV},
+        )
+        assert r.status_code == 201
+    # `%` should be treated as a literal char, matching neither.
+    r = await user_client.get("/api/v1/datasets?search=%25")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 0, body

@@ -20,6 +20,7 @@ from app.schemas.dataset import (
 )
 from app.services.dataset import DatasetValidationError, parse_csv
 from app.services.http_headers import build_content_disposition
+from app.services.search import escape_like_pattern
 from app.users import current_active_user
 
 router = APIRouter()
@@ -120,7 +121,9 @@ async def list_datasets(
     if visibility is not None:
         filters.append(DatasetConfig.visibility == visibility)
     if search:
-        filters.append(DatasetConfig.name.ilike(f"%{search}%"))
+        filters.append(
+            DatasetConfig.name.ilike(f"%{escape_like_pattern(search)}%", escape="\\")
+        )
 
     count_stmt = select(func.count()).select_from(DatasetConfig).where(and_(*filters))
     total = (await session.execute(count_stmt)).scalar_one()
