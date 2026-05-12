@@ -634,7 +634,7 @@ async def seed_detector(auth_client_developer, monkeypatch):
     monkeypatch.setattr(dr, "_clone_and_validate", fake_meta)
     await auth_client_developer.put(
         "/api/v1/users/me/git-credential",
-        json={"provider": "github", "token": "ghp_testtoken1234567890"},
+        json={"provider": "github", "token": "ghp_" + "A" * 24 + "ab0123456789"},
     )
     create = await auth_client_developer.post(
         "/api/v1/detectors", json={"git_url": "https://github.com/bolin8017/upxelfdet"}
@@ -785,7 +785,7 @@ async def detector_factory(async_client, auth_owner_headers, monkeypatch):
         # Ensure owner has git credential (idempotent)
         await async_client.put(
             "/api/v1/users/me/git-credential",
-            json={"provider": "github", "token": "ghp_testtoken1234567890"},
+            json={"provider": "github", "token": "ghp_" + "A" * 24 + "ab0123456789"},
             headers=auth_owner_headers,
         )
         resp = await async_client.post(
