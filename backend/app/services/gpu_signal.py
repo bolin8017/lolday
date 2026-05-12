@@ -63,15 +63,25 @@ class GPUState:
 
 
 def close_http_client() -> None:
-    """Shut the shared httpx.Client.  Called from FastAPI lifespan teardown.
+    """Close the shared httpx.Client. Called from FastAPI lifespan teardown.
 
-    Idempotent — safe to call when the Client is already closed or never
-    constructed.
+    Idempotent — safe to call when the Client is already closed or was never
+    constructed.  Swallows close-side exceptions so a flaky transport
+    teardown cannot block process exit: the Client reference is cleared
+    *before* ``.close()`` runs, so even on failure the post-close invariant
+    (``_HTTP_CLIENT is None``) holds and the partial-close state is not
+    observable.
     """
     global _HTTP_CLIENT
-    if _HTTP_CLIENT is not None:
-        _HTTP_CLIENT.close()
-        _HTTP_CLIENT = None
+    if _HTTP_CLIENT is None:
+        return
+    client = _HTTP_CLIENT
+    _HTTP_CLIENT = None
+    try:
+        client.close()
+    except Exception:
+        BACKEND_ERRORS.labels(stage="gpu_signal_client_close").inc()
+        logger.exception("gpu_signal: httpx.Client.close() raised during shutdown")
 
 
 def _query_prometheus(query: str) -> list[dict]:
@@ -80,11 +90,16 @@ def _query_prometheus(query: str) -> list[dict]:
     Returns a list of {"metric": {label: value}, "value": float} dicts.
     Raises PrometheusUnavailable on transport, HTTP, or non-"success" body.
     """
-    if _HTTP_CLIENT is None:
+    # Capture the module-level reference once.  A concurrent
+    # close_http_client() on another thread can null the global between
+    # this read and the .get() call below; keeping a local ref means
+    # we either see the live Client or the guard catches None up front.
+    client = _HTTP_CLIENT
+    if client is None:
         raise PrometheusUnavailable("gpu_signal HTTP client already closed")
     url = f"{settings.GPU_SIGNAL_PROMETHEUS_URL}/api/v1/query"
     try:
-        resp = _HTTP_CLIENT.get(url, params={"query": query})
+        resp = client.get(url, params={"query": query})
         resp.raise_for_status()
         body = resp.json()
     except httpx.HTTPError as e:

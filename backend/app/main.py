@@ -152,21 +152,26 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    if reconciler_task is not None:
-        stop_event.set()
-        await reconciler_task
+    # Best-effort hygiene cleanup: shut the shared Prometheus httpx.Client
+    # even if the task awaits above raise.  The close itself is independent
+    # of those tasks and the OS reaps sockets either way; the `finally` only
+    # exists so a stuck task does not silently skip the ResourceWarning
+    # suppression we want at shutdown.  Spec
+    # docs/superpowers/specs/2026-05-12-backend-httpx-client-leak-fix-design.md
+    # §5.2.
+    try:
+        if reconciler_task is not None:
+            stop_event.set()
+            await reconciler_task
 
-    if fifo_task is not None:
-        fifo_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await fifo_task
+        if fifo_task is not None:
+            fifo_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await fifo_task
+    finally:
+        from app.services import gpu_signal
 
-    # Release the shared Prometheus httpx.Client so any in-flight connections
-    # are torn down cleanly before the process exits.  See spec
-    # docs/superpowers/specs/2026-05-12-backend-httpx-client-leak-fix-design.md.
-    from app.services import gpu_signal
-
-    gpu_signal.close_http_client()
+        gpu_signal.close_http_client()
 
 
 app = FastAPI(

@@ -173,13 +173,21 @@ User authorised on 2026-05-12:
 # Module level — created at import time. The Client itself is cheap to
 # hold open; the cost was in repeatedly tearing it down. httpx documents
 # Clients as safe to share across threads.
-_HTTP_CLIENT = httpx.Client(timeout=settings.GPU_SIGNAL_QUERY_TIMEOUT_SECONDS)
+_HTTP_CLIENT: httpx.Client | None = httpx.Client(
+    timeout=settings.GPU_SIGNAL_QUERY_TIMEOUT_SECONDS
+)
 
 
 def _query_prometheus(query: str) -> list[dict]:
+    # Capture local reference: defends against a concurrent
+    # close_http_client() nulling the global between the None-check and
+    # the .get() call.
+    client = _HTTP_CLIENT
+    if client is None:
+        raise PrometheusUnavailable("gpu_signal HTTP client already closed")
     url = f"{settings.GPU_SIGNAL_PROMETHEUS_URL}/api/v1/query"
     try:
-        resp = _HTTP_CLIENT.get(url, params={"query": query})
+        resp = client.get(url, params={"query": query})
         resp.raise_for_status()
         body = resp.json()
     except httpx.HTTPError as e:
@@ -190,11 +198,26 @@ def _query_prometheus(query: str) -> list[dict]:
 
 
 def close_http_client() -> None:
-    """Idempotent shutdown hook; called from FastAPI lifespan."""
+    """Idempotent shutdown hook; called from FastAPI lifespan teardown.
+
+    Clears the module reference *before* calling .close() so even if the
+    underlying transport raises, the post-close invariant holds and
+    subsequent _query_prometheus calls take the closed-client guard
+    path rather than calling .get() on a half-closed Client. Close-side
+    exceptions are logged + counted via BACKEND_ERRORS{stage=
+    'gpu_signal_client_close'} but never re-raised — lifespan teardown
+    is best-effort hygiene.
+    """
     global _HTTP_CLIENT
-    if _HTTP_CLIENT is not None:
-        _HTTP_CLIENT.close()
-        _HTTP_CLIENT = None
+    if _HTTP_CLIENT is None:
+        return
+    client = _HTTP_CLIENT
+    _HTTP_CLIENT = None
+    try:
+        client.close()
+    except Exception:
+        BACKEND_ERRORS.labels(stage="gpu_signal_client_close").inc()
+        logger.exception("gpu_signal: httpx.Client.close() raised during shutdown")
 ```
 
 Why module-level, not lazy:
@@ -213,17 +236,31 @@ Why `timeout` at Client construction, not per-request:
 
 ### 5.2 Lifespan teardown in `main.py`
 
-In `lifespan(app)` after the `yield`:
+In `lifespan(app)` after the `yield`, wrap the existing task-cancellation
+block in a `try/finally` so the close runs even when a task's await
+propagates a non-`CancelledError` exception:
 
 ```python
-from app.services import gpu_signal
-gpu_signal.close_http_client()
+try:
+    if reconciler_task is not None:
+        stop_event.set()
+        await reconciler_task
+    if fifo_task is not None:
+        fifo_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await fifo_task
+finally:
+    from app.services import gpu_signal
+    gpu_signal.close_http_client()
 ```
 
 This is best-effort cleanup. K8s sends SIGTERM and waits ≤30 s; uvicorn
 exits cleanly; the OS reaps the process either way. The explicit close is
 hygiene — it eliminates a "ResourceWarning: unclosed connection" at
-shutdown that would otherwise leak into logs.
+shutdown that would otherwise leak into logs. Putting close inside the
+`finally` keeps that hygiene step intact when an unrelated task's
+shutdown raises — without it, the very shutdown that most needs the
+hygiene (a buggy or stuck task) would silently skip it.
 
 ### 5.3 Test changes
 
@@ -244,38 +281,38 @@ def _patch_http_client(monkeypatch):
 Three existing tests touch `httpx.Client`; they'll switch to the
 `_HTTP_CLIENT` patch fixture above.
 
-### 5.4 Regression test
+### 5.4 Regression tests
 
-```python
-def test_query_prometheus_reuses_module_client(monkeypatch):
-    """Regression: pre-fix code constructed a fresh httpx.Client per call,
-    causing ~2 MiB / iter glibc arena bloat (5 MiB / min observed)."""
-    constructions = 0
-    real_init = httpx.Client.__init__
+Four new regression tests cover the proximate cause + the new shutdown
+paths:
 
-    def counting_init(self, *a, **kw):
-        nonlocal constructions
-        constructions += 1
-        real_init(self, *a, **kw)
+1. `test_module_level_http_client_exists` — sanity check that
+   `_HTTP_CLIENT` is a real `httpx.Client` at module load.
+2. `test_query_prometheus_reuses_module_client` — the headline
+   construction-counter test. Patches `httpx.Client.__init__` to
+   increment a counter, then exercises `_query_prometheus` 10 times via
+   the mocked singleton. Asserts `construction_count == 0` (not `== 1`):
+   the module-level Client is constructed once at import time, before
+   the test installs the patch, so the counter only catches _new_
+   constructions during the loop. Skipping `importlib.reload(gpu_signal)`
+   keeps the test free of import-side-effect coupling.
+3. `test_query_prometheus_after_close_raises_unavailable` — verifies the
+   None-guard at function entry raises `PrometheusUnavailable` rather
+   than `AttributeError` on a closed Client.
+4. `test_close_http_client_is_idempotent` — second `close_http_client()`
+   call is a no-op; underlying `.close()` only fires once.
+5. `test_close_http_client_swallows_close_exceptions` — `.close()`
+   raising (e.g. `OSError` on a weird socket state) does not propagate;
+   post-close invariant (`_HTTP_CLIENT is None`) still holds.
+6. `test_lifespan_teardown_calls_close_http_client` — source-level check
+   that `lifespan` references `close_http_client` after the `yield`.
+   Source inspection is used (instead of a full `TestClient` lifespan
+   run) because the real lifespan does Alembic head checks + Harbor init
+   that need infrastructure not available in unit tests.
 
-    monkeypatch.setattr(httpx.Client, "__init__", counting_init)
-    # Reimport to force re-execution of module-level Client construction
-    importlib.reload(gpu_signal)
-
-    for _ in range(10):
-        try:
-            gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
-        except gpu_signal.PrometheusUnavailable:
-            pass  # No real Prom in tests; we just care about Client churn
-
-    assert constructions == 1, (
-        f"_HTTP_CLIENT must be constructed exactly once; saw {constructions}"
-    )
-```
-
-This is a behavioural test, not a memory test. Memory-bounded assertions
-are too fragile across CI environments. The behaviour ("how many Clients
-are created") is the proximate cause of the leak and is deterministic.
+All six are behavioural / structural — memory-bounded assertions are
+too fragile across CI environments. The number of Client constructions
+is the proximate cause of the leak and is deterministic.
 
 ### 5.5 Chart mitigation revert
 
@@ -331,6 +368,46 @@ to status "resolved 2026-05-12 by spec
 remains as historical context (debugging trail) but no longer represents
 an open issue.
 
+### 6.4 Shutdown vs. real-Prom-outage distinction in `gpu_signal`
+
+`PrometheusUnavailable` is currently used for both "Prom is down" and
+"the Client was closed during shutdown". The fail-safe path in
+`compute_real_gpu_state` reacts identically: pulses
+`GPU_SIGNAL_FAIL_SAFE_ACTIVE`, returns `free_count=0`. With
+`GPU_SIGNAL_FAIL_SAFE_BLOCK=true` (production default) this is correct
+in both cases. With `GPU_SIGNAL_FAIL_SAFE_BLOCK=false` (escape hatch),
+the K8s-only fallback would dispatch jobs based on stale data while the
+pod is shutting down — undesirable. A follow-up should propagate a
+"shutdown" reason through the exception and skip both the
+gauge pulse _and_ the escape-hatch fallthrough when that reason is
+present. Tracking filename:
+`docs/superpowers/specs/2026-05-1X-gpu-signal-shutdown-semantics-design.md`.
+
+### 6.5 Slow-leak alert + extended observation
+
+The current verification window (§7.3, 60 minutes at 512 MiB) catches a
+regression to the full 2 MiB/iter leak but is blind to a partial leak
+slower than ~5 MiB/min. The residual 0.03 MiB/iter ≈ 0.06 MiB/min
+would take ~3 days to OOM from a 220 MiB baseline at the 512 MiB limit;
+even a 10× residual (0.3 MiB/iter) would take ~8 hours, invisible in a
+60-minute window and never alerted by the current `BackendCrashLoopBackOff`
+rule (which needs ≥5 restarts in 1 h). Follow-up should add a
+`BackendMemoryGrowthSlow` rule to
+`charts/lolday/templates/monitoring/alertmanager-rules.yaml`:
+
+```
+expr: delta(container_memory_working_set_bytes{
+    namespace="lolday", pod=~"backend-.*", container="backend"
+}[2h]) > 100 * 1024 * 1024
+for: 30m
+labels:
+  severity: warning
+```
+
+And the runbook for this fix should extend the post-deploy observation
+window from 60 min to **24 h** so the operator catches multi-hour slow
+leaks before they accumulate.
+
 ## 7. Verification plan
 
 ### 7.1 Unit + integration tests
@@ -359,12 +436,16 @@ After `bash scripts/deploy.sh` rolls out the new backend image:
 kubectl -n lolday wait pod -l app.kubernetes.io/component=backend --for=condition=Ready --timeout=120s
 
 # Sample container_memory_working_set_bytes every 5 min for 60 min
-# Expect: flat at ~220 MiB ± 30 MiB (no linear growth)
+# (initial sanity); then check once at +6 h, +24 h
+# Expect: flat at ~220 MiB ± 30 MiB (no linear growth) across the window
 ```
 
-If memory stays flat for 60 minutes, the fix is verified. The chart limit
-will be back at 512Mi by then so any return of the leak would OOM within
-1 h (same as the pre-mitigation baseline), giving a clean signal.
+The 60-minute initial window catches a regression to the full 2 MiB/iter
+leak. The 6 h and 24 h follow-up samples catch a partial regression
+(slower than ~5 MiB/min) that the short window would miss — see §6.5
+for the proposed `BackendMemoryGrowthSlow` alert that should be added
+as a follow-up. The chart limit is back at 512Mi by then, so any
+return of the full leak would OOM within ~1 h (pre-mitigation cadence).
 
 ### 7.4 Rollback
 
@@ -374,12 +455,15 @@ restores the 1Gi buffer.
 
 ## 8. Risks
 
-| Risk                                                                            | Likelihood                                                    | Mitigation                                                                                                                    |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Module-level Client holds a stale connection if Prometheus restarts mid-process | Low — httpx auto-reconnects on the next request               | httpx's `ConnectionPool` evicts dead connections lazily. Verified behaviour.                                                  |
-| Test mocks break in unexpected ways                                             | Medium                                                        | Three existing tests need the patch fixture update; CI catches anything missed.                                               |
-| 512Mi revert exposes some other slow leak we hadn't noticed                     | Low — pre-v0.20.8 baseline ran on 512Mi for weeks without OOM | Post-deploy memory observation in §7.3 catches this; rolling back the chart revert separately is one-line.                    |
-| `_HTTP_CLIENT = None` after `close_http_client()` makes subsequent calls fail   | Low — close is only called at process shutdown                | The `_query_prometheus` body raises `PrometheusUnavailable` if the Client is gone, which the existing fail-safe path handles. |
+| Risk                                                                            | Likelihood                                                    | Mitigation                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Module-level Client holds a stale connection if Prometheus restarts mid-process | Low — httpx auto-reconnects on the next request               | httpx's `ConnectionPool` evicts dead connections lazily. Verified behaviour.                                                                                                                                       |
+| Test mocks break in unexpected ways                                             | Medium                                                        | Three existing tests need the patch fixture update; CI catches anything missed.                                                                                                                                    |
+| 512Mi revert exposes some other slow leak we hadn't noticed                     | Low — pre-v0.20.8 baseline ran on 512Mi for weeks without OOM | Post-deploy memory observation in §7.3 catches this; rolling back the chart revert separately is one-line.                                                                                                         |
+| `_HTTP_CLIENT = None` after `close_http_client()` makes subsequent calls fail   | Low — close is only called at process shutdown                | `_query_prometheus` raises `PrometheusUnavailable` if the Client is gone, which the existing fail-safe path handles. See §6.4 for the escape-hatch-during-shutdown follow-up.                                      |
+| `httpx.Client.close()` itself raises (e.g. OSError on a weird socket state)     | Low                                                           | `close_http_client` swallows + logs + counts via `BACKEND_ERRORS{stage="gpu_signal_client_close"}`. Reference is nulled _before_ close so partial-close state is not observable to subsequent `_query_prometheus`. |
+| Task-await in lifespan teardown raises non-CancelledError, skipping close       | Low                                                           | `try/finally` wraps the task awaits; `close_http_client` runs regardless of upstream cleanup outcome.                                                                                                              |
+| Slow residual leak (≪ 2 MiB/iter) escapes the 60-min verification window        | Medium — residual is 0.03 MiB/iter in-pod                     | §7.3 adds +6 h and +24 h follow-up samples; §6.5 tracks the `BackendMemoryGrowthSlow` Prometheus alert as the durable detector.                                                                                    |
 
 ## 9. References
 
