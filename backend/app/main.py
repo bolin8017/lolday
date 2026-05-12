@@ -161,6 +161,13 @@ async def lifespan(app: FastAPI):
         with contextlib.suppress(asyncio.CancelledError):
             await fifo_task
 
+    # Release the shared Prometheus httpx.Client so any in-flight connections
+    # are torn down cleanly before the process exits.  See spec
+    # docs/superpowers/specs/2026-05-12-backend-httpx-client-leak-fix-design.md.
+    from app.services import gpu_signal
+
+    gpu_signal.close_http_client()
+
 
 app = FastAPI(
     title="Lolday",

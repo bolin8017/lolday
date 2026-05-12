@@ -14,6 +14,20 @@ def _clear_gpu_signal_cache():
     gpu_signal._gpu_signal_cache.clear()
 
 
+@pytest.fixture
+def mock_http_client(monkeypatch):
+    """Replace the module-level httpx.Client with a MagicMock for the test.
+
+    After the 2026-05-12 leak fix `_query_prometheus` reuses a module-level
+    `_HTTP_CLIENT` instead of constructing a fresh one per call. Tests that
+    used to patch `app.services.gpu_signal.httpx.Client` now patch the
+    singleton directly.
+    """
+    mock = MagicMock(spec=httpx.Client)
+    monkeypatch.setattr(gpu_signal, "_HTTP_CLIENT", mock)
+    return mock
+
+
 def test_module_exposes_dataclasses():
     """The module must expose GPUStatus and GPUState dataclasses."""
     assert hasattr(gpu_signal, "GPUStatus")
@@ -59,9 +73,7 @@ def _prom_response(samples: list[dict]) -> dict:
     }
 
 
-@patch("app.services.gpu_signal.httpx.Client")
-def test_query_prometheus_parses_instant_vector(mock_client_cls):
-    mock_client = MagicMock()
+def test_query_prometheus_parses_instant_vector(mock_http_client):
     mock_response = MagicMock()
     mock_response.json.return_value = _prom_response(
         [
@@ -70,8 +82,7 @@ def test_query_prometheus_parses_instant_vector(mock_client_cls):
         ]
     )
     mock_response.raise_for_status.return_value = None
-    mock_client.get.return_value = mock_response
-    mock_client_cls.return_value.__enter__.return_value = mock_client
+    mock_http_client.get.return_value = mock_response
 
     samples = gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
 
@@ -80,27 +91,66 @@ def test_query_prometheus_parses_instant_vector(mock_client_cls):
     assert samples[0]["value"] == 87.5
 
 
-@patch("app.services.gpu_signal.httpx.Client")
-def test_query_prometheus_raises_on_http_error(mock_client_cls):
-    mock_client = MagicMock()
-    mock_client.get.side_effect = httpx.HTTPError("connection refused")
-    mock_client_cls.return_value.__enter__.return_value = mock_client
+def test_query_prometheus_raises_on_http_error(mock_http_client):
+    mock_http_client.get.side_effect = httpx.HTTPError("connection refused")
 
     with pytest.raises(gpu_signal.PrometheusUnavailable):
         gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
 
 
-@patch("app.services.gpu_signal.httpx.Client")
-def test_query_prometheus_raises_on_non_success_status_field(mock_client_cls):
-    mock_client = MagicMock()
+def test_query_prometheus_raises_on_non_success_status_field(mock_http_client):
     mock_response = MagicMock()
     mock_response.json.return_value = {"status": "error", "errorType": "bad_data"}
     mock_response.raise_for_status.return_value = None
-    mock_client.get.return_value = mock_response
-    mock_client_cls.return_value.__enter__.return_value = mock_client
+    mock_http_client.get.return_value = mock_response
 
     with pytest.raises(gpu_signal.PrometheusUnavailable):
         gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+
+def test_module_level_http_client_exists():
+    """Regression for the 5 MiB/min memory leak resolved 2026-05-12.
+
+    Spec: docs/superpowers/specs/2026-05-12-backend-httpx-client-leak-fix-design.md.
+    The pre-fix code constructed `with httpx.Client(...)` inside
+    `_query_prometheus` on every call; each construction allocated ~2 MiB of
+    glibc arena pages the kernel did not reclaim, producing a linear leak
+    under the every-30s fifo_scheduler cadence.
+    """
+    assert isinstance(gpu_signal._HTTP_CLIENT, httpx.Client)
+
+
+def test_query_prometheus_reuses_module_client(monkeypatch):
+    """The module-level Client must be reused — no per-call construction.
+
+    The probe runs 10 iterations of `_query_prometheus`; if any iteration
+    creates a fresh `httpx.Client`, the counter increments and the assertion
+    fails. Catches a regression to the pre-fix per-call pattern.
+    """
+    construction_count = 0
+    real_init = httpx.Client.__init__
+
+    def counting_init(self, *args, **kwargs):
+        nonlocal construction_count
+        construction_count += 1
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "__init__", counting_init)
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = _prom_response([])
+    mock_response.raise_for_status.return_value = None
+    monkeypatch.setattr(
+        gpu_signal._HTTP_CLIENT, "get", MagicMock(return_value=mock_response)
+    )
+
+    for _ in range(10):
+        gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+    assert construction_count == 0, (
+        f"_query_prometheus must reuse the module-level Client; saw "
+        f"{construction_count} new Client constructions across 10 calls."
+    )
 
 
 def _sample(gpu: int, value: float, exported_namespace: str = "") -> dict:
