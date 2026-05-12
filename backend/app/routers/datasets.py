@@ -228,7 +228,7 @@ async def clone_dataset(
         name=new_name,
         description=orig.description,
         owner_id=user.id,
-        visibility=DatasetVisibility.PUBLIC,
+        visibility=orig.visibility,
         csv_content=orig.csv_content,
         csv_checksum=orig.csv_checksum,
         sample_count=orig.sample_count,

@@ -256,3 +256,36 @@ async def test_list_datasets_escapes_percent_wildcard(user_client: AsyncClient):
     assert r.status_code == 200
     body = r.json()
     assert body["total"] == 0, body
+
+
+@pytest.mark.asyncio
+async def test_clone_of_private_dataset_stays_private(
+    user_client: AsyncClient, auth_client_admin: AsyncClient
+):
+    # admin creates a PRIVATE dataset
+    create = await auth_client_admin.post(
+        "/api/v1/datasets",
+        json={
+            "name": "secret",
+            "visibility": "private",
+            "csv_content": FIXTURE_CSV,
+        },
+    )
+    assert create.status_code == 201, create.text
+    ds_id = create.json()["id"]
+    # admin clones their own PRIVATE dataset; the clone must inherit visibility
+    r = await auth_client_admin.post(f"/api/v1/datasets/{ds_id}/clone")
+    assert r.status_code == 201, r.text
+    assert r.json()["visibility"] == "private"
+
+
+@pytest.mark.asyncio
+async def test_clone_of_public_dataset_stays_public(user_client: AsyncClient):
+    create = await user_client.post(
+        "/api/v1/datasets",
+        json={"name": "shared", "visibility": "public", "csv_content": FIXTURE_CSV},
+    )
+    ds_id = create.json()["id"]
+    r = await user_client.post(f"/api/v1/datasets/{ds_id}/clone")
+    assert r.status_code == 201
+    assert r.json()["visibility"] == "public"
