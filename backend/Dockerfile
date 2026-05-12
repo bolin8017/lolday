@@ -13,6 +13,10 @@ COPY alembic.ini ./
 COPY migrations/ ./migrations/
 COPY app/ ./app/
 
+# H-10: run as UID 1000. Chown /app so uv's writable cache (~/.cache/uv inside HOME) works.
+RUN useradd -m -u 1000 lolday && chown -R lolday:lolday /app
+USER 1000
+
 EXPOSE 8000
 
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
