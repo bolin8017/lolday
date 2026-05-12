@@ -257,7 +257,7 @@ mlflow:
 # =============================================================================
 samples:
   enabled: true
-  hostPath: /mnt/ssd500g/data/samples
+  hostPath: /mnt/lolday-samples
   storage: 600Gi
   nodeHostname: server30
 
