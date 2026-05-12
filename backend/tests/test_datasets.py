@@ -167,6 +167,42 @@ async def test_delete_dataset_soft_deletes(user_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_create_dataset_rejects_crlf_in_name(user_client: AsyncClient):
+    r = await user_client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "evil\r\nContent-Type: text/html",
+            "csv_content": FIXTURE_CSV,
+        },
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_create_dataset_rejects_quote_in_name(user_client: AsyncClient):
+    r = await user_client.post(
+        "/api/v1/datasets",
+        json={
+            "name": 'a"b',
+            "csv_content": FIXTURE_CSV,
+        },
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_dataset_accepts_unicode_dash_and_dot(user_client: AsyncClient):
+    r = await user_client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "ds.test_v1-2",
+            "csv_content": FIXTURE_CSV,
+        },
+    )
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
 async def test_delete_dataset_blocked_by_active_job(
     user_client, seed_detector_version, seed_dataset
 ):
