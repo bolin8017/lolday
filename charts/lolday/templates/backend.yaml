@@ -78,14 +78,7 @@ spec:
               memory: 128Mi
             limits:
               cpu: 500m
-              # Bumped from 512Mi to 1Gi on 2026-05-12 as buffer against an
-              # ongoing memory leak introduced in v0.20.8/9 (suspected
-              # gpu_signal / fifo_scheduler). With 512Mi the pod OOMed every
-              # ~60 min; 1Gi extends the cycle to ~2-3 h while root-cause
-              # investigation is outstanding. Memory file:
-              # ~/.claude/.../memory/project_backend_memory_leak_v0208_or_9.md.
-              # Reduce back to 512Mi once the leak is fixed.
-              memory: 1Gi
+              memory: 512Mi
           livenessProbe:
             httpGet:
               path: /api/v1/health

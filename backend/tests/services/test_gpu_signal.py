@@ -1,5 +1,7 @@
 """Tests for app.services.gpu_signal — host-aware GPU state via DCGM/Prom."""
 
+import contextlib
+import inspect
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -12,6 +14,14 @@ def _clear_gpu_signal_cache():
     gpu_signal._gpu_signal_cache.clear()
     yield
     gpu_signal._gpu_signal_cache.clear()
+
+
+@pytest.fixture
+def mock_http_client(monkeypatch):
+    """Patch the module-level singleton _HTTP_CLIENT used by _query_prometheus."""
+    mock = MagicMock(spec=httpx.Client)
+    monkeypatch.setattr(gpu_signal, "_HTTP_CLIENT", mock)
+    return mock
 
 
 def test_module_exposes_dataclasses():
@@ -59,9 +69,7 @@ def _prom_response(samples: list[dict]) -> dict:
     }
 
 
-@patch("app.services.gpu_signal.httpx.Client")
-def test_query_prometheus_parses_instant_vector(mock_client_cls):
-    mock_client = MagicMock()
+def test_query_prometheus_parses_instant_vector(mock_http_client):
     mock_response = MagicMock()
     mock_response.json.return_value = _prom_response(
         [
@@ -70,8 +78,7 @@ def test_query_prometheus_parses_instant_vector(mock_client_cls):
         ]
     )
     mock_response.raise_for_status.return_value = None
-    mock_client.get.return_value = mock_response
-    mock_client_cls.return_value.__enter__.return_value = mock_client
+    mock_http_client.get.return_value = mock_response
 
     samples = gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
 
@@ -80,27 +87,149 @@ def test_query_prometheus_parses_instant_vector(mock_client_cls):
     assert samples[0]["value"] == 87.5
 
 
-@patch("app.services.gpu_signal.httpx.Client")
-def test_query_prometheus_raises_on_http_error(mock_client_cls):
-    mock_client = MagicMock()
-    mock_client.get.side_effect = httpx.HTTPError("connection refused")
-    mock_client_cls.return_value.__enter__.return_value = mock_client
+def test_query_prometheus_raises_on_http_error(mock_http_client):
+    mock_http_client.get.side_effect = httpx.HTTPError("connection refused")
 
     with pytest.raises(gpu_signal.PrometheusUnavailable):
         gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
 
 
-@patch("app.services.gpu_signal.httpx.Client")
-def test_query_prometheus_raises_on_non_success_status_field(mock_client_cls):
-    mock_client = MagicMock()
+def test_query_prometheus_raises_on_non_success_status_field(mock_http_client):
     mock_response = MagicMock()
     mock_response.json.return_value = {"status": "error", "errorType": "bad_data"}
     mock_response.raise_for_status.return_value = None
-    mock_client.get.return_value = mock_response
-    mock_client_cls.return_value.__enter__.return_value = mock_client
+    mock_http_client.get.return_value = mock_response
 
     with pytest.raises(gpu_signal.PrometheusUnavailable):
         gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+
+def test_module_level_http_client_exists():
+    """Regression: _HTTP_CLIENT must exist at module level (not per-call).
+
+    See ``test_query_prometheus_reuses_module_client`` for the leak context.
+    """
+    assert isinstance(gpu_signal._HTTP_CLIENT, httpx.Client)
+
+
+def test_query_prometheus_reuses_module_client(monkeypatch):
+    """The module-level Client must be reused — no per-call construction.
+
+    The probe runs 10 iterations of ``_query_prometheus``; if any iteration
+    creates a fresh ``httpx.Client``, the counter increments and the assertion
+    fails. Catches a regression to the pre-2026-05-12 per-call pattern that
+    leaked ~2 MiB/iter of glibc arena pages (full context in spec
+    ``docs/superpowers/specs/2026-05-12-backend-httpx-client-leak-fix-design.md``).
+    The inner ``try/except PrometheusUnavailable`` keeps the failure message
+    on a regression clean: if someone reverts to ``with httpx.Client(...)``
+    the fresh Client's ``.get()`` is not the mocked singleton, so it would
+    DNS-fail on the real URL — we want the assertion to fail with the
+    construction-count message, not a DNS error.
+    """
+    construction_count = 0
+    real_init = httpx.Client.__init__
+
+    def counting_init(self, *args, **kwargs):
+        nonlocal construction_count
+        construction_count += 1
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "__init__", counting_init)
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = _prom_response([])
+    mock_response.raise_for_status.return_value = None
+    monkeypatch.setattr(
+        gpu_signal._HTTP_CLIENT, "get", MagicMock(return_value=mock_response)
+    )
+
+    # On regression, the reverted code creates a fresh real Client which
+    # tries to hit the real Prom URL; the HTTP failure is incidental — the
+    # construction-count assertion below is what catches the regression.
+    for _ in range(10):
+        with contextlib.suppress(gpu_signal.PrometheusUnavailable):
+            gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+    assert construction_count == 0, (
+        f"_query_prometheus must reuse the module-level Client; saw "
+        f"{construction_count} new Client constructions across 10 calls."
+    )
+
+
+def test_query_prometheus_after_close_raises_unavailable(monkeypatch):
+    """After close_http_client(), _query_prometheus raises PrometheusUnavailable.
+
+    Without the explicit None-guard a late-arriving FIFO tick during
+    lifespan teardown would AttributeError on ``None.get(...)`` and bypass
+    the fail-safe path that ``compute_real_gpu_state`` relies on.
+    """
+    monkeypatch.setattr(gpu_signal, "_HTTP_CLIENT", None)
+    with pytest.raises(gpu_signal.PrometheusUnavailable, match="already closed"):
+        gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+
+def test_close_http_client_is_idempotent(monkeypatch):
+    """Calling close_http_client() twice must not raise.
+
+    Lifespan teardown does not guard against double-close; a regression
+    that drops the ``if _HTTP_CLIENT is None: return`` early-exit would
+    AttributeError on the second call.
+    """
+    fake_client = MagicMock(spec=httpx.Client)
+    monkeypatch.setattr(gpu_signal, "_HTTP_CLIENT", fake_client)
+
+    gpu_signal.close_http_client()
+    fake_client.close.assert_called_once()
+    assert gpu_signal._HTTP_CLIENT is None
+
+    gpu_signal.close_http_client()  # second call must be a no-op
+    fake_client.close.assert_called_once()  # still only one underlying close
+
+
+def test_close_http_client_swallows_close_exceptions(monkeypatch):
+    """close_http_client() must not propagate exceptions from .close().
+
+    Underlying socket close can raise OSError / BrokenPipeError on a
+    weird transport state; lifespan teardown propagating those would
+    abort shutdown hygiene for unrelated tasks.  The post-close invariant
+    (``_HTTP_CLIENT is None``) must still hold so subsequent
+    ``_query_prometheus`` calls take the closed-client guard path
+    rather than calling .get() on a half-closed Client.
+    """
+    fake_client = MagicMock(spec=httpx.Client)
+    fake_client.close.side_effect = OSError("socket already closed")
+    monkeypatch.setattr(gpu_signal, "_HTTP_CLIENT", fake_client)
+
+    gpu_signal.close_http_client()  # must not raise
+
+    assert gpu_signal._HTTP_CLIENT is None, (
+        "post-close invariant violated: _HTTP_CLIENT must be None even when "
+        "the underlying close() raised"
+    )
+    fake_client.close.assert_called_once()
+
+
+def test_lifespan_teardown_calls_close_http_client():
+    """The FastAPI lifespan must invoke gpu_signal.close_http_client().
+
+    Source-level assertion (not a TestClient run) because the real
+    lifespan does Alembic head checks + Harbor init that need
+    infrastructure not available in unit tests.  The check guards
+    against a refactor that drops the close-wiring line.
+    """
+    from app.main import lifespan
+
+    src = inspect.getsource(lifespan)
+    assert "close_http_client" in src, (
+        "lifespan source must reference close_http_client; the leak-fix "
+        "wiring has regressed"
+    )
+    yield_pos = src.find("yield")
+    close_pos = src.find("close_http_client")
+    assert close_pos > yield_pos, (
+        "close_http_client must be in the lifespan teardown (after yield), "
+        "not in startup"
+    )
 
 
 def _sample(gpu: int, value: float, exported_namespace: str = "") -> dict:

@@ -41,6 +41,16 @@ _gpu_signal_cache: TTLCache = TTLCache(
 )
 
 
+# Module-level httpx.Client — reused across every-30s fifo_scheduler ticks.
+# Per-call ``with httpx.Client(...)`` (the pre-2026-05-12 shape) churned
+# ~2 MiB of glibc malloc arena pages per call that the kernel did not
+# reclaim, producing the linear 5 MiB/min leak documented in
+# docs/superpowers/specs/2026-05-12-backend-httpx-client-leak-fix-design.md.
+_HTTP_CLIENT: httpx.Client | None = httpx.Client(
+    timeout=settings.GPU_SIGNAL_QUERY_TIMEOUT_SECONDS
+)
+
+
 @dataclass(frozen=True)
 class GPUState:
     physical_total: int
@@ -52,19 +62,46 @@ class GPUState:
     fail_safe_reason: str | None
 
 
+def close_http_client() -> None:
+    """Close the shared httpx.Client. Called from FastAPI lifespan teardown.
+
+    Idempotent — safe to call when the Client is already closed or was never
+    constructed.  Swallows close-side exceptions so a flaky transport
+    teardown cannot block process exit: the Client reference is cleared
+    *before* ``.close()`` runs, so even on failure the post-close invariant
+    (``_HTTP_CLIENT is None``) holds and the partial-close state is not
+    observable.
+    """
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None:
+        return
+    client = _HTTP_CLIENT
+    _HTTP_CLIENT = None
+    try:
+        client.close()
+    except Exception:
+        BACKEND_ERRORS.labels(stage="gpu_signal_client_close").inc()
+        logger.exception("gpu_signal: httpx.Client.close() raised during shutdown")
+
+
 def _query_prometheus(query: str) -> list[dict]:
     """Run an instant query against the configured Prometheus server.
 
     Returns a list of {"metric": {label: value}, "value": float} dicts.
     Raises PrometheusUnavailable on transport, HTTP, or non-"success" body.
     """
+    # Capture the module-level reference once.  A concurrent
+    # close_http_client() on another thread can null the global between
+    # this read and the .get() call below; keeping a local ref means
+    # we either see the live Client or the guard catches None up front.
+    client = _HTTP_CLIENT
+    if client is None:
+        raise PrometheusUnavailable("gpu_signal HTTP client already closed")
     url = f"{settings.GPU_SIGNAL_PROMETHEUS_URL}/api/v1/query"
-    timeout = settings.GPU_SIGNAL_QUERY_TIMEOUT_SECONDS
     try:
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.get(url, params={"query": query})
-            resp.raise_for_status()
-            body = resp.json()
+        resp = client.get(url, params={"query": query})
+        resp.raise_for_status()
+        body = resp.json()
     except httpx.HTTPError as e:
         raise PrometheusUnavailable(f"Prometheus HTTP error: {e}") from e
     except ValueError as e:  # JSONDecodeError is a subclass
