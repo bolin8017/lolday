@@ -3,7 +3,7 @@
 #
 # Phase 1 (2026-05-05) moved detector build BuildKit pods + train/test/predict
 # vcjobs into the lolday-jobs namespace. The backend pod injects
-# `INTERNAL_EVENTS_BASE_URL=http://backend:8000` into job sidecars (event-tailer
+# `INTERNAL_EVENTS_BASE_URL=http://backend:8001` into job sidecars (event-tailer
 # in particular) — that short hostname only resolves in the namespace where a
 # Service `backend` exists. Without this alias, every event-tailer in
 # lolday-jobs spends its life logging
@@ -17,10 +17,14 @@
 # proxying, no extra hops. Backend stays a single replica in lolday.
 #
 # Alternative considered: ship FQN in INTERNAL_EVENTS_BASE_URL itself
-# (`http://backend.lolday.svc:8000`). Rejected because future workloads in
+# (`http://backend.lolday.svc:8001`). Rejected because future workloads in
 # lolday-jobs may hardcode "backend" elsewhere (e.g. a model-serving sidecar
 # calling /api/v1/internal/...) and we'd hit the same DNS gap. The Service
 # alias makes "backend" resolvable namespace-wide.
+#
+# M-internal-split: ports declared here are advisory only — ExternalName
+# resolution is DNS-CNAME, the target Service exposes the actual ports.
+# Both 8000 (api) and 8001 (internal sub-app) are reachable; jobs call 8001.
 apiVersion: v1
 kind: Service
 metadata:
@@ -33,7 +37,10 @@ spec:
   type: ExternalName
   externalName: backend.{{ .Release.Namespace }}.svc.cluster.local
   ports:
-    - name: http
+    - name: api
       port: 8000
+      protocol: TCP
+    - name: internal
+      port: 8001
       protocol: TCP
 {{- end }}

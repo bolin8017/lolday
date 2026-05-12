@@ -17,7 +17,6 @@ from app.routers import (
     datasets,
     detectors,
     experiments_proxy,
-    internal,
     jobs,
     models_registry,
 )
@@ -250,12 +249,8 @@ app.include_router(
     tags=["jobs"],
 )
 
-# Internal routes (build callbacks)
-app.include_router(
-    internal.router,
-    prefix="/api/v1/internal",
-    tags=["internal"],
-)
+# Internal routes have moved to internal_app (port 8001) — see app/internal_app.py.
+# /api/v1/internal/* is no longer served on the public port 8000.
 
 # Model Registry routes
 app.include_router(

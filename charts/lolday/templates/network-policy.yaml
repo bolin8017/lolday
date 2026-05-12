@@ -21,7 +21,9 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow normal API traffic (port 8000) from cloudflared + jobs ns.
+    # Allow normal API traffic (port 8000) from cloudflared only — jobs ns
+    # now uses port 8001 via the backend-internal-from-jobs-only policy below
+    # (M-internal-split).
     - from:
         - namespaceSelector:
             matchLabels:
@@ -29,9 +31,6 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/component: cloudflared
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace | default "lolday-jobs" }}
       ports:
         - port: 8000
           protocol: TCP
@@ -46,6 +45,32 @@ spec:
               app.kubernetes.io/name: prometheus
       ports:
         - port: 8000
+          protocol: TCP
+{{- end }}
+---
+# M-internal-split: port 8001 is the /api/v1/internal sub-app, callable
+# only from job pods in lolday-jobs. Cloudflared tunnel maps port 8000 only.
+{{- if .Values.backend.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-internal-from-jobs-only
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace | default "lolday-jobs" }}
+      ports:
+        - port: 8001
           protocol: TCP
 {{- end }}
 ---

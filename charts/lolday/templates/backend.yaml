@@ -45,7 +45,13 @@ spec:
         - name: backend
           image: {{ .Values.backend.image }}
           ports:
-            - containerPort: 8000
+            # M-internal-split: 8000 = public API (cloudflared), 8001 =
+            # /api/v1/internal/* sub-app for job-pod callbacks. Network gating
+            # in templates/network-policy.yaml.
+            - name: api
+              containerPort: 8000
+            - name: internal
+              containerPort: 8001
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -97,13 +103,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /api/v1/health
-              port: 8000
+              port: api
             initialDelaySeconds: 15
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /api/v1/health
-              port: 8000
+              port: api
             initialDelaySeconds: 5
             periodSeconds: 10
           volumeMounts:
@@ -124,8 +130,12 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 8000
-      targetPort: 8000
+    - name: api
+      port: 8000
+      targetPort: api
+    - name: internal
+      port: 8001
+      targetPort: internal
   selector:
     app.kubernetes.io/component: backend
 {{- end }}

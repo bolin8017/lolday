@@ -57,9 +57,11 @@ async def _seed_job_with_token(
 
 
 @pytest.mark.asyncio
-async def test_post_event_persists_and_accepts(db_session, client: AsyncClient) -> None:
+async def test_post_event_persists_and_accepts(
+    db_session, internal_client: AsyncClient
+) -> None:
     job, raw_token = await _seed_job_with_token(db_session)
-    resp = await client.post(
+    resp = await internal_client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={"kind": "stage_begin", "stage": "train"},
         headers={"Authorization": f"Bearer {raw_token}"},
@@ -77,10 +79,10 @@ async def test_post_event_persists_and_accepts(db_session, client: AsyncClient) 
 
 @pytest.mark.asyncio
 async def test_post_event_rejects_invalid_token(
-    db_session, client: AsyncClient
+    db_session, internal_client: AsyncClient
 ) -> None:
     job, _ = await _seed_job_with_token(db_session)
-    resp = await client.post(
+    resp = await internal_client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={"kind": "stage_begin", "stage": "train"},
         headers={"Authorization": "Bearer wrong-token"},
@@ -89,10 +91,12 @@ async def test_post_event_rejects_invalid_token(
 
 
 @pytest.mark.asyncio
-async def test_post_event_rejects_wrong_job_id(db_session, client: AsyncClient) -> None:
+async def test_post_event_rejects_wrong_job_id(
+    db_session, internal_client: AsyncClient
+) -> None:
     _job, raw_token = await _seed_job_with_token(db_session)
     other_id = uuid.uuid4()
-    resp = await client.post(
+    resp = await internal_client.post(
         f"/api/v1/internal/jobs/{other_id}/events",
         json={"kind": "stage_begin", "stage": "train"},
         headers={"Authorization": f"Bearer {raw_token}"},
@@ -102,7 +106,9 @@ async def test_post_event_rejects_wrong_job_id(db_session, client: AsyncClient) 
 
 
 @pytest.mark.asyncio
-async def test_post_event_publishes_to_broker(db_session, client: AsyncClient) -> None:
+async def test_post_event_publishes_to_broker(
+    db_session, internal_client: AsyncClient
+) -> None:
     import asyncio
 
     from app.services.events_tail import event_broker
@@ -110,7 +116,7 @@ async def test_post_event_publishes_to_broker(db_session, client: AsyncClient) -
     job, raw_token = await _seed_job_with_token(db_session)
     q = event_broker.subscribe(job.id)
     try:
-        await client.post(
+        await internal_client.post(
             f"/api/v1/internal/jobs/{job.id}/events",
             json={
                 "kind": "metric",
@@ -127,12 +133,14 @@ async def test_post_event_publishes_to_broker(db_session, client: AsyncClient) -
 
 
 @pytest.mark.asyncio
-async def test_post_event_rejects_terminal_job(db_session, client: AsyncClient) -> None:
+async def test_post_event_rejects_terminal_job(
+    db_session, internal_client: AsyncClient
+) -> None:
     """A sidecar race with the reconciler can POST an event AFTER the job is
     already flipped to SUCCEEDED/FAILED. The H-20 dep gate in require_job_token
     now rejects terminal jobs with 404 before the router's 409 check fires."""
     job, raw_token = await _seed_job_with_token(db_session, status=JobStatus.SUCCEEDED)
-    resp = await client.post(
+    resp = await internal_client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={
             "kind": "metric",
@@ -148,10 +156,12 @@ async def test_post_event_rejects_terminal_job(db_session, client: AsyncClient) 
 
 
 @pytest.mark.asyncio
-async def test_post_event_rejects_unknown_kind(db_session, client: AsyncClient) -> None:
+async def test_post_event_rejects_unknown_kind(
+    db_session, internal_client: AsyncClient
+) -> None:
     """Unknown kind value must be rejected with 422."""
     job, raw_token = await _seed_job_with_token(db_session)
-    resp = await client.post(
+    resp = await internal_client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={"kind": "totally_unknown_kind"},
         headers={"Authorization": f"Bearer {raw_token}"},
@@ -161,11 +171,11 @@ async def test_post_event_rejects_unknown_kind(db_session, client: AsyncClient) 
 
 @pytest.mark.asyncio
 async def test_post_event_rejects_oversized_event(
-    db_session, client: AsyncClient
+    db_session, internal_client: AsyncClient
 ) -> None:
     """Whole event exceeding 64 KiB must be rejected with 413."""
     job, raw_token = await _seed_job_with_token(db_session)
-    resp = await client.post(
+    resp = await internal_client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={"kind": "metric", "name": "loss", "huge_blob": "x" * 200_000},
         headers={"Authorization": f"Bearer {raw_token}"},
@@ -178,9 +188,14 @@ async def test_post_event_rejects_oversized_event(
 
 @pytest.mark.asyncio
 async def test_token_rejected_after_cancel(
-    db_session, user_client: AsyncClient
+    db_session, user_client: AsyncClient, internal_client: AsyncClient
 ) -> None:
-    """H-20 cancel path: token must be rejected (404) after the job is cancelled."""
+    """H-20 cancel path: token must be rejected (404) after the job is cancelled.
+
+    Uses two clients in tandem after the M-internal-split: ``user_client``
+    drives the user-facing ``/api/v1/jobs/{id}/cancel`` route (port 8000 in
+    prod), and ``internal_client`` drives ``/api/v1/internal/*`` (port 8001).
+    """
     from app.models import Detector, DetectorVersion, User
     from app.services.job_tokens import generate_token, hash_token
 
@@ -220,20 +235,20 @@ async def test_token_rejected_after_cancel(
     db_session.add(job)
     await db_session.commit()
 
-    # Confirm token works before cancel.
-    pre_resp = await user_client.post(
+    # Confirm token works before cancel (internal sub-app).
+    pre_resp = await internal_client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={"kind": "stage_begin", "stage": "train"},
         headers={"Authorization": f"Bearer {raw_token}"},
     )
     assert pre_resp.status_code == 202
 
-    # Cancel the job via the user session client.
+    # Cancel the job via the user session client (public API).
     cancel_resp = await user_client.post(f"/api/v1/jobs/{job.id}/cancel")
     assert cancel_resp.status_code == 200
 
-    # Token must now be rejected.
-    post_resp = await user_client.post(
+    # Token must now be rejected on the internal sub-app.
+    post_resp = await internal_client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={"kind": "stage_begin", "stage": "train"},
         headers={"Authorization": f"Bearer {raw_token}"},
@@ -243,7 +258,7 @@ async def test_token_rejected_after_cancel(
 
 @pytest.mark.asyncio
 async def test_token_rejected_when_job_already_terminal_in_db(
-    db_session, client: AsyncClient
+    db_session, internal_client: AsyncClient
 ) -> None:
     """H-20 defense-in-depth: require_job_token must reject terminal jobs even
     when token_hash has NOT been nulled yet (e.g. a race before the reconciler
@@ -253,7 +268,7 @@ async def test_token_rejected_when_job_already_terminal_in_db(
     # deliberately skipping the null-out to exercise the dep-level gate.
     job, raw_token = await _seed_job_with_token(db_session, status=JobStatus.SUCCEEDED)
 
-    resp = await client.post(
+    resp = await internal_client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={"kind": "stage_begin", "stage": "train"},
         headers={"Authorization": f"Bearer {raw_token}"},

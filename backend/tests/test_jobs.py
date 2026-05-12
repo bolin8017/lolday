@@ -179,7 +179,7 @@ async def test_cancel_job(user_client, seed_detector_version, seed_dataset):
 
 @pytest.mark.asyncio
 async def test_internal_config_endpoint_requires_token(
-    user_client, seed_detector_version, seed_dataset
+    user_client, internal_client, seed_detector_version, seed_dataset
 ):
     dv_id = await seed_detector_version()
     tr = await seed_dataset(name="tr")
@@ -196,10 +196,12 @@ async def test_internal_config_endpoint_requires_token(
     )
     jid = cr.json()["id"]
 
-    r = await user_client.get(f"/api/v1/internal/jobs/{jid}/config")
-    # user_client sends a JWT as Bearer token; require_job_token rejects it
-    # with 403 (wrong token) since the JWT doesn't match the stored job token hash
-    assert r.status_code in (401, 403)
+    # M-internal-split: /api/v1/internal/* is hosted by internal_app on
+    # port 8001 in prod; tests target it via the ``internal_client`` fixture.
+    # Calling without an Authorization header → 401 "missing bearer token";
+    # calling with a non-matching bearer → 403/404 from require_job_token.
+    r = await internal_client.get(f"/api/v1/internal/jobs/{jid}/config")
+    assert r.status_code in (401, 403, 404)
 
 
 # ---------------------------------------------------------------------------

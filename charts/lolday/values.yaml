@@ -60,8 +60,10 @@ backend:
     DATASET_CSV_MAX_BYTES: "10485760"
     JOB_PER_USER_CONCURRENCY: "2"
     JOB_IDEMPOTENCY_WINDOW_SECONDS: "300"
-    INTERNAL_EVENTS_BASE_URL: "http://backend:8000"
-    JOB_BACKEND_URL: "http://backend.lolday.svc:8000"
+    # M-internal-split (P2): internal callback API moved to port 8001 on a
+    # separate FastAPI app. NetworkPolicy gates 8001 to lolday-jobs only.
+    INTERNAL_EVENTS_BASE_URL: "http://backend:8001"
+    JOB_BACKEND_URL: "http://backend.lolday.svc:8001"
     SAMPLES_ROOT: "/mnt/samples"
     SAMPLES_LOCAL_ROOT: "/data"
     JOB_NODE_SELECTOR_HOSTNAME: "server30"
