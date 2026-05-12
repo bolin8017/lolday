@@ -4,7 +4,12 @@ set -euo pipefail
 # Pre-flight checks for Phase 4 deploy.
 # Confirms: sample dirs exist + readable, MLflow password set, Harbor is up.
 
-SAMPLES_DIR=${SAMPLES_DIR:-/mnt/ssd500g/data/samples}
+# Default samples path. Keep in sync with `samples.hostPath` in
+# charts/lolday/values.yaml. As of 2026-05-12 the path is a mergerfs union
+# at /mnt/lolday-samples (NFS-backed); see
+# docs/superpowers/specs/2026-05-12-nfs-dataset-union-mount-design.md.
+# Override via SAMPLES_DIR env if the chart value diverges locally.
+SAMPLES_DIR=${SAMPLES_DIR:-/mnt/lolday-samples}
 
 echo "[1/4] Checking sample directory..."
 if [[ ! -d "$SAMPLES_DIR" ]]; then
