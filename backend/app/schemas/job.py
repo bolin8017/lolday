@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.models.job import JobStatus, JobType, ResourceProfile
 
@@ -181,20 +181,21 @@ EVENT_KIND = Literal[
 class JobInternalEvent(BaseModel):
     """Typed payload accepted by ``POST /api/v1/internal/jobs/{id}/events``.
 
-    ``extra="forbid"`` rejects unexpected keys; ``payload`` is bounded at
-    64 KiB serialized.
+    Only ``kind`` is constrained to the EVENT_KIND allowlist. Extra
+    top-level keys are allowed (the maldet wire contract puts data
+    fields at the top level, e.g. ``{"kind": "metric", "name": "loss",
+    "value": 0.5}``). The whole event must serialize under 64 KiB.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     kind: EVENT_KIND
-    payload: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("payload")
-    @classmethod
-    def _payload_under_64k(cls, v: dict[str, Any]) -> dict[str, Any]:
+    @model_validator(mode="after")
+    def _whole_event_under_64k(self) -> "JobInternalEvent":
         import json
 
-        if len(json.dumps(v, default=str).encode("utf-8")) > 64 * 1024:
-            raise ValueError("payload exceeds 64 KiB")
-        return v
+        size = len(json.dumps(self.model_dump(), default=str).encode("utf-8"))
+        if size > 64 * 1024:
+            raise ValueError("event exceeds 64 KiB")
+        return self

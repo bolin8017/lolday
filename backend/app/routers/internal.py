@@ -63,13 +63,13 @@ async def ingest_event(
     except Exception as e:
         msg = str(e)
         if "64 KiB" in msg:
-            raise HTTPException(status_code=413, detail="payload exceeds 64 KiB") from e
+            raise HTTPException(status_code=413, detail="event exceeds 64 KiB") from e
         raise HTTPException(status_code=422, detail=msg) from e
     if job.id != job_id:
         raise HTTPException(status_code=404, detail="job_id mismatch")
     if job.status not in NON_TERMINAL_STATUSES:
         raise HTTPException(status_code=409, detail="job is in a terminal state")
-    payload = event.model_dump()
+    payload = event.model_dump()  # full event dict, all top-level keys preserved
     await persist_event(session, job_id=job.id, event=payload)
     try:
         await event_broker.publish(job.id, payload)
