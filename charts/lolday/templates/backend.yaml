@@ -10,7 +10,7 @@ metadata:
 type: Opaque
 stringData:
   DATABASE_URL: "postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@postgresql:5432/{{ .Values.postgresql.auth.database }}"
-  REDIS_URL: "redis://redis:6379/0"
+  REDIS_URL: "redis://:{{ required "redis.auth.password must be set" .Values.redis.auth.password }}@redis:6379/0"
 ---
 apiVersion: apps/v1
 kind: Deployment

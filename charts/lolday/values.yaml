@@ -113,6 +113,11 @@ redis:
   # picked up CVE-2025-68121 (Go crypto/tls) via baked-in tooling and the
   # tag was immutable so re-pulls didn't refresh the layer.
   image: redis:7.4-alpine
+  # operator MUST `--set redis.auth.password=<strong>` at deploy time.
+  # An empty value here is intentional — the chart's required() validator
+  # fails fast if you forget.
+  auth:
+    password: ""
 
 # =============================================================================
 # Harbor Container Registry
