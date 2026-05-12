@@ -16,12 +16,31 @@ from urllib.parse import quote
 import httpx
 import pytest
 import respx
+from app.models import User
+from sqlalchemy import select
+
+from tests.conftest import test_session_maker as _test_session_maker
+
+
+async def _user1_id() -> str:
+    """Return the seeded ``user1@example.dev`` row's UUID as a string.
+
+    Used to stamp the ``lolday.user_id`` run tag so the H-1 ACL admits the
+    caller. Every test in this file authenticates as ``user_client``, which
+    is bound to ``user1@example.dev`` via ``conftest._make_user``.
+    """
+    async with _test_session_maker() as session:
+        row = (
+            await session.execute(select(User).where(User.email == "user1@example.dev"))
+        ).scalar_one()
+    return str(row.id)
 
 
 @pytest.mark.no_mock_mlflow
 @pytest.mark.asyncio
 async def test_download_artifact_sets_content_disposition_ascii(user_client) -> None:
     """Browser save dialog should default to the artifact basename, not "download"."""
+    uid = await _user1_id()
     async with respx.MockRouter(assert_all_called=False) as mock:
         mock.get("http://mlflow.lolday.svc:5000/api/2.0/mlflow/runs/get").mock(
             return_value=httpx.Response(
@@ -32,7 +51,11 @@ async def test_download_artifact_sets_content_disposition_ascii(user_client) -> 
                             "run_id": "abc123",
                             "artifact_uri": "mlflow-artifacts:/0/abc123/artifacts",
                         },
-                        "data": {"metrics": [], "params": [], "tags": []},
+                        "data": {
+                            "metrics": [],
+                            "params": [],
+                            "tags": [{"key": "lolday.user_id", "value": uid}],
+                        },
                     }
                 },
             )
@@ -62,6 +85,7 @@ async def test_download_artifact_sets_content_disposition_ascii(user_client) -> 
 @pytest.mark.asyncio
 async def test_download_artifact_unicode_filename(user_client) -> None:
     """Non-ASCII filenames go through RFC 5987 percent-encoding while ASCII fallback uses ?-replacement."""
+    uid = await _user1_id()
     encoded_path = quote("混淆樣本.csv", safe="")
     async with respx.MockRouter(assert_all_called=False) as mock:
         mock.get("http://mlflow.lolday.svc:5000/api/2.0/mlflow/runs/get").mock(
@@ -73,7 +97,11 @@ async def test_download_artifact_unicode_filename(user_client) -> None:
                             "run_id": "abc123",
                             "artifact_uri": "mlflow-artifacts:/0/abc123/artifacts",
                         },
-                        "data": {"metrics": [], "params": [], "tags": []},
+                        "data": {
+                            "metrics": [],
+                            "params": [],
+                            "tags": [{"key": "lolday.user_id", "value": uid}],
+                        },
                     }
                 },
             )
@@ -100,6 +128,7 @@ async def test_download_artifact_unicode_filename(user_client) -> None:
 @pytest.mark.asyncio
 async def test_download_artifact_path_with_quotes_does_not_inject(user_client) -> None:
     """A path basename containing a literal quote must not break the header."""
+    uid = await _user1_id()
     async with respx.MockRouter(assert_all_called=False) as mock:
         mock.get("http://mlflow.lolday.svc:5000/api/2.0/mlflow/runs/get").mock(
             return_value=httpx.Response(
@@ -110,14 +139,18 @@ async def test_download_artifact_path_with_quotes_does_not_inject(user_client) -
                             "run_id": "abc123",
                             "artifact_uri": "mlflow-artifacts:/0/abc123/artifacts",
                         },
-                        "data": {"metrics": [], "params": [], "tags": []},
+                        "data": {
+                            "metrics": [],
+                            "params": [],
+                            "tags": [{"key": "lolday.user_id", "value": uid}],
+                        },
                     }
                 },
             )
         )
         mock.get(
             "http://mlflow.lolday.svc:5000/api/2.0/mlflow-artifacts/artifacts/"
-            '0/abc123/artifacts/foo"bar.csv'
+            "0/abc123/artifacts/foo%22bar.csv"
         ).mock(return_value=httpx.Response(200, content=b"data"))
 
         resp = await user_client.get(
@@ -136,6 +169,7 @@ async def test_download_artifact_path_with_quotes_does_not_inject(user_client) -
 @pytest.mark.asyncio
 async def test_download_artifact_uses_guessed_media_type(user_client) -> None:
     """``Content-Type`` should reflect the file extension when known (text/csv, etc.)."""
+    uid = await _user1_id()
     async with respx.MockRouter(assert_all_called=False) as mock:
         mock.get("http://mlflow.lolday.svc:5000/api/2.0/mlflow/runs/get").mock(
             return_value=httpx.Response(
@@ -146,7 +180,11 @@ async def test_download_artifact_uses_guessed_media_type(user_client) -> None:
                             "run_id": "abc123",
                             "artifact_uri": "mlflow-artifacts:/0/abc123/artifacts",
                         },
-                        "data": {"metrics": [], "params": [], "tags": []},
+                        "data": {
+                            "metrics": [],
+                            "params": [],
+                            "tags": [{"key": "lolday.user_id", "value": uid}],
+                        },
                     }
                 },
             )

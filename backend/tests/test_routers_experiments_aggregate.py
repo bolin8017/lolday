@@ -70,8 +70,15 @@ async def test_experiments_no_include_returns_bare_list(
     async_client, auth_owner_headers
 ):
     fake_experiments = [{"experiment_id": "1", "name": "exp_a"}]
+    # H-1: non-admin callers trigger a per-experiment owner filter that issues
+    # one ``search_runs`` per experiment. Mocking it to return a non-empty list
+    # admits the experiment without imposing strict signature expectations on
+    # the kwargs (filter_string, max_results).
     with patch("app.routers.experiments_proxy._client") as mc:
         mc.return_value.search_experiments = AsyncMock(return_value=fake_experiments)
+        mc.return_value.search_runs = AsyncMock(
+            return_value=[{"info": {"run_id": "r"}}]
+        )
         resp = await async_client.get("/api/v1/experiments", headers=auth_owner_headers)
     assert resp.status_code == 200
     body = resp.json()
@@ -108,7 +115,13 @@ async def test_experiments_with_stats_aggregates(async_client, auth_owner_header
 
 
 @pytest.mark.asyncio
-async def test_experiments_stats_cached(async_client, auth_owner_headers):
+async def test_experiments_stats_cached(auth_client_admin):
+    """The stats aggregator's TTL cache must serve the second call from memory.
+
+    Authenticated as admin so the H-1 per-experiment ACL filter is skipped
+    (it would otherwise issue an extra ``search_runs`` per request and break
+    the ``runs_called == 1`` assertion).
+    """
     fake_experiments = [{"experiment_id": "1", "name": "exp_a"}]
     runs_called = 0
 
@@ -127,17 +140,15 @@ async def test_experiments_stats_cached(async_client, auth_owner_headers):
         mc.return_value.search_experiments = AsyncMock(return_value=fake_experiments)
         mc.return_value.search_runs = AsyncMock(side_effect=mock_search_runs)
 
-        await async_client.get(
-            "/api/v1/experiments?include=stats", headers=auth_owner_headers
-        )
-        await async_client.get(
-            "/api/v1/experiments?include=stats", headers=auth_owner_headers
-        )
+        await auth_client_admin.get("/api/v1/experiments?include=stats")
+        await auth_client_admin.get("/api/v1/experiments?include=stats")
     assert runs_called == 1  # second call hit cache
 
 
 @pytest.mark.asyncio
-async def test_list_runs_returns_flat_shape(async_client, auth_owner_headers):
+async def test_list_runs_returns_flat_shape(auth_client_admin):
+    """Admin auth bypasses the H-1 owner filter so this test stays focused on
+    the flatten contract."""
     fake_runs = [
         _run(
             "r1",
@@ -149,9 +160,7 @@ async def test_list_runs_returns_flat_shape(async_client, auth_owner_headers):
     ]
     with patch("app.routers.experiments_proxy._client") as mc:
         mc.return_value.search_runs = AsyncMock(return_value=fake_runs)
-        resp = await async_client.get(
-            "/api/v1/experiments/1/runs", headers=auth_owner_headers
-        )
+        resp = await auth_client_admin.get("/api/v1/experiments/1/runs")
     assert resp.status_code == 200
     body = resp.json()
     assert body[0]["run_id"] == "r1"
@@ -162,11 +171,13 @@ async def test_list_runs_returns_flat_shape(async_client, auth_owner_headers):
 
 
 @pytest.mark.asyncio
-async def test_get_run_returns_flat_shape(async_client, auth_owner_headers):
+async def test_get_run_returns_flat_shape(auth_client_admin):
+    """Admin auth bypasses the H-1 owner filter so this test stays focused on
+    the flatten contract."""
     raw = _run("r1", "FINISHED", 123, params={"lr": "0.01"})
     with patch("app.routers.experiments_proxy._client") as mc:
         mc.return_value.get_run = AsyncMock(return_value=raw)
-        resp = await async_client.get("/api/v1/runs/r1", headers=auth_owner_headers)
+        resp = await auth_client_admin.get("/api/v1/runs/r1")
     assert resp.status_code == 200
     body = resp.json()
     assert body["run_id"] == "r1"
