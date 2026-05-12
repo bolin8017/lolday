@@ -797,7 +797,10 @@ async def _resolve_user_from_ws(websocket: WebSocket) -> User | None:
 
     session, holder = await _ws_session()
     try:
-        if _cf_access_user_dep in _app.dependency_overrides:
+        if (
+            settings.ENVIRONMENT != "production"
+            and _cf_access_user_dep in _app.dependency_overrides
+        ):
             email = websocket.headers.get("x-test-user-email")
             if not email:
                 return None

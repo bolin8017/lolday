@@ -47,7 +47,7 @@ async def _seed_job_for_owner(session: AsyncSession, email: str) -> Job:
         name=f"ws-det-{uuid.uuid4().hex[:8]}",
         display_name="ws-det",
         owner_id=user.id,
-        git_url="https://example.com/r.git",
+        git_url=f"https://example.com/{uuid.uuid4().hex}.git",
     )
     session.add(det)
     await session.flush()
@@ -193,6 +193,37 @@ async def test_ws_rejects_unauthenticated(db_session: AsyncSession) -> None:
             ) as ws,
         ):
             ws.receive_json()
+        assert excinfo.value.code == 4401
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_ws_test_header_rejected_in_production(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even with cf_access_user in dependency_overrides, X-Test-User-Email must
+    NOT authenticate when ENVIRONMENT is 'production'."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+
+    job = await _seed_job_for_owner(db_session, "user1@example.dev")
+
+    client = _make_test_client()
+    try:
+        from app.auth.cf_access import cf_access_user
+
+        assert cf_access_user in client.app.dependency_overrides
+
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect(
+                f"/api/v1/jobs/{job.id}/events",
+                headers={"x-test-user-email": "user1@example.dev"},
+            ) as ws,
+        ):
+            ws.receive_text()
         assert excinfo.value.code == 4401
     finally:
         client.app.dependency_overrides.clear()
