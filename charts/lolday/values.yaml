@@ -89,6 +89,23 @@ backend:
     SSO_ADMIN_EMAIL: "bolin8017@gmail.com"
 
 # =============================================================================
+# BuildKit — custom seccomp profile installer (H-11, P2)
+# =============================================================================
+# BuildKit-rootless needs user-namespace syscalls (setuid/setgid/clone/unshare)
+# that the PSS Restricted-default `RuntimeDefault` seccomp profile blocks. The
+# previous `seccompProfile: Unconfined` on the buildkit container was maximum-
+# permission; this replaces it with a Localhost-type profile pointing at the
+# Docker Engine default seccomp (moby/moby v28.0.0 profiles/seccomp/default.json)
+# — the canonical allowlist BuildKit-rootless docs reference. The seccomp JSON
+# is committed at charts/lolday/files/buildkit/seccomp.json and installed onto
+# each node's kubelet seccomp dir by the buildkit-seccomp-installer DaemonSet
+# (templates/buildkit-seccomp-installer.yaml). See backend/app/services/build.py
+# buildkit_sc for the matching securityContext.
+buildkit:
+  seccompProfile:
+    enabled: true
+
+# =============================================================================
 # PostgreSQL
 # =============================================================================
 postgresql:

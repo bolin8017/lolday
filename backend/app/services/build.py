@@ -80,11 +80,28 @@ def build_job_spec(
     # in /etc/sysctl.d/ — without it rootlesskit fails with
     #   `[rootlesskit:parent] error: ... EPERM`
     # See docs/runbooks/deploy.md §1 (Pre-requisites) for the full host setup.
+    # H-11 (P2): use a custom Localhost-type seccomp profile (the Docker
+    # Engine default whitelist that BuildKit-rootless docs reference)
+    # instead of Unconfined. The profile must exist at
+    #   /var/lib/kubelet/seccomp/profiles/buildkit-rootless.json
+    # on every node — installed by the buildkit-seccomp-installer DaemonSet
+    # (charts/lolday/templates/buildkit-seccomp-installer.yaml), which is
+    # gated on Values.buildkit.seccompProfile.enabled. The profile
+    # whitelists the user-namespace syscalls (setuid/setgid/clone/unshare)
+    # that rootlesskit needs, which the Restricted-default RuntimeDefault
+    # blocks.
+    #
+    # appArmorProfile stays Unconfined — that's an orthogonal control
+    # with different infrastructure requirements (per-node AppArmor
+    # profile loading), tracked separately.
     buildkit_sc = {
         "runAsNonRoot": True,
         "runAsUser": 1000,
         "runAsGroup": 1000,
-        "seccompProfile": {"type": "Unconfined"},
+        "seccompProfile": {
+            "type": "Localhost",
+            "localhostProfile": "profiles/buildkit-rootless.json",
+        },
         "appArmorProfile": {"type": "Unconfined"},
     }
 
