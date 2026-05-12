@@ -61,7 +61,7 @@ async def test_post_event_persists_and_accepts(db_session, client: AsyncClient) 
     job, raw_token = await _seed_job_with_token(db_session)
     resp = await client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
-        json={"ts": "2026-04-24T00:00:00Z", "kind": "stage_begin", "stage": "train"},
+        json={"kind": "stage_begin", "payload": {"stage": "train"}},
         headers={"Authorization": f"Bearer {raw_token}"},
     )
     assert resp.status_code == 202
@@ -82,7 +82,7 @@ async def test_post_event_rejects_invalid_token(
     job, _ = await _seed_job_with_token(db_session)
     resp = await client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
-        json={"ts": "2026-04-24T00:00:00Z", "kind": "stage_begin", "stage": "train"},
+        json={"kind": "stage_begin", "payload": {"stage": "train"}},
         headers={"Authorization": "Bearer wrong-token"},
     )
     assert resp.status_code in (401, 403)
@@ -94,7 +94,7 @@ async def test_post_event_rejects_wrong_job_id(db_session, client: AsyncClient) 
     other_id = uuid.uuid4()
     resp = await client.post(
         f"/api/v1/internal/jobs/{other_id}/events",
-        json={"ts": "2026-04-24T00:00:00Z", "kind": "stage_begin", "stage": "train"},
+        json={"kind": "stage_begin", "payload": {"stage": "train"}},
         headers={"Authorization": f"Bearer {raw_token}"},
     )
     # Token is scoped to the original job; cross-job POST returns 404 (job not found)
@@ -113,16 +113,14 @@ async def test_post_event_publishes_to_broker(db_session, client: AsyncClient) -
         await client.post(
             f"/api/v1/internal/jobs/{job.id}/events",
             json={
-                "ts": "2026-04-24T00:00:00Z",
                 "kind": "metric",
-                "name": "loss",
-                "value": 0.1,
+                "payload": {"name": "loss", "value": 0.1},
             },
             headers={"Authorization": f"Bearer {raw_token}"},
         )
         event = await asyncio.wait_for(q.get(), timeout=1.0)
         assert event["kind"] == "metric"
-        assert event["name"] == "loss"
+        assert event["payload"]["name"] == "loss"
     finally:
         event_broker.unsubscribe(job.id, q)
 
@@ -136,11 +134,52 @@ async def test_post_event_rejects_terminal_job(db_session, client: AsyncClient) 
     resp = await client.post(
         f"/api/v1/internal/jobs/{job.id}/events",
         json={
-            "ts": "2026-04-24T00:00:00Z",
             "kind": "metric",
-            "name": "loss",
-            "value": 0.9,
+            "payload": {"name": "loss", "value": 0.9},
         },
         headers={"Authorization": f"Bearer {raw_token}"},
     )
     assert resp.status_code == 409
+
+
+# ---------- new tests for M-event-dict schema enforcement ----------
+
+
+@pytest.mark.asyncio
+async def test_post_event_rejects_unknown_kind(db_session, client: AsyncClient) -> None:
+    """Unknown kind value must be rejected with 422."""
+    job, raw_token = await _seed_job_with_token(db_session)
+    resp = await client.post(
+        f"/api/v1/internal/jobs/{job.id}/events",
+        json={"kind": "totally_unknown_kind"},
+        headers={"Authorization": f"Bearer {raw_token}"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_post_event_rejects_oversized_payload(
+    db_session, client: AsyncClient
+) -> None:
+    """Payload exceeding 64 KiB must be rejected with 413."""
+    job, raw_token = await _seed_job_with_token(db_session)
+    resp = await client.post(
+        f"/api/v1/internal/jobs/{job.id}/events",
+        json={"kind": "metric", "payload": {"x": "x" * 200_000}},
+        headers={"Authorization": f"Bearer {raw_token}"},
+    )
+    assert resp.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_post_event_rejects_extra_top_level_keys(
+    db_session, client: AsyncClient
+) -> None:
+    """Extra top-level keys outside the defined schema must be rejected with 422."""
+    job, raw_token = await _seed_job_with_token(db_session)
+    resp = await client.post(
+        f"/api/v1/internal/jobs/{job.id}/events",
+        json={"kind": "metric", "rogue_field": "x"},
+        headers={"Authorization": f"Bearer {raw_token}"},
+    )
+    assert resp.status_code == 422

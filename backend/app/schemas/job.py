@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.job import JobStatus, JobType, ResourceProfile
 
@@ -139,3 +139,62 @@ class JobInternalConfig(BaseModel):
     train_csv: str | None
     test_csv: str | None
     predict_csv: str | None
+
+
+# All kind strings emitted by maldet (EventKind enum + logger methods) and any
+# future/alternative names used by the plan.  Expand here when maldet adds a
+# new EventKind; do NOT change the Literal at call sites — update only here.
+EVENT_KIND = Literal[
+    # maldet EventKind enum (kinds.py)
+    "stage_begin",
+    "stage_end",
+    "data_loaded",
+    "epoch_begin",
+    "epoch_end",
+    "metric",
+    "artifact_written",
+    "checkpoint_saved",
+    "warning",
+    "error",
+    "confusion_matrix",
+    "per_class",
+    # maldet logger methods not in EventKind enum
+    "params",
+    "tags",
+    "model_logged",
+    # plan / forward-compat names
+    "init_start",
+    "init_end",
+    "train_start",
+    "train_progress",
+    "epoch",
+    "train_end",
+    "evaluate_start",
+    "evaluate_end",
+    "predict_start",
+    "predict_end",
+    "metric_logged",
+    "info",
+]
+
+
+class JobInternalEvent(BaseModel):
+    """Typed payload accepted by ``POST /api/v1/internal/jobs/{id}/events``.
+
+    ``extra="forbid"`` rejects unexpected keys; ``payload`` is bounded at
+    64 KiB serialized.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: EVENT_KIND
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("payload")
+    @classmethod
+    def _payload_under_64k(cls, v: dict[str, Any]) -> dict[str, Any]:
+        import json
+
+        if len(json.dumps(v, default=str).encode("utf-8")) > 64 * 1024:
+            raise ValueError("payload exceeds 64 KiB")
+        return v

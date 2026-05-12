@@ -1,8 +1,8 @@
 import logging
 import uuid
-from typing import Annotated, Any
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_async_session
@@ -10,7 +10,7 @@ from app.deps import require_job_token
 from app.metrics import BACKEND_ERRORS
 from app.models import DatasetConfig, Job
 from app.models.job import NON_TERMINAL_STATUSES
-from app.schemas.job import JobInternalConfig
+from app.schemas.job import JobInternalConfig, JobInternalEvent
 from app.services.events_tail import event_broker, persist_event
 
 logger = logging.getLogger(__name__)
@@ -52,18 +52,27 @@ async def internal_get_job_config(
 @router.post("/jobs/{job_id}/events", status_code=status.HTTP_202_ACCEPTED)
 async def ingest_event(
     job_id: uuid.UUID,
-    event: dict[str, Any],
+    request: Request,
     job: Job = Depends(require_job_token),
     session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     """Receive a single event from the sidecar; persist + broadcast."""
+    raw = await request.json()
+    try:
+        event = JobInternalEvent.model_validate(raw)
+    except Exception as e:
+        msg = str(e)
+        if "64 KiB" in msg:
+            raise HTTPException(status_code=413, detail="payload exceeds 64 KiB") from e
+        raise HTTPException(status_code=422, detail=msg) from e
     if job.id != job_id:
         raise HTTPException(status_code=404, detail="job_id mismatch")
     if job.status not in NON_TERMINAL_STATUSES:
         raise HTTPException(status_code=409, detail="job is in a terminal state")
-    await persist_event(session, job_id=job.id, event=event)
+    payload = event.model_dump()
+    await persist_event(session, job_id=job.id, event=payload)
     try:
-        await event_broker.publish(job.id, event)
+        await event_broker.publish(job.id, payload)
     except Exception:
         BACKEND_ERRORS.labels(stage="event_broker_publish").inc()
         logger.exception("event_broker.publish failed", extra={"job_id": str(job.id)})
