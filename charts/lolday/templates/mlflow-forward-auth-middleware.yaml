@@ -1,0 +1,37 @@
+{{/*
+H-15 (security-hardening-p2): Traefik ForwardAuth middleware that gates the
+``/mlflow/*`` IngressRoute on the per-user/per-job ACL implemented in
+``backend/app/routers/mlflow_authz.py``.
+
+MLflow has no built-in authn.  The T9 (H-12) NetworkPolicy locks the MLflow
+Service down so only backend + Traefik can reach it; this middleware ensures
+every request that comes through Traefik gets authorised before MLflow sees
+it.  Forwarded headers:
+
+* ``Cf-Access-Jwt-Assertion`` — browser users authenticate via Cloudflare
+  Access SSO.  Traefik propagates this so the endpoint can verify the JWT
+  via the shared ``resolve_user_from_jwt`` path.
+* ``Authorization`` — job pods carry an ``Authorization: Bearer <job-token>``
+  with the same scheme as ``require_job_token``.  This lets the
+  ``/mlflow/*`` Traefik route serve both browser and sidecar callers.
+
+The ``X-Lolday-Authz-As`` response header is informational — it lets the
+operator confirm via Traefik access logs whether a given allow was
+``admin`` / ``user`` / ``job``.  Traefik strips other backend response
+headers per its ForwardAuth contract.
+*/}}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mlflow-forward-auth
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  forwardAuth:
+    address: http://backend.{{ .Values.global.namespace }}.svc.cluster.local:8000/api/v1/mlflow-authz
+    authResponseHeaders:
+      - X-Lolday-Authz-As
+    authRequestHeaders:
+      - Cf-Access-Jwt-Assertion
+      - Authorization

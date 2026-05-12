@@ -19,12 +19,18 @@ spec:
     # mlflow itself serve the UI at /mlflow/ and ajax-api at
     # /mlflow/ajax-api/, so Traefik must forward the path unchanged. Stripping
     # /mlflow would land at mlflow's `/`, which 404s under static-prefix.
-    # Phase 13b §Open Questions Q4 fallback: no method filter — CFA + lab
-    # trust is the auth boundary, so MLflow UI mutations (rename/delete/tag)
-    # work as users expect.
+    #
+    # H-15 (security-hardening-p2): the per-request ForwardAuth middleware
+    # ``mlflow-forward-auth`` calls the backend's
+    # ``POST /api/v1/mlflow-authz`` endpoint and authorises each call via
+    # CF Access JWT (browser) or job bearer token (sidecar). The MLflow
+    # Service is locked down by the T9 NetworkPolicy to backend + Traefik
+    # only, so this is the only path that can reach MLflow.
     - kind: Rule
       match: Host(`{{ .Values.frontend.host }}`) && PathPrefix(`/mlflow`)
       priority: 6
+      middlewares:
+        - name: mlflow-forward-auth
       services:
         - kind: Service
           name: mlflow
