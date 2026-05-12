@@ -10,7 +10,21 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/component: cloudflared
-  policyTypes: [Egress]
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow only the monitoring-namespace Prometheus to scrape cloudflared :2000 /metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 2000
+          protocol: TCP
   egress:
     # DNS
     - to:
