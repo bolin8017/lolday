@@ -183,6 +183,10 @@ app = FastAPI(
     redoc_url="/redoc" if settings.DOCS_ENABLED else None,
 )
 
+from app.middleware.body_size import BodySizeLimitMiddleware
+
+app.add_middleware(BodySizeLimitMiddleware)
+
 # Intentionally not wrapped in try/except: if metrics wiring fails the pod
 # should CrashLoopBackOff so LoldayCoreServiceDown fires — silently losing
 # scrape targets is worse than a loud restart.
