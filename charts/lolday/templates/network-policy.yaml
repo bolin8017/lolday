@@ -1,20 +1,3 @@
-{{- if .Values.training.networkPolicy.enabled }}
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: deny-training-egress
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "lolday.labels" . | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      lolday.io/role: training
-  policyTypes:
-    - Egress
-  egress: []
-{{- end }}
----
 # H-25: restrict /metrics ingress to the monitoring namespace's Prometheus
 # pod only. Backend Service exposes /metrics on the same port as the public
 # API (the prometheus-fastapi-instrumentator default); this policy is the

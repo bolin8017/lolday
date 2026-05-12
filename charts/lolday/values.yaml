@@ -20,14 +20,6 @@ registry:
     # Uses K3s default StorageClass (local-path)
 
 # =============================================================================
-# Training Pod Security
-# =============================================================================
-training:
-  # NetworkPolicy: deny all egress from training pods
-  networkPolicy:
-    enabled: true
-
-# =============================================================================
 # Cloudflare Tunnel
 # =============================================================================
 cloudflare:
