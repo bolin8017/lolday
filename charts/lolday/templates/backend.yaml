@@ -31,11 +31,26 @@ spec:
         app.kubernetes.io/component: backend
     spec:
       serviceAccountName: backend
+      # H-7: deferred — backend talks to K8s API for job dispatch and
+      # therefore needs the projected SA token. Until that code path is
+      # refactored, RBAC narrow (P1 C-1) is the primary defense.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
           image: {{ .Values.backend.image }}
           ports:
             - containerPort: 8000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
           envFrom:
             - secretRef:
                 name: backend
@@ -91,6 +106,12 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
