@@ -394,6 +394,14 @@
       "action": "SCMP_ACT_ALLOW"
     },
     {
+      "names": ["pivot_root"],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [],
+      "comment": "BuildKit-rootless needs this for runc rootfs setup (NEWNS).",
+      "includes": {},
+      "excludes": {}
+    },
+    {
       "names": ["process_vm_readv", "process_vm_writev", "ptrace"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
