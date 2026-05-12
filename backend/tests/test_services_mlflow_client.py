@@ -1,6 +1,9 @@
+import contextlib
+
 import httpx
 import pytest
 import respx
+from app.services import mlflow_client as mlflow_client_mod
 from app.services.mlflow_client import MlflowClient, MlflowError
 
 from tests.fixtures.sample_mlflow_responses import (
@@ -14,6 +17,19 @@ from tests.fixtures.sample_mlflow_responses import (
     RUN_CREATED,
     RUN_FINISHED,
 )
+
+
+@pytest.fixture(autouse=True)
+async def _reset_mlflow_http_client():
+    """Reset the module-level singleton between tests so each test sees a
+    fresh AsyncClient. The fix introduces a shared AsyncClient that
+    otherwise lives across the whole test session and confuses
+    construction-count assertions and respx scoping."""
+    mlflow_client_mod._HTTP_CLIENT = None
+    yield
+    if mlflow_client_mod._HTTP_CLIENT is not None:
+        with contextlib.suppress(Exception):
+            await mlflow_client_mod.close_http_client()
 
 
 @pytest.mark.asyncio
@@ -194,3 +210,121 @@ async def test_delete_registered_model():
     body = sent.content.decode("utf-8")
     assert "upxelfdet" in body
     assert result is None
+
+
+# ============================================================================
+# Regression tests for the 2026-05-12 AsyncClient-leak fix
+# (spec: docs/superpowers/specs/2026-05-12-mlflow-client-async-leak-fix-design.md)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_request_reuses_module_level_async_client(monkeypatch):
+    """Regression for the ~0.9 MiB/min residual leak observed in v0.21.1.
+
+    Pre-fix code did ``async with httpx.AsyncClient(timeout=...) as client:``
+    inside ``_request`` on every call.  sync_model_versions fires this
+    every 60 s, churning ~0.8 MiB of glibc arena pages per construction.
+    """
+    construction_count = 0
+    real_init = httpx.AsyncClient.__init__
+
+    def counting_init(self, *args, **kwargs):
+        nonlocal construction_count
+        construction_count += 1
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", counting_init)
+    respx.get("http://mlflow/api/2.0/mlflow/experiments/get-by-name").mock(
+        return_value=httpx.Response(200, json={"experiment": {"experiment_id": "1"}})
+    )
+
+    c = MlflowClient("http://mlflow")
+    for _ in range(10):
+        await c.get_experiment_by_name("any")
+
+    assert construction_count == 1, (
+        f"_request must reuse a module-level AsyncClient (lazy-init once); "
+        f"saw {construction_count} new AsyncClient constructions across 10 calls."
+    )
+
+
+@pytest.mark.asyncio
+async def test_module_level_http_client_lazy_init_on_first_use():
+    """Module-load does NOT construct the AsyncClient (no event loop yet)."""
+    # The autouse fixture has already reset _HTTP_CLIENT to None at test
+    # entry.  Importing mlflow_client must not have created a Client.
+    assert mlflow_client_mod._HTTP_CLIENT is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_close_http_client_is_idempotent():
+    """Calling close_http_client() twice must not raise.
+
+    Lifespan teardown does not guard against double-close; a regression
+    that drops the ``if _HTTP_CLIENT is None: return`` early-exit would
+    AttributeError on the second call.
+    """
+    respx.get("http://mlflow/api/2.0/mlflow/experiments/get-by-name").mock(
+        return_value=httpx.Response(200, json={"experiment": {"experiment_id": "1"}})
+    )
+    c = MlflowClient("http://mlflow")
+    await c.get_experiment_by_name("any")  # lazy-init the client
+
+    assert mlflow_client_mod._HTTP_CLIENT is not None
+    await mlflow_client_mod.close_http_client()
+    assert mlflow_client_mod._HTTP_CLIENT is None
+
+    # Second call: no-op, no raise.
+    await mlflow_client_mod.close_http_client()
+    assert mlflow_client_mod._HTTP_CLIENT is None
+
+
+@pytest.mark.asyncio
+async def test_close_http_client_swallows_aclose_exceptions(monkeypatch):
+    """close_http_client() must not propagate aclose() exceptions.
+
+    Lifespan teardown propagating a transport error would abort the
+    hygiene step for everything wired after it.  Mirrors the gpu_signal
+    contract; reference is nulled *before* aclose() so the post-close
+    invariant holds even when the underlying close fails.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    fake_client = MagicMock()
+    fake_client.aclose = AsyncMock(side_effect=OSError("transport already gone"))
+    monkeypatch.setattr(mlflow_client_mod, "_HTTP_CLIENT", fake_client)
+
+    await mlflow_client_mod.close_http_client()  # must not raise
+
+    assert mlflow_client_mod._HTTP_CLIENT is None
+    fake_client.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_request_after_close_recreates_client():
+    """After close_http_client(), the next _request lazily recreates the Client.
+
+    Unlike gpu_signal (which raises PrometheusUnavailable after close),
+    mlflow_client's lazy-init is the same call site for "first use" and
+    "post-close use" — neither has special meaning. A test runs both
+    pre- and post-close to validate this is intentional.
+    """
+    respx.get("http://mlflow/api/2.0/mlflow/experiments/get-by-name").mock(
+        return_value=httpx.Response(200, json={"experiment": {"experiment_id": "1"}})
+    )
+    c = MlflowClient("http://mlflow")
+    await c.get_experiment_by_name("any")  # 1st client lazy-init
+    first_client = mlflow_client_mod._HTTP_CLIENT
+    assert first_client is not None
+
+    await mlflow_client_mod.close_http_client()
+    assert mlflow_client_mod._HTTP_CLIENT is None
+
+    await c.get_experiment_by_name("any")  # recreates 2nd client
+    second_client = mlflow_client_mod._HTTP_CLIENT
+    assert second_client is not None
+    assert second_client is not first_client

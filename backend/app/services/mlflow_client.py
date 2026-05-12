@@ -4,11 +4,68 @@ from typing import Any
 
 import httpx
 
+from app.metrics import BACKEND_ERRORS
+
 logger = logging.getLogger(__name__)
 
 
 class MlflowError(Exception):
     pass
+
+
+# Module-level shared httpx.AsyncClient, lazy-initialized on first use.
+# Mirrors gpu_signal's module-level Client pattern (spec
+# 2026-05-12-backend-httpx-client-leak-fix-design.md) — `async with
+# httpx.AsyncClient(...)` per `_request` call churned ~0.8 MiB of glibc
+# arena pages per construction, and sync_model_versions runs every 60 s,
+# contributing the ~0.9 MiB/min residual observed in v0.21.1 production
+# (spec 2026-05-12-mlflow-client-async-leak-fix-design.md §2).
+#
+# Lazy (not eager) because httpx.AsyncClient.__init__ binds anyio
+# task-group machinery to the current event loop and module import
+# happens before the FastAPI loop starts.  The lock prevents two
+# concurrent first-time callers from racing into separate Clients.
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+_HTTP_CLIENT_LOCK = asyncio.Lock()
+
+
+async def _get_http_client(timeout: httpx.Timeout) -> httpx.AsyncClient:
+    """Return the shared AsyncClient, creating it lazily under a lock.
+
+    First caller's ``timeout`` becomes the Client's default; per-request
+    overrides are still available via ``client.request(..., timeout=...)``
+    at the call site.  All real callers in this codebase pass the same
+    default 10 s.
+    """
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None:
+        async with _HTTP_CLIENT_LOCK:
+            if _HTTP_CLIENT is None:
+                _HTTP_CLIENT = httpx.AsyncClient(timeout=timeout)
+    return _HTTP_CLIENT
+
+
+async def close_http_client() -> None:
+    """Close the shared MLflow AsyncClient. Called from FastAPI lifespan teardown.
+
+    Idempotent — safe to call when the Client is already closed or was
+    never constructed.  Reference is cleared *before* ``aclose()`` runs
+    so even on transport failure the post-close invariant holds and
+    subsequent ``_request`` calls re-create a fresh Client through
+    ``_get_http_client``.  ``aclose()``-side exceptions are logged +
+    counted via ``BACKEND_ERRORS{stage='mlflow_client_close'}`` but
+    never re-raised — lifespan teardown is best-effort hygiene.
+    """
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None:
+        return
+    client = _HTTP_CLIENT
+    _HTTP_CLIENT = None
+    try:
+        await client.aclose()
+    except Exception:
+        BACKEND_ERRORS.labels(stage="mlflow_client_close").inc()
+        logger.exception("mlflow_client: AsyncClient.aclose() raised during shutdown")
 
 
 class MlflowClient:
@@ -37,11 +94,11 @@ class MlflowClient:
         params: dict | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base}/api/2.0/mlflow{path}"
+        client = await _get_http_client(self._timeout)
         last_exc: Exception | None = None
         for attempt in range(self._retries):
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.request(method, url, json=json, params=params)
+                resp = await client.request(method, url, json=json, params=params)
                 if resp.status_code >= 400:
                     try:
                         body = resp.json()

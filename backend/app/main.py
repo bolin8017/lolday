@@ -169,9 +169,10 @@ async def lifespan(app: FastAPI):
             with contextlib.suppress(asyncio.CancelledError):
                 await fifo_task
     finally:
-        from app.services import gpu_signal
+        from app.services import gpu_signal, mlflow_client
 
         gpu_signal.close_http_client()
+        await mlflow_client.close_http_client()
 
 
 app = FastAPI(
