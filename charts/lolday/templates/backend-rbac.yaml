@@ -16,12 +16,10 @@ metadata:
   labels:
     {{- include "lolday.labels" . | nindent 4 }}
 rules:
-  # Phase 1 (2026-05-05) — pods / batch / batch.volcano.sh moved to
-  # the lolday-jobs Role (templates/jobs-rbac.yaml). Same-ns Role keeps
-  # only resources that legitimately live in the infra namespace.
-  - apiGroups: [""]
-    resources: [secrets, configmaps]
-    verbs: [get, list, create, update, delete]
+  # P1 [C-1] (2026-05-12) — Phase 1's same-ns secret/configmap grant
+  # removed. Backend reads its DB credential / Fernet key / Harbor pwd
+  # via env mounts (Pod Spec, not runtime API). Per-job Secret creation
+  # lives in lolday-jobs (templates/jobs-rbac.yaml).
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [get, list, watch]
