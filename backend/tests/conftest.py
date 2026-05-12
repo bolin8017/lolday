@@ -1092,3 +1092,61 @@ async def alice_client(populated):
     # fixtures' overrides if both are active in the same test).
     app.dependency_overrides.pop(get_async_session, None)
     app.dependency_overrides.pop(cf_access_user, None)
+
+
+# ---------------------------------------------------------------------------
+# H-3: flat /builds/{id} ACL fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def soft_deleted_detector_with_build(db_session):
+    """Create a Detector + DetectorBuild pair where the detector is soft-deleted.
+
+    The returned object exposes a single ``.build_id`` UUID attribute.
+    Used by ``test_flat_build_route_404s_if_parent_detector_deleted`` to
+    verify that the flat ``GET /api/v1/builds/{id}`` route 404s when the
+    parent detector is soft-deleted, matching the nested route's behaviour.
+    """
+    import uuid as _uuid
+    from datetime import UTC, datetime
+
+    from app.models import User
+    from app.models.detector import Detector, DetectorBuild
+
+    # Seed a minimal owner user (idempotent), then re-fetch inside the
+    # current session so the ORM identity map is consistent.
+    await _make_user("soft-del-owner@example.dev", role=Role.USER)
+    from sqlalchemy import select as _select
+
+    owner_row = (
+        await db_session.execute(
+            _select(User).where(User.email == "soft-del-owner@example.dev")
+        )
+    ).scalar_one()
+
+    detector = Detector(
+        name=f"soft-del-det-{_uuid.uuid4().hex[:8]}",
+        display_name="Soft Deleted Detector",
+        git_url="https://github.com/test/soft-del-det.git",
+        owner_id=owner_row.id,
+        deleted_at=datetime.now(UTC),
+    )
+    db_session.add(detector)
+    await db_session.flush()
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v1.0.0",
+        triggered_by_id=owner_row.id,
+    )
+    db_session.add(build)
+    await db_session.commit()
+    await db_session.refresh(build)
+
+    class _Result:
+        pass
+
+    r = _Result()
+    r.build_id = build.id
+    return r
