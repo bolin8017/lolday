@@ -64,9 +64,12 @@ spec:
             # P2 H-7 + H-10 together: readOnlyRootFilesystem=true + UID 1000
             # with HOME=/home/lolday on the ro fs leaves `uv run` (used by the
             # CMD) with no writable cache root. Redirect to the writable /tmp
-            # emptyDir mount below.
+            # emptyDir mount below. UV_NO_SYNC skips the implicit sync that
+            # would otherwise install dev deps into the read-only /app/.venv.
             - name: UV_CACHE_DIR
               value: /tmp/uv-cache
+            - name: UV_NO_SYNC
+              value: "1"
             - name: FERNET_KEYS
               valueFrom:
                 secretKeyRef:

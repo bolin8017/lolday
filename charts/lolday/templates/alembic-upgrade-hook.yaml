@@ -62,12 +62,14 @@ spec:
           env:
             # P2 H-7 + H-10 together: readOnlyRootFilesystem=true + UID 1000
             # with HOME=/home/lolday on the ro fs leaves `uv` with no writable
-            # cache root. Redirect to the writable /tmp emptyDir. `uv run` in
-            # --frozen sync mode only writes resolution state here; the venv
-            # itself lives under /app and is read-only at runtime (uv treats
-            # this as a feature, not a bug).
+            # cache root. Redirect to the writable /tmp emptyDir. UV_NO_SYNC
+            # tells `uv run` to skip the implicit sync that would otherwise
+            # try to install dev deps (mypy etc.) into /app/.venv — also a
+            # write into the read-only fs.
             - name: UV_CACHE_DIR
               value: /tmp/uv-cache
+            - name: UV_NO_SYNC
+              value: "1"
             # Alembic only needs DATABASE_URL. `app.config.Settings` uses a
             # default `FERNET_KEYS: list[str] = []`, so importing `app.models`
             # does NOT require the Fernet secret — the earlier env binding
