@@ -51,7 +51,7 @@ files exist at the repo root and what each is for.
 
 - **`.lolday-secrets.env`** (gitignored, chmod 600) — main operator secrets file. Sourced by every script under `scripts/` that needs secrets via the canonical loader pattern in `scripts/recover-harbor.sh`.
 - **`.lolday-cf-svctoken.env`** — operator-local split of the CF Access service-token credentials (`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`), kept apart for separate rotation cadence (per-migration cycle). Sourced manually for `/users/me` svctoken debug. Not listed in `architecture.md` §5.2 because it is operator-local, not platform-required.
-- **`.lolday-cloudflare-access-backups/`** — directory of JSON snapshots of CF Access app/policy state (audit). Not consumed by any script.
+- **`.lolday-cloudflare-access-backups/`** — directory of age-encrypted (`.json.age`) snapshots of CF Access app/policy state (audit). Encrypt with `age -r $AGE_RECIPIENT < state.json > state.json.age` per [`docs/runbooks/cf-access-backups.md`](runbooks/cf-access-backups.md); cleartext `.json` is forbidden. Not consumed by any script.
 - **`frontend/.env.example`** — Vite dev env template. Production frontend image reads only build-time env, so a runtime `.env` does nothing.
 
 Runtime cluster secrets are wired via `charts/lolday/templates/*-secret.yaml`,
