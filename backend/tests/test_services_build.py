@@ -46,9 +46,9 @@ def test_job_spec_has_three_containers_and_security():
 
 def test_buildkit_container_is_rootless_not_privileged():
     """Regression guard: BuildKit's security context must match the
-    upstream moby/buildkit rootless example — runAsUser=1000 plus
-    Unconfined seccomp/AppArmor so rootlesskit can set up the user
-    namespace.
+    upstream moby/buildkit rootless contract — runAsUser=1000 with a
+    seccomp/AppArmor profile that whitelists the user-namespace
+    syscalls rootlesskit needs.
 
     DO NOT set allowPrivilegeEscalation=false or drop capabilities
     here: rootlesskit invokes setuid newuidmap/newgidmap to populate
@@ -57,6 +57,10 @@ def test_buildkit_container_is_rootless_not_privileged():
     meaningful security properties — non-root pod UID, user namespace
     isolation, no privileged: true — and adding allowPrivilegeEscalation=false
     only gets us a non-functional build pipeline.
+
+    H-11 (P2): seccompProfile is the Localhost-type custom profile, not
+    Unconfined. See test_buildkit_container_uses_localhost_seccomp_profile
+    below for the strict shape assertions.
     """
     job = build_job_spec(
         build_id=uuid4(),
@@ -75,9 +79,10 @@ def test_buildkit_container_is_rootless_not_privileged():
     # or `privileged: "true"` slipping in from a YAML refactor. Demand
     # `False` (or absent) explicitly.
     assert sc.get("privileged", False) is False
-    # BuildKit-specific Unconfined profiles (pod-level default is
-    # RuntimeDefault; container override is intentional).
-    assert sc["seccompProfile"]["type"] == "Unconfined"
+    # H-11 (P2): seccomp moved from Unconfined to a custom Localhost
+    # profile (whitelists the user-namespace syscalls rootlesskit needs).
+    # AppArmor stays Unconfined — orthogonal control, separate work.
+    assert sc["seccompProfile"]["type"] == "Localhost"
     assert sc["appArmorProfile"]["type"] == "Unconfined"
     # No `procMount: Unmasked` cargo-culted from a forum post. The
     # default (None / masked) is what rootless BuildKit expects.
@@ -96,6 +101,41 @@ def test_buildkit_container_is_rootless_not_privileged():
         assert "hostPath" not in vol, (
             f"volume {vol.get('name')} uses hostPath — escape hatch"
         )
+
+
+def test_buildkit_container_uses_localhost_seccomp_profile():
+    """H-11: BuildKit must use the Localhost-type seccomp profile pointing
+    at the BuildKit-rootless allowlist installed by the
+    buildkit-seccomp-installer DaemonSet, NOT Unconfined.
+
+    Background: PSS Restricted default seccomp blocks the user-namespace
+    syscalls (setuid32/setgid32/clone/unshare) BuildKit-rootless needs.
+    The fix is a custom seccomp whitelist (Docker Engine default profile)
+    at /var/lib/kubelet/seccomp/profiles/buildkit-rootless.json. Reverting
+    to Unconfined trades a 31-syscall allowlist for the entire syscall
+    surface and is a real security regression.
+    """
+    job = build_job_spec(
+        build_id=uuid4(),
+        detector_name="upxelfdet",
+        git_tag="v0.1.0",
+        owner_repo="o/x",
+    )
+    buildkit = job["spec"]["template"]["spec"]["containers"][0]
+    assert buildkit["name"] == "buildkit"
+    sc = buildkit["securityContext"]
+    assert sc["seccompProfile"]["type"] == "Localhost", (
+        "BuildKit seccomp must be Localhost — Unconfined regression"
+    )
+    assert (
+        sc["seccompProfile"]["localhostProfile"] == "profiles/buildkit-rootless.json"
+    ), (
+        "localhostProfile must match the path installed by "
+        "templates/buildkit-seccomp-installer.yaml"
+    )
+    # Defence-in-depth: an explicit assertion that Unconfined did not sneak
+    # back via a YAML refactor or partial rebase.
+    assert sc["seccompProfile"]["type"] != "Unconfined"
 
 
 def test_buildkit_destination_and_insecure_registry_flags():

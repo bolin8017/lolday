@@ -36,6 +36,13 @@ spec:
         {{- include "lolday.labels" . | nindent 8 }}
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: alembic
           image: {{ .Values.backend.image }}
@@ -43,6 +50,14 @@ spec:
           # in place (e.g. `phase7.5` hotfix) would silently apply stale
           # migrations under IfNotPresent.
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           command: ["uv", "run", "alembic", "upgrade", "head"]
           env:
             # Alembic only needs DATABASE_URL. `app.config.Settings` uses a
@@ -79,4 +94,7 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
 {{- end }}

@@ -1,20 +1,7 @@
-{{- if .Values.training.networkPolicy.enabled }}
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: deny-training-egress
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "lolday.labels" . | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      lolday.io/role: training
-  policyTypes:
-    - Egress
-  egress: []
-{{- end }}
----
+# H-25 + M-backend-np: this policy is both the backend's full ingress allow
+# list AND the metrics-source gate. Under H-12's default-deny on the lolday
+# ns (templates/netpol-lolday-default-deny.yaml), nothing else reaches the
+# backend pod.
 # H-25: restrict /metrics ingress to the monitoring namespace's Prometheus
 # pod only. Backend Service exposes /metrics on the same port as the public
 # API (the prometheus-fastapi-instrumentator default); this policy is the
@@ -34,7 +21,9 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow normal API traffic (port 8000) from cloudflared + jobs ns.
+    # Allow normal API traffic (port 8000) from cloudflared only — jobs ns
+    # now uses port 8001 via the backend-internal-from-jobs-only policy below
+    # (M-internal-split).
     - from:
         - namespaceSelector:
             matchLabels:
@@ -42,9 +31,6 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/component: cloudflared
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace | default "lolday-jobs" }}
       ports:
         - port: 8000
           protocol: TCP
@@ -59,5 +45,56 @@ spec:
               app.kubernetes.io/name: prometheus
       ports:
         - port: 8000
+          protocol: TCP
+{{- end }}
+---
+# M-internal-split: port 8001 is the /api/v1/internal sub-app, callable
+# only from job pods in lolday-jobs. Cloudflared tunnel maps port 8000 only.
+{{- if .Values.backend.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-internal-from-jobs-only
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace | default "lolday-jobs" }}
+      ports:
+        - port: 8001
+          protocol: TCP
+{{- end }}
+---
+# M-minio-console: MinIO Console is sub-chart-rendered as a ClusterIP at
+# port 9001. The sub-chart doesn't support disabling it; this NP blocks
+# ingress to the Console pod port instead. Operator port-forward still
+# works (it bypasses the cluster network).
+{{- if .Values.minio.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-console-no-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow only the S3 API port (9000). Console (9001) gets no ingress.
+    - ports:
+        - port: 9000
           protocol: TCP
 {{- end }}

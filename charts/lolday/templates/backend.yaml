@@ -10,7 +10,7 @@ metadata:
 type: Opaque
 stringData:
   DATABASE_URL: "postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@postgresql:5432/{{ .Values.postgresql.auth.database }}"
-  REDIS_URL: "redis://redis:6379/0"
+  REDIS_URL: "redis://:{{ required "redis.auth.password must be set" .Values.redis.auth.password }}@redis:6379/0"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -31,11 +31,32 @@ spec:
         app.kubernetes.io/component: backend
     spec:
       serviceAccountName: backend
+      # H-7: deferred — backend talks to K8s API for job dispatch and
+      # therefore needs the projected SA token. Until that code path is
+      # refactored, RBAC narrow (P1 C-1) is the primary defense.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
           image: {{ .Values.backend.image }}
           ports:
-            - containerPort: 8000
+            # M-internal-split: 8000 = public API (cloudflared), 8001 =
+            # /api/v1/internal/* sub-app for job-pod callbacks. Network gating
+            # in templates/network-policy.yaml.
+            - name: api
+              containerPort: 8000
+            - name: internal
+              containerPort: 8001
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
           envFrom:
             - secretRef:
                 name: backend
@@ -82,15 +103,21 @@ spec:
           livenessProbe:
             httpGet:
               path: /api/v1/health
-              port: 8000
+              port: api
             initialDelaySeconds: 15
             periodSeconds: 30
           readinessProbe:
             httpGet:
               path: /api/v1/health
-              port: 8000
+              port: api
             initialDelaySeconds: 5
             periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -103,8 +130,12 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: 8000
-      targetPort: 8000
+    - name: api
+      port: 8000
+      targetPort: api
+    - name: internal
+      port: 8001
+      targetPort: internal
   selector:
     app.kubernetes.io/component: backend
 {{- end }}

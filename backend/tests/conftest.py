@@ -126,6 +126,30 @@ async def client():
     app.dependency_overrides.clear()
 
 
+@pytest_asyncio.fixture
+async def internal_client():
+    """AsyncClient bound to the internal sub-app (production port 8001).
+
+    /api/v1/internal/* routes were split off ``app.main:app`` in
+    M-internal-split — production now serves them via ``app.internal_app``
+    on container port 8001, gated by NetworkPolicy to lolday-jobs only.
+    Tests that hit ``/api/v1/internal/*`` must use this client; auth is
+    via the ``Authorization: Bearer <job-token>`` header (require_job_token),
+    no CF Access user override is needed.
+    """
+    from app.internal_app import internal_app
+
+    async def override():
+        async with test_session_maker() as session:
+            yield session
+
+    internal_app.dependency_overrides[get_async_session] = override
+    transport = ASGITransport(app=internal_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+    internal_app.dependency_overrides.clear()
+
+
 def _as_user(client: AsyncClient, email: str) -> AsyncClient:
     client.headers["x-test-user-email"] = email
     return client

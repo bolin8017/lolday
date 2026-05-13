@@ -179,7 +179,7 @@ async def test_cancel_job(user_client, seed_detector_version, seed_dataset):
 
 @pytest.mark.asyncio
 async def test_internal_config_endpoint_requires_token(
-    user_client, seed_detector_version, seed_dataset
+    user_client, internal_client, seed_detector_version, seed_dataset
 ):
     dv_id = await seed_detector_version()
     tr = await seed_dataset(name="tr")
@@ -196,10 +196,12 @@ async def test_internal_config_endpoint_requires_token(
     )
     jid = cr.json()["id"]
 
-    r = await user_client.get(f"/api/v1/internal/jobs/{jid}/config")
-    # user_client sends a JWT as Bearer token; require_job_token rejects it
-    # with 403 (wrong token) since the JWT doesn't match the stored job token hash
-    assert r.status_code in (401, 403)
+    # M-internal-split: /api/v1/internal/* is hosted by internal_app on
+    # port 8001 in prod; tests target it via the ``internal_client`` fixture.
+    # Calling without an Authorization header → 401 "missing bearer token";
+    # calling with a non-matching bearer → 403/404 from require_job_token.
+    r = await internal_client.get(f"/api/v1/internal/jobs/{jid}/config")
+    assert r.status_code in (401, 403, 404)
 
 
 # ---------------------------------------------------------------------------
@@ -534,3 +536,97 @@ async def test_patch_job_nonexistent_returns_404(client, db_session) -> None:
         json={"priority": 5},
     )
     assert r.status_code == 404, r.text
+
+
+# ---------------------------------------------------------------------------
+# H-21: Volcano queue server-side enforcement regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_volcano_job_manifest_queue_comes_from_arg():
+    """H-21 unit regression: build_volcano_job_manifest must set spec.queue
+    exclusively from the ``queue_name`` kwarg, which callers derive server-side
+    via ensure_user_queue(job.owner_id).  Any attempt to inject a different
+    queue name via params or other request-shaped input cannot reach spec.queue.
+    """
+    import uuid
+
+    from app.models.job import JobType, ResourceProfile
+    from app.services.job_spec import build_volcano_job_manifest
+    from app.services.k8s import queue_name_for_user
+
+    user_id = uuid.uuid4()
+    server_queue = queue_name_for_user(user_id)  # lolday-u-<id12>
+    attacker_queue = "lolday-u-evil-other-user"
+
+    assert server_queue != attacker_queue, "test setup invariant"
+
+    manifest = build_volcano_job_manifest(
+        job_id=uuid.uuid4(),
+        job_type=JobType.TRAIN,
+        detector_image="harbor.harbor.svc:80/detectors/upxelfdet:v0.4.0",
+        mlflow_experiment_id="1",
+        mlflow_run_id="abc123",
+        mlflow_tracking_uri="http://mlflow:5000",
+        source_run_id=None,
+        source_artifact_path=None,
+        internal_events_url="http://backend:8000/api/v1/internal/jobs/fake/events",
+        queue_name=server_queue,  # server-derived
+        resource_profile=ResourceProfile.STANDARD,
+    )
+
+    actual_queue = manifest["spec"]["queue"]
+    assert actual_queue == server_queue, (
+        f"spec.queue should be the server-derived queue '{server_queue}', "
+        f"got '{actual_queue}'"
+    )
+    assert actual_queue != attacker_queue, (
+        "spec.queue must not contain the attacker-supplied queue name"
+    )
+    assert actual_queue.startswith("lolday-u-"), (
+        f"spec.queue must follow the lolday-u-<id12> scheme, got '{actual_queue}'"
+    )
+
+
+def test_job_create_schema_silently_drops_queue_field():
+    """H-21 schema regression: JobCreate has no 'queue' field.  Pydantic's
+    default extra='ignore' means an attacker-supplied 'queue' key in the
+    request body is silently dropped and never reaches the router or service
+    layer.  This test also confirms the schema does not accidentally accept
+    'queue' as a declared field.
+    """
+    import uuid
+
+    from app.schemas.job import JobCreate
+
+    # Verify no declared 'queue' field exists on the schema.
+    assert "queue" not in JobCreate.model_fields, (
+        "JobCreate must not have a 'queue' field — queue is server-derived only"
+    )
+
+    # Verify that an attacker-supplied 'queue' in the JSON body is silently
+    # dropped (extra="ignore" is the Pydantic default; extra="forbid" would
+    # raise, but either is safe as long as 'queue' is not a declared field).
+    train_ds = uuid.uuid4()
+    test_ds = uuid.uuid4()
+    dv_id = uuid.uuid4()
+    payload = {
+        "type": "train",
+        "detector_version_id": str(dv_id),
+        "train_dataset_id": str(train_ds),
+        "test_dataset_id": str(test_ds),
+        "params": {},
+        "queue": "lolday-u-evil-other-user",  # attacker-supplied
+    }
+    # Must not raise; 'queue' is silently dropped (or raises 422 — both are safe).
+    try:
+        parsed = JobCreate.model_validate(payload)
+        # If we reach here: 'queue' was silently dropped (extra="ignore").
+        assert not hasattr(parsed, "queue"), (
+            "JobCreate instance must not expose a 'queue' attribute"
+        )
+    except Exception as exc:  # deliberate broad catch for 422-equiv validation
+        # Pydantic ValidationError means extra="forbid" is in effect — also safe.
+        assert "queue" in str(exc).lower(), (
+            "Unexpected exception not related to 'queue' field"
+        )

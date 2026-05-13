@@ -17,8 +17,8 @@ from app.routers import (
     datasets,
     detectors,
     experiments_proxy,
-    internal,
     jobs,
+    mlflow_authz,
     models_registry,
 )
 
@@ -250,12 +250,8 @@ app.include_router(
     tags=["jobs"],
 )
 
-# Internal routes (build callbacks)
-app.include_router(
-    internal.router,
-    prefix="/api/v1/internal",
-    tags=["internal"],
-)
+# Internal routes have moved to internal_app (port 8001) — see app/internal_app.py.
+# /api/v1/internal/* is no longer served on the public port 8000.
 
 # Model Registry routes
 app.include_router(
@@ -269,6 +265,18 @@ app.include_router(
     experiments_proxy.router,
     prefix="/api/v1",
     tags=["mlflow"],
+)
+
+# H-15: Traefik ForwardAuth target for /mlflow/* per-user ACL.
+# Mounted on the PUBLIC app (port 8000) — Traefik in kube-system reaches
+# this endpoint via the same Service the browser hits.  Per-call auth is
+# CF Access JWT (browser) or Job bearer token (job pod); MLflow Service
+# itself is locked down by the T9 (H-12) NetworkPolicy to backend +
+# Traefik so this is the only path that can reach MLflow.
+app.include_router(
+    mlflow_authz.router,
+    prefix="/api/v1/mlflow-authz",
+    tags=["mlflow-authz"],
 )
 
 # Cluster status routes (GPU allocation, Volcano queue depth)

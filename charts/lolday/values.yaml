@@ -20,14 +20,6 @@ registry:
     # Uses K3s default StorageClass (local-path)
 
 # =============================================================================
-# Training Pod Security
-# =============================================================================
-training:
-  # NetworkPolicy: deny all egress from training pods
-  networkPolicy:
-    enabled: true
-
-# =============================================================================
 # Cloudflare Tunnel
 # =============================================================================
 cloudflare:
@@ -68,8 +60,10 @@ backend:
     DATASET_CSV_MAX_BYTES: "10485760"
     JOB_PER_USER_CONCURRENCY: "2"
     JOB_IDEMPOTENCY_WINDOW_SECONDS: "300"
-    INTERNAL_EVENTS_BASE_URL: "http://backend:8000"
-    JOB_BACKEND_URL: "http://backend.lolday.svc:8000"
+    # M-internal-split (P2): internal callback API moved to port 8001 on a
+    # separate FastAPI app. NetworkPolicy gates 8001 to lolday-jobs only.
+    INTERNAL_EVENTS_BASE_URL: "http://backend:8001"
+    JOB_BACKEND_URL: "http://backend.lolday.svc:8001"
     SAMPLES_ROOT: "/mnt/samples"
     SAMPLES_LOCAL_ROOT: "/data"
     JOB_NODE_SELECTOR_HOSTNAME: "server30"
@@ -97,6 +91,23 @@ backend:
     SSO_ADMIN_EMAIL: "bolin8017@gmail.com"
 
 # =============================================================================
+# BuildKit — custom seccomp profile installer (H-11, P2)
+# =============================================================================
+# BuildKit-rootless needs user-namespace syscalls (setuid/setgid/clone/unshare)
+# that the PSS Restricted-default `RuntimeDefault` seccomp profile blocks. The
+# previous `seccompProfile: Unconfined` on the buildkit container was maximum-
+# permission; this replaces it with a Localhost-type profile pointing at the
+# Docker Engine default seccomp (moby/moby v28.0.0 profiles/seccomp/default.json)
+# — the canonical allowlist BuildKit-rootless docs reference. The seccomp JSON
+# is committed at charts/lolday/files/buildkit/seccomp.json and installed onto
+# each node's kubelet seccomp dir by the buildkit-seccomp-installer DaemonSet
+# (templates/buildkit-seccomp-installer.yaml). See backend/app/services/build.py
+# buildkit_sc for the matching securityContext.
+buildkit:
+  seccompProfile:
+    enabled: true
+
+# =============================================================================
 # PostgreSQL
 # =============================================================================
 postgresql:
@@ -121,6 +132,11 @@ redis:
   # picked up CVE-2025-68121 (Go crypto/tls) via baked-in tooling and the
   # tag was immutable so re-pulls didn't refresh the layer.
   image: redis:7.4-alpine
+  # operator MUST `--set redis.auth.password=<strong>` at deploy time.
+  # An empty value here is intentional — the chart's required() validator
+  # fails fast if you forget.
+  auth:
+    password: ""
 
 # =============================================================================
 # Harbor Container Registry

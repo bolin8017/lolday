@@ -13,13 +13,24 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
         fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: init
           image: {{ .Values.postgresql.image | default "postgres:16-alpine" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           command: [sh, -c]
           args:
             - |
@@ -54,4 +65,7 @@ spec:
               valueFrom: { secretKeyRef: { name: mlflow-db, key: password } }
             - name: MLFLOW_DB
               valueFrom: { secretKeyRef: { name: mlflow-db, key: database } }
+      volumes:
+        - name: tmp
+          emptyDir: {}
 {{- end }}

@@ -1,4 +1,16 @@
 {{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/component: redis
+    {{- include "lolday.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  REDIS_PASSWORD: {{ required "redis.auth.password must be set (use --set redis.auth.password=<value>)" .Values.redis.auth.password | quote }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,12 +29,44 @@ spec:
       labels:
         app.kubernetes.io/component: redis
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # redis user in redis:7-alpine
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
           image: {{ .Values.redis.image | default "redis:7-alpine" }}
           ports:
             - containerPort: 6379
-          command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: REDIS_PASSWORD
+          # H-9: require password + protected mode.
+          command:
+            - sh
+            - -c
+            - >-
+              redis-server
+              --requirepass "$REDIS_PASSWORD"
+              --protected-mode yes
+              --maxmemory 128mb
+              --maxmemory-policy allkeys-lru
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
           resources:
             requests:
               cpu: 50m
@@ -32,14 +76,19 @@ spec:
               memory: 192Mi
           livenessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: [sh, -c, "redis-cli -a \"$REDIS_PASSWORD\" ping"]
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: [sh, -c, "redis-cli -a \"$REDIS_PASSWORD\" ping"]
             initialDelaySeconds: 3
             periodSeconds: 5
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

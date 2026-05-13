@@ -46,10 +46,13 @@ class Settings(BaseSettings):
     JOB_NODE_SELECTOR_HOSTNAME: str = "server30"
     JOB_PER_USER_CONCURRENCY: int = 2
     JOB_IDEMPOTENCY_WINDOW_SECONDS: int = 300
-    JOB_BACKEND_URL: str = "http://backend.lolday.svc:8000"
+    # M-internal-split (P2): /api/v1/internal/* lives on container port 8001
+    # in a separate FastAPI app. NetworkPolicy gates 8001 to lolday-jobs only.
+    JOB_BACKEND_URL: str = "http://backend.lolday.svc:8001"
     # Phase 11b: in-cluster base URL used by the event-tailer sidecar to POST
     # /internal/jobs/{id}/events. Chart-side wiring lands in Task 16.
-    INTERNAL_EVENTS_BASE_URL: str = "http://backend:8000"
+    # Updated to :8001 in M-internal-split.
+    INTERNAL_EVENTS_BASE_URL: str = "http://backend:8001"
     MLFLOW_TRACKING_URI: str = "http://mlflow.lolday.svc:5000"
     MLFLOW_HTTP_TIMEOUT_SECONDS: float = 10.0
     MLFLOW_HTTP_RETRIES: int = 3

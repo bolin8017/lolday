@@ -13,6 +13,15 @@ COPY alembic.ini ./
 COPY migrations/ ./migrations/
 COPY app/ ./app/
 
-EXPOSE 8000
+# H-10: run as UID 1000. Chown /app so uv's writable cache (~/.cache/uv inside HOME) works.
+RUN useradd -m -u 1000 lolday && chown -R lolday:lolday /app
+# M-internal-split: copy + chmod the entrypoint AFTER useradd so the chown target
+# user exists. /api/v1/internal/* is hosted by app.internal_app on :8001 (gated
+# by NetworkPolicy to lolday-jobs); the public API stays on :8000.
+COPY --chown=lolday:lolday entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+USER 1000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 8000 8001
+
+CMD ["/app/entrypoint.sh"]
