@@ -1,5 +1,6 @@
 """Tests for app.services.notify — Discord webhook delivery layer."""
 
+import io
 import logging
 
 import httpx
@@ -129,17 +130,45 @@ async def test_notify_trivy_blocked_sends_orange_embed(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_post_webhook_500_logs_host_not_url(monkeypatch, caplog):
-    """M-discord-log: failure log must contain the host + status, never the
-    webhook token or path."""
+async def test_post_webhook_500_logs_host_not_url(monkeypatch):
+    """M-discord-log: failure log must contain host + status, never the
+    webhook token or path. Attach a fresh handler directly to the notify
+    logger so capture is independent of pytest caplog's ordering behaviour
+    in the full suite.
+
+    Also re-enables the logger for the test duration: the Alembic migration
+    test fixture calls logging.config.fileConfig(alembic.ini) which sets
+    disable_existing_loggers=True by default, marking all pre-existing
+    loggers (including app.services.notify) as disabled.
+    """
     monkeypatch.setattr(
         "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
     )
-    with respx.mock() as mock:
-        mock.post(WEBHOOK).mock(return_value=httpx.Response(500))
-        with caplog.at_level(logging.WARNING, logger="app.services.notify"):
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    notify_logger = logging.getLogger("app.services.notify")
+    notify_logger.addHandler(handler)
+    prev_level = notify_logger.level
+    prev_disabled = notify_logger.disabled
+    notify_logger.setLevel(logging.WARNING)
+    # logging.config.fileConfig (called by the alembic migrations test fixture)
+    # sets disable_existing_loggers=True by default, which marks all pre-existing
+    # loggers as disabled. Re-enable this specific logger for the duration of the
+    # test so our handler can receive records regardless of test ordering.
+    notify_logger.disabled = False
+    try:
+        with respx.mock() as mock:
+            mock.post(WEBHOOK).mock(return_value=httpx.Response(500))
             await notify.post_webhook({"content": "hi"})
-    messages = " ".join(r.getMessage() for r in caplog.records)
+    finally:
+        notify_logger.disabled = prev_disabled
+        notify_logger.removeHandler(handler)
+        notify_logger.setLevel(prev_level)
+
+    messages = buf.getvalue()
     # Token + path are the secret part of the URL.
     assert "xyz" not in messages
     assert "/api/webhooks/" not in messages
@@ -149,16 +178,36 @@ async def test_post_webhook_500_logs_host_not_url(monkeypatch, caplog):
 
 
 @pytest.mark.asyncio
-async def test_post_webhook_network_error_logs_host_not_url(monkeypatch, caplog):
-    """A ConnectError carries the URL in its repr — make sure we don't leak it."""
+async def test_post_webhook_network_error_logs_host_not_url(monkeypatch):
+    """A ConnectError carries the URL in its repr — make sure we don't leak it.
+    Handler-attach pattern same as above; independent of pytest caplog.
+    Also re-enables the notify logger in case a prior migration test's
+    fileConfig(disable_existing_loggers=True) call disabled it.
+    """
     monkeypatch.setattr(
         "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
     )
-    with respx.mock() as mock:
-        mock.post(WEBHOOK).mock(side_effect=httpx.ConnectError("boom"))
-        with caplog.at_level(logging.WARNING, logger="app.services.notify"):
+
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    notify_logger = logging.getLogger("app.services.notify")
+    notify_logger.addHandler(handler)
+    prev_level = notify_logger.level
+    prev_disabled = notify_logger.disabled
+    notify_logger.setLevel(logging.WARNING)
+    notify_logger.disabled = False
+    try:
+        with respx.mock() as mock:
+            mock.post(WEBHOOK).mock(side_effect=httpx.ConnectError("boom"))
             await notify.post_webhook({"content": "hi"})
-    messages = " ".join(r.getMessage() for r in caplog.records)
+    finally:
+        notify_logger.disabled = prev_disabled
+        notify_logger.removeHandler(handler)
+        notify_logger.setLevel(prev_level)
+
+    messages = buf.getvalue()
     assert "xyz" not in messages
     assert "/api/webhooks/" not in messages
     assert "discord.test" in messages
