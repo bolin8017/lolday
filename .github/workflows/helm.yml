@@ -46,10 +46,16 @@ jobs:
 
       - name: helm template (render-only sanity)
         run: |
+          # backend.fernetKeys: whitespace-separated list of base64 keys
+          # (P3 H-18b rename). Must NOT be the legacy public test value
+          # ZmDfcTF7..., which Settings.validate_fernet_keys would reject
+          # at backend boot in production.
+          # redis.auth.password: required by the redis chart since P2 H-9.
           helm template lolday charts/lolday --namespace lolday \
             --set harbor.harborAdminPassword=fake-harbor-pw \
             --set backend.harborAdminPassword=fake-harbor-pw \
-            --set backend.fernetKey="ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=" \
+            --set backend.fernetKeys=fake-fernet-key-not-the-public-one \
+            --set redis.auth.password=fake-redis-pw \
             --set postgresql.auth.password=fake-pg-pw \
             --set mlflow.db.password=fake-mlflow-pw \
             --set monitoring.grafana.adminPassword=fake-grafana-pw \
