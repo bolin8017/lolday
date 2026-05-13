@@ -181,9 +181,17 @@ def build_job_spec(
                             "command": ["/bin/sh", "-c"],
                             "args": [
                                 "set +x; "
-                                "git clone --depth=1 --recurse-submodules "
+                                # H-19: git PAT must NOT appear in argv. Use git's
+                                # credential helper — the inline helper script
+                                # reads $GIT_USER and $GIT_TOKEN from env (which
+                                # are valueFrom: secretKeyRef, not visible in
+                                # kubectl describe pod) and echoes them on
+                                # stdout for git to consume. The clone URL no
+                                # longer carries any user:pass component.
+                                "git -c credential.helper='!f() { echo username=$GIT_USER; echo password=$GIT_TOKEN; }; f' "
+                                "clone --depth=1 --recurse-submodules "
                                 '--branch="$GIT_TAG" '
-                                '"https://$GIT_USER:$GIT_TOKEN@github.com/$REPO.git" '
+                                '"https://github.com/$REPO.git" '
                                 "/workspace/src && "
                                 "git -C /workspace/src rev-parse HEAD > /workspace/git-sha"
                             ],
