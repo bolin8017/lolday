@@ -87,7 +87,11 @@ class HarborClient:
                     "description": "lolday build pusher",
                     "disable": False,
                     "level": "system",
-                    "duration": -1,
+                    # L-harbor-robot-rotate: 90 days. The harbor_rotate
+                    # reconciler (app/reconciler/harbor_rotate.py) renews
+                    # quarterly + force-rotates any legacy duration=-1 robot
+                    # left over from before this commit.
+                    "duration": 7776000,
                     "permissions": permissions,
                 },
             )

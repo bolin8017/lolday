@@ -310,3 +310,25 @@ async def test_delete_tag_or_artifact_raises_on_5xx():
             await client.delete_tag_or_artifact(
                 "detectors", "foo", "v4.1.0", "sha256:abc"
             )
+
+
+@pytest.mark.asyncio
+async def test_ensure_robot_account_uses_90_day_duration():
+    """L-harbor-robot-rotate: new robots get a 90-day duration so the
+    reconciler in T14 can renew them. -1 (no expiry) is forbidden."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/robots").mock(return_value=httpx.Response(200, json=[]))
+        create_route = mock.post("/api/v2.0/robots").mock(
+            return_value=httpx.Response(
+                201, json={"name": "robot$build-pusher", "secret": "shh"}
+            )
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.ensure_robot_account("build-pusher", projects=["detectors"])
+
+    # Inspect the JSON body sent in POST /robots.
+    sent = create_route.calls.last.request
+    import json as _json
+
+    body = _json.loads(sent.content.decode())
+    assert body["duration"] == 7776000  # 90d in seconds
