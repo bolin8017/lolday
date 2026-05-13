@@ -31,7 +31,7 @@ Note the recipient line printed at the top of the keyfile (`# public key:
 age1...`). Export it for convenience:
 
 ```bash
-export AGE_RECIPIENT="$(grep -oE 'age1[0-9a-z]+' ~/.config/age/lolday-cf-access.key | head -1)"
+export AGE_RECIPIENT="$(age-keygen -y ~/.config/age/lolday-cf-access.key)"
 ```
 
 Persist `AGE_RECIPIENT` in `~/.zshrc` so future invocations don't need to
@@ -83,10 +83,22 @@ encrypted files.
 - For survivability, copy the keyfile to a second device (encrypted USB, password
   manager attachment). Losing the key means every existing `.json.age` is
   unrecoverable.
-- Rotation: generate a new keypair, re-encrypt every `.json.age` under the new
-  recipient (`age -d -i OLD.key file.age | age -r NEW_RECIPIENT > file.age.tmp
-&& mv file.age.tmp file.age`), then `shred -u OLD.key`. Update
-  `AGE_RECIPIENT` in `~/.zshrc`.
+- **Rotation:** generate a new keypair (`age-keygen -o ~/.config/age/lolday-cf-access-new.key`), re-encrypt every existing snapshot under the new recipient, then retire the old key:
+
+  ```bash
+  NEW_RECIPIENT=$(age-keygen -y ~/.config/age/lolday-cf-access-new.key)
+  cd ~/Documents/repositories/lolday/.lolday-cloudflare-access-backups
+  shopt -s nullglob
+  for f in *.json.age; do
+    age -d -i ~/.config/age/lolday-cf-access.key "$f" \
+      | age -r "$NEW_RECIPIENT" > "$f.tmp" \
+      && mv "$f.tmp" "$f"
+  done
+  mv ~/.config/age/lolday-cf-access.key ~/.config/age/lolday-cf-access.key.retired
+  mv ~/.config/age/lolday-cf-access-new.key ~/.config/age/lolday-cf-access.key
+  shred -u ~/.config/age/lolday-cf-access.key.retired
+  export AGE_RECIPIENT="$NEW_RECIPIENT"  # also update ~/.zshrc
+  ```
 
 ## Why age and not GPG?
 
