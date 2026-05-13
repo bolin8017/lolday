@@ -41,7 +41,7 @@ async def test_reconcile_force_rotates_legacy_duration_neg1_robot(monkeypatch):
         rotated = await harbor_rotate.reconcile_harbor_robot()
 
     assert rotated is True
-    mock_client.update_robot_duration.assert_awaited_once_with(42, 7776000)
+    mock_client.update_robot_duration.assert_awaited_once_with(42, 90)
     mock_client.rotate_robot_secret.assert_awaited_once_with(42)
     assert written == [("robot$build-pusher", "fresh-secret")]
 

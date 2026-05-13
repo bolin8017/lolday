@@ -51,9 +51,10 @@ done
 # ---------------------------------------------------- 2. robot account (upsert + rotate)
 #
 # On a re-run the robot already exists; Harbor's POST /robots returns 409.
-# We detect that and rotate the secret via PATCH /robots/{id}/sec. That's
-# the only way to get a fresh secret back — Harbor doesn't expose the
-# existing secret via GET.
+# We detect that and rotate the secret via PATCH /robots/{id} with body
+# {"secret": ""} (Harbor RefreshSec — empty secret string instructs the
+# server to auto-generate a fresh value). That's the only way to get a
+# fresh secret back — Harbor doesn't expose the existing secret via GET.
 echo
 echo "robot account upsert…"
 LIST_JSON=$(curl -sf -u "$adm" "$api/robots?q=name%3Dbuild-pusher")
@@ -69,8 +70,8 @@ except Exception:
 
 if [ -n "$EXISTING_ID" ]; then
   echo "  robot$build-pusher already exists (id=$EXISTING_ID), rotating secret…"
-  ROBOT_JSON=$(curl -sf -u "$adm" -X PATCH "$api/robots/$EXISTING_ID/sec" \
-    -H "Content-Type: application/json" -d '{}')
+  ROBOT_JSON=$(curl -sf -u "$adm" -X PATCH "$api/robots/$EXISTING_ID" \
+    -H "Content-Type: application/json" -d '{"secret": ""}')
 else
   echo "  creating robot account…"
   ROBOT_JSON=$(curl -sf -u "$adm" -X POST "$api/robots" \

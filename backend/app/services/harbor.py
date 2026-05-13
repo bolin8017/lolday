@@ -87,11 +87,12 @@ class HarborClient:
                     "description": "lolday build pusher",
                     "disable": False,
                     "level": "system",
-                    # L-harbor-robot-rotate: 90 days. The harbor_rotate
+                    # L-harbor-robot-rotate: 90 days (Harbor duration unit
+                    # is days per swagger; -1 = never). The harbor_rotate
                     # reconciler (app/reconciler/harbor_rotate.py) renews
                     # quarterly + force-rotates any legacy duration=-1 robot
                     # left over from before this commit.
-                    "duration": 7776000,
+                    "duration": 90,
                     "permissions": permissions,
                 },
             )
@@ -274,25 +275,36 @@ class HarborClient:
     async def rotate_robot_secret(self, robot_id: int) -> str:
         """Generate a fresh secret for the robot; returns the new secret value.
 
+        Calls Harbor's ``PATCH /api/v2.0/robots/{robot_id}`` with body
+        ``{"secret": ""}`` (swagger operationId ``RefreshSec``). An empty
+        secret string instructs Harbor to auto-generate a fresh value
+        server-side (``CreateSec(salt)`` handler path) and return it.
+
         Idempotent in the sense that running it twice generates two distinct
         secrets, both valid (Harbor returns the most-recently-rotated value).
         """
         async with self._client() as c:
-            resp = await c.patch(f"/api/v2.0/robots/{robot_id}/sec")
+            resp = await c.patch(f"/api/v2.0/robots/{robot_id}", json={"secret": ""})
             resp.raise_for_status()
             data = resp.json()
-            # Harbor PATCH /robots/{id}/sec response shape: {"secret": "..."}
+            # Harbor RefreshSec response shape: {"secret": "..."}
             return data["secret"]
 
-    async def update_robot_duration(self, robot_id: int, duration_seconds: int) -> None:
+    async def update_robot_duration(self, robot_id: int, duration_days: int) -> None:
         """Reset the robot's expiry by PUTting the full record with a new
-        ``duration``. Harbor recomputes ``expires_at`` from ``now + duration``."""
+        ``duration``. Harbor recomputes ``expires_at`` from ``now + duration``.
+
+        ``duration_days`` is in DAYS per Harbor's v2.x swagger ("The duration
+        of the robot in days, duration must be either -1(Never) or a positive
+        integer"). -1 is the never-expire sentinel; otherwise pass a positive
+        integer day count.
+        """
         async with self._client() as c:
             # Harbor requires the full robot body on PUT — fetch current state first.
             cur = await c.get(f"/api/v2.0/robots/{robot_id}")
             cur.raise_for_status()
             body = cur.json()
-            body["duration"] = duration_seconds
+            body["duration"] = duration_days
             # ``editable`` field, if present, is read-only — drop it from PUT.
             body.pop("editable", None)
             body.pop("expires_at", None)
