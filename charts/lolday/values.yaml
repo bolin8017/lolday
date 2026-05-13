@@ -38,7 +38,7 @@ backend:
   # Auth is Cloudflare Access SSO (see CF_ACCESS_* under env below); no
   # backend-side password secrets / firstAdmin seed / cookie config.
   # NEW for Phase 3:
-  fernetKey: "" # --set at deploy time
+  fernetKeys: "" # whitespace-separated list of base64 Fernet keys; --set at deploy time
   harborAdminPassword: "" # --set at deploy time (shared with Harbor release)
   env:
     DOCS_ENABLED: "false"

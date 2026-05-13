@@ -141,7 +141,7 @@ async def dispatch_job_to_volcano(session: AsyncSession, job: Job) -> None:
     )
 
     try:
-        await asyncio.to_thread(
+        vcjob_resp = await asyncio.to_thread(
             volcano_v1alpha1().create_namespaced_custom_object,
             group=VOLCANO_BATCH_GROUP,
             version=VOLCANO_BATCH_VERSION,
@@ -159,6 +159,53 @@ async def dispatch_job_to_volcano(session: AsyncSession, job: Job) -> None:
                 namespace=settings.JOB_NAMESPACE,
             )
         raise
+
+    # M-token-secret-owner: bind the Secret's lifetime to the vcjob via
+    # metadata.ownerReferences so K8s GC removes it whenever the vcjob is
+    # deleted. blockOwnerDeletion=False so a stuck Secret never blocks
+    # vcjob deletion; controller=False because vcjob is not a reconcile
+    # owner of Secret in the canonical sense — we use ownerReferences
+    # only for the GC edge. The reconciler sweep in
+    # ``app/reconciler/orphans.py`` is belt-and-suspenders for vcjobs
+    # force-deleted with ``--grace-period=0`` (skips the GC step).
+    vcjob_uid = (vcjob_resp.get("metadata") or {}).get("uid")
+    if vcjob_uid:
+        try:
+            await asyncio.to_thread(
+                core_v1().patch_namespaced_secret,
+                name=secret["metadata"]["name"],
+                namespace=settings.JOB_NAMESPACE,
+                body={
+                    "metadata": {
+                        "ownerReferences": [
+                            {
+                                "apiVersion": f"{VOLCANO_BATCH_GROUP}/{VOLCANO_BATCH_VERSION}",
+                                "kind": "Job",
+                                "name": manifest["metadata"]["name"],
+                                "uid": vcjob_uid,
+                                "blockOwnerDeletion": False,
+                                "controller": False,
+                            }
+                        ],
+                    }
+                },
+            )
+        except Exception:
+            from app.metrics import BACKEND_ERRORS
+
+            BACKEND_ERRORS.labels(stage="token_secret_owner_patch").inc()
+            logger.warning(
+                "token Secret ownerRef patch failed for job %s — relying on "
+                "reconciler sweep",
+                job.id,
+                exc_info=True,
+            )
+    else:
+        logger.warning(
+            "vcjob create response missing metadata.uid for job %s — "
+            "skipping ownerRef patch (reconciler sweep is the fallback)",
+            job.id,
+        )
 
     job.k8s_job_name = manifest["metadata"]["name"]
     job.status = JobStatus.PREPARING

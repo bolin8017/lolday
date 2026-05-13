@@ -31,6 +31,7 @@ Day-to-day operator data (Discord channel IDs, `.env` files, server access): `do
 - One-time storage migration (filesystem → S3) → `docs/runbooks/storage-migration.md`
 - NFS dataset union mount onboarding (since 2026-05-12) → `docs/runbooks/add-nfs-dataset.md`
 - NFS dataset union mount design (mergerfs over NFSv4.2) → `docs/superpowers/specs/2026-05-12-nfs-dataset-union-mount-design.md`
+- Fernet key rotation (P3 operator runbook) → `docs/runbooks/p3-fernet-rotation.md`
 
 ## Hard rules (every session must remember)
 

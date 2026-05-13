@@ -290,6 +290,38 @@ def test_build_job_name_k8s_safe():
     assert name.startswith("build-upxelfdet-v0-1-0-")
 
 
+def test_clone_init_container_uses_credential_helper_not_inline_url():
+    """H-19: PAT must not appear in argv. Verify the clone command uses
+    git's credential.helper protocol instead of the inline
+    https://$GIT_USER:$GIT_TOKEN@github.com/... pattern.
+    """
+    job = build_job_spec(
+        build_id=uuid4(),
+        detector_name="upxelfdet",
+        git_tag="v0.1.0",
+        owner_repo="bolin8017/upxelfdet",
+    )
+    spec = job["spec"]["template"]["spec"]
+    clone = next(c for c in spec["initContainers"] if c["name"] == "clone")
+    args = " ".join(clone["args"])
+
+    # Inline-PAT URL pattern is forbidden.
+    assert "$GIT_USER:$GIT_TOKEN@github.com" not in args, (
+        "credential-bearing URL must be replaced by credential.helper [H-19]"
+    )
+    # credential.helper pattern is required.
+    assert "credential.helper=" in args
+    assert "echo username=$GIT_USER" in args
+    assert "echo password=$GIT_TOKEN" in args
+    # The clone URL is plain (no embedded creds).
+    assert "https://github.com/$REPO.git" in args
+
+    # Env still carries GIT_USER and GIT_TOKEN as secretKeyRef (not value).
+    env_by_name = {e["name"]: e for e in clone["env"]}
+    assert env_by_name["GIT_USER"]["valueFrom"]["secretKeyRef"]["key"] == "username"
+    assert env_by_name["GIT_TOKEN"]["valueFrom"]["secretKeyRef"]["key"] == "token"
+
+
 def test_build_containers_have_ephemeral_storage_limits():
     """Without these, a runaway build (e.g. a DL-image layer) triggers
     node-level eviction instead of just getting its own pod evicted.

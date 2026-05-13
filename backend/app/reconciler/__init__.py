@@ -13,6 +13,7 @@ structure and module responsibilities. This package's submodules:
 - :mod:`app.reconciler.projections` — read-model projections from job_events
 - :mod:`app.reconciler.orphans` — orphan vcjob cleanup
 - :mod:`app.reconciler.model_sync` — MLflow model-registry stage sync
+- :mod:`app.reconciler.harbor_rotate` — Harbor robot account quarterly rotation
 - :mod:`app.reconciler.loop` — the main reconciler_loop driver
 
 The names re-exported below are the public-API surface used by
@@ -28,6 +29,7 @@ from app.reconciler.builds import (
     _handle_timeout,
     reconcile_build,
 )
+from app.reconciler.harbor_rotate import reconcile_harbor_robot
 from app.reconciler.jobs import (
     _handle_job_failed,
     _handle_job_succeeded,
@@ -39,6 +41,7 @@ from app.reconciler.log_capture import (
     _container_from_failure_reason,
 )
 from app.reconciler.loop import (
+    HARBOR_ROTATE_EVERY_N_ITERATIONS,
     ORPHAN_SCAN_EVERY_N_ITERATIONS,
     RECONCILER_WAIT_SECONDS,
     SYNC_EVERY_N_ITERATIONS,
@@ -54,6 +57,7 @@ from app.reconciler.notify import (
 )
 from app.reconciler.orphans import ORPHAN_GRACE_SECONDS as ORPHAN_GRACE_SECONDS
 from app.reconciler.orphans import (
+    reconcile_orphan_token_secrets,
     reconcile_orphan_vcjobs,
 )
 from app.reconciler.projections import (
@@ -62,6 +66,7 @@ from app.reconciler.projections import (
 )
 
 __all__ = [
+    "HARBOR_ROTATE_EVERY_N_ITERATIONS",
     "IN_FLIGHT",
     "ORPHAN_GRACE_SECONDS",
     "ORPHAN_SCAN_EVERY_N_ITERATIONS",
@@ -81,7 +86,9 @@ __all__ = [
     "_project_summary_metrics",
     "_user_context",
     "reconcile_build",
+    "reconcile_harbor_robot",
     "reconcile_job",
+    "reconcile_orphan_token_secrets",
     "reconcile_orphan_vcjobs",
     "reconciler_loop",
     "sync_model_versions",

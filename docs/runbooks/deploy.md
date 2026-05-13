@@ -51,13 +51,13 @@ chmod 600 .lolday-secrets.env
 # Day-to-day .env / Discord channel quick-ref: docs/operations.md.
 ```
 
-`FERNET_KEY` generation:
+`FERNET_KEYS` generation (whitespace-separated list of base64 Fernet keys; first key is active for encrypt):
 
 ```bash
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-If `FERNET_KEY` is regenerated after the platform is in use, every encrypted DB column becomes unreadable. Treat it as permanent.
+If `FERNET_KEYS` is changed after the platform is in use, every encrypted DB column becomes unreadable unless the old key is kept in the list for decryption. Treat the initial key as permanent; use key rotation (`docs/runbooks/p3-fernet-rotation.md`) to add a new active key while retaining the old one.
 
 ### Confirm SSH baseline
 

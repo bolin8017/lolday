@@ -311,6 +311,8 @@ The same procedure applies to subsequent rotations; the script + the
 4. After force-rotate window, `harbor.api` `GET /robots` shows `build-pusher.expires_at` ≤ now + 90 d.
 5. `.lolday-cloudflare-access-backups/` contains only `.age` files; cleartext `.json` removed.
 
+**Operator runbook:** [`docs/runbooks/p3-fernet-rotation.md`](../../runbooks/p3-fernet-rotation.md).
+
 ### 6.4 P4 — Supply chain pin & verify (2 weeks)
 
 **Goal:** Make every byte that runs in the cluster traceable to a signed,

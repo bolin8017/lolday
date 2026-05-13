@@ -109,7 +109,7 @@ helm lint "$CHART_DIR" \
   --set cloudflare.tunnelToken="${CF_TUNNEL_TOKEN:-placeholder}" \
   --set monitoring.grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD" \
   --set monitoring.postgresExporter.password="$PG_EXPORTER_PASSWORD" \
-  --set backend.fernetKey=ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg= \
+  --set backend.fernetKeys=ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg= \
   --set backend.harborAdminPassword=lint --set mlflow.db.password=lint \
   --set postgresql.auth.password=lint
 echo "  OK"

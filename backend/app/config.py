@@ -1,5 +1,13 @@
-from pydantic import model_validator
-from pydantic_settings import BaseSettings
+from typing import Annotated
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode
+
+# The public Fernet key that was committed to backend/tests/conftest.py
+# through 2026-05-12. Anyone with read access to the repo possesses it; a
+# production deploy that inherits it makes every encrypted_token
+# cleartext-equivalent to a source-reading attacker.
+_LEGACY_TEST_FERNET_KEY = "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
 
 
 class Settings(BaseSettings):
@@ -13,8 +21,16 @@ class Settings(BaseSettings):
     # cutover window. The frontend detects 503 to render a banner.
     BACKEND_MAINTENANCE_MODE: bool = False
 
-    # Phase 3: Detector Lifecycle
-    FERNET_KEY: str = ""  # base64-encoded 32-byte Fernet key
+    # P3 (2026-05-13, H-18): whitespace-separated list of base64 Fernet keys.
+    # First key is active for encrypt; all keys are tried for decrypt.
+    # Operator rotates by adding the new key in front, running
+    # ``python -m app.scripts.rotate_fernet --old <OLD> --new <NEW>``, then
+    # dropping the old key after the run completes.
+    #
+    # ``NoDecode`` opts the field out of pydantic-settings' default JSON
+    # parsing for complex types; ``_split_fernet_keys`` does the whitespace
+    # split instead. Mainstream pattern per pydantic-settings docs.
+    FERNET_KEYS: Annotated[list[str], NoDecode] = []
     HARBOR_URL: str = "http://harbor.harbor.svc.cluster.local:80"
     HARBOR_ADMIN_USERNAME: str = "admin"
     HARBOR_ADMIN_PASSWORD: str = ""
@@ -104,6 +120,14 @@ class Settings(BaseSettings):
     # `validate_sso_config` only fails the boot when this is "production".
     ENVIRONMENT: str = "production"
 
+    @field_validator("FERNET_KEYS", mode="before")
+    @classmethod
+    def _split_fernet_keys(cls, v):
+        """Accept whitespace-separated env value; collapse to list[str]."""
+        if isinstance(v, str):
+            return [k for k in v.split() if k]
+        return v
+
     @model_validator(mode="after")
     def validate_sso_config(self) -> "Settings":
         """Fail-fast on production misconfiguration. Tests and local dev opt
@@ -140,6 +164,34 @@ class Settings(BaseSettings):
                 f"{', '.join(missing)} must be set in production. "
                 "Produce the values via scripts/build-helpers.sh and inject "
                 "them via scripts/deploy.sh."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_fernet_keys(self) -> "Settings":
+        """Production refuses an empty list and refuses the public test key.
+
+        Tests / dev bypass via ``ENVIRONMENT != "production"``. The split env
+        parsing happens in ``_split_fernet_keys``; this validator only checks
+        the resulting list.
+        """
+        if self.ENVIRONMENT != "production":
+            return self
+        if not self.FERNET_KEYS:
+            raise ValueError(
+                "FERNET_KEYS is required in production (whitespace-separated "
+                "list of base64 Fernet keys; first key is active for encrypt). "
+                "FERNET_KEY (singular) was renamed in P3 — update "
+                ".lolday-secrets.env."
+            )
+        if _LEGACY_TEST_FERNET_KEY in self.FERNET_KEYS:
+            raise ValueError(
+                "FERNET_KEYS contains the public test key from "
+                "backend/tests/conftest.py (committed to the repo until "
+                "2026-05-12) — encrypted columns would not actually be "
+                "secret. Generate a fresh key: "
+                'python -c "from cryptography.fernet import Fernet; '
+                'print(Fernet.generate_key().decode())"'
             )
         return self
 

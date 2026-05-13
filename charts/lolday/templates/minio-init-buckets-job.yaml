@@ -244,6 +244,15 @@ spec:
                   mc admin user svcacct add local "$MINIO_ROOT_USER" \
                     --access-key "$AK" --secret-key "$SK" --policy /tmp/${app}-rw.json || true
                 else
+                  # L-minio-key-rotate: the init-job is bootstrap-only. After
+                  # first install, key rotation is an operator action via
+                  # scripts/rotate-minio-keys.sh — the bitnami/kubectl writer
+                  # Role intentionally omits update/patch on Secrets so this
+                  # init-job NEVER overwrites an existing key on subsequent
+                  # helm upgrades. The charset below is alphanum (a-zA-Z0-9);
+                  # the rotation script uses `openssl rand -base64 30 |
+                  # tr -d '/+='` which produces the same distribution from a
+                  # deterministic entropy source.
                   AK=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 20)
                   SK=$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 40)
                   echo "mc-setup: generating fresh svcacct for ${app}"

@@ -9,7 +9,7 @@ echo ""
 
 # Required secrets
 : "${HARBOR_ADMIN_PASSWORD:?HARBOR_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 24}"
-: "${FERNET_KEY:?FERNET_KEY must be set — generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
+: "${FERNET_KEYS:?FERNET_KEYS must be set (whitespace-separated list; first key is active for encrypt) — generate one via: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"}"
 : "${PG_PASSWORD:?PG_PASSWORD must be set — generate with: openssl rand -base64 24}"
 # Auth is Cloudflare Access SSO; the seeded admin row is renamed in place
 # via the phase10_sso_admin_email Alembic migration (SSO_ADMIN_EMAIL env).
@@ -172,24 +172,39 @@ rm -rf "$TRIVY_CRD_DIR"
 # applied separately (doing so creates unowned CRDs that Helm then refuses to
 # adopt: "invalid ownership metadata; missing key app.kubernetes.io/managed-by").
 
+# M-deploy-from-literal: kubectl --from-literal puts the secret in argv
+# (/proc/<pid>/cmdline). Stage via mktemp + chmod 600 + shred -u, mirroring
+# scripts/recover-harbor.sh's harbor-push-cred handling.
+SECRET_TMP=$(mktemp -d)
+chmod 700 "$SECRET_TMP"
+# trap clears even on early failure (set -e fires before the manual shred lines).
+trap 'find "$SECRET_TMP" -type f -exec shred -u {} + 2>/dev/null; rmdir "$SECRET_TMP" 2>/dev/null || true' EXIT
+
 # Phase 7.1: Alertmanager Discord webhook Secret. Referenced by the
 # AlertmanagerConfig CR `discord-receivers` (see templates/monitoring/alertmanager-config-discord.yaml)
 # via apiURL.name/key SecretKeySelector, so the Prometheus Operator resolves
 # these webhook URLs when building the runtime Alertmanager config. Must exist
 # in the monitoring ns (same as Alertmanager pod + AC CR) before helm upgrade.
+printf '%s' "$DISCORD_WEBHOOK_URL_CRITICAL" > "$SECRET_TMP/webhook-url-critical"
+printf '%s' "$DISCORD_WEBHOOK_URL_WARNING"  > "$SECRET_TMP/webhook-url-warning"
+chmod 600 "$SECRET_TMP"/webhook-url-critical "$SECRET_TMP"/webhook-url-warning
 kubectl -n monitoring create secret generic alertmanager-discord \
-  --from-literal=webhook-url-critical="$DISCORD_WEBHOOK_URL_CRITICAL" \
-  --from-literal=webhook-url-warning="$DISCORD_WEBHOOK_URL_WARNING" \
+  --from-file="$SECRET_TMP/webhook-url-critical" \
+  --from-file="$SECRET_TMP/webhook-url-warning" \
   --dry-run=client -o yaml | kubectl apply -f -
+shred -u "$SECRET_TMP/webhook-url-critical" "$SECRET_TMP/webhook-url-warning"
 
 # Phase 7.4: backend reads DISCORD_WEBHOOK_URL_EVENTS from this Secret in the
 # release namespace. Create only if a value was supplied — empty value would
 # mask config errors (notify becomes silent no-op). The Deployment env binding
 # is `optional: true`, so absence of the Secret is also tolerated.
 if [ -n "$DISCORD_WEBHOOK_URL_EVENTS" ]; then
+  printf '%s' "$DISCORD_WEBHOOK_URL_EVENTS" > "$SECRET_TMP/webhook-url"
+  chmod 600 "$SECRET_TMP/webhook-url"
   kubectl -n lolday create secret generic discord-events \
-    --from-literal=webhook-url="$DISCORD_WEBHOOK_URL_EVENTS" \
+    --from-file="$SECRET_TMP/webhook-url" \
     --dry-run=client -o yaml | kubectl apply -f -
+  shred -u "$SECRET_TMP/webhook-url"
   echo "  Discord events webhook Secret applied"
 else
   echo "  WARN: DISCORD_WEBHOOK_URL_EVENTS unset — user-event Discord notify will be a no-op"
@@ -215,7 +230,7 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set cloudflare.enabled="${CF_ENABLED:-false}" \
   --set cloudflare.tunnelToken="${CF_TUNNEL_TOKEN:-}" \
   --set postgresql.auth.password="$PG_PASSWORD" \
-  --set backend.fernetKey="$FERNET_KEY" \
+  --set backend.fernetKeys="$FERNET_KEYS" \
   --set backend.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
@@ -239,7 +254,6 @@ echo ""
 #     kubectl -n lolday run alembic-stamp --rm -it --restart=Never \
 #       --image=$BACKEND_IMAGE --image-pull-policy=IfNotPresent \
 #       --env="DATABASE_URL=postgresql+asyncpg://lolday:$PG_PASSWORD@postgresql:5432/lolday" \
-#       --env="FERNET_KEY=$FERNET_KEY" \
 #       --command -- uv run alembic stamp head
 #
 # After stamp, subsequent `helm upgrade` runs fire the pre-upgrade Job which

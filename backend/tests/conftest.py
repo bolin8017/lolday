@@ -1,6 +1,11 @@
 import os
 
-os.environ.setdefault("FERNET_KEY", "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=")
+from cryptography.fernet import Fernet
+
+# H-17a: never reuse a hardcoded Fernet key in tests — the value would be
+# public via git, and any operator who copies it into .lolday-secrets.env
+# makes encrypted columns trivially decryptable. Per-session fresh key.
+os.environ.setdefault("FERNET_KEYS", Fernet.generate_key().decode())
 os.environ.setdefault("RECONCILER_ENABLED", "false")
 os.environ.setdefault("FIFO_RECONCILER_ENABLED", "false")
 os.environ.setdefault("SAMPLES_LOCAL_ROOT", "/nonexistent-samples-root-for-tests")
@@ -298,11 +303,20 @@ def mock_k8s_batch(monkeypatch):
     monkeypatch.setattr("app.services.k8s.batch_v1", lambda: stub)
 
     class _StubCore:
+        def __init__(self):
+            # M-token-secret-owner: record ownerReferences patches for assertion.
+            self.secret_patches: list[tuple[str, str, dict]] = []
+
         def create_namespaced_secret(self, namespace, body, **kw):
             return body
 
         def delete_namespaced_secret(self, name, namespace, **kw):
             pass
+
+        def patch_namespaced_secret(self, name, namespace, body, **kw):
+            # M-token-secret-owner: record ownerReferences patches for assertion.
+            self.secret_patches.append((name, namespace, body))
+            return body
 
         def list_namespaced_pod(self, namespace, **kw):
             class _R:
@@ -328,11 +342,18 @@ def mock_k8s_batch(monkeypatch):
         def create_namespaced_custom_object(
             self, group, version, namespace, plural, body, **kw
         ):
+            import uuid as _uu
+
             name = (
                 (body.get("metadata") or {}).get("name")
                 if isinstance(body, dict)
                 else body.metadata.name
             )
+            # M-token-secret-owner: dispatch_job_to_volcano reads metadata.uid
+            # from this response to populate Secret ownerReferences. Real K8s
+            # always populates uid on create; mirror that here.
+            if isinstance(body, dict):
+                body.setdefault("metadata", {}).setdefault("uid", str(_uu.uuid4()))
             self.objects[name] = body
             return body
 
