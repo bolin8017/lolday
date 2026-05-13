@@ -34,7 +34,10 @@ from app.models.job import NON_TERMINAL_STATUSES, Job
 from app.reconciler.builds import IN_FLIGHT, reconcile_build
 from app.reconciler.jobs import reconcile_job
 from app.reconciler.model_sync import sync_model_versions
-from app.reconciler.orphans import reconcile_orphan_vcjobs
+from app.reconciler.orphans import (
+    reconcile_orphan_token_secrets,
+    reconcile_orphan_vcjobs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +95,14 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                     except Exception:
                         BACKEND_ERRORS.labels(stage="reconcile_orphan_vcjobs").inc()
                         logger.exception("reconcile_orphan_vcjobs failed")
+
+                    try:
+                        await reconcile_orphan_token_secrets(session)
+                    except Exception:
+                        BACKEND_ERRORS.labels(
+                            stage="reconcile_orphan_token_secrets"
+                        ).inc()
+                        logger.exception("reconcile_orphan_token_secrets failed")
         except Exception:
             BACKEND_ERRORS.labels(stage="reconciler_iteration").inc()
             logger.exception("reconciler iteration failed")

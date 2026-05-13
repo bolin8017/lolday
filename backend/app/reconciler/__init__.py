@@ -54,6 +54,7 @@ from app.reconciler.notify import (
 )
 from app.reconciler.orphans import ORPHAN_GRACE_SECONDS as ORPHAN_GRACE_SECONDS
 from app.reconciler.orphans import (
+    reconcile_orphan_token_secrets,
     reconcile_orphan_vcjobs,
 )
 from app.reconciler.projections import (
@@ -82,6 +83,7 @@ __all__ = [
     "_user_context",
     "reconcile_build",
     "reconcile_job",
+    "reconcile_orphan_token_secrets",
     "reconcile_orphan_vcjobs",
     "reconciler_loop",
     "sync_model_versions",
