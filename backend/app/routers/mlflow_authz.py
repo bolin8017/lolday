@@ -101,6 +101,13 @@ ARTIFACT_PATH_RE = re.compile(
 # handled regardless of order.
 QUERY_RUN_ID_RE = re.compile(r"[?&]run_id=(?P<run_id>[A-Za-z0-9_-]+)")
 
+# H-16: methods that mutate MLflow state. Non-admin browser users are blocked
+# from these regardless of run ownership — DELETE experiments, model-registry
+# mutations, etc. are admin-only operations in the UI.
+# Job tokens (sidecar path) are NOT subject to this restriction; they need to
+# write metrics/params for their own run.
+MUTATING_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
+
 
 def _mlflow_client():
     """Construct an MlflowClient. Looked up dynamically so tests can stub it."""
@@ -243,6 +250,12 @@ async def mlflow_authz(
     if user is not None:
         if user.role == Role.ADMIN:
             return {"allow": True, "as": "admin"}
+        method = (x_forwarded_method or "GET").upper()
+        if method in MUTATING_METHODS:
+            raise HTTPException(
+                status_code=403,
+                detail=f"non-admin users cannot {method} MLflow resources",
+            )
         run_id = _extract_run_id_from_url(x_forwarded_uri)
         if run_id is None:
             # Endpoints we can't resolve to a run_id are admin-only.

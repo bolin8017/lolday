@@ -155,12 +155,16 @@ async def test_mlflow_authz_admin_sees_all(auth_client_admin) -> None:
 @pytest.mark.no_mock_mlflow
 @pytest.mark.asyncio
 async def test_mlflow_authz_denies_when_no_run_id_in_url(user_client) -> None:
-    """Browser non-admin hitting an endpoint with no derivable run_id → 403."""
+    """Browser non-admin hitting an endpoint with no derivable run_id → 403.
+
+    H-16: a GET request is used here so the method-allowlist check is not the
+    gating factor; the denial comes from the unresolvable run_id branch.
+    """
     r = await user_client.post(
         "/api/v1/mlflow-authz",
         headers={
             "X-Forwarded-Uri": "/api/2.0/mlflow/experiments/search",
-            "X-Forwarded-Method": "POST",
+            "X-Forwarded-Method": "GET",
         },
     )
     assert r.status_code == 403, r.text
@@ -333,3 +337,83 @@ async def test_mlflow_authz_artifact_path_match(user_client) -> None:
 
     assert r.status_code == 200, r.text
     assert r.json()["run_id"] == "r-a"
+
+
+# ---------------------------------------------------------------------------
+# H-16: method allowlist — non-admin blocked on mutating methods.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mlflow_authz_non_admin_cannot_delete(user_client) -> None:
+    """H-16: non-admin users get 403 on DELETE regardless of run ownership.
+
+    The method-allowlist check fires before run-id resolution, so even a URL
+    that would resolve to an owned run is denied at the method gate.
+    The autouse mock_mlflow stub is active; no real MLflow round-trip occurs.
+    """
+    r = await user_client.post(
+        "/api/v1/mlflow-authz",
+        headers={
+            "X-Forwarded-Uri": "/api/2.0/mlflow/runs/delete",
+            "X-Forwarded-Method": "DELETE",
+        },
+    )
+    assert r.status_code == 403, r.text
+    assert "DELETE" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mlflow_authz_non_admin_cannot_post(user_client) -> None:
+    """H-16: non-admin users get 403 on POST mutation."""
+    r = await user_client.post(
+        "/api/v1/mlflow-authz",
+        headers={
+            "X-Forwarded-Uri": "/api/2.0/mlflow/runs/r-a",
+            "X-Forwarded-Method": "POST",
+        },
+    )
+    assert r.status_code == 403, r.text
+    assert "POST" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mlflow_authz_admin_can_delete(auth_client_admin) -> None:
+    """H-16: admins are not restricted by the method allowlist."""
+    r = await auth_client_admin.post(
+        "/api/v1/mlflow-authz",
+        headers={
+            "X-Forwarded-Uri": "/api/2.0/mlflow/runs/delete",
+            "X-Forwarded-Method": "DELETE",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["allow"] is True
+    assert body["as"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_mlflow_authz_job_token_can_post_to_own_run(
+    client, _job_with_token
+) -> None:
+    """H-16: job tokens are NOT subject to the method allowlist.
+
+    Sidecars need to write metrics/params for their own run. The bearer-token
+    path skips the MUTATING_METHODS gate entirely.
+    """
+    _job_id, raw_token, run_id = _job_with_token
+
+    r = await client.post(
+        "/api/v1/mlflow-authz",
+        headers={
+            "Authorization": f"Bearer {raw_token}",
+            "X-Forwarded-Uri": f"/api/2.0/mlflow/runs/{run_id}",
+            "X-Forwarded-Method": "POST",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["allow"] is True
+    assert body["as"] == "job"
+    assert body["run_id"] == run_id
