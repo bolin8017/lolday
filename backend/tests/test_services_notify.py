@@ -1,5 +1,7 @@
 """Tests for app.services.notify — Discord webhook delivery layer."""
 
+import logging
+
 import httpx
 import pytest
 import respx
@@ -124,3 +126,40 @@ async def test_notify_trivy_blocked_sends_orange_embed(monkeypatch):
         )
         assert route.called
         assert b"Trivy blocked" in route.calls.last.request.content
+
+
+@pytest.mark.asyncio
+async def test_post_webhook_500_logs_host_not_url(monkeypatch, caplog):
+    """M-discord-log: failure log must contain the host + status, never the
+    webhook token or path."""
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
+    with respx.mock() as mock:
+        mock.post(WEBHOOK).mock(return_value=httpx.Response(500))
+        with caplog.at_level(logging.WARNING, logger="app.services.notify"):
+            await notify.post_webhook({"content": "hi"})
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    # Token + path are the secret part of the URL.
+    assert "xyz" not in messages
+    assert "/api/webhooks/" not in messages
+    # Host + status are useful for ops debug.
+    assert "discord.test" in messages
+    assert "status=500" in messages
+
+
+@pytest.mark.asyncio
+async def test_post_webhook_network_error_logs_host_not_url(monkeypatch, caplog):
+    """A ConnectError carries the URL in its repr — make sure we don't leak it."""
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
+    with respx.mock() as mock:
+        mock.post(WEBHOOK).mock(side_effect=httpx.ConnectError("boom"))
+        with caplog.at_level(logging.WARNING, logger="app.services.notify"):
+            await notify.post_webhook({"content": "hi"})
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "xyz" not in messages
+    assert "/api/webhooks/" not in messages
+    assert "discord.test" in messages
+    assert "error=ConnectError" in messages

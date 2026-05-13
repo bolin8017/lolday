@@ -14,6 +14,7 @@ scheduled task always terminates cleanly.
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 
 import httpx
 
@@ -34,15 +35,30 @@ async def post_webhook(payload: dict) -> None:
     url = settings.DISCORD_WEBHOOK_URL_EVENTS
     if not url:
         return
+    host = urlparse(url).hostname or "?"
     try:
         async with httpx.AsyncClient(
             timeout=settings.DISCORD_HTTP_TIMEOUT_SECONDS
         ) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
-    except Exception:
+    except httpx.HTTPStatusError as exc:
         BACKEND_ERRORS.labels(stage="discord_notify").inc()
-        logger.exception("Discord webhook delivery failed")
+        # M-discord-log: webhook URL is itself the secret — log host + status
+        # only. Full path / token is the same value Discord uses to authenticate
+        # the POST, so anything that lands in Loki is effectively the credential.
+        logger.warning(
+            "Discord notify failed: status=%s host=%s",
+            exc.response.status_code,
+            host,
+        )
+    except Exception as exc:
+        BACKEND_ERRORS.labels(stage="discord_notify").inc()
+        logger.warning(
+            "Discord notify failed: error=%s host=%s",
+            type(exc).__name__,
+            host,
+        )
 
 
 async def notify_job_completed(**kwargs) -> None:
