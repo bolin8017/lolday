@@ -9,9 +9,19 @@ metadata:
     {{- include "lolday.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  # DATA_SOURCE_NAME is consumed by the exporter; `password` is consumed by the
-  # init Job's secretKeyRef (so the password isn't inlined into a Job manifest).
-  DATA_SOURCE_NAME: "postgresql://postgres_exporter:{{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password | urlquery }}@postgresql.{{ .Values.global.namespace }}.svc:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
+  # M-pg-exporter: the postgres_exporter binary accepts EITHER
+  #   DATA_SOURCE_NAME=<full DSN with embedded password>
+  # OR the split form:
+  #   DATA_SOURCE_USER + DATA_SOURCE_PASS + DATA_SOURCE_URI (host:port/db?sslmode=disable)
+  # The split form keeps the password in its own key so a future
+  # mount-as-files refactor can ship USER + URI to ConfigMap and leave
+  # PASS as the only Secret field. Sslmode=disable is tracked under
+  # docs/superpowers/specs/2026-05-12-security-hardening-design.md §9.
+  DATA_SOURCE_USER: "postgres_exporter"
+  DATA_SOURCE_PASS: {{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password | quote }}
+  DATA_SOURCE_URI: "postgresql.{{ .Values.global.namespace }}.svc:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable"
+  # ``password`` key preserved for postgres-exporter-initjob's secretKeyRef
+  # — the init Job binds ``PGPASSWORD`` from this specific key, not from envFrom.
   password: {{ required "monitoring.postgresExporter.password must be set" .Values.monitoring.postgresExporter.password | quote }}
 ---
 apiVersion: apps/v1
