@@ -140,3 +140,21 @@ def test_settings_rejects_both_empty_helper_images_in_production(monkeypatch):
         ValidationError, match="BUILD_IMAGE_HELPER, JOB_HELPER_IMAGE must be set"
     ):
         Settings()
+
+
+def test_test_session_does_not_use_legacy_fernet_key():
+    """H-17a: the conftest.py default for FERNET_KEY must NOT be the public
+    test value that was hardcoded in the repo through 2026-05-13. Production
+    defense lives in Settings.validate_fernet_keys (T8); this guard catches
+    a future contributor who reverts conftest to a stable cleartext.
+    """
+    from app.config import settings
+
+    LEGACY = "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
+    # Pre-T8 the field is FERNET_KEY (singular); post-T8 it is FERNET_KEYS (list).
+    key_value = getattr(settings, "FERNET_KEY", None) or " ".join(
+        getattr(settings, "FERNET_KEYS", []) or []
+    )
+    assert LEGACY not in key_value, (
+        "Test session must use Fernet.generate_key() — legacy hardcoded value found"
+    )
