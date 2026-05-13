@@ -11,6 +11,10 @@ echo ""
 : "${HARBOR_ADMIN_PASSWORD:?HARBOR_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 24}"
 : "${FERNET_KEYS:?FERNET_KEYS must be set (whitespace-separated list; first key is active for encrypt) — generate one via: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"}"
 : "${PG_PASSWORD:?PG_PASSWORD must be set — generate with: openssl rand -base64 24}"
+# H-9 (P2): redis sub-chart's templates/redis.yaml requires a password via
+# `--requirepass`; the chart's `required` validator fails fast at helm
+# template time if missing. Backend's REDIS_URL also bakes it in.
+: "${REDIS_PASSWORD:?REDIS_PASSWORD must be set — generate with: openssl rand -base64 24}"
 # Auth is Cloudflare Access SSO; the seeded admin row is renamed in place
 # via the phase10_sso_admin_email Alembic migration (SSO_ADMIN_EMAIL env).
 : "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
@@ -230,6 +234,7 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set cloudflare.enabled="${CF_ENABLED:-false}" \
   --set cloudflare.tunnelToken="${CF_TUNNEL_TOKEN:-}" \
   --set postgresql.auth.password="$PG_PASSWORD" \
+  --set redis.auth.password="$REDIS_PASSWORD" \
   --set backend.fernetKeys="$FERNET_KEYS" \
   --set backend.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
