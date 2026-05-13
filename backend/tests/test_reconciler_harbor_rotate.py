@@ -58,7 +58,7 @@ async def test_reconcile_rotates_robot_within_30_day_threshold(monkeypatch):
         return_value={
             "id": 7,
             "name": "robot$build-pusher",
-            "duration": 7776000,
+            "duration": 90,
             "expires_at": soon,
         }
     )
@@ -89,7 +89,7 @@ async def test_reconcile_skips_robot_outside_threshold(monkeypatch):
         return_value={
             "id": 7,
             "name": "robot$build-pusher",
-            "duration": 7776000,
+            "duration": 90,
             "expires_at": far,
         }
     )

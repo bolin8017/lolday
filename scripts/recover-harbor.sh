@@ -74,12 +74,16 @@ if [ -n "$EXISTING_ID" ]; then
     -H "Content-Type: application/json" -d '{"secret": ""}')
 else
   echo "  creating robot account…"
+  # Phase 9.3 / 7.5 note: duration unit is days (-1 = never-expire legacy;
+  # 90 = 90 days, matching the harbor_rotate reconciler target). Creating
+  # fresh robots with a finite value avoids the never-expire footgun; the
+  # reconciler will rotate and extend on the normal 30-day lookahead schedule.
   ROBOT_JSON=$(curl -sf -u "$adm" -X POST "$api/robots" \
     -H "Content-Type: application/json" \
     -d '{
       "name": "build-pusher",
       "description": "lolday build-pipeline pusher",
-      "duration": -1,
+      "duration": 90,
       "disable": false,
       "level": "system",
       "permissions": [
