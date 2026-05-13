@@ -35,6 +35,26 @@ logger = logging.getLogger(__name__)
 ORPHAN_GRACE_SECONDS = 300  # don't touch a vcjob younger than this — see below.
 
 
+def _extract_vcjob_label(vj: dict) -> str | None:
+    """Extract the ``lolday.job-id`` label from a Volcano Job, falling back to
+    the task pod template's labels for older vcjobs / chart variants that
+    only set the label on the pod template.
+    """
+    meta = vj.get("metadata") or {}
+    label = (meta.get("labels") or {}).get("lolday.job-id")
+    if label:
+        return label
+    tasks = (vj.get("spec") or {}).get("tasks") or []
+    if tasks:
+        return (
+            (tasks[0].get("template") or {})
+            .get("metadata", {})
+            .get("labels", {})
+            .get("lolday.job-id")
+        )
+    return None
+
+
 async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
     """Delete Volcano Jobs whose ``lolday.job-id`` label has no matching DB row.
 
@@ -73,19 +93,11 @@ async def reconcile_orphan_vcjobs(session: AsyncSession) -> int:
         meta = vjob.get("metadata", {}) or {}
         name = meta.get("name", "")
         # Volcano stamps the same labels both at the job level and on the
-        # task pod template — read the top-level copy first (survives task
-        # restructuring), with the deeper path as a fallback for older
-        # vcjobs / chart variants that only set it on the pod template.
-        label = (meta.get("labels") or {}).get("lolday.job-id")
-        if not label:
-            tasks = vjob.get("spec", {}).get("tasks") or []
-            if tasks:
-                label = (
-                    (tasks[0].get("template") or {})
-                    .get("metadata", {})
-                    .get("labels", {})
-                    .get("lolday.job-id")
-                )
+        # task pod template — _extract_vcjob_label reads the top-level copy
+        # first (survives task restructuring), with the deeper path as a
+        # fallback for older vcjobs / chart variants that only set the label
+        # on the pod template.
+        label = _extract_vcjob_label(vjob)
         if not label:
             continue
         try:
@@ -195,9 +207,11 @@ async def reconcile_orphan_token_secrets(session: AsyncSession) -> int:
     # Build a set of live job-short-ids from the vcjob labels. The Secret
     # name pattern is ``job-token-<job.hex[:16]>``; the vcjob label
     # ``lolday.job-id`` carries the full UUID. Match on the 16-char prefix.
+    # _extract_vcjob_label falls back to the task pod template labels for
+    # older vcjobs / chart variants that only set the label there.
     live_short_ids: set[str] = set()
     for vj in vcjobs.get("items", []):
-        label = (vj.get("metadata", {}).get("labels") or {}).get("lolday.job-id")
+        label = _extract_vcjob_label(vj)
         if label:
             try:
                 live_short_ids.add(uuid.UUID(label).hex[:16])
