@@ -61,11 +61,11 @@ spec:
           command: ["uv", "run", "alembic", "upgrade", "head"]
           env:
             # Alembic only needs DATABASE_URL. `app.config.Settings` uses a
-            # default `FERNET_KEY: str = ""`, so importing `app.models` does
-            # NOT require the Fernet secret — the earlier env binding was a
-            # mis-attribution and also caused a fresh-install crash because
-            # `backend-fernet-key` (a normal template) doesn't exist when the
-            # pre-install hook fires.
+            # default `FERNET_KEYS: list[str] = []`, so importing `app.models`
+            # does NOT require the Fernet secret — the earlier env binding
+            # was a mis-attribution and also caused a fresh-install crash
+            # because `backend-fernet-key` (a normal template) doesn't exist
+            # when the pre-install hook fires.
             #
             # DATABASE_URL is rendered inline. The password also lives in the
             # helm release Secret (same ns, same RBAC) so the hook manifest

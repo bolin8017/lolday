@@ -13,9 +13,9 @@ router = APIRouter()
 
 
 def _cipher() -> TokenCipher:
-    if not settings.FERNET_KEY:
-        raise HTTPException(status_code=500, detail="FERNET_KEY not configured")
-    return TokenCipher(settings.FERNET_KEY)
+    if not settings.FERNET_KEYS:
+        raise HTTPException(status_code=500, detail="FERNET_KEYS not configured")
+    return TokenCipher(settings.FERNET_KEYS)
 
 
 @router.put("/me/git-credential", response_model=GitCredentialRead)

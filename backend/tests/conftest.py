@@ -5,7 +5,7 @@ from cryptography.fernet import Fernet
 # H-17a: never reuse a hardcoded Fernet key in tests — the value would be
 # public via git, and any operator who copies it into .lolday-secrets.env
 # makes encrypted columns trivially decryptable. Per-session fresh key.
-os.environ.setdefault("FERNET_KEY", Fernet.generate_key().decode())
+os.environ.setdefault("FERNET_KEYS", Fernet.generate_key().decode())
 os.environ.setdefault("RECONCILER_ENABLED", "false")
 os.environ.setdefault("FIFO_RECONCILER_ENABLED", "false")
 os.environ.setdefault("SAMPLES_LOCAL_ROOT", "/nonexistent-samples-root-for-tests")

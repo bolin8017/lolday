@@ -61,7 +61,7 @@ spec:
             - secretRef:
                 name: backend
           env:
-            - name: FERNET_KEY
+            - name: FERNET_KEYS
               valueFrom:
                 secretKeyRef:
                   name: backend-fernet-key

@@ -68,7 +68,7 @@ async def _get_user_pat(session: AsyncSession, user_id: UUID) -> str | None:
     cred = await session.get(UserGitCredential, user_id)
     if cred is None:
         return None
-    return TokenCipher(settings.FERNET_KEY).decrypt(cred.encrypted_token)
+    return TokenCipher(settings.FERNET_KEYS).decrypt(cred.encrypted_token)
 
 
 async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:

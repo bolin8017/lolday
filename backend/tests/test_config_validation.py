@@ -15,6 +15,7 @@ the misconfiguration ships to prod.
 """
 
 import pytest
+from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
 
@@ -158,3 +159,81 @@ def test_test_session_does_not_use_legacy_fernet_key():
     assert LEGACY not in key_value, (
         "Test session must use Fernet.generate_key() — legacy hardcoded value found"
     )
+
+
+def _prod_env(monkeypatch):
+    """Helper: fill in the rest of the production env so validate_sso_config
+    and validate_helper_images don't pre-empt validate_fernet_keys."""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "bolin8017.cloudflareaccess.com")
+    monkeypatch.setenv("CF_ACCESS_APP_AUD", "x" * 64)
+    monkeypatch.setenv(
+        "BUILD_IMAGE_HELPER", "harbor.lolday.svc:80/lolday/build-helper:abc"
+    )
+    monkeypatch.setenv("JOB_HELPER_IMAGE", "harbor.lolday.svc:80/lolday/job-helper:def")
+
+
+def test_settings_rejects_legacy_fernet_key_in_production(monkeypatch):
+    """H-17b: production must refuse the well-known test key."""
+    _prod_env(monkeypatch)
+    monkeypatch.setenv("FERNET_KEYS", "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=")
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError, match="public test key"):
+        Settings()
+
+
+def test_settings_rejects_legacy_fernet_key_anywhere_in_keys_list(monkeypatch):
+    """Even when paired with a fresh key, the legacy value MUST be flagged —
+    a half-rotated setup is still trivially decryptable for any row encrypted
+    under the legacy key."""
+    _prod_env(monkeypatch)
+    fresh = Fernet.generate_key().decode()
+    monkeypatch.setenv(
+        "FERNET_KEYS",
+        f"{fresh} ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=",
+    )
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError, match="public test key"):
+        Settings()
+
+
+def test_settings_rejects_empty_fernet_keys_in_production(monkeypatch):
+    """H-18b: must have at least one key in production."""
+    _prod_env(monkeypatch)
+    monkeypatch.setenv("FERNET_KEYS", "")
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError, match="FERNET_KEYS is required"):
+        Settings()
+
+
+def test_settings_parses_whitespace_separated_fernet_keys(monkeypatch):
+    """Multiple keys whitespace-separated → list[str] with original order
+    preserved (first key = active encrypt key, MultiFernet semantics)."""
+    k1 = Fernet.generate_key().decode()
+    k2 = Fernet.generate_key().decode()
+    _prod_env(monkeypatch)
+    monkeypatch.setenv("FERNET_KEYS", f"{k1}   {k2}")  # multiple spaces
+
+    from app.config import Settings
+
+    s = Settings()
+    assert [k1, k2] == s.FERNET_KEYS
+
+
+def test_settings_singular_fernet_key_env_is_ignored_no_back_compat(monkeypatch):
+    """Hard-fail rename: setting only FERNET_KEY (singular) must NOT populate
+    FERNET_KEYS via fallback. Operator must rename in .lolday-secrets.env."""
+    _prod_env(monkeypatch)
+    monkeypatch.delenv("FERNET_KEYS", raising=False)
+    monkeypatch.setenv("FERNET_KEY", Fernet.generate_key().decode())
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError, match="FERNET_KEYS is required"):
+        Settings()

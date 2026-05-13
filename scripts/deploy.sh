@@ -9,7 +9,7 @@ echo ""
 
 # Required secrets
 : "${HARBOR_ADMIN_PASSWORD:?HARBOR_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 24}"
-: "${FERNET_KEY:?FERNET_KEY must be set — generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'}"
+: "${FERNET_KEYS:?FERNET_KEYS must be set (whitespace-separated list; first key is active for encrypt) — generate one via: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"}"
 : "${PG_PASSWORD:?PG_PASSWORD must be set — generate with: openssl rand -base64 24}"
 # Auth is Cloudflare Access SSO; the seeded admin row is renamed in place
 # via the phase10_sso_admin_email Alembic migration (SSO_ADMIN_EMAIL env).
@@ -230,7 +230,7 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set cloudflare.enabled="${CF_ENABLED:-false}" \
   --set cloudflare.tunnelToken="${CF_TUNNEL_TOKEN:-}" \
   --set postgresql.auth.password="$PG_PASSWORD" \
-  --set backend.fernetKey="$FERNET_KEY" \
+  --set backend.fernetKeys="$FERNET_KEYS" \
   --set backend.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set harbor.harborAdminPassword="$HARBOR_ADMIN_PASSWORD" \
   --set mlflow.db.password="$MLFLOW_DB_PASSWORD" \
@@ -254,7 +254,6 @@ echo ""
 #     kubectl -n lolday run alembic-stamp --rm -it --restart=Never \
 #       --image=$BACKEND_IMAGE --image-pull-policy=IfNotPresent \
 #       --env="DATABASE_URL=postgresql+asyncpg://lolday:$PG_PASSWORD@postgresql:5432/lolday" \
-#       --env="FERNET_KEY=$FERNET_KEY" \
 #       --command -- uv run alembic stamp head
 #
 # After stamp, subsequent `helm upgrade` runs fire the pre-upgrade Job which
