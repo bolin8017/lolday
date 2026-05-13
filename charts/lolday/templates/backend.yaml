@@ -61,6 +61,12 @@ spec:
             - secretRef:
                 name: backend
           env:
+            # P2 H-7 + H-10 together: readOnlyRootFilesystem=true + UID 1000
+            # with HOME=/home/lolday on the ro fs leaves `uv run` (used by the
+            # CMD) with no writable cache root. Redirect to the writable /tmp
+            # emptyDir mount below.
+            - name: UV_CACHE_DIR
+              value: /tmp/uv-cache
             - name: FERNET_KEYS
               valueFrom:
                 secretKeyRef:

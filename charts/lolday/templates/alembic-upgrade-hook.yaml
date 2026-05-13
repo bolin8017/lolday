@@ -60,6 +60,14 @@ spec:
               mountPath: /tmp
           command: ["uv", "run", "alembic", "upgrade", "head"]
           env:
+            # P2 H-7 + H-10 together: readOnlyRootFilesystem=true + UID 1000
+            # with HOME=/home/lolday on the ro fs leaves `uv` with no writable
+            # cache root. Redirect to the writable /tmp emptyDir. `uv run` in
+            # --frozen sync mode only writes resolution state here; the venv
+            # itself lives under /app and is read-only at runtime (uv treats
+            # this as a feature, not a bug).
+            - name: UV_CACHE_DIR
+              value: /tmp/uv-cache
             # Alembic only needs DATABASE_URL. `app.config.Settings` uses a
             # default `FERNET_KEYS: list[str] = []`, so importing `app.models`
             # does NOT require the Fernet secret — the earlier env binding
