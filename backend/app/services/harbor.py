@@ -253,3 +253,48 @@ class HarborClient:
             if resp.status_code in (200, 202, 409):
                 return
             resp.raise_for_status()
+
+    async def get_robot(self, name: str) -> dict | None:
+        """Fetch the robot record by short-name (without ``robot$`` prefix).
+
+        Returns ``None`` if no matching robot exists. Returned dict has keys
+        ``id``, ``name`` (with ``robot$`` prefix), ``duration``, ``expires_at``,
+        ``permissions``. The ``secret`` field is NOT returned — Harbor never
+        discloses an existing secret.
+        """
+        async with self._client() as c:
+            resp = await c.get("/api/v2.0/robots", params={"q": f"name={name}"})
+            resp.raise_for_status()
+            expected = f"robot${name}"
+            for r in resp.json():
+                if r.get("name") == expected:
+                    return r
+            return None
+
+    async def rotate_robot_secret(self, robot_id: int) -> str:
+        """Generate a fresh secret for the robot; returns the new secret value.
+
+        Idempotent in the sense that running it twice generates two distinct
+        secrets, both valid (Harbor returns the most-recently-rotated value).
+        """
+        async with self._client() as c:
+            resp = await c.patch(f"/api/v2.0/robots/{robot_id}/sec")
+            resp.raise_for_status()
+            data = resp.json()
+            # Harbor PATCH /robots/{id}/sec response shape: {"secret": "..."}
+            return data["secret"]
+
+    async def update_robot_duration(self, robot_id: int, duration_seconds: int) -> None:
+        """Reset the robot's expiry by PUTting the full record with a new
+        ``duration``. Harbor recomputes ``expires_at`` from ``now + duration``."""
+        async with self._client() as c:
+            # Harbor requires the full robot body on PUT — fetch current state first.
+            cur = await c.get(f"/api/v2.0/robots/{robot_id}")
+            cur.raise_for_status()
+            body = cur.json()
+            body["duration"] = duration_seconds
+            # ``editable`` field, if present, is read-only — drop it from PUT.
+            body.pop("editable", None)
+            body.pop("expires_at", None)
+            put = await c.put(f"/api/v2.0/robots/{robot_id}", json=body)
+            put.raise_for_status()

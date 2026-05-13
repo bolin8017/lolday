@@ -13,6 +13,9 @@ iteration:
 4. Every ``ORPHAN_SCAN_EVERY_N_ITERATIONS`` (~5 min default), runs orphan
    vcjob cleanup via
    :func:`app.reconciler.orphans.reconcile_orphan_vcjobs`.
+5. Every ``HARBOR_ROTATE_EVERY_N_ITERATIONS`` (~24 h default), renews the
+   Harbor build-pusher robot account secret via
+   :func:`app.reconciler.harbor_rotate.reconcile_harbor_robot`.
 
 Iteration failures are logged and counted to ``BACKEND_ERRORS{stage="reconciler_iteration"}``;
 the loop never exits except on the supplied ``stop_event``.
@@ -32,6 +35,7 @@ from app.metrics import BACKEND_ERRORS
 from app.models.detector import DetectorBuild
 from app.models.job import NON_TERMINAL_STATUSES, Job
 from app.reconciler.builds import IN_FLIGHT, reconcile_build
+from app.reconciler.harbor_rotate import reconcile_harbor_robot
 from app.reconciler.jobs import reconcile_job
 from app.reconciler.model_sync import sync_model_versions
 from app.reconciler.orphans import (
@@ -44,6 +48,7 @@ logger = logging.getLogger(__name__)
 # Loop tuning. Module-level so tests can monkeypatch to collapse iteration time.
 SYNC_EVERY_N_ITERATIONS = 6
 ORPHAN_SCAN_EVERY_N_ITERATIONS = 30  # ~5 min at the default 10s wait
+HARBOR_ROTATE_EVERY_N_ITERATIONS = 8640  # ~24 h at the default 10s tick
 RECONCILER_WAIT_SECONDS = 10
 
 
@@ -103,6 +108,14 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                             stage="reconcile_orphan_token_secrets"
                         ).inc()
                         logger.exception("reconcile_orphan_token_secrets failed")
+
+                # Harbor robot account rotation (~24 h at default N=8640)
+                if iteration % HARBOR_ROTATE_EVERY_N_ITERATIONS == 0:
+                    try:
+                        await reconcile_harbor_robot()
+                    except Exception:
+                        BACKEND_ERRORS.labels(stage="reconcile_harbor_robot").inc()
+                        logger.exception("reconcile_harbor_robot failed")
         except Exception:
             BACKEND_ERRORS.labels(stage="reconciler_iteration").inc()
             logger.exception("reconciler iteration failed")
