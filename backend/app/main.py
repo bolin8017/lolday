@@ -185,8 +185,12 @@ app = FastAPI(
 )
 
 from app.middleware.body_size import BodySizeLimitMiddleware
+from app.middleware.csrf import CSRFOriginMiddleware
 
 app.add_middleware(BodySizeLimitMiddleware)
+# M-csrf: gate state-changing methods on Origin / Sec-Fetch-Site. See
+# backend/app/middleware/csrf.py and plan section D1.
+app.add_middleware(CSRFOriginMiddleware)
 
 # Intentionally not wrapped in try/except: if metrics wiring fails the pod
 # should CrashLoopBackOff so LoldayCoreServiceDown fires — silently losing
