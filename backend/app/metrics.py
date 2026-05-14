@@ -25,6 +25,16 @@ AUTH_FAILURE_TOTAL = Counter(
     ["reason"],
 )
 
+# M-ratelimit-metric (security-hardening P5) — fixed-window limiter
+# overflows (HTTP 429) attributed by prefix. Two prefixes today:
+# jobs_create (POST /jobs) and builds_create (POST /detectors/{id}/builds).
+# Feeds the LoldayRateLimitSpike rule (rate > 1/s for 10m).
+RATE_LIMIT_HITS_TOTAL = Counter(
+    "lolday_rate_limit_hits_total",
+    "Rate-limit 429 responses, by prefix label.",
+    ["prefix"],
+)
+
 # Phase 7.5 — piggybacks on cluster_status.get_queue_depth (refreshed every
 # 10s via the TTLCache path). Triggers an alert if Volcano hasn't scheduled
 # a Pending job within the staleness window, which catches scheduler outages

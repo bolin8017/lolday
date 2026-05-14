@@ -75,6 +75,20 @@ spec:
             summary: "Authentication failure spike — reason={{`{{ $labels.reason }}`}} ({{`{{ $value | humanize }}`}}/s)"
             description: "lolday_auth_failure_total rate > 0.5/s for 5m on reason='{{`{{ $labels.reason }}`}}'. Possible JWT probe. Cross-check Loki: `kubectl -n lolday logs deploy/backend | grep 'cf_access 401'`. Confirmed probe → block at the Cloudflare Access policy level (Zero Trust → Access → Applications)."
 
+        # M-ratelimit-metric (security-hardening P5) — overflow attributed
+        # by prefix. 1/s over 10m suggests either a misbehaving client or
+        # a legitimate user hitting the cap; check the prefix label first.
+        # builds_create is 10/hour — easy to trip in batch use; jobs_create
+        # is 30/min — much harder to trip benignly.
+        - alert: LoldayRateLimitSpike
+          expr: sum by (prefix) (rate(lolday_rate_limit_hits_total[10m])) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Rate-limit overflow — prefix={{`{{ $labels.prefix }}`}} ({{`{{ $value | humanize }}`}}/s)"
+            description: "lolday_rate_limit_hits_total rate > 1/s for 10m on prefix='{{`{{ $labels.prefix }}`}}'. Inspect Redis bucket keys: `kubectl -n lolday exec deploy/redis -- redis-cli --scan --pattern 'rl:{{`{{ $labels.prefix }}`}}:*' | head`. If a legitimate user is hammering the cap, contact them; if a probe, block at the Cloudflare Access policy level."
+
         # Phase 9.2 — Alloy's loki.write has a disk-backed WAL, but if Loki
         # is unavailable long enough for the WAL's bounded segments to age
         # out, samples get dropped silently. Scrape target is the alloy
