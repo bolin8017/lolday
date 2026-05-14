@@ -341,26 +341,45 @@ async def download_artifact(
     filename = PurePosixPath(path).name or "artifact"
     media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
-    # M-mlflow-stream: stream rather than buffer. _MLFLOW_STREAM_SEM caps
-    # in-flight streams to 8 per pod (see plan section D4). The semaphore + the
-    # AsyncClient + the stream context manager all unwind on client cancel,
-    # so we don't leak the upstream socket on premature disconnect.
+    # M-mlflow-stream: stream rather than buffer. Status check happens before
+    # the StreamingResponse is constructed -- raising HTTPException AFTER the
+    # response has started would silently degrade to a 200 with an empty body
+    # because Starlette commits the response status when iteration begins.
+    # We manage the context managers manually so the semaphore + AsyncClient
+    # + stream all release on success, on error-before-stream, and on mid-
+    # stream cancel (which propagates via GeneratorExit through the generator
+    # finally block).
+    await _MLFLOW_STREAM_SEM.acquire()
+    client = httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS)
+    try:
+        await client.__aenter__()
+    except BaseException:
+        _MLFLOW_STREAM_SEM.release()
+        raise
+
+    try:
+        stream_cm = client.stream("GET", url)
+        upstream = await stream_cm.__aenter__()
+    except BaseException:
+        await client.__aexit__(None, None, None)
+        _MLFLOW_STREAM_SEM.release()
+        raise
+
+    if upstream.status_code != 200:
+        body = await upstream.aread()
+        await stream_cm.__aexit__(None, None, None)
+        await client.__aexit__(None, None, None)
+        _MLFLOW_STREAM_SEM.release()
+        raise HTTPException(status_code=502, detail=body.decode("utf-8", "replace"))
+
     async def _iter_upstream():
-        async with (
-            _MLFLOW_STREAM_SEM,
-            httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS) as client,
-            client.stream("GET", url) as upstream,
-        ):
-            if upstream.status_code != 200:
-                # Drain to a string so the error message is meaningful;
-                # bounded because the upstream produced a non-2xx for
-                # an artifact-list URL (small JSON / HTML body).
-                body = await upstream.aread()
-                raise HTTPException(
-                    status_code=502, detail=body.decode("utf-8", "replace")
-                )
+        try:
             async for chunk in upstream.aiter_bytes():
                 yield chunk
+        finally:
+            await stream_cm.__aexit__(None, None, None)
+            await client.__aexit__(None, None, None)
+            _MLFLOW_STREAM_SEM.release()
 
     return StreamingResponse(
         _iter_upstream(),
