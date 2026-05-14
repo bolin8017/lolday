@@ -114,12 +114,23 @@ runs:
     - name: Install cosign
       if: inputs.push == 'true'
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-    # H-23: keyless sign the just-pushed image digest. OIDC token is
+    # H-23: keyless sign the just-pushed image. OIDC token is
     # auto-acquired from the GHA OIDC issuer via id-token: write (granted
     # at the job level in images.yml / helpers.yml). --yes skips the
     # interactive prompt; --recursive signs every platform variant of a
-    # multi-arch manifest (no-op today since builds are single-platform,
-    # but harmless and future-proof).
+    # multi-arch manifest (no-op today since builds are single-platform).
+    #
+    # Sign by the per-commit `sha-<full-sha>` tag (produced by
+    # `type=sha,format=long` in the metadata-action step above). Why not
+    # by digest? With `load: true` + `push: true`, buildx's
+    # `outputs.digest` returns the LOCAL DAEMON manifest digest, which
+    # diverges from the REGISTRY-side digest because buildx recomputes
+    # the manifest when loading. Passing the daemon digest to cosign
+    # produces MANIFEST_UNKNOWN against ghcr.io. Tag-based sign sidesteps
+    # the issue — cosign resolves the tag to the current registry digest
+    # at sign time and anchors the signature to that digest. Subsequent
+    # tag overwrites do NOT invalidate the signature (it lives on the
+    # digest, not the tag).
     - name: Cosign sign (H-23 keyless)
       if: inputs.push == 'true'
       shell: bash
@@ -127,4 +138,4 @@ runs:
         COSIGN_EXPERIMENTAL: "1"
       run: |
         cosign sign --yes --recursive \
-          "ghcr.io/bolin8017/${{ inputs.image }}@${{ steps.build.outputs.digest }}"
+          "ghcr.io/bolin8017/${{ inputs.image }}:sha-${{ github.sha }}"
