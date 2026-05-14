@@ -78,7 +78,7 @@ async def _seed_detector_version(db_session, detector_id):
 # ---------------------------------------------------------------------------
 
 
-async def test_reconciler_caps_job_scan_at_200_oldest_first(db_session, monkeypatch):
+async def test_reconciler_caps_job_scan_at_200_oldest_first(db_session):
     """Seed 250 non-terminal Jobs; iteration scans 200 oldest by submitted_at."""
     from app.models import Job, JobStatus
     from app.reconciler.loop import _scan_jobs
