@@ -20,5 +20,8 @@ dependencies:
 - name: minio
   repository: https://charts.min.io/
   version: 5.4.0
-digest: sha256:225442c032aba6213921381fc1c19c72a48306c11c80a5486e09d54a33281377
-generated: "2026-05-11T13:58:40.624996748+08:00"
+- name: kyverno
+  repository: https://kyverno.github.io/kyverno/
+  version: 3.8.0
+digest: sha256:d210e8311eb88ba60d9135b257f0ead9d0dab6b19358508f886bb9036ea4e8bd
+generated: "2026-05-14T11:13:42.10064047+08:00"

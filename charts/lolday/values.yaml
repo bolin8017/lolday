@@ -785,3 +785,44 @@ minio:
   # Override the default console user created by the chart (chart default: console/console123)
   # We manage IAM entirely via the init Job; no chart-managed users.
   users: []
+
+# =============================================================================
+# Kyverno — admission-time image verification + PSS background audit (P4)
+# =============================================================================
+# The verifyImages ClusterPolicy in templates/policies/verify-images.yaml
+# (added in T10) admits only images whose cosign signature matches the
+# lolday GHCR workflow identity. Scoped to `lolday` + `lolday-jobs` so
+# kyverno's own ns is excluded — a subsequent kyverno upgrade cannot be
+# rejected by its own webhook (see plan D2).
+#
+# Mainstream prod settings: per-policy `spec.failurePolicy: Fail` (Kyverno
+# 3.x default, set on each ClusterPolicy in T10) is enforced cluster-wide
+# because `features.forceFailurePolicyIgnore.enabled: false` (chart
+# default — set explicitly here to document intent). If kyverno is
+# unreachable, lolday + lolday-jobs admissions block — matches prod-grade
+# installs.
+#
+# PSS enforcement from P2 (built-in Pod Security admission labels on
+# lolday/lolday-jobs namespaces) stays in place; this sub-chart adds the
+# audit-mode PSS background scan as defense-in-depth.
+kyverno:
+  enabled: true
+  fullnameOverride: kyverno
+  # Keep per-policy `failurePolicy` (default `Fail` on each ClusterPolicy)
+  # in effect. Setting this to `true` would force all webhooks to
+  # `Ignore` — bypassing security controls. Leave `false`.
+  features:
+    forceFailurePolicyIgnore:
+      enabled: false
+  # Single-node lab cluster: drop replicas to 1 across the four
+  # controllers. Admission webhook traffic is gated by the kube-apiserver
+  # retry path on failure; HA replicas mainly buffer rolling-update gaps,
+  # not needed on a single node where rollout draining is sequential.
+  admissionController:
+    replicas: 1
+  backgroundController:
+    replicas: 1
+  reportsController:
+    replicas: 1
+  cleanupController:
+    replicas: 1
