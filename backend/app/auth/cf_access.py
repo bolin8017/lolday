@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
-from app.metrics import BACKEND_ERRORS
+from app.metrics import AUTH_FAILURE_TOTAL, BACKEND_ERRORS
 from app.models import Role, User
 from app.services.user_handle import derive_handle_from_email, next_unique_handle
 
@@ -184,12 +184,14 @@ async def resolve_user_from_jwt(
             "cf_access 401 %s: missing Cf-Access-Jwt-Assertion",
             log_context,
         )
+        AUTH_FAILURE_TOTAL.labels(reason="missing_header").inc()
         raise CfAccessAuthError("missing Cf-Access-Jwt-Assertion header")
 
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
     except pyjwt.PyJWKClientError as e:
         logger.warning("cf_access 401 %s: JWKS lookup failed: %s", log_context, e)
+        AUTH_FAILURE_TOTAL.labels(reason="jwks_lookup_failed").inc()
         raise CfAccessAuthError(f"jwks lookup failed: {e}") from e
 
     try:
@@ -213,6 +215,7 @@ async def resolve_user_from_jwt(
             f"https://{settings.CF_ACCESS_TEAM_DOMAIN}",
             peek,
         )
+        AUTH_FAILURE_TOTAL.labels(reason="invalid_signature").inc()
         raise CfAccessAuthError(f"invalid Cloudflare Access token: {e}") from e
 
     # User SSO JWTs carry `email`. Service-token JWTs carry `common_name`
@@ -226,6 +229,7 @@ async def resolve_user_from_jwt(
                 "cf_access 401 %s: JWT has neither email nor common_name claim",
                 log_context,
             )
+            AUTH_FAILURE_TOTAL.labels(reason="missing_principal_claim").inc()
             raise CfAccessAuthError("token has neither email nor common_name claim")
         email = f"service-{common_name}@cf-access.local"
     return await get_or_create_user_by_email(session, email)

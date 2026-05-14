@@ -61,6 +61,20 @@ spec:
             summary: "Backend errors in stage {{`{{ $labels.stage }}`}}"
             description: "lolday_backend_errors_total rate > 0 in stage '{{`{{ $labels.stage }}`}}' for 5m. This catches silent-failure paths (e.g. reconciler loop exceptions, Harbor init failures, best-effort K8s/MLflow cleanup failures). Check backend logs for the matching `logger.exception` entry."
 
+        # H-27 (security-hardening P5) — JWT verification failures broken
+        # out by reason. > 0.5/s sustained for 5m suggests a probe
+        # (token stuffing, sig-strip, aud-replay). Warning-grade per
+        # alerting redesign §6.1 — a confirmed compromise is critical
+        # and lives elsewhere.
+        - alert: LoldayAuthFailureSpike
+          expr: sum by (reason) (rate(lolday_auth_failure_total[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Authentication failure spike — reason={{`{{ $labels.reason }}`}} ({{`{{ $value | humanize }}`}}/s)"
+            description: "lolday_auth_failure_total rate > 0.5/s for 5m on reason='{{`{{ $labels.reason }}`}}'. Possible JWT probe. Cross-check Loki: `kubectl -n lolday logs deploy/backend | grep 'cf_access 401'`. Confirmed probe → block at the Cloudflare Access policy level (Zero Trust → Access → Applications)."
+
         # Phase 9.2 — Alloy's loki.write has a disk-backed WAL, but if Loki
         # is unavailable long enough for the WAL's bounded segments to age
         # out, samples get dropped silently. Scrape target is the alloy

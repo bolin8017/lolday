@@ -13,6 +13,18 @@ BACKEND_ERRORS = Counter(
     ["stage"],
 )
 
+# H-27 (security-hardening P5) — Cloudflare Access JWT verification
+# failures broken out by attribution. Feeds the LoldayAuthFailureSpike
+# Alertmanager rule (rate > 0.5/s for 5m). Cardinality is bounded to
+# 4 values: missing_header, jwks_lookup_failed, invalid_signature,
+# missing_principal_claim. Do not raise label values from the request
+# (would enable cardinality blow-up via attacker-controlled errors).
+AUTH_FAILURE_TOTAL = Counter(
+    "lolday_auth_failure_total",
+    "Cloudflare Access JWT verifications that failed, by attribution.",
+    ["reason"],
+)
+
 # Phase 7.5 — piggybacks on cluster_status.get_queue_depth (refreshed every
 # 10s via the TTLCache path). Triggers an alert if Volcano hasn't scheduled
 # a Pending job within the staleness window, which catches scheduler outages

@@ -343,3 +343,62 @@ async def test_handle_collision_appends_suffix(db_session):
 
     assert user.email == "alice@second.com"
     assert user.handle == "alice-2"
+
+
+# H-27 (security-hardening P5) — AUTH_FAILURE_TOTAL counter checks. The
+# counter is global to the prometheus_client default REGISTRY; tests use the
+# diff-by-N pattern (read before, do action, read after, assert delta) to
+# stay robust against other tests touching the same metric in the same run.
+def _read_counter(metric_name: str, **labels: str) -> float:
+    """Read a labeled Counter's current value from the default REGISTRY."""
+    from prometheus_client import REGISTRY
+
+    value = REGISTRY.get_sample_value(metric_name, labels=labels)
+    return 0.0 if value is None else value
+
+
+async def test_auth_failure_total_increments_on_invalid_signature(monkeypatch):
+    """A JWT with a bad signature must increment AUTH_FAILURE_TOTAL{reason='invalid_signature'}."""
+    from app.auth import cf_access
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", False)
+    monkeypatch.setattr(settings, "CF_ACCESS_TEAM_DOMAIN", "test.cloudflareaccess.com")
+    monkeypatch.setattr(settings, "CF_ACCESS_APP_AUD", "test-app-uid")
+
+    class _FakeJwksClient:
+        def get_signing_key_from_jwt(self, _token):
+            class _K:
+                key = b"unrelated-public-key-bytes"
+
+            return _K()
+
+    monkeypatch.setattr(cf_access, "_get_jwks_client", lambda: _FakeJwksClient())
+
+    before = _read_counter("lolday_auth_failure_total", reason="invalid_signature")
+
+    from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
+
+    with pytest.raises(CfAccessAuthError):
+        await resolve_user_from_jwt(
+            session=None, token="not-a-real-jwt", log_context="test"
+        )
+
+    after = _read_counter("lolday_auth_failure_total", reason="invalid_signature")
+    assert after - before == pytest.approx(1.0)
+
+
+async def test_auth_failure_total_increments_on_missing_header(monkeypatch):
+    """A None token must increment AUTH_FAILURE_TOTAL{reason='missing_header'}."""
+    from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", False)
+
+    before = _read_counter("lolday_auth_failure_total", reason="missing_header")
+
+    with pytest.raises(CfAccessAuthError):
+        await resolve_user_from_jwt(session=None, token=None, log_context="test")
+
+    after = _read_counter("lolday_auth_failure_total", reason="missing_header")
+    assert after - before == pytest.approx(1.0)
