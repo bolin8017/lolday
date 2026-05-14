@@ -2,6 +2,7 @@ import asyncio
 import logging
 import mimetypes
 import weakref
+from contextlib import AsyncExitStack
 from pathlib import PurePosixPath
 from typing import Annotated, Any
 from urllib.parse import quote
@@ -350,41 +351,39 @@ async def download_artifact(
     # the StreamingResponse is constructed -- raising HTTPException AFTER the
     # response has started would silently degrade to a 200 with an empty body
     # because Starlette commits the response status when iteration begins.
-    # We manage the context managers manually so the semaphore + AsyncClient
-    # + stream all release on success, on error-before-stream, and on mid-
-    # stream cancel (which propagates via GeneratorExit through the generator
-    # finally block).
-    await _MLFLOW_STREAM_SEM.acquire()
-    client = httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS)
+    # AsyncExitStack centralises cleanup: the semaphore + AsyncClient + stream
+    # context all unwind on success, on setup-error, on non-2xx, and on mid-
+    # stream cancel (GeneratorExit reaches the generator's finally). Each
+    # context manager is registered exactly once; stack.aclose() drains them
+    # in reverse order with no risk of leaking a permit on a cleanup-path
+    # exception (which the manual __aexit__ chain could not guarantee).
+    stack = AsyncExitStack()
+    await stack.__aenter__()
     try:
-        await client.__aenter__()
-    except BaseException:
-        _MLFLOW_STREAM_SEM.release()
-        raise
+        await stack.enter_async_context(_MLFLOW_STREAM_SEM)
+        client = await stack.enter_async_context(
+            httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS)
+        )
+        upstream = await stack.enter_async_context(client.stream("GET", url))
 
-    try:
-        stream_cm = client.stream("GET", url)
-        upstream = await stream_cm.__aenter__()
+        if upstream.status_code != 200:
+            body = await upstream.aread()
+            await stack.aclose()
+            raise HTTPException(status_code=502, detail=body.decode("utf-8", "replace"))
     except BaseException:
-        await client.__aexit__(None, None, None)
-        _MLFLOW_STREAM_SEM.release()
+        # Any failure between stack-open and the generator return must unwind
+        # everything that was already entered. AsyncExitStack.aclose() is
+        # idempotent, so the 502-path explicit close above does not double-
+        # close here.
+        await stack.aclose()
         raise
-
-    if upstream.status_code != 200:
-        body = await upstream.aread()
-        await stream_cm.__aexit__(None, None, None)
-        await client.__aexit__(None, None, None)
-        _MLFLOW_STREAM_SEM.release()
-        raise HTTPException(status_code=502, detail=body.decode("utf-8", "replace"))
 
     async def _iter_upstream():
         try:
             async for chunk in upstream.aiter_bytes():
                 yield chunk
         finally:
-            await stream_cm.__aexit__(None, None, None)
-            await client.__aexit__(None, None, None)
-            _MLFLOW_STREAM_SEM.release()
+            await stack.aclose()
 
     return StreamingResponse(
         _iter_upstream(),
