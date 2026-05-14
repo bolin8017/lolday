@@ -16,7 +16,14 @@ export default function RunRedirectPage() {
   const orphan = !!data && !jobId;
   useEffect(() => {
     if (orphan) {
-      window.location.replace(`/mlflow/#/experiments/${expId}/runs/${runId}`);
+      // L-location-replace-encode: percent-encode path segments before
+      // interpolating into the URL fragment. /mlflow/ is the reverse-
+      // proxied MLflow UI (NOT a SPA route), so useNavigate doesn't apply --
+      // but defense-in-depth encoding remains useful for any future schema
+      // that allows special characters in IDs.
+      window.location.replace(
+        `/mlflow/#/experiments/${encodeURIComponent(expId)}/runs/${encodeURIComponent(runId)}`,
+      );
     }
   }, [orphan, expId, runId]);
 
