@@ -46,6 +46,29 @@ Both checks run inside the FastAPI lifespan. A misconfigured deploy crashes the 
 - Callers wrap in `asyncio.create_task(notify_*(...))` for fire-and-forget. Do not `await` from a request handler. Do not add try/except around `notify_*` — exceptions are already handled.
 - service-token-driven jobs skip notify (Phase 12). Do not "fix" this.
 - The `deadmans-switch` CronJob uses an independent webhook (`DISCORD_URL` env, fail-fast on missing). Do not conflate the two.
+- Per-pod concurrent webhook posts are capped at 20 via module-level `_NOTIFY_SEM = asyncio.Semaphore(20)` (security-hardening P6 M-notify-semaphore). Non-blocking acquire — saturation drops the notify and increments `BACKEND_ERRORS{stage="discord_notify_dropped"}` (sibling stage on the same Counter; see §`BACKEND_ERRORS` failure-bus convention).
+
+## `BACKEND_ERRORS` failure-bus convention
+
+`BACKEND_ERRORS` (declared in `app/metrics.py`) is the **universal Counter for in-process error attribution**. Label cardinality is `stage`-only; values are an enumerated allowlist of snake_case strings that name the failing subsystem (`discord_notify`, `discord_notify_dropped`, `reconcile_build`, `reconcile_job`, `reconcile_orphan_vcjobs`, `reconcile_orphan_token_secrets`, `reconcile_harbor_robot`, `reconciler_iteration`, `sync_model_versions`, …).
+
+**When to add a new stage label vs. a new Counter.** Add a **new `stage` label value on `BACKEND_ERRORS`** when:
+
+- The event is an in-process Python exception or a "fire-and-forget swallowed failure" caught in a backend try/except.
+- The failure attribution is bounded (one subsystem, not user-controlled) — cardinality stays in the low double digits.
+- A dashboard panel grouping by `stage` is the natural visualisation.
+
+Declare a **new dedicated Counter** when:
+
+- The metric has its own label dimension (e.g. `lolday_auth_failure_total{reason}`, `lolday_rate_limit_hits_total{prefix}`, `lolday_reconciler_scan_truncated_total{kind}`).
+- The metric is not a Python-exception event (e.g. a synthetic event like "scan returned the cap limit" — not an exception, but worth a Counter).
+- The metric needs a different `# HELP` text from the generic "error attribution by stage" line.
+
+**Cardinality bound.** Stage values are an allowlist owned by the codebase; never use a value derived from a request param, a user id, a header, or any other attacker-controlled string — that would cause a metric-cardinality blow-up at the Prometheus side. The existing values are all literal string constants in the calling `inc()` site.
+
+**Alerting hook.** The pre-existing `LoldayBackendErrorRateElevated` Alertmanager rule fires on ANY non-zero `stage`. Dedicated alerts (e.g. `LoldayDiscordNotifyFailing` keyed on `stage="discord_notify"`) layer on top with higher thresholds when one stage warrants a different SLO. Match this pattern when adding a new stage that needs its own escalation.
+
+**Single-Counter-per-finding discipline.** Security-hardening P5/P6 introduced one new Counter per audit finding (4 Counters total: `AUTH_FAILURE_TOTAL`, `RATE_LIMIT_HITS_TOTAL`, `EVENT_BROKER_DROPS_TOTAL`, `RECONCILER_SCAN_TRUNCATED_TOTAL`) plus one new stage on the existing `BACKEND_ERRORS` (`discord_notify_dropped`). Preserve this discipline: one Counter (or sibling stage) per finding, one Alertmanager rule keyed off it, label cardinality bounded by enumeration. See [`docs/postmortems/2026-05-12-security-audit-program.md`](../../docs/postmortems/2026-05-12-security-audit-program.md) §5 Pattern 1 + Pattern 2 for the program retrospective.
 
 ## reconciler.py (57KB tech debt)
 
