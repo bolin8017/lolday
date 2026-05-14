@@ -237,3 +237,49 @@ def test_settings_singular_fernet_key_env_is_ignored_no_back_compat(monkeypatch)
 
     with pytest.raises(ValidationError, match="FERNET_KEYS is required"):
         Settings()
+
+
+def test_cf_access_team_domain_accepts_valid_hostname(monkeypatch):
+    """A normal Cloudflare Access team domain must validate."""
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "bolin8017.cloudflareaccess.com")
+    monkeypatch.setenv(
+        "ENVIRONMENT", "development"
+    )  # bypass production-only model_validator
+    from app.config import Settings
+
+    s = Settings()
+    assert s.CF_ACCESS_TEAM_DOMAIN == "bolin8017.cloudflareaccess.com"
+
+
+def test_cf_access_team_domain_accepts_empty_string(monkeypatch):
+    """Empty string is the default (development bypass); must not raise."""
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    from app.config import Settings
+
+    s = Settings()
+    assert s.CF_ACCESS_TEAM_DOMAIN == ""
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "https://foo.example.com",  # scheme leaked in
+        "foo.example.com/",  # trailing slash
+        "FOO.EXAMPLE.COM",  # uppercase
+        "foo_example.com",  # underscore not in [a-z0-9-]
+        "foo example.com",  # space
+        ".example.com",  # leading dot
+        "example.com.",  # trailing dot
+        "example",  # no dot
+        "@bad",  # other junk
+    ],
+)
+def test_cf_access_team_domain_rejects_invalid(monkeypatch, bad):
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", bad)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    from app.config import Settings
+
+    with pytest.raises(ValidationError) as ei:
+        Settings()
+    assert "CF_ACCESS_TEAM_DOMAIN" in str(ei.value)

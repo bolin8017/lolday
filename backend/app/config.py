@@ -120,6 +120,30 @@ class Settings(BaseSettings):
     # `validate_sso_config` only fails the boot when this is "production".
     ENVIRONMENT: str = "production"
 
+    @field_validator("CF_ACCESS_TEAM_DOMAIN")
+    @classmethod
+    def _validate_cf_access_team_domain(cls, v: str) -> str:
+        """L-team-domain-validator (security-hardening P5).
+
+        Enforce a hostname shape so a malformed value (typo, scheme
+        leaked in) is a CrashLoopBackOff at boot rather than every
+        request returning 401 with an obscure JWKS-lookup error.
+        Empty string passes (used in dev / test where the production
+        model_validator is bypassed by ENVIRONMENT != 'production').
+        """
+        import re
+
+        if v == "":
+            return v
+        if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", v):
+            raise ValueError(
+                f"CF_ACCESS_TEAM_DOMAIN={v!r} is not a valid hostname "
+                "(expected lowercase dot-separated labels, e.g. "
+                "'bolin8017.cloudflareaccess.com'). Verify the env "
+                "var did not accidentally include a scheme or path."
+            )
+        return v
+
     @field_validator("FERNET_KEYS", mode="before")
     @classmethod
     def _split_fernet_keys(cls, v):
