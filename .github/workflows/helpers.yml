@@ -39,6 +39,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      # build-helper's `maldet[lightning]` transitively pins torch==2.6.0 with
+      # the cu12 wheel set (~11 nvidia-* libraries, ~3.2 GB combined). The
+      # docker-meta-build composite then `load`s the built image into the local
+      # docker daemon so the Trivy step can scan it by tag, doubling on-disk
+      # cost. ubuntu-24.04 GHA runners ship with ~14 GB of free disk after the
+      # pre-installed Android SDK / .NET / Haskell / CodeQL toolcache; that
+      # isn't enough for build-helper's load. Free ~25 GB by removing
+      # toolchains we don't need before the build. job-helper is small enough
+      # to skip this.
+      - name: Free GHA disk for build-helper
+        if: matrix.helper == 'build-helper'
+        shell: bash
+        run: |
+          df -h /
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Build (and push if not PR)
         uses: ./.github/actions/docker-meta-build
         with:
