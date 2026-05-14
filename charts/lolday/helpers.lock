@@ -1,4 +1,4 @@
 {
-  "build_helper": "harbor.lolday.svc:80/lolday/build-helper:9f45d263d9d2",
-  "job_helper": "harbor.lolday.svc:80/lolday/job-helper:11108da6a065"
+  "build_helper": "harbor.lolday.svc:80/lolday/build-helper:9f45d263d9d2@sha256:dbb7bac5925855a5030525258b38f49aff8c491768762bb328e4ebdb247d9f24",
+  "job_helper": "harbor.lolday.svc:80/lolday/job-helper:11108da6a065@sha256:9e2f4019cda306ba95cff7f174f31237b8288e0e7dff68c89cb3f6af1d61099b"
 }

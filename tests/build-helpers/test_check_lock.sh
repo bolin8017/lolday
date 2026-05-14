@@ -11,13 +11,20 @@ cd "$repo"
 
 build_sha="$(expected_sha "$repo" build-helper)"
 job_sha="$(expected_sha "$repo" job-helper)"
+# H-21-img: lock entries carry an @sha256:<64-hex> suffix. Use real-shape
+# placeholder digests so this test stays green alongside the new
+# test_lock_digest_format.sh assertion. The check script doesn't talk to
+# Harbor — it only validates textual shape — so the digest values can be
+# arbitrary as long as they match the regex.
+build_digest="sha256:$(printf 'a%.0s' {1..64})"
+job_digest="sha256:$(printf 'b%.0s' {1..64})"
 
 # Seed an in-sync lock.
 mkdir -p charts/lolday
 cat > charts/lolday/helpers.lock <<EOF
 {
-  "build_helper": "harbor.lolday.svc:80/lolday/build-helper:$build_sha",
-  "job_helper":   "harbor.lolday.svc:80/lolday/job-helper:$job_sha"
+  "build_helper": "harbor.lolday.svc:80/lolday/build-helper:$build_sha@$build_digest",
+  "job_helper":   "harbor.lolday.svc:80/lolday/job-helper:$job_sha@$job_digest"
 }
 EOF
 

@@ -68,6 +68,9 @@ assert_not_shallow() {
 # write_lock BUILD_HELPER_REF JOB_HELPER_REF — atomically writes
 # helpers.lock as pretty-printed JSON with snake_case keys. Uses python3
 # (already a hard dep of deploy.sh) so the output is always valid JSON.
+# As of H-21-img the refs include the @sha256:<digest> suffix; the
+# function itself doesn't care about the format, but downstream
+# check-helpers-lock.sh asserts it.
 write_lock() {
   local build_ref=$1 job_ref=$2
   local tmp
@@ -163,6 +166,56 @@ PY
     echo "ERROR: harbor_has_tag $name $sha returned HTTP $status" >&2
     return 2
   fi
+}
+
+# harbor_get_digest NAME SHA — print the artifact digest (sha256:<64-hex>)
+# of `lolday/<NAME>:<SHA>` from Harbor. Used to pin the helpers.lock entry
+# with a content-addressable @sha256:... suffix (H-21-img).
+#
+# Reuses the same auth + URL pattern as harbor_has_tag — Harbor v2 REST
+# API returns the digest in the artifacts list's `.digest` field. Caller
+# contract matches harbor_has_tag (NAME alphanum-hyphen, SHA hex).
+#
+# Deviates from the plan's `docker buildx imagetools inspect` route
+# because buildx isn't installed on server30; Harbor REST is the same
+# pattern this script already uses (no new dependency).
+harbor_get_digest() {
+  local name=$1 sha=$2
+  if ! kubectl -n lolday get secret harbor-push-cred >/dev/null 2>&1; then
+    echo "ERROR: K8s Secret lolday/harbor-push-cred not found." >&2
+    return 2
+  fi
+  local cfg auth url status body digest
+  cfg="$(kubectl -n lolday get secret harbor-push-cred \
+           -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d)"
+  auth="$(python3 -c '
+import json, sys
+print(json.loads(sys.stdin.read())["auths"]["harbor.lolday.svc:80"]["auth"])
+' <<<"$cfg")"
+  url="http://$HARBOR_HOST_PUSH/api/v2.0/projects/$HARBOR_PROJECT/repositories/$name/artifacts?with_tag=true&q=tags=$sha"
+  body="$(mktemp)"
+  status="$(curl -sS -o "$body" -w '%{http_code}' \
+              -H "Authorization: Basic $auth" "$url" || echo 000)"
+  if [ "$status" != "200" ]; then
+    cat "$body" >&2
+    rm -f "$body"
+    echo "ERROR: harbor_get_digest $name $sha returned HTTP $status" >&2
+    return 2
+  fi
+  digest="$(python3 - <"$body" <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+if not isinstance(d, list) or not d:
+    sys.exit(1)
+print(d[0]["digest"])
+PY
+)"
+  rm -f "$body"
+  if [ -z "$digest" ] || ! echo "$digest" | grep -qE '^sha256:[0-9a-f]{64}$'; then
+    echo "ERROR: harbor_get_digest $name $sha returned unexpected digest: $digest" >&2
+    return 2
+  fi
+  echo "$digest"
 }
 
 # docker_build_push NAME SHA — build the image from the helper subtree
@@ -294,6 +347,15 @@ main() {
         # build_ref) — extract from the ref so we don't recompute.
         docker_build_push "$helper" "${ref##*:}"
       fi
+      # H-21-img: pin the lock entry with @sha256:<digest>. Harbor REST
+      # API replaces the plan's docker-buildx-imagetools-inspect path
+      # because buildx isn't a hard dep of this host; Harbor REST is the
+      # same pattern the script already uses for harbor_has_tag. Captured
+      # for BOTH paths (already-in-Harbor + freshly-built) so the lock
+      # entry is always double-anchored.
+      local digest
+      digest="$(harbor_get_digest "$helper" "${ref##*:}")"
+      ref="${ref}@${digest}"
     fi
 
     new_refs[$helper]="$ref"

@@ -21,8 +21,12 @@ if [ ! -f "$LOCK_FILE" ]; then
 fi
 
 drift="$(cd "$REPO_ROOT" && python3 - "$LOCK_FILE" <<'PY'
-import json, subprocess, sys
+import json, re, subprocess, sys
 lock = json.load(open(sys.argv[1]))
+# H-21-img: every lock entry must end in @sha256:<64-hex> after the
+# subtree-SHA tag. build-helpers.sh::harbor_get_digest captures it
+# post-push.
+DIGEST_RE = re.compile(r"@sha256:[0-9a-f]{64}$")
 out = []
 for key, ref in lock.items():
     helper = key.replace("_", "-")
@@ -30,8 +34,15 @@ for key, ref in lock.items():
         ["git", "rev-parse", "--short=12", f"HEAD:charts/lolday/helpers/{helper}"],
         text=True,
     ).strip()
-    if not ref.endswith(f":{sha}"):
+    # Strip the @sha256:<digest> suffix (if present) before the tag-SHA
+    # check so the existing endswith(":<sha>") invariant still holds.
+    ref_no_digest = DIGEST_RE.sub("", ref)
+    if not ref_no_digest.endswith(f":{sha}"):
         out.append(f"  {helper}: lock={ref} HEAD=...:{sha}")
+    if not DIGEST_RE.search(ref):
+        out.append(
+            f"  {helper}: missing @sha256:<64-hex> digest pin: {ref}"
+        )
 print("\n".join(out))
 PY
 )"
