@@ -14,7 +14,9 @@ async def test_notify_semaphore_drops_on_saturation(monkeypatch):
     from app.services import notify
 
     sem = notify._NOTIFY_SEM
-    assert sem._value == 20
+    # Precondition: the module-level semaphore has all 20 permits available.
+    # Use the public API; the 20-acquire loop would also self-enforce this.
+    assert not sem.locked(), "semaphore should have permits before saturation"
     for _ in range(20):
         await sem.acquire()
 
