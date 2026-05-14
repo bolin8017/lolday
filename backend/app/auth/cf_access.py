@@ -30,6 +30,27 @@ logger = logging.getLogger(__name__)
 _REQUIRED_CLAIMS = ["exp", "iat", "aud", "iss"]
 
 
+def redact_email(value: str | None) -> str:
+    """Return a logging-safe form of an email address.
+
+    ``alice@example.com`` -> ``a***@example.com``. The local part length
+    is hidden so an attacker reading Loki can't fingerprint by local-part
+    character count; the domain is preserved so operators can still
+    distinguish corporate-vs-external traffic during incident triage.
+
+    Malformed inputs (no '@', empty, None) degrade to a fixed sentinel
+    string so the redacted form is never the raw input.
+    """
+    if value is None:
+        return "<redacted-none>"
+    if not value or "@" not in value:
+        return "<redacted-malformed>"
+    first, _, domain = value.partition("@")
+    if not first:
+        return "<redacted-malformed>"
+    return f"{first[0]}***@{domain}"
+
+
 def verify_cf_token(
     token: str,
     signing_key,
@@ -204,7 +225,12 @@ async def resolve_user_from_jwt(
     except pyjwt.InvalidTokenError as e:
         try:
             unverified = pyjwt.decode(token, options={"verify_signature": False})
-            peek = {k: unverified.get(k) for k in ("aud", "iss", "email", "exp")}
+            peek = {
+                "aud": unverified.get("aud"),
+                "iss": unverified.get("iss"),
+                "email": redact_email(unverified.get("email")),
+                "exp": unverified.get("exp"),
+            }
         except Exception:
             peek = "unparseable"  # type: ignore[assignment]  # fallback string for error logging
         logger.warning(
