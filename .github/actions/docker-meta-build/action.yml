@@ -40,6 +40,12 @@ runs:
       with:
         context: ${{ inputs.context }}
         push: ${{ inputs.push }}
+        # H-22: also load the image into the local docker daemon so the
+        # Trivy step below can scan it by tag on PR events (no push). On
+        # push events buildx loads + pushes; single-platform builds make
+        # this compatible. If we ever add multi-arch matrices, revisit:
+        # buildx cannot --load multi-platform manifests.
+        load: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         # M-cache-poison: per-image + per-ref scope. A PR that poisons its
@@ -47,3 +53,31 @@ runs:
         # drops marginally for cross-ref builds; integrity is the priority.
         cache-from: type=gha,scope=${{ inputs.image }}-${{ github.ref_name }}
         cache-to: type=gha,scope=${{ inputs.image }}-${{ github.ref_name }},mode=max
+    # H-22: Trivy CRITICAL gate. Runs on EVERY invocation (PR + push).
+    # PR mode scans the locally-loaded image (via `load: true` above);
+    # push mode scans the same image, now also resident in GHCR.
+    # `image-ref` uses the first metadata tag — guaranteed present in
+    # both modes and addressable in the local docker daemon. HIGH /
+    # MEDIUM / LOW surface in the table output but don't fail the
+    # build — Dependabot + future trivy-cron handle the long tail.
+    - name: Trivy scan (H-22 CRITICAL gate)
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        severity: CRITICAL
+        exit-code: "1"
+        ignore-unfixed: false
+        format: table
+    # H-22: Generate an SPDX SBOM and attach it as a Cosign-compatible
+    # attestation. Runs only on push (PR builds skip — the image isn't
+    # in a registry to attach to). Uses the immutable digest, not a tag,
+    # so the SBOM survives tag-overwrite.
+    - name: Generate SBOM (H-22 SPDX attestation)
+      if: inputs.push == 'true'
+      uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      with:
+        image: ghcr.io/bolin8017/${{ inputs.image }}@${{ steps.meta.outputs.digest }}
+        format: spdx-json
+        output-file: sbom.spdx.json
+        upload-artifact: true
+        upload-release-assets: false
