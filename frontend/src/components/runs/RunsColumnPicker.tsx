@@ -27,7 +27,7 @@ export function RunsColumnPicker({
 }: Props) {
   useEffect(() => {
     localStorage.setItem(
-      `runs.columns.${experimentId}`,
+      `lolday.runs.columns.${experimentId}`,
       JSON.stringify(selected),
     );
   }, [experimentId, selected]);
@@ -83,7 +83,7 @@ export function loadColumnsFromStorage(
   fallback: string[],
 ): string[] {
   try {
-    const raw = localStorage.getItem(`runs.columns.${experimentId}`);
+    const raw = localStorage.getItem(`lolday.runs.columns.${experimentId}`);
     if (!raw) return fallback;
     const parsed: unknown = JSON.parse(raw);
     if (

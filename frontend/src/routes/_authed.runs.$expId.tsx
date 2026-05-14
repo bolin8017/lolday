@@ -67,11 +67,11 @@ export default function RunsListPage() {
     loadColumnsFromStorage(expId, DEFAULT_COLS),
   );
   const [status, setStatus] = useState<RunsStatus>(() => {
-    const v = localStorage.getItem(`runs.status.${expId}`);
+    const v = localStorage.getItem(`lolday.runs.status.${expId}`);
     return isRunsStatus(v) ? v : "all";
   });
   useEffect(() => {
-    localStorage.setItem(`runs.status.${expId}`, status);
+    localStorage.setItem(`lolday.runs.status.${expId}`, status);
   }, [expId, status]);
 
   // Filter rows by status
