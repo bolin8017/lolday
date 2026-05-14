@@ -88,19 +88,42 @@ PY
   mv "$tmp" "$LOCK_FILE"
 }
 
+# _harbor_creds_ns — print the namespace where the harbor-push-cred Secret
+# lives, or empty + return 1 if absent. recover-harbor.sh creates the
+# Secret in BOTH `lolday` AND `lolday-jobs` (see scripts/recover-harbor.sh
+# `for NS in lolday lolday-jobs`); historically the lolday copy has been
+# pruned between runs, so the script falls through both. Cached in
+# $HARBOR_CRED_NS for subsequent calls within the same invocation.
+_harbor_creds_ns() {
+  if [ -n "${HARBOR_CRED_NS:-}" ]; then
+    echo "$HARBOR_CRED_NS"
+    return 0
+  fi
+  local ns
+  for ns in lolday lolday-jobs; do
+    if kubectl -n "$ns" get secret harbor-push-cred >/dev/null 2>&1; then
+      HARBOR_CRED_NS="$ns"
+      echo "$ns"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # harbor_login — pull the robot$build-pusher credentials out of the
 # K8s harbor-push-cred Secret, decode the dockerconfigjson, and run
 # `docker login`. Stores credentials only in $HOME/.docker/config.json
 # (the operator can `docker logout` after to wipe them).
 harbor_login() {
-  if ! kubectl -n lolday get secret harbor-push-cred >/dev/null 2>&1; then
-    echo "ERROR: K8s Secret lolday/harbor-push-cred not found." >&2
+  local cred_ns
+  if ! cred_ns="$(_harbor_creds_ns)"; then
+    echo "ERROR: K8s Secret harbor-push-cred not found in lolday or lolday-jobs." >&2
     echo "       Run 'bash scripts/recover-harbor.sh' first to bootstrap" >&2
     echo "       Harbor projects + the robot account." >&2
     return 1
   fi
   local cfg auth user secret
-  cfg="$(kubectl -n lolday get secret harbor-push-cred \
+  cfg="$(kubectl -n "$cred_ns" get secret harbor-push-cred \
            -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d)"
   auth="$(python3 -c '
 import json, sys
@@ -134,20 +157,13 @@ harbor_has_tag() {
     echo "ERROR: harbor_has_tag refusing non-SHA arg: $sha" >&2
     return 2
   fi
-  if ! kubectl -n lolday get secret harbor-push-cred >/dev/null 2>&1; then
-    echo "ERROR: K8s Secret lolday/harbor-push-cred not found." >&2
-    echo "       Run 'bash scripts/recover-harbor.sh' first to bootstrap" >&2
-    echo "       Harbor projects + the robot account." >&2
+  local cred_ns
+  if ! cred_ns="$(_harbor_creds_ns)"; then
+    echo "ERROR: K8s Secret harbor-push-cred not found in lolday or lolday-jobs." >&2
     return 2
   fi
-  # NOTE: this function makes two kubectl calls per invocation (one
-  # for the existence guard above, one to fetch the secret value
-  # below). Task 6's orchestrator calls harbor_login() once before
-  # the loop, so the marginal cost is acceptable for a 2-helper
-  # sweep. If the helper count grows, refactor to share auth via a
-  # private helper.
   local cfg auth url status body matches
-  cfg="$(kubectl -n lolday get secret harbor-push-cred \
+  cfg="$(kubectl -n "$cred_ns" get secret harbor-push-cred \
            -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d)"
   auth="$(python3 -c '
 import json, sys
@@ -192,12 +208,20 @@ PY
 # pattern this script already uses (no new dependency).
 harbor_get_digest() {
   local name=$1 sha=$2
-  if ! kubectl -n lolday get secret harbor-push-cred >/dev/null 2>&1; then
-    echo "ERROR: K8s Secret lolday/harbor-push-cred not found." >&2
+  # Same regex guard as harbor_has_tag — $sha is interpolated directly
+  # into the Harbor REST query string; contaminated input would produce
+  # misleading results.
+  if [[ ! "$sha" =~ ^[0-9a-f]{6,64}$ ]]; then
+    echo "ERROR: harbor_get_digest refusing non-SHA arg: $sha" >&2
+    return 2
+  fi
+  local cred_ns
+  if ! cred_ns="$(_harbor_creds_ns)"; then
+    echo "ERROR: K8s Secret harbor-push-cred not found in lolday or lolday-jobs." >&2
     return 2
   fi
   local cfg auth url status body digest
-  cfg="$(kubectl -n lolday get secret harbor-push-cred \
+  cfg="$(kubectl -n "$cred_ns" get secret harbor-push-cred \
            -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d)"
   auth="$(python3 -c '
 import json, sys

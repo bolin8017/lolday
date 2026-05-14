@@ -864,3 +864,16 @@ kyverno:
     replicas: 1
   cleanupController:
     replicas: 1
+  # Kyverno chart leaves `test.image.tag` and `webhooksCleanup.image.tag`
+  # at `~` (nil), which renders the rendered image refs as
+  # `ghcr.io/kyverno/readiness-checker:latest` — the exact tag-pointer
+  # anti-pattern H-21-img sets out to eliminate. Both are short-lifecycle
+  # pods (helm test sleep, helm pre-delete cleanup hook) but they DO get
+  # pulled at lifecycle moments. Pin to v1.18.0 (matches the Kyverno app
+  # version) with the digest verified via GHCR HEAD.
+  test:
+    image:
+      tag: v1.18.0@sha256:7aa69cb6f70c3264ab45eef50a401d93687cbaceecad608e074e0776724d6012
+  webhooksCleanup:
+    image:
+      tag: v1.18.0@sha256:7aa69cb6f70c3264ab45eef50a401d93687cbaceecad608e074e0776724d6012
