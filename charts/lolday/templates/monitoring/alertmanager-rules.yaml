@@ -89,6 +89,21 @@ spec:
             summary: "Rate-limit overflow — prefix={{`{{ $labels.prefix }}`}} ({{`{{ $value | humanize }}`}}/s)"
             description: "lolday_rate_limit_hits_total rate > 1/s for 10m on prefix='{{`{{ $labels.prefix }}`}}'. Inspect Redis bucket keys: `kubectl -n lolday exec deploy/redis -- redis-cli --scan --pattern 'rl:{{`{{ $labels.prefix }}`}}:*' | head`. If a legitimate user is hammering the cap, contact them; if a probe, block at the Cloudflare Access policy level."
 
+        # L-discord-alert (security-hardening P5) — sustained Discord
+        # notify drops. notify.py swallows the exception and bumps
+        # BACKEND_ERRORS{stage="discord_notify"}; LoldayBackendErrorRateElevated
+        # would fire on a single transient 5xx, which is noise for
+        # Discord. This rule waits for a sustained pattern (> 0.1/s
+        # over 10m ≈ ≥60 failures in 10m).
+        - alert: LoldayDiscordNotifyFailing
+          expr: rate(lolday_backend_errors_total{stage="discord_notify"}[10m]) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Discord notify dropping ({{`{{ $value | humanize }}`}}/s for 10m)"
+            description: "Discord notify failures sustained > 0.1/s for 10m. User-targeted Spidey Service Alerts may be missing. Check Discord webhook status (rotate via /credentials if compromised) and notify.py log lines (`kubectl -n lolday logs deploy/backend | grep discord_notify`). Webhook env var: DISCORD_WEBHOOK_URL_EVENTS in `.lolday-secrets.env`."
+
         # Phase 9.2 — Alloy's loki.write has a disk-backed WAL, but if Loki
         # is unavailable long enough for the WAL's bounded segments to age
         # out, samples get dropped silently. Scrape target is the alloy
