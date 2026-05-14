@@ -17,6 +17,12 @@ RUN pnpm run build
 # + pid/cache/tmp under /tmp. Works with readOnlyRootFilesystem.
 FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
 COPY --from=build /app/dist /usr/share/nginx/html
+# F-sourcemaps: strip *.map from runtime image. The build stage retains
+# them so CI can extract via `docker buildx build --target=build
+# --output type=local,dest=...`.
+USER root
+RUN find /usr/share/nginx/html -name '*.map' -delete
+USER 101
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s \

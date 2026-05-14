@@ -47,3 +47,31 @@ jobs:
           image: lolday-${{ matrix.image }}
           context: ./${{ matrix.image }}
           push: ${{ github.event_name != 'pull_request' }}
+
+      # F-sourcemaps (security-hardening P5): the frontend Dockerfile's
+      # serve stage deletes *.map files from the runtime image so a
+      # browser-tab attacker can't fetch them off the bundled SPA. The
+      # build stage retains them; this step extracts the build-stage
+      # filesystem locally so the next step can upload the maps as a
+      # per-build GHA artifact (operator can retrieve for crash
+      # symbolication, 14-day retention).
+      - name: Extract source maps from build stage (frontend only)
+        if: matrix.image == 'frontend'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: ./frontend
+          target: build
+          outputs: type=local,dest=./fe-build-out
+          # Separate cache scope from the main push step so the two
+          # buildx invocations don't clobber each other's cache layers.
+          cache-from: type=gha,scope=lolday-frontend-${{ github.ref_name }}-buildstage
+          cache-to: type=gha,scope=lolday-frontend-${{ github.ref_name }}-buildstage,mode=max
+
+      - name: Upload frontend source maps to artifact (frontend only)
+        if: matrix.image == 'frontend'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-sourcemaps-${{ github.sha }}
+          path: fe-build-out/app/dist/**/*.map
+          retention-days: 14
+          if-no-files-found: error
