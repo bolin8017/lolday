@@ -38,11 +38,42 @@ _gen_key() {
 }
 
 _secret_name() {
+  # Must match charts/lolday/templates/minio-init-buckets-job.yaml's
+  # `write_secret` calls (kubectl-secret-writer container). The init-job
+  # is the source of truth; rotation rewrites the same K8s Secrets.
   case "$1" in
-    mlflow) echo "mlflow-s3" ;;
-    harbor) echo "registry-s3" ;;
-    loki) echo "loki-s3" ;;
+    mlflow) echo "mlflow-s3-cred" ;;
+    harbor) echo "harbor-s3-cred" ;;
+    loki) echo "loki-s3-cred" ;;
     *) echo "unknown-app-$1" ;;
+  esac
+}
+
+# Per-app IAM policy JSON, written to a tempfile each rotation. mc's
+# `svcacct add --policy` takes a JSON file path (not a named policy), so
+# the named policies created by the init-job (mlflow-rw / harbor-rw /
+# loki-rw) cannot be referenced directly here. Mirrors the inline JSON
+# in charts/lolday/templates/minio-init-buckets-job.yaml mc-setup step.
+_write_policy() {
+  local app=$1 path=$2
+  case "$app" in
+    mlflow)
+      cat > "$path" <<'JSON'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::mlflow-artifacts","arn:aws:s3:::mlflow-artifacts/*"]}]}
+JSON
+      ;;
+    harbor)
+      cat > "$path" <<'JSON'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::harbor-blobs","arn:aws:s3:::harbor-blobs/*"]}]}
+JSON
+      ;;
+    loki)
+      cat > "$path" <<'JSON'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::loki-chunks","arn:aws:s3:::loki-chunks/*","arn:aws:s3:::loki-ruler","arn:aws:s3:::loki-ruler/*"]}]}
+JSON
+      ;;
+    *)
+      echo "unknown app: $app" >&2; return 1 ;;
   esac
 }
 
@@ -81,20 +112,21 @@ for app in "${APPS[@]}"; do
   NEW_AK=$(_gen_key)
   NEW_SK=$(_gen_key)
 
-  # Stage to a tmp dir for safe kubectl input.
+  # Stage to a tmp dir for safe kubectl input + the session-policy JSON.
   TMP=$(mktemp -d); chmod 700 "$TMP"
   printf '%s' "$NEW_AK" > "$TMP/ak"
   printf '%s' "$NEW_SK" > "$TMP/sk"
-  chmod 600 "$TMP/ak" "$TMP/sk"
+  _write_policy "$app" "$TMP/policy.json"
+  chmod 600 "$TMP/ak" "$TMP/sk" "$TMP/policy.json"
 
   # Find the old AK from the existing Secret so we can revoke it after rollout.
   OLD_AK=$(kubectl -n lolday get secret "$SECRET" -o jsonpath="{.data.${AK_KEY}}" \
     | base64 -d 2>/dev/null || echo "")
 
-  # 2a. Create the new svcacct in MinIO.
+  # 2a. Create the new svcacct in MinIO with the per-app session policy.
   mc admin user svcacct add rot "$MINIO_ROOT_USER" \
     --access-key "$NEW_AK" --secret-key "$NEW_SK" \
-    --policy "${app}-rw"
+    --policy "$TMP/policy.json"
 
   # 2b. Replace the K8s Secret (dry-run | apply pattern, same as deploy.sh).
   kubectl -n lolday create secret generic "$SECRET" \
@@ -111,7 +143,7 @@ for app in "${APPS[@]}"; do
     mc admin user svcacct rm rot "$OLD_AK" || true   # already-deleted is OK
   fi
 
-  shred -u "$TMP/ak" "$TMP/sk"; rmdir "$TMP"
+  shred -u "$TMP/ak" "$TMP/sk" "$TMP/policy.json"; rmdir "$TMP"
 done
 
 echo "[3/3] done."
