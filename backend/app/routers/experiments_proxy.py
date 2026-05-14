@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import mimetypes
+import weakref
 from pathlib import PurePosixPath
 from typing import Annotated, Any
 from urllib.parse import quote
@@ -73,10 +74,14 @@ def _validate_artifact_path(path: str) -> str:
 
 
 _stats_cache: TTLCache[str, dict] = TTLCache(maxsize=64, ttl=30)
-# Grows unbounded (one Lock per experiment_id, never evicted). Acceptable: cache
-# is capped at maxsize=64 and lab-scale experiment counts stay well under 1 k.
-# Revisit if experiments become user-scoped or the cache cap is raised substantially.
-_stats_locks: dict[str, asyncio.Lock] = {}
+# L-experiment-stats-lock (security-hardening P6): WeakValueDictionary means
+# an entry is GC'd as soon as no caller still holds the Lock -- no per-
+# experiment leak. Behaviourally equivalent to a plain dict for the
+# _experiment_stats hot path because callers retain a local reference for
+# the duration of the ``async with lock:`` block.
+_stats_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
+    weakref.WeakValueDictionary()
+)
 
 
 # M-mlflow-stream (security-hardening P6): cap concurrent MLflow artifact
