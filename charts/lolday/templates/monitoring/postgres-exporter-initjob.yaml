@@ -20,7 +20,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: init
-          image: {{ .Values.postgresql.image | default "postgres:16-alpine" }}
+          image: {{ .Values.postgresql.image | default "postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50" }}
           env:
             - name: PGHOST
               value: postgresql.{{ .Values.global.namespace }}.svc
