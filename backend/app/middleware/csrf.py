@@ -34,14 +34,31 @@ _ALLOWED_SEC_FETCH_SITE = frozenset({"same-origin", "none"})
 
 
 def _origin_matches_host(origin: str, host: str) -> bool:
-    """Return True iff Origin's scheme://host[:port] matches the request's Host."""
+    """Return True iff Origin's scheme://host[:port] matches the request's Host.
+
+    The Host header carries ``host[:port]`` (no scheme). We strip default
+    ports (80 for http, 443 for https) before comparison so that
+    ``Origin: http://example.com:80`` correctly matches ``Host: example.com``.
+    Default-port forms are uncommon in browser traffic (browsers omit them
+    per RFC 6454) but legitimate for some non-browser clients.
+    """
     try:
         parsed = urlparse(origin)
     except Exception:
         return False
     if not parsed.netloc:
         return False
-    return parsed.netloc == host
+    netloc = parsed.netloc
+    if parsed.scheme == "http" and netloc.endswith(":80"):
+        netloc = netloc[:-3]
+    elif parsed.scheme == "https" and netloc.endswith(":443"):
+        netloc = netloc[:-4]
+    # Symmetrically strip from host if it carries the matching default port.
+    if parsed.scheme == "http" and host.endswith(":80"):
+        host = host[:-3]
+    elif parsed.scheme == "https" and host.endswith(":443"):
+        host = host[:-4]
+    return netloc == host
 
 
 class CSRFOriginMiddleware(BaseHTTPMiddleware):

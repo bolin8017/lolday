@@ -75,6 +75,10 @@ async def test_csrf_post_neither_header_passes_fail_open(user_client):
         json={"name": "x"},
     )
     assert r.status_code != 403
+    # Positive evidence the CSRF middleware did NOT 403 this request.
+    # A 403 from somewhere else (e.g. a future auth-middleware deny) is
+    # tolerated but it must not be the CSRF check.
+    assert "csrf check failed" not in r.text.lower()
 
 
 async def test_csrf_internal_path_bypasses_check(client):
@@ -95,3 +99,23 @@ async def test_csrf_mlflow_authz_path_bypasses_check(client):
         headers={"sec-fetch-site": "cross-site"},
     )
     assert "csrf check failed" not in r.text.lower()
+
+
+async def test_csrf_post_origin_default_port_80_matches_host(user_client):
+    """Origin with :80 default port matches Host without port (and vice versa)."""
+    r = await user_client.post(
+        "/api/v1/datasets",
+        json={"name": "x"},
+        headers={"origin": "http://testserver:80", "host": "testserver"},
+    )
+    assert r.status_code != 403
+
+
+async def test_csrf_post_origin_default_port_443_matches_host(user_client):
+    """Origin with :443 default port (https) matches Host without port."""
+    r = await user_client.post(
+        "/api/v1/datasets",
+        json={"name": "x"},
+        headers={"origin": "https://testserver:443", "host": "testserver"},
+    )
+    assert r.status_code != 403
