@@ -179,6 +179,8 @@ function renderListPage() {
       <MemoryRouter initialEntries={["/jobs"]}>
         <Routes>
           <Route path="/jobs" element={<JobsListPage />} />
+          {/* Absorb row-click navigations so the test DOM is not cleared */}
+          <Route path="/jobs/:id" element={<div />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
