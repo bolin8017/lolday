@@ -54,6 +54,9 @@ def rate_limit_ip(prefix: str, limit: int, window_seconds: int):
             # No client address = misconfigured proxy or malformed request;
             # reject rather than bucket everyone under "unknown" (that shared
             # bucket is trivially DoS-able).
+            # Do NOT increment RATE_LIMIT_HITS_TOTAL here — this 400 is a
+            # proxy-misconfig reject, not a rate-limit overflow. The counter
+            # is reserved for actual 429 outcomes (see ratelimit-metric).
             raise HTTPException(status_code=400, detail="client address required")
         ip = request.client.host
         if not await check_rate(f"rl:{prefix}:{ip}", limit, window_seconds):

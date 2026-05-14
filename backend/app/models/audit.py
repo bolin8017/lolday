@@ -21,8 +21,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.user import Base, User
 
-# JSON on SQLite (test), JSONB on PostgreSQL (prod).
-_JSONB = JSON().with_variant(JSONB(), "postgresql")
+# JSONB on PostgreSQL (prod), plain JSON on SQLite (test).
+# Postgres-first form matches the other 5 models in this package
+# (dataset.py, detector.py, job.py, job_event.py, model_registry.py).
+_JSONB = JSONB().with_variant(JSON(), "sqlite")
 
 
 class AuditLog(Base):

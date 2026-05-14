@@ -1,4 +1,10 @@
-"""RATE_LIMIT_HITS_TOTAL increments when rate_limit_user / rate_limit_ip raises 429."""
+"""RATE_LIMIT_HITS_TOTAL increments when rate_limit_user raises 429.
+
+rate_limit_ip shares the same instrumentation line (identical
+``RATE_LIMIT_HITS_TOTAL.labels(prefix=prefix).inc()`` placement before the
+429 raise), so testing one path covers both. Retarget one of these to
+``rate_limit_ip`` only if the two closures' instrumentation ever diverges.
+"""
 
 import uuid
 from unittest.mock import AsyncMock, patch
