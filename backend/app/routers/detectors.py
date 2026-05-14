@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -39,6 +40,7 @@ from app.schemas.detector import (
     VersionDetailRead,
     VersionRead,
 )
+from app.services.audit import write_audit_log
 from app.services.build import (
     build_git_credential_secret,
     build_job_name,
@@ -60,6 +62,31 @@ from app.services.validator import StaticValidationError, validate_repo_static
 from app.users import current_active_user
 
 logger = logging.getLogger(__name__)
+
+_RE_SCRIPT = re.compile(
+    r"<\s*script\b[^>]*>.*?<\s*/\s*script\s*>", re.IGNORECASE | re.DOTALL
+)
+_RE_IFRAME = re.compile(
+    r"<\s*iframe\b[^>]*>.*?<\s*/\s*iframe\s*>", re.IGNORECASE | re.DOTALL
+)
+_RE_MD_LINK = re.compile(r"\[[^\[\]]*\]\((?:[^()]*|\([^()]*\))*\)")
+
+
+def sanitize_detector_description(value: str | None) -> str | None:
+    """Strip <script>, <iframe>, and Markdown link syntax from a detector description.
+
+    L-detector-desc-sanitize (security-hardening P5). The description is
+    sourced from the detector repo's pyproject.toml project.description;
+    authors are not adversarial today but the field is rendered in the
+    SPA. Defense-in-depth.
+    """
+    if value is None:
+        return None
+    result = _RE_SCRIPT.sub("", value)
+    result = _RE_IFRAME.sub("", result)
+    result = _RE_MD_LINK.sub("", result)
+    return result
+
 
 router = APIRouter()
 
@@ -229,7 +256,7 @@ async def register(
     meta = await _clone_and_validate(normalized, pat)
     name = body.name or meta["name"]
     display_name = body.display_name or meta["display_name"]
-    description = meta["description"]
+    description = sanitize_detector_description(meta["description"])
 
     d = Detector(
         name=name,
@@ -297,7 +324,7 @@ async def update_detector(
     if body.display_name is not None:
         detector.display_name = body.display_name
     if body.description is not None:
-        detector.description = body.description
+        detector.description = sanitize_detector_description(body.description)
     await session.commit()
     await session.refresh(detector)
     return DetectorRead.model_validate(detector)
@@ -306,6 +333,7 @@ async def update_detector(
 @router.delete("/{detector_id}", status_code=204)
 async def delete_detector(
     detector: Detector = Depends(require_detector_access(write=True)),
+    user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
     in_flight = await session.execute(
@@ -328,7 +356,22 @@ async def delete_detector(
 
     detector_name = detector.name
     detector_id = detector.id
+    # Capture the soft-delete pre-image before the mutation.
+    audit_before = {
+        "name": detector.name,
+        "git_url": detector.git_url,
+        "owner_id": str(detector.owner_id),
+    }
     detector.deleted_at = datetime.now(UTC)
+    await write_audit_log(
+        session,
+        actor_id=user.id,
+        action="detector.delete",
+        target_type="detector",
+        target_id=detector_id,
+        before=audit_before,
+        after={"deleted_at": detector.deleted_at.isoformat()},
+    )
     await session.commit()
     # Best-effort Harbor cleanup (soft delete already succeeded; keep going on errors)
     try:

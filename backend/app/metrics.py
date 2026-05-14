@@ -13,6 +13,37 @@ BACKEND_ERRORS = Counter(
     ["stage"],
 )
 
+# H-27 (security-hardening P5) — Cloudflare Access JWT verification
+# failures broken out by attribution. Feeds the LoldayAuthFailureSpike
+# Alertmanager rule (rate > 0.5/s for 5m). Cardinality is bounded to
+# 4 values: missing_header, jwks_lookup_failed, invalid_signature,
+# missing_principal_claim. Do not raise label values from the request
+# (would enable cardinality blow-up via attacker-controlled errors).
+AUTH_FAILURE_TOTAL = Counter(
+    "lolday_auth_failure_total",
+    "Cloudflare Access JWT verifications that failed, by attribution.",
+    ["reason"],
+)
+
+# M-ratelimit-metric (security-hardening P5) — fixed-window limiter
+# overflows (HTTP 429) attributed by prefix. Two prefixes today:
+# jobs_create (POST /jobs) and builds_create (POST /detectors/{id}/builds).
+# Feeds the LoldayRateLimitSpike rule (rate > 1/s for 10m).
+RATE_LIMIT_HITS_TOTAL = Counter(
+    "lolday_rate_limit_hits_total",
+    "Rate-limit 429 responses, by prefix label.",
+    ["prefix"],
+)
+
+# L-event-broker-drops (security-hardening P5) — EventBroker.publish
+# discards the oldest queue entry when a subscriber's bounded Queue
+# (maxsize=1000 in events_tail) is full. Unlabeled — job_id labels
+# would blow up cardinality.
+EVENT_BROKER_DROPS_TOTAL = Counter(
+    "lolday_event_broker_drops_total",
+    "EventBroker.publish drop-oldest events (subscriber queue saturated).",
+)
+
 # Phase 7.5 — piggybacks on cluster_status.get_queue_depth (refreshed every
 # 10s via the TTLCache path). Triggers an alert if Volcano hasn't scheduled
 # a Pending job within the staleness window, which catches scheduler outages

@@ -20,6 +20,11 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
-    sourcemap: true,
+    // F-sourcemaps (security-hardening P5): "hidden" emits *.map files
+    // for crash symbolication but strips the `//# sourceMappingURL=` hint
+    // from the bundled JS, so browser-tab attackers can't auto-discover
+    // the map URL. The Dockerfile (serve stage) then deletes the .map
+    // files from the runtime image; CI uploads them to a GHA artifact.
+    sourcemap: "hidden",
   },
 });

@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
-from app.metrics import BACKEND_ERRORS
+from app.metrics import AUTH_FAILURE_TOTAL, BACKEND_ERRORS
 from app.models import Role, User
 from app.services.user_handle import derive_handle_from_email, next_unique_handle
 
@@ -28,6 +28,27 @@ logger = logging.getLogger(__name__)
 
 
 _REQUIRED_CLAIMS = ["exp", "iat", "aud", "iss"]
+
+
+def redact_email(value: str | None) -> str:
+    """Return a logging-safe form of an email address.
+
+    ``alice@example.com`` -> ``a***@example.com``. The local part length
+    is hidden so an attacker reading Loki can't fingerprint by local-part
+    character count; the domain is preserved so operators can still
+    distinguish corporate-vs-external traffic during incident triage.
+
+    Malformed inputs (no '@', empty, None) degrade to a fixed sentinel
+    string so the redacted form is never the raw input.
+    """
+    if value is None:
+        return "<redacted-none>"
+    if not value or "@" not in value:
+        return "<redacted-malformed>"
+    first, _, domain = value.partition("@")
+    if not first:
+        return "<redacted-malformed>"
+    return f"{first[0]}***@{domain}"
 
 
 def verify_cf_token(
@@ -184,12 +205,14 @@ async def resolve_user_from_jwt(
             "cf_access 401 %s: missing Cf-Access-Jwt-Assertion",
             log_context,
         )
+        AUTH_FAILURE_TOTAL.labels(reason="missing_header").inc()
         raise CfAccessAuthError("missing Cf-Access-Jwt-Assertion header")
 
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
     except pyjwt.PyJWKClientError as e:
         logger.warning("cf_access 401 %s: JWKS lookup failed: %s", log_context, e)
+        AUTH_FAILURE_TOTAL.labels(reason="jwks_lookup_failed").inc()
         raise CfAccessAuthError(f"jwks lookup failed: {e}") from e
 
     try:
@@ -202,7 +225,12 @@ async def resolve_user_from_jwt(
     except pyjwt.InvalidTokenError as e:
         try:
             unverified = pyjwt.decode(token, options={"verify_signature": False})
-            peek = {k: unverified.get(k) for k in ("aud", "iss", "email", "exp")}
+            peek = {
+                "aud": unverified.get("aud"),
+                "iss": unverified.get("iss"),
+                "email": redact_email(unverified.get("email")),
+                "exp": unverified.get("exp"),
+            }
         except Exception:
             peek = "unparseable"  # type: ignore[assignment]  # fallback string for error logging
         logger.warning(
@@ -213,6 +241,7 @@ async def resolve_user_from_jwt(
             f"https://{settings.CF_ACCESS_TEAM_DOMAIN}",
             peek,
         )
+        AUTH_FAILURE_TOTAL.labels(reason="invalid_signature").inc()
         raise CfAccessAuthError(f"invalid Cloudflare Access token: {e}") from e
 
     # User SSO JWTs carry `email`. Service-token JWTs carry `common_name`
@@ -226,6 +255,7 @@ async def resolve_user_from_jwt(
                 "cf_access 401 %s: JWT has neither email nor common_name claim",
                 log_context,
             )
+            AUTH_FAILURE_TOTAL.labels(reason="missing_principal_claim").inc()
             raise CfAccessAuthError("token has neither email nor common_name claim")
         email = f"service-{common_name}@cf-access.local"
     return await get_or_create_user_by_email(session, email)

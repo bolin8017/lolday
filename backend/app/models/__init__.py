@@ -1,3 +1,4 @@
+from app.models.audit import AuditLog
 from app.models.credential import GitProvider, UserGitCredential
 from app.models.dataset import DatasetConfig, DatasetVisibility
 from app.models.detector import (
@@ -28,6 +29,7 @@ from app.models.user import Base, Role, User
 
 __all__ = [
     "NON_TERMINAL_STATUSES",
+    "AuditLog",
     "Base",
     "DatasetConfig",
     "DatasetVisibility",

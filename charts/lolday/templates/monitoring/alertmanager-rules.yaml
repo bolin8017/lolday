@@ -61,6 +61,49 @@ spec:
             summary: "Backend errors in stage {{`{{ $labels.stage }}`}}"
             description: "lolday_backend_errors_total rate > 0 in stage '{{`{{ $labels.stage }}`}}' for 5m. This catches silent-failure paths (e.g. reconciler loop exceptions, Harbor init failures, best-effort K8s/MLflow cleanup failures). Check backend logs for the matching `logger.exception` entry."
 
+        # H-27 (security-hardening P5) — JWT verification failures broken
+        # out by reason. > 0.5/s sustained for 5m suggests a probe
+        # (token stuffing, sig-strip, aud-replay). Warning-grade per
+        # alerting redesign §6.1 — a confirmed compromise is critical
+        # and lives elsewhere.
+        - alert: LoldayAuthFailureSpike
+          expr: sum by (reason) (rate(lolday_auth_failure_total[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Authentication failure spike — reason={{`{{ $labels.reason }}`}} ({{`{{ $value | humanize }}`}}/s)"
+            description: "lolday_auth_failure_total rate > 0.5/s for 5m on reason='{{`{{ $labels.reason }}`}}'. Possible JWT probe. Cross-check Loki: `kubectl -n lolday logs deploy/backend | grep 'cf_access 401'`. Confirmed probe → block at the Cloudflare Access policy level (Zero Trust → Access → Applications)."
+
+        # M-ratelimit-metric (security-hardening P5) — overflow attributed
+        # by prefix. 1/s over 10m suggests either a misbehaving client or
+        # a legitimate user hitting the cap; check the prefix label first.
+        # builds_create is 10/hour — easy to trip in batch use; jobs_create
+        # is 30/min — much harder to trip benignly.
+        - alert: LoldayRateLimitSpike
+          expr: sum by (prefix) (rate(lolday_rate_limit_hits_total[10m])) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Rate-limit overflow — prefix={{`{{ $labels.prefix }}`}} ({{`{{ $value | humanize }}`}}/s)"
+            description: "lolday_rate_limit_hits_total rate > 1/s for 10m on prefix='{{`{{ $labels.prefix }}`}}'. Inspect Redis bucket keys: `kubectl -n lolday exec deploy/redis -- redis-cli --scan --pattern 'rl:{{`{{ $labels.prefix }}`}}:*' | head`. If a legitimate user is hammering the cap, contact them; if a probe, block at the Cloudflare Access policy level."
+
+        # L-discord-alert (security-hardening P5) — sustained Discord
+        # notify drops. notify.py swallows the exception and bumps
+        # BACKEND_ERRORS{stage="discord_notify"}; LoldayBackendErrorRateElevated
+        # would fire on a single transient 5xx, which is noise for
+        # Discord. This rule waits for a sustained pattern (> 0.1/s
+        # over 10m ≈ ≥60 failures in 10m).
+        - alert: LoldayDiscordNotifyFailing
+          expr: rate(lolday_backend_errors_total{stage="discord_notify"}[10m]) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Discord notify dropping ({{`{{ $value | humanize }}`}}/s for 10m)"
+            description: "Discord notify failures sustained > 0.1/s for 10m. User-targeted Spidey Service Alerts may be missing. Check Discord webhook status (rotate via /credentials if compromised) and notify.py log lines (`kubectl -n lolday logs deploy/backend | grep discord_notify`). Webhook env var: DISCORD_WEBHOOK_URL_EVENTS in `.lolday-secrets.env`."
+
         # Phase 9.2 — Alloy's loki.write has a disk-backed WAL, but if Loki
         # is unavailable long enough for the WAL's bounded segments to age
         # out, samples get dropped silently. Scrape target is the alloy
