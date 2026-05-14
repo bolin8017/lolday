@@ -36,11 +36,11 @@ backend:
   # H-21-img: digest pin makes the reference content-addressable. The
   # tag suffix stays because Harbor's display + check-image-tags-aligned
   # hook both key off the version. Capture the digest via
-  #   docker buildx imagetools inspect harbor.lolday.svc:80/lolday/lolday-backend:v0.22.0 --format '{{.Manifest.Digest}}'
+  #   docker buildx imagetools inspect harbor.lolday.svc:80/lolday/lolday-backend:v0.22.1 --format '{{.Manifest.Digest}}'
   # at release time. (server30 lacks the buildx subcommand; substitute
   # `docker inspect <ref> --format '{{range .RepoDigests}}{{println .}}{{end}}'`
   # against the freshly-pushed tag.)
-  image: harbor.lolday.svc:80/lolday/lolday-backend:v0.22.0@sha256:feecde01bad7d16ecb1b9ad7c511b5bf1f1c1603133bf00f4af47e84891bbfe4
+  image: harbor.lolday.svc:80/lolday/lolday-backend:v0.22.1@sha256:ed9a8028cfbdefca37b731fc3088cc9140f160244bbaa617dd55ac9ba2567afc
   replicas: 1
   # Auth is Cloudflare Access SSO (see CF_ACCESS_* under env below); no
   # backend-side password secrets / firstAdmin seed / cookie config.
@@ -301,7 +301,7 @@ jobs:
 # Frontend (React SPA served by nginx-unprivileged)
 # =============================================================================
 frontend:
-  image: harbor.lolday.svc:80/lolday/lolday-frontend:v0.22.0@sha256:28ac02919cc35fcf0b5598c433ebd5f474d22eb32fe66dc085daf96dd3645ee0
+  image: harbor.lolday.svc:80/lolday/lolday-frontend:v0.22.1@sha256:28ac02919cc35fcf0b5598c433ebd5f474d22eb32fe66dc085daf96dd3645ee0
   host: lolday.connlabai.com
   replicas: 1
   resources:
