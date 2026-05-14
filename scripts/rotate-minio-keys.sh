@@ -31,10 +31,15 @@ fi
 # ---------- helpers ----------
 
 _gen_key() {
-  # 40 chars from the alphanum-after-base64 charset. matches the init-job's
-  # `tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 40` distribution but uses
-  # openssl rand for a deterministic entropy source.
-  openssl rand -base64 30 | tr -d '/+=' | head -c 40
+  # Mirrors the init-job's `tr -dc 'a-zA-Z0-9' </dev/urandom | head -c N`
+  # distribution but uses openssl rand as the entropy source. The init-job
+  # uses 20 chars for AK and 40 for SK; AK length 20 is also MinIO's
+  # documented limit ("access key length should be between 3 and 20" —
+  # mc errors out otherwise).
+  local len=${1:-40}
+  # Ask openssl for enough source bytes that after `tr` strips /+= (~12%
+  # of the b64 alphabet) we still have at least `len` alphanumeric chars.
+  openssl rand -base64 "$(( len * 3 / 4 + 8 ))" | tr -d '/+=' | head -c "$len"
 }
 
 _secret_name() {
@@ -109,8 +114,8 @@ for app in "${APPS[@]}"; do
   DEPLOY=$(_consumer_deployment "$app")
 
   echo "  --- $app ---"
-  NEW_AK=$(_gen_key)
-  NEW_SK=$(_gen_key)
+  NEW_AK=$(_gen_key 20)
+  NEW_SK=$(_gen_key 40)
 
   # Stage to a tmp dir for safe kubectl input + the session-policy JSON.
   TMP=$(mktemp -d); chmod 700 "$TMP"
