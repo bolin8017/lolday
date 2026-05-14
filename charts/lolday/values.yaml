@@ -31,7 +31,7 @@ backend:
   # at release time. (server30 lacks the buildx subcommand; substitute
   # `docker inspect <ref> --format '{{range .RepoDigests}}{{println .}}{{end}}'`
   # against the freshly-pushed tag.)
-  image: harbor.lolday.svc:80/lolday/lolday-backend:v0.23.0@sha256:e761857ec0bf924a4b15974ae51fbd3aca07f82cec4149550e76650bbac04af6
+  image: harbor.lolday.svc:80/lolday/lolday-backend:v0.23.1@sha256:e761857ec0bf924a4b15974ae51fbd3aca07f82cec4149550e76650bbac04af6
   replicas: 1
   # Auth is Cloudflare Access SSO (see CF_ACCESS_* under env below); no
   # backend-side password secrets / firstAdmin seed / cookie config.
@@ -292,7 +292,7 @@ jobs:
 # Frontend (React SPA served by nginx-unprivileged)
 # =============================================================================
 frontend:
-  image: harbor.lolday.svc:80/lolday/lolday-frontend:v0.23.0@sha256:0785b683dc0d5b499921ff11fe12a0ab75a5470d9c028b69753c653736c3c38c
+  image: harbor.lolday.svc:80/lolday/lolday-frontend:v0.23.1@sha256:0785b683dc0d5b499921ff11fe12a0ab75a5470d9c028b69753c653736c3c38c
   host: lolday.connlabai.com
   replicas: 1
   resources:
