@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   useDeleteDetector,
   useDetectors,
@@ -130,6 +130,7 @@ const columns: ColumnDef<Detector>[] = [
 ];
 
 export default function DetectorsListPage() {
+  const navigate = useNavigate();
   const { data, isLoading } = useDetectors();
   const items = (data as { items?: Detector[] } | undefined)?.items ?? [];
   return (
@@ -153,7 +154,7 @@ export default function DetectorsListPage() {
           columns={columns}
           emptyMessage="No detectors registered yet."
           onRowClick={(d) => {
-            window.location.href = `/detectors/${d.id}`;
+            void navigate(`/detectors/${d.id}`);
           }}
         />
       )}

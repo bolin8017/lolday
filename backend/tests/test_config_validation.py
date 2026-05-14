@@ -283,3 +283,44 @@ def test_cf_access_team_domain_rejects_invalid(monkeypatch, bad):
     with pytest.raises(ValidationError) as ei:
         Settings()
     assert "CF_ACCESS_TEAM_DOMAIN" in str(ei.value)
+
+
+@pytest.mark.parametrize(
+    "good",
+    [
+        "lolday-jobs",
+        "lolday",
+        "x",
+        "a1-b2-c3",
+    ],
+)
+def test_job_namespace_accepts_valid_dns_label(monkeypatch, good):
+    monkeypatch.setenv("JOB_NAMESPACE", good)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    from app.config import Settings
+
+    s = Settings()
+    assert good == s.JOB_NAMESPACE
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "lolday-jobs;",
+        "lolday-jobs OR 1=1",
+        'lolday-jobs"} OR 1=1',
+        "Lolday-Jobs",
+        "lolday_jobs",
+        "lolday.jobs",
+        "",
+        "lolday-jobs ",
+    ],
+)
+def test_job_namespace_rejects_invalid(monkeypatch, bad):
+    monkeypatch.setenv("JOB_NAMESPACE", bad)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    from app.config import Settings
+
+    with pytest.raises(ValidationError) as ei:
+        Settings()
+    assert "JOB_NAMESPACE" in str(ei.value)

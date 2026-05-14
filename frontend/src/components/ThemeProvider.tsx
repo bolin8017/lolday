@@ -24,7 +24,7 @@ interface Props {
 export function ThemeProvider({
   children,
   defaultTheme = "system",
-  storageKey = "lolday-theme",
+  storageKey = "lolday.theme",
 }: Props) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === "undefined") return defaultTheme;

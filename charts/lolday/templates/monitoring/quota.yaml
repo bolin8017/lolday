@@ -1,0 +1,16 @@
+# L-monitoring-quota (security-hardening P6): cap workload counts in the
+# monitoring namespace. Numbers derived from current state (<= 6 pods,
+# <= 8 replicasets, 2 PVCs) + 2-3x headroom. Anything legitimate stays
+# well under; runaway upgrade-loop spam hits the cap.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: monitoring-quota
+  namespace: {{ .Values.monitoring.namespace | default "monitoring" }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  hard:
+    pods: "20"
+    count/replicasets.apps: "30"
+    persistentvolumeclaims: "5"

@@ -188,8 +188,12 @@ def build_job_spec(
                                 # kubectl describe pod) and echoes them on
                                 # stdout for git to consume. The clone URL no
                                 # longer carries any user:pass component.
+                                # L-clone-bandwidth: --filter=blob:limit=10m refuses blobs > 10 MiB at
+                                # transfer time -- caps disk + bandwidth from a malicious repo before
+                                # the validator (which itself enforces REPO_MAX_SIZE_MB post-clone) runs.
+                                # See plan section D7 for why validator.py needs no separate edit.
                                 "git -c credential.helper='!f() { echo username=$GIT_USER; echo password=$GIT_TOKEN; }; f' "
-                                "clone --depth=1 --recurse-submodules "
+                                "clone --depth=1 --filter=blob:limit=10m --recurse-submodules "
                                 '--branch="$GIT_TAG" '
                                 '"https://github.com/$REPO.git" '
                                 "/workspace/src && "

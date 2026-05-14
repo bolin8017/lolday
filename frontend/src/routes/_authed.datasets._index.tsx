@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import { useDatasets, type Dataset } from "@/api/queries/datasets";
 import { DataTable } from "@/components/tables/DataTable";
@@ -46,6 +46,7 @@ const columns: ColumnDef<Dataset>[] = [
 ];
 
 export default function DatasetsListPage() {
+  const navigate = useNavigate();
   const [visibility, setVisibility] = useState<"public" | "private" | "all">(
     "all",
   );
@@ -90,7 +91,7 @@ export default function DatasetsListPage() {
           columns={columns}
           emptyMessage="No datasets yet."
           onRowClick={(d) => {
-            window.location.href = `/datasets/${d.id}`;
+            void navigate(`/datasets/${d.id}`);
           }}
         />
       )}

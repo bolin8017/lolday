@@ -6,7 +6,7 @@ type MockFetch = ReturnType<typeof vi.fn>;
 
 interface MockWebSocketInstance {
   readyState: number;
-  onmessage: ((ev: { data: string }) => void) | null;
+  onmessage: ((ev: { data: string; origin?: string }) => void) | null;
   onerror: (() => void) | null;
   onclose: (() => void) | null;
   onopen: (() => void) | null;
@@ -220,5 +220,57 @@ describe("useJobEvents", () => {
     const { result } = renderHook(() => useJobEvents("job-1", false));
     await waitFor(() => expect(result.current.error).not.toBeNull());
     expect(result.current.error).toContain("ECONNREFUSED");
+  });
+});
+
+describe("useJobEvents -- L-ws-origin-check", () => {
+  it("drops messages whose origin does not match window.location.origin", async () => {
+    const fetchMock = global.fetch as MockFetch;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ events: [], next_since: null, next_id: null }),
+    });
+
+    const { result } = renderHook(() => useJobEvents("job-id-123", true));
+
+    // Wait for the WebSocket to be constructed after the historical fetch.
+    await waitFor(() => expect(wsInstances.length).toBe(1));
+    const ws = wsInstances[0];
+
+    // Fire a message with a foreign origin -- handler must drop it.
+    act(() => {
+      ws.onmessage?.({
+        origin: "https://evil.example",
+        data: JSON.stringify({ kind: "test", ts: "2026-05-14T00:00:00Z" }),
+      });
+    });
+
+    // No event landed in state.
+    expect(result.current.events).toEqual([]);
+  });
+
+  it("processes messages whose origin matches window.location.origin", async () => {
+    const fetchMock = global.fetch as MockFetch;
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ events: [], next_since: null, next_id: null }),
+    });
+
+    const { result } = renderHook(() => useJobEvents("job-id-456", true));
+
+    await waitFor(() => expect(wsInstances.length).toBe(1));
+    const ws = wsInstances[0];
+
+    act(() => {
+      ws.onmessage?.({
+        origin: window.location.origin,
+        data: JSON.stringify({ kind: "test", ts: "2026-05-14T00:00:00Z" }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(1);
+      expect(result.current.events[0].kind).toBe("test");
+    });
   });
 });

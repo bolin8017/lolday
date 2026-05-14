@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -71,6 +71,7 @@ function PriorityCell({ job }: { job: JobSummary }) {
           type="button"
           aria-label={t("jobs.priority.label")}
           className="cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+          onClick={(e) => e.stopPropagation()}
         >
           <PriorityBadge value={current} t={t} />
         </button>
@@ -154,6 +155,7 @@ const baseColumns: ColumnDef<JobSummary>[] = [
 ];
 
 export default function JobsListPage() {
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const { currentUser } = useAuth();
   const isAdmin = currentUser?.role === "admin";
@@ -213,7 +215,7 @@ export default function JobsListPage() {
           columns={columns}
           emptyMessage="No jobs yet."
           onRowClick={(j) => {
-            window.location.href = `/jobs/${j.id}`;
+            void navigate(`/jobs/${j.id}`);
           }}
         />
       )}

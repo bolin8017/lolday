@@ -3,7 +3,7 @@ import contextlib
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import settings
@@ -21,6 +21,7 @@ from app.routers import (
     mlflow_authz,
     models_registry,
 )
+from app.services.rate_limit import rate_limit_ip
 
 logger = logging.getLogger(__name__)
 
@@ -184,8 +185,12 @@ app = FastAPI(
 )
 
 from app.middleware.body_size import BodySizeLimitMiddleware
+from app.middleware.csrf import CSRFOriginMiddleware
 
 app.add_middleware(BodySizeLimitMiddleware)
+# M-csrf: gate state-changing methods on Origin / Sec-Fetch-Site. See
+# backend/app/middleware/csrf.py and plan section D1.
+app.add_middleware(CSRFOriginMiddleware)
 
 # Intentionally not wrapped in try/except: if metrics wiring fails the pod
 # should CrashLoopBackOff so LoldayCoreServiceDown fires — silently losing
@@ -287,6 +292,17 @@ app.include_router(
 )
 
 
-@app.get("/api/v1/health", tags=["system"])
+# H-26: IP-keyed rate limit. 120/60s = 2 RPS per source — well above any
+# legitimate probe cadence (Cloudflare Access health check is 30s, browser
+# status ping is 60s, kubelet now targets /livez on :8001 instead). A 1000
+# RPS DoS attacker is converted to 2 RPS per IP + 429 for the rest, and
+# lolday_rate_limit_hits_total{prefix="health"} feeds LoldayRateLimitSpike
+# (P5). kubelet liveness is retargeted at /livez on :8001 in the chart so
+# this 429 does NOT cause pod restarts.
+@app.get(
+    "/api/v1/health",
+    tags=["system"],
+    dependencies=[Depends(rate_limit_ip("health", 120, 60))],
+)
 async def health():
     return {"status": "ok"}

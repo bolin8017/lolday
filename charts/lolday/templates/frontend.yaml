@@ -13,7 +13,12 @@ spec:
       containers:
         - name: nginx
           image: {{ .Values.frontend.image | quote }}
-          imagePullPolicy: IfNotPresent
+          # L-frontend-pull-policy: with the P4 digest pin (H-21-img), Always
+          # is safe -- the digest is content-addressed and kubelet skips the
+          # actual pull when the layer is already cached. If Harbor were
+          # ever compromised to re-point a tag, the digest check on pull
+          # would refuse the swap.
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           readinessProbe:

@@ -36,7 +36,7 @@ describe("RunsColumnPicker", () => {
         onChange={() => {}}
       />,
     );
-    expect(localStorage.getItem("runs.columns.1")).toBe(
+    expect(localStorage.getItem("lolday.runs.columns.1")).toBe(
       JSON.stringify(["metrics.accuracy"]),
     );
   });
@@ -46,13 +46,13 @@ describe("RunsColumnPicker", () => {
   });
 
   it("loadColumnsFromStorage returns parsed value", () => {
-    localStorage.setItem("runs.columns.x", JSON.stringify(["a", "b"]));
+    localStorage.setItem("lolday.runs.columns.x", JSON.stringify(["a", "b"]));
     expect(loadColumnsFromStorage("x", ["fallback"])).toEqual(["a", "b"]);
   });
 
   it("loadColumnsFromStorage returns fallback when value is not a string array", () => {
     localStorage.setItem(
-      "runs.columns.bad",
+      "lolday.runs.columns.bad",
       JSON.stringify({ wrong: "shape" }),
     );
     expect(loadColumnsFromStorage("bad", ["fallback"])).toEqual(["fallback"]);

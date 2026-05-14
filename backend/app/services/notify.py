@@ -13,6 +13,7 @@ scheduled task always terminates cleanly.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from urllib.parse import urlparse
 
@@ -30,35 +31,59 @@ from app.services.discord import (
 
 logger = logging.getLogger(__name__)
 
+# M-notify-semaphore (security-hardening P6): cap per-pod concurrent
+# webhook posts. 20 permits x 2 backend replicas = up to 40 outbound at any
+# moment; well below httpx default max_connections=100 and Discord's
+# per-webhook rate limit (30/60s). See plan section D4 for sizing validation.
+# Acquire is non-blocking -- exceeded permits drop the notify (counted
+# in BACKEND_ERRORS{stage="discord_notify_dropped"}). The drop preserves
+# fire-and-forget semantics: producers asyncio.create_task(notify_*())
+# never block on this path.
+_NOTIFY_SEM: asyncio.Semaphore = asyncio.Semaphore(20)
+
 
 async def post_webhook(payload: dict) -> None:
     url = settings.DISCORD_WEBHOOK_URL_EVENTS
     if not url:
         return
     host = urlparse(url).hostname or "?"
-    try:
-        async with httpx.AsyncClient(
-            timeout=settings.DISCORD_HTTP_TIMEOUT_SECONDS
-        ) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        BACKEND_ERRORS.labels(stage="discord_notify").inc()
-        # M-discord-log: webhook URL is itself the secret — log host + status
-        # only. Full path / token is the same value Discord uses to authenticate
-        # the POST, so anything that lands in Loki is effectively the credential.
+
+    # M-notify-semaphore: non-blocking acquire. Drop if saturated to
+    # preserve fire-and-forget semantics. asyncio.Semaphore.locked() is
+    # the public API for "no permits available" -- _value access is
+    # CPython internal and not needed here.
+    if _NOTIFY_SEM.locked():
+        BACKEND_ERRORS.labels(stage="discord_notify_dropped").inc()
         logger.warning(
-            "Discord notify failed: status=%s host=%s",
-            exc.response.status_code,
+            "Discord notify dropped (semaphore saturated): host=%s",
             host,
         )
-    except Exception as exc:
-        BACKEND_ERRORS.labels(stage="discord_notify").inc()
-        logger.warning(
-            "Discord notify failed: error=%s host=%s",
-            type(exc).__name__,
-            host,
-        )
+        return
+
+    async with _NOTIFY_SEM:
+        try:
+            async with httpx.AsyncClient(
+                timeout=settings.DISCORD_HTTP_TIMEOUT_SECONDS
+            ) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            BACKEND_ERRORS.labels(stage="discord_notify").inc()
+            # M-discord-log: webhook URL is itself the secret -- log host + status
+            # only. Full path / token is the same value Discord uses to authenticate
+            # the POST, so anything that lands in Loki is effectively the credential.
+            logger.warning(
+                "Discord notify failed: status=%s host=%s",
+                exc.response.status_code,
+                host,
+            )
+        except Exception as exc:
+            BACKEND_ERRORS.labels(stage="discord_notify").inc()
+            logger.warning(
+                "Discord notify failed: error=%s host=%s",
+                type(exc).__name__,
+                host,
+            )
 
 
 async def notify_job_completed(**kwargs) -> None:
