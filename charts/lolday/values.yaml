@@ -808,6 +808,33 @@ minio:
 kyverno:
   enabled: true
   fullnameOverride: kyverno
+  # Bootstrap note (P4 deploy 2026-05-14): Kyverno's 22 CRDs with full
+  # OpenAPIv3 schemas alone are >700 KB. Helm stores each release's
+  # rendered manifest in a single K8s Secret (size cap 1 MiB). With the
+  # CRDs rendered into the umbrella release, lolday hit
+  #   "Secret sh.helm.release.v1.lolday.vNNN: Too long: may not be more
+  #    than 1048576 bytes"
+  # at upgrade time. Disabling `crds.install` removes the CRD docs from
+  # the rendered manifest — but Kyverno still needs them in cluster.
+  #
+  # Workflow: CRDs are applied OUT-OF-BAND via
+  #   helm template lolday-bootstrap charts/lolday <args> \
+  #     | awk '/^---$/{...kind==CustomResourceDefinition...}' \
+  #     | kubectl apply --server-side -f -
+  # then annotated for Helm ownership via
+  #   kubectl annotate crd <crd> meta.helm.sh/release-name=lolday \
+  #     meta.helm.sh/release-namespace=lolday --overwrite
+  #   kubectl label crd <crd> app.kubernetes.io/managed-by=Helm --overwrite
+  # CRD upgrades for new Kyverno versions follow the same flow — the
+  # operator re-runs the kubectl apply step before `bash scripts/deploy.sh`
+  # when bumping `Chart.yaml`'s kyverno dependency.
+  crds:
+    install: false
+    # `migration` triggers a one-shot kyverno-cli Job that ALSO needs
+    # CRDs present and runs only if `crds.install: true`. Disable it
+    # since we manage CRDs out-of-band.
+    migration:
+      enabled: false
   # Keep per-policy `failurePolicy` (default `Fail` on each ClusterPolicy)
   # in effect. Setting this to `true` would force all webhooks to
   # `Ignore` — bypassing security controls. Leave `false`.
