@@ -61,13 +61,22 @@ runs:
     # both modes and addressable in the local docker daemon. HIGH /
     # MEDIUM / LOW surface in the table output but don't fail the
     # build — Dependabot + future trivy-cron handle the long tail.
+    #
+    # ignore-unfixed: true — the gate blocks only on CRITICALs that have
+    # an upstream fix available (the operator CAN act: bump the base image
+    # digest). Unfixed CRITICALs are real but not actionable in CI; the
+    # weekly trivy-cron (P4 plan T14) reports them so the operator can
+    # monitor + apply mitigations (network policy, dependency carve-outs,
+    # etc.) without blocking every push. Mainstream lolday policy already
+    # echoes this — see charts/lolday/helpers/pytorch-cu12-base/Dockerfile
+    # ("platform blocks on CRITICAL only" — meaning fixed CRITICAL).
     - name: Trivy scan (H-22 CRITICAL gate)
       uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
       with:
         image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
         severity: CRITICAL
         exit-code: "1"
-        ignore-unfixed: false
+        ignore-unfixed: true
         format: table
     # H-22: Generate an SPDX SBOM and attach it as a Cosign-compatible
     # attestation. Runs only on push (PR builds skip — the image isn't
