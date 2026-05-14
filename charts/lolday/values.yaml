@@ -808,6 +808,17 @@ minio:
 kyverno:
   enabled: true
   fullnameOverride: kyverno
+  # Kyverno is installed as a sub-chart into the same release namespace as
+  # lolday (= `lolday`). The chart's default `config.excludeKyvernoNamespace:
+  # true` auto-appends the install ns to the webhook's namespaceSelector
+  # NotIn list — i.e. Kyverno wouldn't intercept ANY pod in `lolday`. Our
+  # verifyImages ClusterPolicy explicitly matches `lolday` + `lolday-jobs`,
+  # so disable the auto-exclusion. Kyverno's own controllers don't match
+  # our `imageReferences: ghcr.io/bolin8017/lolday-*`, so there's no
+  # self-loop risk. Verified post-deploy by submitting an unsigned
+  # ghcr.io/bolin8017/lolday-backend pod into both ns — both denied.
+  config:
+    excludeKyvernoNamespace: false
   # Bootstrap note (P4 deploy 2026-05-14): Kyverno's 22 CRDs with full
   # OpenAPIv3 schemas alone are >700 KB. Helm stores each release's
   # rendered manifest in a single K8s Secret (size cap 1 MiB). With the
