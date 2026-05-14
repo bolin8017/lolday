@@ -44,15 +44,15 @@ expected="v$chart_version"
 fail=0
 
 if [ "$chart_appversion" != "$chart_version" ]; then
-  echo "ERROR: Chart.yaml appVersion ($chart_appversion) != version ($chart_version)" >&2
+  echo "ERROR: Chart.yaml appVersion ($chart_appversion) != version ($chart_version) (from Chart.yaml version $chart_version)" >&2
   fail=1
 fi
 if [ "$backend_tag" != "$expected" ]; then
-  echo "ERROR: backend image tag $backend_tag != expected $expected" >&2
+  echo "ERROR: backend image tag $backend_tag != expected $expected (from Chart.yaml version $chart_version)" >&2
   fail=1
 fi
 if [ "$frontend_tag" != "$expected" ]; then
-  echo "ERROR: frontend image tag $frontend_tag != expected $expected" >&2
+  echo "ERROR: frontend image tag $frontend_tag != expected $expected (from Chart.yaml version $chart_version)" >&2
   fail=1
 fi
 
