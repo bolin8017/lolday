@@ -42,5 +42,8 @@ runs:
         push: ${{ inputs.push }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha,scope=${{ inputs.image }}
-        cache-to: type=gha,scope=${{ inputs.image }},mode=max
+        # M-cache-poison: per-image + per-ref scope. A PR that poisons its
+        # own cache namespace cannot bleed into main's cache. Cache hit rate
+        # drops marginally for cross-ref builds; integrity is the priority.
+        cache-from: type=gha,scope=${{ inputs.image }}-${{ github.ref_name }}
+        cache-to: type=gha,scope=${{ inputs.image }}-${{ github.ref_name }},mode=max
