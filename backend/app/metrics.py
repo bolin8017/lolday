@@ -35,6 +35,15 @@ RATE_LIMIT_HITS_TOTAL = Counter(
     ["prefix"],
 )
 
+# L-event-broker-drops (security-hardening P5) — EventBroker.publish
+# discards the oldest queue entry when a subscriber's bounded Queue
+# (maxsize=1000 in events_tail) is full. Unlabeled — job_id labels
+# would blow up cardinality.
+EVENT_BROKER_DROPS_TOTAL = Counter(
+    "lolday_event_broker_drops_total",
+    "EventBroker.publish drop-oldest events (subscriber queue saturated).",
+)
+
 # Phase 7.5 — piggybacks on cluster_status.get_queue_depth (refreshed every
 # 10s via the TTLCache path). Triggers an alert if Volcano hasn't scheduled
 # a Pending job within the staleness window, which catches scheduler outages

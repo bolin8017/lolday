@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.metrics import EVENT_BROKER_DROPS_TOTAL
 from app.models import JobEvent
 
 _log = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class EventBroker:
                 with contextlib.suppress(asyncio.QueueEmpty):
                     q.get_nowait()
                 q.put_nowait(event)
+                EVENT_BROKER_DROPS_TOTAL.inc()
                 _log.warning(
                     "event_broker_dropped_oldest",
                     extra={"job_id": str(job_id), "kind": event.get("kind")},
