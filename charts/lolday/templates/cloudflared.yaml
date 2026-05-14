@@ -19,6 +19,11 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        # L-cloudflared-runas: pin the UID explicitly. The upstream
+        # cloudflare/cloudflared image already runs as 65532 (distroless
+        # nobody convention); the explicit pin defends against an upstream
+        # USER change.
+        runAsUser: 65532
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: cloudflared
