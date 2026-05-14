@@ -18,9 +18,12 @@ spec:
   # No `ingress:` block = deny all by default. Allow rules below add back
   # what each service legitimately needs.
 ---
-# Postgres: reachable from backend, mlflow, and postgres-exporter.
-# postgres-exporter is deployed in the lolday namespace (same ns — no
-# namespaceSelector needed; podSelector alone is sufficient).
+# Postgres: reachable from backend, mlflow, postgres-exporter, plus the two
+# admin Job hook pods (alembic schema migration + mlflow-db init). The hooks
+# run as short-lived Jobs in this ns and need full DB access; they were
+# previously silent victims of the default-deny rule and showed up as
+# "connection refused" because K3s' kube-router NP controller REJECTs (not
+# DROPs) denied traffic.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -45,6 +48,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: postgres-exporter
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: alembic
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: mlflow-db-init
       ports:
         - port: 5432
           protocol: TCP
