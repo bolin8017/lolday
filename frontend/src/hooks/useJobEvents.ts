@@ -92,13 +92,20 @@ export function useJobEvents(
         `${scheme}://${window.location.host}/api/v1/jobs/${jobId}/events`,
       );
       ws.onmessage = (ev) => {
+        // L-ws-origin-check (security-hardening P6): defense-in-depth against
+        // a malicious extension or off-origin script injecting messages.
+        // The backend already validates Origin on WS handshake, but the
+        // client refusing off-origin frames costs nothing.
+        if (ev.origin && ev.origin !== window.location.origin) {
+          return;
+        }
         try {
           const event = JSON.parse(ev.data) as MaldetEvent;
           setEvents((prev) => [...prev, event]);
         } catch {
           // Detector-side may emit occasional non-JSON lines (prints to
           // stdout before the JSONL writer flushes its first record).
-          // Dropping these silently is intentional — the backend persists
+          // Dropping these silently is intentional -- the backend persists
           // valid events regardless, and the WS stream is best-effort.
         }
       };
