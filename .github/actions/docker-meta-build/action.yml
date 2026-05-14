@@ -91,3 +91,23 @@ runs:
         output-file: sbom.spdx.json
         upload-artifact: true
         upload-release-assets: false
+    # H-23: install cosign for keyless OIDC signing. The action SHA is
+    # pinned; the cosign binary itself defaults to the action's latest
+    # stable release — same trust path as every other GHA action.
+    - name: Install cosign
+      if: inputs.push == 'true'
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+    # H-23: keyless sign the just-pushed image digest. OIDC token is
+    # auto-acquired from the GHA OIDC issuer via id-token: write (granted
+    # at the job level in images.yml / helpers.yml). --yes skips the
+    # interactive prompt; --recursive signs every platform variant of a
+    # multi-arch manifest (no-op today since builds are single-platform,
+    # but harmless and future-proof).
+    - name: Cosign sign (H-23 keyless)
+      if: inputs.push == 'true'
+      shell: bash
+      env:
+        COSIGN_EXPERIMENTAL: "1"
+      run: |
+        cosign sign --yes --recursive \
+          "ghcr.io/bolin8017/${{ inputs.image }}@${{ steps.build.outputs.digest }}"

@@ -32,6 +32,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # H-23: cosign keyless OIDC flow needs this at job scope
     strategy:
       fail-fast: false
       matrix:
