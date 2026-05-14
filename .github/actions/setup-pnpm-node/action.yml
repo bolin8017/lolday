@@ -10,20 +10,31 @@ runs:
     # versions when running under corepack"). Read the pinned version from
     # package.json and have corepack install + activate it explicitly so
     # the pin is the source of truth, not the runner image.
-    - name: Enable corepack + prepare pinned pnpm
+    #
+    # Two-stage ordering matters:
+    #   1. `corepack enable` first so `actions/setup-node`'s `cache: pnpm`
+    #      plugin can resolve `pnpm store path` (runs against the runner
+    #      pre-installed pnpm on default Node v20 — fine for cache lookup).
+    #   2. `corepack prepare ... --activate` AFTER setup-node so Node v22
+    #      from `.nvmrc` is in PATH — pnpm 11.x requires Node v22.13+ and
+    #      would otherwise hit `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite`
+    #      on the runner's default Node v20.
+    - name: Enable corepack
       shell: bash
-      run: |
-        corepack enable
-        PNPM_VERSION=$(jq -r '.packageManager | split("@")[1]' frontend/package.json)
-        echo "Activating pnpm@${PNPM_VERSION} (from frontend/package.json)"
-        corepack prepare "pnpm@${PNPM_VERSION}" --activate
-        pnpm --version
+      run: corepack enable
     - name: Setup Node from frontend/.nvmrc with pnpm cache
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version-file: frontend/.nvmrc
         cache: pnpm
         cache-dependency-path: frontend/pnpm-lock.yaml
+    - name: Prepare + activate pinned pnpm
+      shell: bash
+      run: |
+        PNPM_VERSION=$(jq -r '.packageManager | split("@")[1]' frontend/package.json)
+        echo "Activating pnpm@${PNPM_VERSION} (from frontend/package.json)"
+        corepack prepare "pnpm@${PNPM_VERSION}" --activate
+        pnpm --version
     - name: pnpm install (frontend, frozen)
       shell: bash
       run: pnpm --dir frontend install --frozen-lockfile
