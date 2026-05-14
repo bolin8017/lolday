@@ -31,7 +31,7 @@ import logging
 from sqlalchemy import select
 
 from app.db import async_session_maker
-from app.metrics import BACKEND_ERRORS
+from app.metrics import BACKEND_ERRORS, RECONCILER_SCAN_TRUNCATED_TOTAL
 from app.models.detector import DetectorBuild
 from app.models.job import NON_TERMINAL_STATUSES, Job
 from app.reconciler.builds import IN_FLIGHT, reconcile_build
@@ -51,6 +51,50 @@ ORPHAN_SCAN_EVERY_N_ITERATIONS = 30  # ~5 min at the default 10s wait
 HARBOR_ROTATE_EVERY_N_ITERATIONS = 8640  # ~24 h at the default 10s tick
 RECONCILER_WAIT_SECONDS = 10
 
+# M-reconciler-limit (security-hardening P6): hard cap on per-iteration scan.
+# See plan section D3 for ordering rationale.
+RECONCILER_SCAN_LIMIT = 200
+
+
+async def _scan_jobs(session, limit: int = RECONCILER_SCAN_LIMIT):
+    """Return the oldest <= limit non-terminal jobs; increment the truncated
+    counter when the scan hit the cap."""
+    rows = (
+        (
+            await session.execute(
+                select(Job)
+                .where(Job.status.in_(NON_TERMINAL_STATUSES))
+                .order_by(Job.submitted_at.asc(), Job.id.asc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(rows) == limit:
+        RECONCILER_SCAN_TRUNCATED_TOTAL.labels(kind="job").inc()
+    return rows
+
+
+async def _scan_builds(session, limit: int = RECONCILER_SCAN_LIMIT):
+    """Return the oldest <= limit in-flight detector builds; increment the
+    truncated counter when the scan hit the cap."""
+    rows = (
+        (
+            await session.execute(
+                select(DetectorBuild)
+                .where(DetectorBuild.status.in_(IN_FLIGHT))
+                .order_by(DetectorBuild.started_at.asc(), DetectorBuild.id.asc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(rows) == limit:
+        RECONCILER_SCAN_TRUNCATED_TOTAL.labels(kind="build").inc()
+    return rows
+
 
 async def reconciler_loop(stop_event: asyncio.Event) -> None:
     logger.info("reconciler started (build + job)")
@@ -60,10 +104,8 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
         try:
             async with async_session_maker() as session:
                 # Build reconcile pass
-                res_builds = await session.execute(
-                    select(DetectorBuild).where(DetectorBuild.status.in_(IN_FLIGHT))
-                )
-                for b in res_builds.scalars().all():
+                builds_to_reconcile = await _scan_builds(session)
+                for b in builds_to_reconcile:
                     try:
                         await reconcile_build(session, b)
                     except Exception:
@@ -73,10 +115,8 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                         )
 
                 # Job reconcile pass (Phase 4)
-                res_jobs = await session.execute(
-                    select(Job).where(Job.status.in_(NON_TERMINAL_STATUSES))
-                )
-                for j in res_jobs.scalars().all():
+                jobs_to_reconcile = await _scan_jobs(session)
+                for j in jobs_to_reconcile:
                     try:
                         await reconcile_job(session, j)
                     except Exception:

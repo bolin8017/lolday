@@ -79,6 +79,19 @@ PRIORITY_BUMP_TOTAL = Counter(
     "(no-op patches don't count).",
 )
 
+# M-reconciler-limit (security-hardening P6) -- reconciler scan cap. Each
+# iteration of reconciler_loop scans at most RECONCILER_SCAN_LIMIT non-
+# terminal rows; this counter increments when the cap was hit (rows
+# returned == limit), partitioned by kind (build|job). A sustained
+# rate > 0 indicates the queue is growing faster than reconciliation
+# progresses; the cap protects iteration latency by capping per-iter
+# work. No alert rule in this phase -- P7 follow-up if rate is interesting.
+RECONCILER_SCAN_TRUNCATED_TOTAL = Counter(
+    "lolday_reconciler_scan_truncated_total",
+    "Reconciler scan returned the cap limit -- newer rows deferred to next iteration.",
+    ["kind"],
+)
+
 # 議題 B (alerting redesign) — exposes gpu_signal's fail-safe state as a
 # Gauge so Alertmanager can fire `GpuSignalFailSafeStuck` when Prometheus
 # is unreachable for >30 min.  See
