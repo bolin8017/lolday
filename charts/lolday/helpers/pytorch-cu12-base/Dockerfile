@@ -27,11 +27,21 @@ FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04@sha256:5f0d2d827f6436b3cb7468f
 # get a maintained 3.12 interpreter without compiling from source.
 # Runs `apt-get upgrade` so that base-image CVEs landed after the
 # nvidia/cuda:12.6.3 tag was cut are patched at build time.
+#
+# M-pytorch-bootstrap: pip bootstrap goes through `python3.12 -m ensurepip
+# --upgrade`, NOT `curl https://bootstrap.pypa.io/get-pip.py | python3.12`.
+# get-pip.py is a mutable URL served from bootstrap.pypa.io; an attacker
+# who compromises that endpoint (or MITMs the in-build HTTPS handshake
+# through a permissive proxy) gets root-level code exec inside the image
+# build. ensurepip ships with the deadsnakes python3.12 package itself —
+# already byte-pinned by apt signature + the @sha256 base image pin from
+# H-21-img. Zero network egress for pip bootstrap. `curl` no longer needed
+# in this layer; dropped from apt install.
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
-         software-properties-common ca-certificates curl \
+         software-properties-common ca-certificates \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -39,7 +49,7 @@ RUN apt-get update \
          libgomp1 \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
-    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 \
+    && python3.12 -m ensurepip --upgrade \
     && ln -sf /usr/local/bin/pip3 /usr/local/bin/pip \
     && apt-get purge -y software-properties-common \
     && apt-get autoremove -y \
