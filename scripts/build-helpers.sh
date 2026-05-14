@@ -123,6 +123,17 @@ print(d["auths"]["harbor.lolday.svc:80"]["auth"])
 # interpolated directly into the URL without encoding.
 harbor_has_tag() {
   local name=$1 sha=$2
+  # M-harbor-sha-validate: $sha is interpolated directly into the Harbor
+  # REST query string. A caller that hands in contaminated input (e.g.
+  # `; rm -rf /` via a hypothetical future caller that doesn't sanitize)
+  # would issue a malformed query and may surface misleading results.
+  # Regex-guard to the docker-tag SHA range (short-12 subtree SHA up to
+  # full 64-char sha256 digest hex) and fail closed on mismatch. No
+  # legitimate caller is affected — build_ref() generates only this form.
+  if [[ ! "$sha" =~ ^[0-9a-f]{6,64}$ ]]; then
+    echo "ERROR: harbor_has_tag refusing non-SHA arg: $sha" >&2
+    return 2
+  fi
   if ! kubectl -n lolday get secret harbor-push-cred >/dev/null 2>&1; then
     echo "ERROR: K8s Secret lolday/harbor-push-cred not found." >&2
     echo "       Run 'bash scripts/recover-harbor.sh' first to bootstrap" >&2
