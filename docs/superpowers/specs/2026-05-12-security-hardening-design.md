@@ -1,5 +1,17 @@
 # Security Hardening — Design Specification
 
+> **STATUS: SHIPPED 2026-05-14.** All six phase plans merged
+> (P1 #136, P2 #137, P3 #138, P4 #139, P5 #147, P6 #148). 88 finding-IDs
+> closed in code + 2 accepted as `docs/architecture.md` §10 tech debt.
+>
+> - Finding-by-finding closeout ledger: [`docs/phase-history/2026-05-14-security-audit-findings.md`](../../phase-history/2026-05-14-security-audit-findings.md)
+> - Program postmortem (5 root-cause themes + lessons learned): [`docs/postmortems/2026-05-12-security-audit-program.md`](../../postmortems/2026-05-12-security-audit-program.md)
+> - Kyverno bootstrap runbook (P4 follow-up edge cases): [`docs/runbooks/kyverno-bootstrap.md`](../../runbooks/kyverno-bootstrap.md)
+> - `BACKEND_ERRORS` failure-bus convention: [`.claude/rules/backend.md`](../../../.claude/rules/backend.md)
+>
+> Subsequent security work is **ad-hoc PRs per finding**, not another phase.
+> The sections below are preserved as the authoritative spec ledger.
+
 > **Created 2026-05-12.** Trigger: a comprehensive seven-domain security audit
 > of the Lolday platform identified **2 CRITICAL, ~30 HIGH, ~30 MEDIUM, ~25
 > LOW** findings spanning AuthN/AuthZ, injection/RCE/SSRF, secrets/crypto,
