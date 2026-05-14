@@ -86,8 +86,10 @@ _ak_key() { case "$1" in harbor) echo "REGISTRY_STORAGE_S3_ACCESSKEY" ;; *) echo
 _sk_key() { case "$1" in harbor) echo "REGISTRY_STORAGE_S3_SECRETKEY" ;; *) echo "secret-key" ;; esac; }
 
 _consumer_deployment() {
+  # Workload names that consume each S3 secret. Verified in cluster against
+  # the chart's actual `kind: Deployment / StatefulSet` `metadata.name`.
   case "$1" in
-    mlflow) echo "deploy/lolday-mlflow" ;;
+    mlflow) echo "deploy/mlflow" ;;
     harbor) echo "deploy/lolday-harbor-registry" ;;
     loki)   echo "statefulset/loki" ;;
   esac
