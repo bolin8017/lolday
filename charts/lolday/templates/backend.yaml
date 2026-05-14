@@ -109,10 +109,13 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          # H-26: kubelet liveness targets /livez on the internal port (:8001),
+          # which has no rate limit and no DB / external dependency. /health
+          # 429 (rate-limit overflow) MUST NOT trigger a pod restart.
           livenessProbe:
             httpGet:
-              path: /api/v1/health
-              port: api
+              path: /livez
+              port: internal
             initialDelaySeconds: 15
             periodSeconds: 30
           readinessProbe:
