@@ -1,11 +1,23 @@
 name: setup-pnpm-node
-description: Corepack-enable pnpm, run setup-node with pnpm cache, install frontend deps.
+description: Corepack-enable pnpm, prepare exact pinned version, run setup-node with pnpm cache, install frontend deps.
 runs:
   using: composite
   steps:
-    - name: Enable corepack
+    # GitHub Actions hosted runners pre-install a pnpm version that drifts
+    # ahead of our pin (`frontend/package.json::packageManager`). pnpm 11.x
+    # refuses to run when corepack invokes it on a mismatching pin (error:
+    # "Corepack invoked pnpm with this version, and pnpm does not switch
+    # versions when running under corepack"). Read the pinned version from
+    # package.json and have corepack install + activate it explicitly so
+    # the pin is the source of truth, not the runner image.
+    - name: Enable corepack + prepare pinned pnpm
       shell: bash
-      run: corepack enable
+      run: |
+        corepack enable
+        PNPM_VERSION=$(jq -r '.packageManager | split("@")[1]' frontend/package.json)
+        echo "Activating pnpm@${PNPM_VERSION} (from frontend/package.json)"
+        corepack prepare "pnpm@${PNPM_VERSION}" --activate
+        pnpm --version
     - name: Setup Node from frontend/.nvmrc with pnpm cache
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
