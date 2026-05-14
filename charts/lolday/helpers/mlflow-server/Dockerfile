@@ -14,3 +14,15 @@ FROM ghcr.io/mlflow/mlflow:v2.20.3@sha256:28639c6e142a5da4b91461e27f8473c6d13113
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
+
+# L-mlflow-user: drop privilege at image level. Upstream mlflow base
+# leaves USER unset (= root). MLflow's runtime writes to its tracking
+# store (Postgres via psycopg2) and its artifact store (MinIO via boto3);
+# neither requires UID 0. Align with backend's `lolday` user (UID 1000).
+# `|| true` covers a future base image that already has UID 1000 — useradd
+# would exit 9 in that case; the existing user satisfies USER 1000 below.
+# The chart's pod-level securityContext already requests runAsUser: 1000
+# + fsGroup: 1000, so this layer makes the image self-consistent across
+# any namespace + PSS profile, not just lolday's.
+RUN useradd -m -u 1000 -s /usr/sbin/nologin mlflow || true
+USER 1000
