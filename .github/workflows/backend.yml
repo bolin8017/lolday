@@ -44,7 +44,13 @@ jobs:
       # unset on a private repo, so this step is safe to land before the
       # operator wires the secret. Once Settings → Secrets has CODECOV_TOKEN,
       # uploads start appearing automatically.
+      # M-codecov-gate: skip on fork PRs. GHA's fork-PR security model already
+      # blocks secret access there, but the step previously ran unconditionally
+      # — if a contributor's fork gains write access (or CODECOV_TOKEN leaks
+      # via a build-log echo), the upload becomes an exfiltration sink. Gate
+      # to push events + same-repo PRs only.
       - name: Upload coverage to Codecov
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           files: ./backend/coverage.xml

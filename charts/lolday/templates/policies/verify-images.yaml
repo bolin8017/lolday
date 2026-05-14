@@ -1,0 +1,80 @@
+{{- if .Values.kyverno.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-lolday-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify lolday GHCR image signatures
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >
+      Every image pulled from ghcr.io/bolin8017/lolday-* must be cosign-signed
+      by the lolday GHA workflow identity (images.yml or helpers.yml at
+      main or a semver tag). Harbor-origin images are intentionally
+      out of scope (D1 in P4 plan — GHCR-only signing). See
+      docs/superpowers/plans/2026-05-12-security-hardening-p4-supply-chain.md.
+spec:
+  # validationFailureAction: how Kyverno treats a violation — Enforce blocks admission.
+  validationFailureAction: Enforce
+  # failurePolicy: how the K8s API server treats an unreachable webhook —
+  # Fail blocks lolday/lolday-jobs admissions if Kyverno itself is down.
+  # Mainstream prod default. Kyverno 3.x default is Fail; restated for clarity.
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 30
+  # background: false — keyless verify needs egress to Fulcio + Rekor.
+  # Running it as a 1h background scan on every Pod is expensive; admission-
+  # time only is the mainstream choice.
+  background: false
+  rules:
+    - name: verify-ghcr-cosign-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - lolday
+                - lolday-jobs
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/bolin8017/lolday-*"
+          # Four `keyless` entries under one attestors[0] with count: 1 =
+          # logical OR. Any one matching is sufficient. Covers:
+          #   1. images.yml @ refs/heads/main
+          #   2. images.yml @ refs/tags/vX.Y.Z
+          #   3. helpers.yml @ refs/heads/main
+          #   4. helpers.yml @ refs/tags/vX.Y.Z
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    subject: "https://github.com/bolin8017/lolday/.github/workflows/images.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: "https://rekor.sigstore.dev"
+                - keyless:
+                    subjectRegExp: "^https://github\\.com/bolin8017/lolday/\\.github/workflows/images\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: "https://rekor.sigstore.dev"
+                - keyless:
+                    subject: "https://github.com/bolin8017/lolday/.github/workflows/helpers.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: "https://rekor.sigstore.dev"
+                - keyless:
+                    subjectRegExp: "^https://github\\.com/bolin8017/lolday/\\.github/workflows/helpers\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: "https://rekor.sigstore.dev"
+          # mutateDigest: false — H-21-img has already pinned every ref by
+          # digest, so Kyverno's optional digest-rewrite is a no-op. Off
+          # means an accidentally-unpinned future ref is REJECTED, not
+          # silently fixed.
+          mutateDigest: false
+          # verifyDigest: true — the in-cluster image manifest digest MUST
+          # match what cosign signed. End-to-end content integrity with
+          # H-21-img's @sha256 pins.
+          verifyDigest: true
+          required: true
+{{- end }}

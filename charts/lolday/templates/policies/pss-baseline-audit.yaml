@@ -1,0 +1,36 @@
+{{- if .Values.kyverno.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: pss-baseline-audit-lolday
+  annotations:
+    policies.kyverno.io/title: PSS Baseline audit (lolday + lolday-jobs)
+    policies.kyverno.io/category: Pod Security Standards
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >
+      Audit-mode PSS Baseline check, complementing the K8s built-in Pod
+      Security admission labels installed in P2. Background scans surface
+      drift over time; admission enforcement stays with the built-in PSA
+      labels (no double-enforce, fewer false positives).
+spec:
+  # validationFailureAction: Audit — record violations as PolicyReports,
+  # do NOT block admission. P2's built-in PSA labels handle enforcement.
+  validationFailureAction: Audit
+  # background: true — PSS Baseline checks are pure-spec inspection (no
+  # network egress), cheap enough to run as a 1h background scan.
+  background: true
+  rules:
+    - name: baseline-host-namespaces
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - lolday
+                - lolday-jobs
+      validate:
+        podSecurity:
+          level: baseline
+          version: latest
+{{- end }}

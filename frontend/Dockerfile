@@ -1,5 +1,5 @@
 # ---- build stage ----
-FROM node:22-alpine AS build
+FROM node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f AS build
 # pnpm >=11 runs `runDepsStatusCheck` before `pnpm run <script>` and refuses
 # to proceed in non-CI environments without an explicit affirmation. GHA
 # sets CI=true automatically, but local `docker build` does not — pin the
@@ -15,7 +15,7 @@ RUN pnpm run build
 # ---- serve stage ----
 # nginxinc/nginx-unprivileged is pre-configured for non-root + listen 8080
 # + pid/cache/tmp under /tmp. Works with readOnlyRootFilesystem.
-FROM nginxinc/nginx-unprivileged:1.29-alpine
+FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080

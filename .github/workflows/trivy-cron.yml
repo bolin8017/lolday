@@ -1,0 +1,76 @@
+name: trivy-cron
+
+on:
+  schedule:
+    # Mondays 09:00 UTC = 17:00 Asia/Taipei. Aligns with Dependabot's
+    # weekly Monday schedule so all security signals land in the
+    # operator's PR / issue review queue on the same day.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  scan-excluded-bases:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each entry names the upstream base image referenced by the
+        # respective helper Dockerfile after H-21-img digest pinning.
+        # Updating this list when the helper's FROM changes is the
+        # operator's job — Dependabot doesn't touch these helpers.
+        image:
+          - name: mlflow-server-base
+            ref: "ghcr.io/mlflow/mlflow:v2.20.3"
+          - name: pytorch-cu12-base
+            ref: "nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04"
+    steps:
+      - name: Trivy scan (CRITICAL,HIGH report-only)
+        id: trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ matrix.image.ref }}
+          severity: CRITICAL,HIGH
+          # ignore-unfixed: false — trivy-cron is the long-tail watchtower
+          # (the CI gate flips it to true for actionable signals only;
+          # here we WANT unfixed CRITICALs so the operator monitors them).
+          ignore-unfixed: false
+          format: table
+          # exit-code 0 always — we open an issue instead of failing the job.
+          exit-code: "0"
+          output: trivy-${{ matrix.image.name }}.txt
+
+      - name: Check for CRITICAL findings
+        id: gate
+        shell: bash
+        run: |
+          if grep -qE "^Total: [1-9][0-9]* \([^)]*CRITICAL: [1-9]" "trivy-${{ matrix.image.name }}.txt"; then
+            echo "has_critical=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_critical=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open issue on CRITICAL
+        if: steps.gate.outputs.has_critical == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('trivy-${{ matrix.image.name }}.txt', 'utf8');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[trivy-cron] CRITICAL findings on ${{ matrix.image.ref }}`,
+              body: '```\n' + body + '\n```\n\n' +
+                    'Manual action: bump the FROM digest in ' +
+                    '`charts/lolday/helpers/<helper>/Dockerfile`, rebuild, repush, ' +
+                    'update values.yaml @sha256 pin (plan T1/T2/T3 process), open PR.',
+              labels: ['security', 'trivy-cron'],
+            });
