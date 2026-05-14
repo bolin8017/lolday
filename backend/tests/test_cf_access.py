@@ -470,3 +470,30 @@ async def test_claims_peek_redacts_email(monkeypatch):
     # The bad token can't be decoded, so the peek dict becomes "unparseable".
     # The redaction itself is independently verified by test_redact_email above;
     # this test pins down that the WARNING line never carries a raw email.
+
+
+async def test_auth_failure_total_increments_on_malformed_jwt_shape(monkeypatch):
+    """A JWT with the wrong shape (no segments) must not bubble up as 500.
+
+    P5 follow-up: PyJWT's ``get_signing_key_from_jwt`` calls
+    ``decode_complete`` to read the header BEFORE any signature work, so
+    a malformed token raises ``pyjwt.DecodeError`` (subclass of
+    ``InvalidTokenError``) inside the JWKS-fetch block. Without an
+    explicit ``except pyjwt.InvalidTokenError`` clause there, the
+    exception bubbles up to FastAPI's default handler as a 500 and the
+    auth-failure counter never increments.
+    """
+    from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", False)
+    monkeypatch.setattr(settings, "CF_ACCESS_TEAM_DOMAIN", "test.cloudflareaccess.com")
+    monkeypatch.setattr(settings, "CF_ACCESS_APP_AUD", "test-app-uid")
+
+    before = _read_counter("lolday_auth_failure_total", reason="invalid_signature")
+
+    with pytest.raises(CfAccessAuthError):
+        await resolve_user_from_jwt(session=None, token="not-a-jwt", log_context="test")
+
+    after = _read_counter("lolday_auth_failure_total", reason="invalid_signature")
+    assert after - before == pytest.approx(1.0)

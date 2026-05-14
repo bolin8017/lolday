@@ -214,6 +214,18 @@ async def resolve_user_from_jwt(
         logger.warning("cf_access 401 %s: JWKS lookup failed: %s", log_context, e)
         AUTH_FAILURE_TOTAL.labels(reason="jwks_lookup_failed").inc()
         raise CfAccessAuthError(f"jwks lookup failed: {e}") from e
+    except pyjwt.InvalidTokenError as e:
+        # PyJWT's get_signing_key_from_jwt parses the JWT header internally
+        # to extract `kid` before any signature work — a token with the wrong
+        # shape (no segments, junk b64) raises DecodeError (subclass of
+        # InvalidTokenError) HERE, before reaching verify_cf_token below.
+        # Without this catch, malformed tokens bubble up as a 500.
+        # Folded into the broad invalid_signature bucket — distinguishing
+        # "syntactically broken" from "signature mismatch" is debugging
+        # detail, not actionable for the operator-level alert.
+        logger.warning("cf_access 401 %s: malformed JWT: %s", log_context, e)
+        AUTH_FAILURE_TOTAL.labels(reason="invalid_signature").inc()
+        raise CfAccessAuthError(f"invalid Cloudflare Access token: {e}") from e
 
     try:
         claims = verify_cf_token(
