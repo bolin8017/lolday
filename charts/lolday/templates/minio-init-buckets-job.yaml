@@ -160,7 +160,7 @@ spec:
         - name: mc-setup
           # Pin to the same mc release as the minio Helm chart's mcImage default.
           # sha256:993e8c4... = RELEASE.2024-11-21T17-21-54Z (matches chart mcImage.tag).
-          image: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
+          image: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z@sha256:993e8c454a7ec632923f7e3e61adf1d473261da6354cefd641aedd33a2cfe112
           resources:
             requests:
               cpu: 50m

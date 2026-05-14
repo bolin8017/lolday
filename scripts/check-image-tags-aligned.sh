@@ -56,20 +56,21 @@ if [ "$frontend_tag" != "$expected" ]; then
   fail=1
 fi
 
-# ---- Pass 2: digest pin (NEW for H-21-img) ----
-# Every `image:` scalar line in values.yaml pointing at a lolday-owned
-# Harbor ref (harbor.lolday.svc:80/lolday/...) must end in
-# @sha256:<64-hex>. Sub-chart refs (postgres, redis, cloudflared,
-# postgres-exporter) are handled by T4 — leave their digest pinning
-# out of scope for T1.
-# T4 will widen this match.
+# ---- Pass 2: digest pin (H-21-img) ----
+# Every `image:` scalar line in values.yaml must end in @sha256:<64-hex>.
+# This catches the 3 lolday-own refs (T1) AND the 4 sub-chart full-ref
+# scalars added in T4 (postgres, redis, cloudflared, postgres-exporter).
+# Nested image.tag slots under Harbor / loki sidecar are NOT caught here —
+# they look like generic `tag:` keys. Those are verified at deploy time
+# via `helm template ... | grep '^\s+image:' | grep -vE '@sha256:'`
+# returning empty (plan T4 Step 5).
 while IFS= read -r line; do
   ref=$(echo "$line" | sed -E 's|^[[:space:]]*image:[[:space:]]+([^[:space:]#]+).*|\1|')
   if ! echo "$ref" | grep -qE '@sha256:[0-9a-f]{64}$'; then
     echo "ERROR: image ref missing @sha256:<64-hex> digest pin: $ref" >&2
     fail=1
   fi
-done < <(grep -E "^[[:space:]]*image:[[:space:]]+harbor\.lolday\.svc:80/lolday/" "$VALUES")
+done < <(grep -E "^[[:space:]]*image:[[:space:]]+[a-zA-Z0-9./_:-]+(:[a-zA-Z0-9._-]+)?(@sha256:[0-9a-f]+)?" "$VALUES")
 
 if [ "$fail" -eq 1 ]; then
   cat >&2 <<'EOF'

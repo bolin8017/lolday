@@ -60,7 +60,7 @@ spec:
             seccompProfile: {type: RuntimeDefault}
           containers:
             - name: check
-              image: python:3.13-alpine
+              image: python:3.13-alpine@sha256:420cd0bf0f3998275875e02ecd5808168cf0843cbb4d3c536432f729247b2acc
               imagePullPolicy: IfNotPresent
               command: [python, /scripts/check.py]
               env:

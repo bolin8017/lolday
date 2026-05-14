@@ -26,7 +26,7 @@ cloudflare:
   enabled: true
   tunnelToken: "" # --set at deploy time via $CF_TUNNEL_TOKEN
   replicas: 2
-  image: cloudflare/cloudflared:2026.3.0 # pin explicit tag (no :latest)
+  image: cloudflare/cloudflared:2026.3.0@sha256:6b599ca3e974349ead3286d178da61d291961182ec3fe9c505e1dd02c8ac31b0 # pin explicit tag (no :latest)
 
 # =============================================================================
 # Backend API
@@ -120,7 +120,7 @@ postgresql:
   # Pin to alpine variant — smaller surface, fewer glibc CVEs. PG data
   # files are byte-identical between debian/alpine builds at the same
   # major, so the swap is reversible.
-  image: postgres:16-alpine
+  image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
   storage:
     size: 10Gi
   auth:
@@ -136,7 +136,7 @@ redis:
   # Pin to a specific minor (alpine variant) — the rolling `7-alpine` tag
   # picked up CVE-2025-68121 (Go crypto/tls) via baked-in tooling and the
   # tag was immutable so re-pulls didn't refresh the layer.
-  image: redis:7.4-alpine
+  image: redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
   # operator MUST `--set redis.auth.password=<strong>` at deploy time.
   # An empty value here is intentional — the chart's required() validator
   # fails fast if you forget.
@@ -155,34 +155,34 @@ harbor:
   enabled: true
   nginx:
     image:
-      tag: v2.15.0
+      tag: v2.15.0@sha256:4fcfe831b1d99e3193a586e59ba4984ca2587a9b2998ccd433f8e9425beaabdc
   portal:
     image:
-      tag: v2.15.0
+      tag: v2.15.0@sha256:541d5fa95bf77240d46a438f86245cdfd6afa6dd7fdd0cf4dd4c905af6a980b1
   core:
     image:
-      tag: v2.15.0
+      tag: v2.15.0@sha256:32a13f6693a278261e9c9cb7eb606c5e2aa021308ae44fdc73225755048500a8
   jobservice:
     image:
-      tag: v2.15.0
+      tag: v2.15.0@sha256:a22c7cccba4673b26ffb96f5c37971d85d879dd837bc82448e01c0170b68cf28
   registry:
     registry:
       image:
-        tag: v2.15.0
+        tag: v2.15.0@sha256:beb49fd16cf0906c04a2bf51a22f7210289e7cc2ae43a733e2a0364380aceae6
     controller:
       image:
-        tag: v2.15.0
+        tag: v2.15.0@sha256:463172f71d3a1e8d4f9e3b4e687a447f41fbc3126316d8c150dba04a903bbc47
   database:
     internal:
       image:
-        tag: v2.15.0
+        tag: v2.15.0@sha256:b54e48a70a7bc173a213f59d826d09bd5d3ad94ab00f2b3335751ff43edeb842
   redis:
     internal:
       image:
-        tag: v2.15.0
+        tag: v2.15.0@sha256:5da5570c0a4c2adae897a30656f1f2f6377f84c11e789b1010732a96b938f34e
   exporter:
     image:
-      tag: v2.15.0
+      tag: v2.15.0@sha256:ad065e4e1a0ee900a0bb1a03d57028ed4b51dc04933f5c1cb5c4aee301a72ddb
   expose:
     type: clusterIP
     tls:
@@ -217,7 +217,7 @@ harbor:
     enabled: true
     skipUpdate: false
     image:
-      tag: v2.15.0
+      tag: v2.15.0@sha256:6fd6de9cfbbb04cb1d94722cfa01cf71b8994d3f9e7891d3b03a89a7536480ba
   notary:
     enabled: false
   chartmuseum:
@@ -316,7 +316,7 @@ monitoring:
     adminPassword: "" # --set at deploy time (from Task 7)
   postgresExporter:
     enabled: true
-    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0@sha256:f8381eb4326afd254efcdc2ef127cd16a0a8cd68c32c4a6bf1629a4f3dd71c0a
     password: "" # --set at deploy time, NEVER commit
     resources:
       requests: { cpu: 20m, memory: 64Mi }
@@ -516,7 +516,7 @@ loki:
   # patched OpenSSL.
   sidecar:
     image:
-      tag: 2.7.1
+      tag: 2.7.1@sha256:5bc0c5634d4aae468e27e98bf1aae4f45d82fcbfd73baf4a9d3fb0699c62f83d
 
 # =============================================================================
 # Grafana Alloy — DaemonSet log shipper (replaces Promtail, phase 9.2)

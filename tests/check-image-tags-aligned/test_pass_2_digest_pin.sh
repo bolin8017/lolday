@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # scripts/check-image-tags-aligned.sh Pass 2:
-# every lolday-owned (harbor.lolday.svc:80/lolday/...) image ref in
-# values.yaml must end in @sha256:<64-hex>. Sub-chart refs
-# (postgres, redis, …) are out of scope until T4.
+# every top-level `image:` scalar in values.yaml must end in
+# @sha256:<64-hex>. T4 widened this from "lolday-owned only" to
+# "every image: scalar", so sub-chart full-ref scalars (postgres,
+# redis, cloudflared, postgres-exporter) are now ENFORCED. Nested
+# image.tag slots under Harbor / loki sidecar look like generic
+# `tag:` keys and are not statically greppable — those are validated
+# at deploy time via `helm template | grep` (plan T4 Step 5).
 #
 # Cases:
 #   1. All three lolday-owned refs pinned → exit 0 with expected stdout.
 #   2. One ref's digest stripped → exit non-zero with the missing-digest
 #      error on stderr.
-#   3. Adds a sub-chart-style `image: postgres:16-alpine` line (no
-#      digest) → still exits 0. Scope-creep guard: a future PR that
-#      widens Pass 2's grep to non-lolday refs will trip this test.
+#   3. Sub-chart refs enforced (T4 scope): an unpinned
+#      `image: postgres:16-alpine` line now fails the hook with the
+#      same missing-digest error.
 set -euo pipefail
 . "$(dirname "$0")/_lib.sh"
 
@@ -50,10 +54,10 @@ echo "$err" | grep -qE 'ERROR: image ref missing @sha256:<64-hex> digest pin: ha
   || fail "case 2: missing-digest error message not surfaced; got: $err"
 pass "case 2: one digest stripped → non-zero + missing-digest error"
 
-# ---- Case 3: sub-chart-style `postgres:16-alpine` ref → still exit 0 ----
-# Scope guard. T1 only checks harbor.lolday.svc:80/lolday/... refs. If a
-# future PR rewrites the grep to cover *every* `image:` line, this case
-# will start failing and CI will catch it before merge.
+# ---- Case 3: sub-chart refs enforced (T4 scope) → non-zero ----
+# Post-T4 the Pass 2 grep covers every top-level `image:` scalar, not
+# just lolday-owned refs. An unpinned `image: postgres:16-alpine` line
+# must now trip the same missing-digest error.
 dir3=$(mk_fixture)
 trap "rm -rf '$dir' '$dir2' '$dir3'" EXIT
 write_chart "$dir3" 1.2.3 1.2.3
@@ -67,10 +71,10 @@ frontend:
 postgresql:
   image: postgres:16-alpine
 redis:
-  image: redis:7.4-alpine
+  image: redis:7.4-alpine@$DIGEST_A
 EOF
-out=$(LOLDAY_REPO_ROOT_OVERRIDE="$dir3" bash "$SCRIPT" 2>&1) \
-  || fail "case 3 (sub-chart scope-exclusion): hook rejected a fixture with unpinned sub-chart refs (T1 must not check non-lolday refs): $out"
-echo "$out" | grep -qF "image tags aligned with Chart.yaml: v1.2.3; digest pin present on all values.yaml image refs" \
-  || fail "case 3: success stdout missing; got: $out"
-pass "case 3: sub-chart refs ignored by Pass 2 (T1 scope) → exit 0"
+err=$(LOLDAY_REPO_ROOT_OVERRIDE="$dir3" bash "$SCRIPT" 2>&1) && rc=$? || rc=$?
+[ "${rc:-0}" -ne 0 ] || fail "case 3 (sub-chart refs enforced): hook unexpectedly exited 0 on an unpinned sub-chart ref"
+echo "$err" | grep -qE 'ERROR: image ref missing @sha256:<64-hex> digest pin: postgres:16-alpine$' \
+  || fail "case 3: expected missing-digest error for postgres:16-alpine not seen; got: $err"
+pass "case 3: sub-chart refs enforced (T4 scope) → non-zero + missing-digest error"
