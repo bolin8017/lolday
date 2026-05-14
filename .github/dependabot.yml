@@ -73,6 +73,9 @@ updates:
   #     server30; the directory name itself encodes the constraint and the
   #     Dockerfile pins torch wheels to the cu126 index.
   # .github/workflows/helpers.yml already excludes both from CI build
-  # verification ("mlflow-server and pytorch-cu12-base are excluded by
-  # design (operator manual)"); excluding them here keeps the two configs
-  # aligned and stops dependabot from re-proposing single-side bumps.
+  # verification. After H-21-img (P4 plan T3), both Dockerfiles also pin
+  # their base image by @sha256:<digest>. Digest-only re-anchors of the
+  # excluded helpers are surfaced by .github/workflows/trivy-cron.yml
+  # (P4 plan T14) on a weekly cadence — when Trivy reports CRITICAL on
+  # the current digest, the operator updates the Dockerfile FROM line
+  # manually.
