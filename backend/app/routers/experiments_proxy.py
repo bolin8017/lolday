@@ -7,7 +7,8 @@ from urllib.parse import quote
 
 import httpx
 from cachetools import TTLCache
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,6 +77,13 @@ _stats_cache: TTLCache[str, dict] = TTLCache(maxsize=64, ttl=30)
 # is capped at maxsize=64 and lab-scale experiment counts stay well under 1 k.
 # Revisit if experiments become user-scoped or the cache cap is raised substantially.
 _stats_locks: dict[str, asyncio.Lock] = {}
+
+
+# M-mlflow-stream (security-hardening P6): cap concurrent MLflow artifact
+# streams per backend pod. 8 x ~256 KiB transit buffer = 2 MiB peak resident,
+# well under the 512 MiB pod limit even at saturation. See plan section D4
+# for sizing validation.
+_MLFLOW_STREAM_SEM: asyncio.Semaphore = asyncio.Semaphore(8)
 
 
 def _client() -> MlflowClient:
@@ -301,7 +309,7 @@ async def download_artifact(
     run_id: str,
     path: str,
     user: Annotated[User, Depends(current_active_user)],
-) -> Response:
+) -> StreamingResponse:
     try:
         run = await _client().get_run(run_id)
     except MlflowError as e:
@@ -319,7 +327,7 @@ async def download_artifact(
             detail=f"unexpected artifact_uri scheme: {artifact_uri!r}",
         )
     relative = artifact_uri[len(prefix) :].rstrip("/")
-    # Percent-encode each segment defensively — ``..`` is already rejected
+    # Percent-encode each segment defensively -- ``..`` is already rejected
     # by ``_validate_artifact_path``, but unencoded ``#`` / ``?`` / ``%``
     # would otherwise truncate the upstream URL or get re-interpreted.
     safe_path = "/".join(quote(p, safe="") for p in PurePosixPath(path).parts)
@@ -327,17 +335,35 @@ async def download_artifact(
         f"{settings.MLFLOW_TRACKING_URI}/api/2.0/mlflow-artifacts/artifacts/"
         f"{relative}/{safe_path}"
     )
-    async with httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS) as c:
-        r = await c.get(url)
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=r.text)
 
     # RFC 6266: tell the browser to save with the artifact basename instead of
     # the URL's literal "download" segment. See spec §5.2 / plan Task 2.3.
     filename = PurePosixPath(path).name or "artifact"
     media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    return Response(
-        content=r.content,
+
+    # M-mlflow-stream: stream rather than buffer. _MLFLOW_STREAM_SEM caps
+    # in-flight streams to 8 per pod (see plan section D4). The semaphore + the
+    # AsyncClient + the stream context manager all unwind on client cancel,
+    # so we don't leak the upstream socket on premature disconnect.
+    async def _iter_upstream():
+        async with (
+            _MLFLOW_STREAM_SEM,
+            httpx.AsyncClient(timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS) as client,
+            client.stream("GET", url) as upstream,
+        ):
+            if upstream.status_code != 200:
+                # Drain to a string so the error message is meaningful;
+                # bounded because the upstream produced a non-2xx for
+                # an artifact-list URL (small JSON / HTML body).
+                body = await upstream.aread()
+                raise HTTPException(
+                    status_code=502, detail=body.decode("utf-8", "replace")
+                )
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+
+    return StreamingResponse(
+        _iter_upstream(),
         media_type=media_type,
         headers={"Content-Disposition": build_content_disposition(filename)},
     )
