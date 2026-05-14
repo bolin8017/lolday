@@ -127,7 +127,10 @@ spec:
 ---
 # Harbor nginx (entry point): reachable from backend (build orchestration) and
 # from job pods (image pull at runtime). Cross-ns selector for jobs ns.
-# NB: harbor.lolday.svc:80 routes to the harbor-nginx pod (component: nginx).
+# NB: harbor.lolday.svc:80 (Service) routes to the harbor-nginx pod on port
+# 8080 (Harbor 2.x non-root container). NetworkPolicy `port` is the POD-side
+# port — using Service port 80 here would never match because kube-proxy has
+# already translated 80→8080 by the time NP enforcement runs.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -151,7 +154,7 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace }}
       ports:
-        - port: 80
+        - port: 8080
           protocol: TCP
 ---
 # Harbor internal: all harbor components (core, portal, registry, jobservice,
