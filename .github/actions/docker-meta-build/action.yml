@@ -78,27 +78,36 @@ runs:
         exit-code: "1"
         ignore-unfixed: true
         format: table
-    # H-22: Generate an SPDX SBOM and attach it as a Cosign-compatible
-    # attestation. Runs only on push (PR builds skip — the image isn't
-    # in a registry to attach to). Uses the immutable digest, not a tag,
-    # so the SBOM survives tag-overwrite.
-    - name: Generate SBOM (H-22 SPDX attestation)
-      if: inputs.push == 'true'
-      uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-      env:
-        # syft's default cataloger order on GHA hosted runners tries containerd
-        # first; the runner has no socket access for it, so the build fails
-        # with "/run/containerd/containerd.sock: permission denied" without
-        # falling back to registry. Pass GHCR creds so syft uses the registry
-        # cataloger directly (no daemon socket needed).
-        SYFT_REGISTRY_AUTH_USERNAME: ${{ github.actor }}
-        SYFT_REGISTRY_AUTH_PASSWORD: ${{ github.token }}
-      with:
-        image: ghcr.io/bolin8017/${{ inputs.image }}@${{ steps.build.outputs.digest }}
-        format: spdx-json
-        output-file: sbom.spdx.json
-        upload-artifact: true
-        upload-release-assets: false
+    # H-22 (SBOM): TEMPORARILY DISABLED — syft v1.42.3 via the sbom-action
+    # exits 1 against GHCR-private images on GHA runners. With the
+    # SYFT_REGISTRY_AUTH_* env path, syft authenticates and DOES print the
+    # package inventory, but the syft binary still returns exit 1 (the
+    # output stream appears to mix the package table with the SPDX JSON
+    # payload — anchore/sbom-action then treats the result as malformed).
+    # Containerd cataloger requires socket access that GHA runners
+    # don't grant. Workaround approaches that need follow-up validation:
+    #   - Add `docker pull <ref>` before sbom-action so syft scans the
+    #     daemon-resident image, not a registry pull.
+    #   - Use `scope: squashed` + `--quiet` to suppress table output.
+    #   - Switch to `anchore/sbom-action` v0.25+ (when released) or to
+    #     CycloneDX as an alternate format.
+    # Cosign sign (next step) is unaffected and still attaches a Sigstore
+    # attestation per image digest. Trivy gate (above) is also unaffected.
+    # Filed as follow-up: re-enable SBOM with one of the approaches above
+    # after a green smoke test on a feature branch.
+    #
+    # - name: Generate SBOM (H-22 SPDX attestation)
+    #   if: inputs.push == 'true'
+    #   uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+    #   env:
+    #     SYFT_REGISTRY_AUTH_USERNAME: ${{ github.actor }}
+    #     SYFT_REGISTRY_AUTH_PASSWORD: ${{ github.token }}
+    #   with:
+    #     image: ghcr.io/bolin8017/${{ inputs.image }}@${{ steps.build.outputs.digest }}
+    #     format: spdx-json
+    #     output-file: sbom.spdx.json
+    #     upload-artifact: true
+    #     upload-release-assets: false
     # H-23: install cosign for keyless OIDC signing. The action SHA is
     # pinned; the cosign binary itself defaults to the action's latest
     # stable release — same trust path as every other GHA action.
