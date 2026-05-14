@@ -9,8 +9,15 @@ metadata:
     {{- include "lolday.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  DATABASE_URL: "postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@postgresql:5432/{{ .Values.postgresql.auth.database }}"
-  REDIS_URL: "redis://:{{ required "redis.auth.password must be set" .Values.redis.auth.password }}@redis:6379/0"
+  # urlquery percent-encodes the password before embedding into the URL.
+  # Without it, an `openssl rand -base64` generated password containing
+  # `/` or `+` breaks urllib's URL parser (urlparse cuts at the first `/`
+  # after netloc, making the password's tail leak into the path; redis.async
+  # `from_url` then raises ValueError on the misparsed port). Defensive on
+  # both URLs since both passwords are operator-generated from the same
+  # base64 charset.
+  DATABASE_URL: "postgresql+asyncpg://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password | urlquery }}@postgresql:5432/{{ .Values.postgresql.auth.database }}"
+  REDIS_URL: "redis://:{{ required "redis.auth.password must be set" .Values.redis.auth.password | urlquery }}@redis:6379/0"
 ---
 apiVersion: apps/v1
 kind: Deployment
