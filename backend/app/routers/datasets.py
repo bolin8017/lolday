@@ -18,6 +18,7 @@ from app.schemas.dataset import (
     DatasetConfigRead,
     DatasetConfigUpdate,
 )
+from app.services.audit import write_audit_log
 from app.services.dataset import DatasetValidationError, parse_csv
 from app.services.http_headers import build_content_disposition
 from app.services.search import escape_like_pattern
@@ -270,5 +271,14 @@ async def delete_dataset(
         )
 
     ds.deleted_at = datetime.now(UTC)
+    await write_audit_log(
+        session,
+        actor_id=user.id,
+        action="dataset.delete",
+        target_type="dataset",
+        target_id=ds.id,
+        before={"name": ds.name, "visibility": ds.visibility.value},
+        after={"deleted_at": ds.deleted_at.isoformat()},
+    )
     await session.commit()
     return Response(status_code=204)

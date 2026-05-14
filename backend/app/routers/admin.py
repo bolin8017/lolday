@@ -10,6 +10,7 @@ from app.db import get_async_session
 from app.deps import require_role
 from app.models import Role, User
 from app.schemas import UserRead
+from app.services.audit import write_audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +79,17 @@ async def update_user(
     for field, value in changes.items():
         setattr(target, field, value)
     session.add(target)
-    await session.commit()
-    await session.refresh(target)
+
     if new_role is not None and new_role != old_role:
+        await write_audit_log(
+            session,
+            actor_id=admin.id,
+            action="admin.role_change",
+            target_type="user",
+            target_id=target.id,
+            before={"role": old_role.value},
+            after={"role": target.role.value},
+        )
         logger.info(
             "admin role change: actor=%s target=%s old=%s new=%s",
             admin.email,
@@ -88,4 +97,7 @@ async def update_user(
             old_role.value,
             target.role.value,
         )
+
+    await session.commit()
+    await session.refresh(target)
     return target
