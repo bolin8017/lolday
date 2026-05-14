@@ -1,7 +1,7 @@
 # lolday/pytorch-cu12-base — CVE-clean CUDA 12.6 + Python 3.12 + torch 2.7
 #
 # Why custom: pytorch/pytorch official runtime images pin Python 3.11 via
-# conda, but lolday's islab-malware-detector requires Python 3.12+.
+# conda, but lolday's detector framework (maldet) requires Python 3.12+.
 # Building on nvidia/cuda:12.6.* + deadsnakes python3.12 keeps both the
 # CUDA layer and the Python layer upstream-managed.
 #
@@ -14,6 +14,12 @@
 # now lands on the same resolver set; no floating "latest" that could
 # introduce fresh High/Critical CVEs between a successful Trivy scan
 # and a later rebuild.
+#
+# M-helper-hashes: requirements-runtime.txt is generated via
+# `uv pip compile --generate-hashes`. Pip refuses any install whose
+# downloaded artifact hash differs from the value pinned in the file —
+# defense against the same-version-republish attack that version-only
+# pinning cannot catch.
 
 FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04@sha256:5f0d2d827f6436b3cb7468fd8acbdc8c1d41261614e579ae49afe6141da51133
 
@@ -41,27 +47,14 @@ RUN apt-get update \
 
 # Torch 2.7.0 with CUDA 12.6 wheel set (matches host driver 560 which
 # caps at CUDA 12.6). torch >=2.6 required for CVE-2025-32434.
-RUN pip install --no-cache-dir \
-        torch==2.7.0 \
-        torchvision==0.22.0 \
-        --index-url https://download.pytorch.org/whl/cu126
-
-# Baseline scientific stack every detector uses. All pinned exact so
-# the Trivy scan of this base image is reproducible across rebuilds.
 #
-# psutil + pynvml: required by MLflow 2.8+ system metrics logging
+# Baseline scientific stack every detector uses, plus:
+# psutil + pynvml — required by MLflow 2.8+ system metrics logging
 # (MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING in detector pod spec). Without
 # both, mlflow silently no-ops the system/* metrics. Spec § 5.6.
-RUN pip install --no-cache-dir \
-        numpy==2.2.3 \
-        pandas==2.2.3 \
-        scikit-learn==1.6.1 \
-        pyelftools==0.32 \
-        structlog==25.1.0 \
-        typer==0.15.2 \
-        psutil==6.1.1 \
-        pynvml==12.0.0 \
-        "islab-malware-detector[mlflow]==0.5.0"
+COPY requirements-runtime.txt /tmp/requirements-runtime.txt
+RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements-runtime.txt \
+    && rm /tmp/requirements-runtime.txt
 
 # Default non-root user expected by lolday's detector pod spec.
 RUN useradd -m -u 1000 lolday

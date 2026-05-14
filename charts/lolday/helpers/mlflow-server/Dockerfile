@@ -7,4 +7,10 @@ FROM ghcr.io/mlflow/mlflow:v2.20.3@sha256:28639c6e142a5da4b91461e27f8473c6d13113
 # Upstream ghcr.io mlflow image is slim and omits Postgres and S3 drivers.
 # - psycopg2-binary: backend-store-uri `postgresql+psycopg2://...`
 # - boto3: S3 artifact store (MinIO via MLFLOW_S3_ENDPOINT_URL)
-RUN pip install --no-cache-dir psycopg2-binary==2.9.9 boto3==1.38.5
+#
+# M-helper-hashes: hash-pinned requirements file generated via
+# `uv pip compile --generate-hashes`. Pip refuses any install whose
+# downloaded artifact hash differs from the pin.
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
