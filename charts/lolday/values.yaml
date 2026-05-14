@@ -11,15 +11,6 @@ global:
   jobsNamespace: lolday-jobs
 
 # =============================================================================
-# Private Container Registry (registry:2)
-# =============================================================================
-registry:
-  enabled: false
-  storage:
-    size: 50Gi
-    # Uses K3s default StorageClass (local-path)
-
-# =============================================================================
 # Cloudflare Tunnel
 # =============================================================================
 cloudflare:
