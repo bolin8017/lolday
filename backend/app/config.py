@@ -144,6 +144,27 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("JOB_NAMESPACE")
+    @classmethod
+    def _validate_job_namespace(cls, v: str) -> str:
+        """L-promql-fstring (security-hardening P6).
+
+        ``JOB_NAMESPACE`` is interpolated into a PromQL f-string in
+        ``services/gpu_signal.py`` (the host-aware GPU signal query). PromQL
+        itself has no injection-equivalent of SQL, but any operator-set value
+        that lands in a query string ought to match a defensive shape. We
+        require the standard Kubernetes DNS-label form (RFC 1123) -- the only
+        shape a legitimate namespace can have anyway.
+        """
+        import re
+
+        if not re.fullmatch(r"[a-z0-9-]+", v):
+            raise ValueError(
+                f"JOB_NAMESPACE={v!r} is not a valid Kubernetes DNS label "
+                "(expected lowercase letters, digits, hyphens; non-empty)."
+            )
+        return v
+
     @field_validator("FERNET_KEYS", mode="before")
     @classmethod
     def _split_fernet_keys(cls, v):
