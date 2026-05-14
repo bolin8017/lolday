@@ -85,6 +85,14 @@ runs:
     - name: Generate SBOM (H-22 SPDX attestation)
       if: inputs.push == 'true'
       uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+      env:
+        # syft's default cataloger order on GHA hosted runners tries containerd
+        # first; the runner has no socket access for it, so the build fails
+        # with "/run/containerd/containerd.sock: permission denied" without
+        # falling back to registry. Pass GHCR creds so syft uses the registry
+        # cataloger directly (no daemon socket needed).
+        SYFT_REGISTRY_AUTH_USERNAME: ${{ github.actor }}
+        SYFT_REGISTRY_AUTH_PASSWORD: ${{ github.token }}
       with:
         image: ghcr.io/bolin8017/${{ inputs.image }}@${{ steps.build.outputs.digest }}
         format: spdx-json
