@@ -67,10 +67,17 @@ restricted securityContext; Redis password enforced; BuildKit's
 example); PSS labels on every namespace (`lolday-jobs` ramped `audit` → `warn`
 → `enforce: restricted` over 7-day windows); Traefik ForwardAuth middleware
 plus `routers/mlflow_authz.py` enforce per-experiment ACL on the MLflow
-ingress; the `lolday-builds` namespace split absorbed BuildKit's seccomp
-exception so `lolday-jobs` stays restricted-PSS.
+ingress; ~~the `lolday-builds` namespace split absorbed BuildKit's seccomp
+exception so `lolday-jobs` stays restricted-PSS~~ — _PLANNED but not executed
+in P2; see [2026-05-15 post-program review](../phase-history/2026-05-15-security-post-program-review.md)
+D-2. The `buildkit-seccomp-installer` DaemonSet remained in `lolday` ns,
+which is the structural reason `lolday` ns was not labeled
+`enforce: restricted`. Tracked for closure as [#174](https://github.com/bolin8017/lolday/issues/174)._
 
-**Residual:** none. A compromised detector pod is now a local incident.
+**Residual:** the `lolday-builds` namespace split is the residual scoped to
+#174 above. A compromised detector pod is now a local incident; the
+unsplit BuildKit DaemonSet only widens the blast radius of a compromised
+`lolday` ns control plane, not the per-tenant detector tier.
 
 ### Theme C — MLflow is the platform's biggest BOLA window
 
