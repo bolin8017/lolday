@@ -22,6 +22,9 @@ set -euo pipefail
 COSIGN_DIR="${COSIGN_DIR:-$HOME/.cosign}"
 PRIV_KEY="${COSIGN_DIR}/lolday-harbor.key"
 PUB_KEY="${COSIGN_DIR}/lolday-harbor.pub"
+# cosign 3.0+ replaced `--tlog-upload=false` with a signing-config file.
+# Generate one with no Rekor transparency log so signatures stay private.
+SIGN_CONFIG="${COSIGN_DIR}/lolday-no-tlog.config.json"
 SECRET_NS=kyverno
 SECRET_NAME=cosign-harbor-pubkey
 SECRET_FILE_KEY=cosign.pub   # Kyverno requires the key inside the Secret to be exactly `cosign.pub`.
@@ -86,6 +89,14 @@ if ! kubectl get ns "${SECRET_NS}" >/dev/null 2>&1; then
   echo "[fatal] namespace ${SECRET_NS} not found. Is Kyverno installed?" >&2
   echo "[hint]  run 'bash scripts/deploy.sh' first." >&2
   exit 1
+fi
+
+# cosign 3.0 no-Rekor signing-config — used by scripts/build-helpers.sh::cosign_sign.
+# Cheap to regenerate, safe to overwrite (no secret material).
+if [ ! -f "${SIGN_CONFIG}" ]; then
+  echo "[step 1b/3] generating no-tlog signing-config at ${SIGN_CONFIG}"
+  cosign signing-config create --no-default-rekor --out "${SIGN_CONFIG}"
+  chmod 0600 "${SIGN_CONFIG}"
 fi
 
 echo "[step 2/3] applying public key Secret ${SECRET_NS}/${SECRET_NAME}"
