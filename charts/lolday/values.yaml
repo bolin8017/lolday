@@ -9,6 +9,12 @@ global:
   # can cap them without constraining infra (postgres / prometheus / etc.).
   # See docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md §6.2
   jobsNamespace: lolday-jobs
+  # H-14 follow-up (#174, 2026-05-15): BuildKit seccomp installer needs
+  # CAP_CHOWN/DAC_OVERRIDE/FOWNER + runAsUser:0 to write the kubelet
+  # seccomp profile. That is incompatible with PSS restricted. Isolating
+  # the installer DaemonSet in its own namespace lets us promote the
+  # lolday infra ns to enforce:restricted without exempting BuildKit.
+  buildsNamespace: lolday-builds
 
 # =============================================================================
 # Cloudflare Tunnel

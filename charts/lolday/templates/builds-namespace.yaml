@@ -1,0 +1,34 @@
+{{/* H-14 follow-up (#174, 2026-05-15): dedicated namespace for the
+     BuildKit seccomp installer DaemonSet.
+
+     Why a separate namespace from `lolday` (infra) and `lolday-jobs`
+     (vcjobs + build Jobs)? The seccomp installer is a privileged hostPath
+     writer — it copies files/buildkit/seccomp.json onto every node's
+     /var/lib/kubelet/seccomp directory. To do that it needs runAsUser:0
+     + CAP_CHOWN + CAP_DAC_OVERRIDE + CAP_FOWNER. That violates PSS
+     restricted-mode capability and runAsNonRoot rules.
+
+     Mirror jobs-namespace.yaml's PSS-label progression: start at
+     enforce:baseline so the existing installer pod can keep running,
+     while audit:restricted + warn:restricted surface any new pod that
+     drifts. Promotion of enforce:restricted is out of scope here —
+     this ns is by design the home for the privileged installer.
+
+     See docs/runbooks/pss-label-promotion.md for the lolday + lolday-jobs
+     ns enforce-promotion procedure. */}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.global.buildsNamespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+    lolday.io/role: builds
+    # explicit duplicate of K8s' auto-injected label, for older K3s + tooling
+    # that don't reliably honour the projected `kubernetes.io/metadata.name`.
+    kubernetes.io/metadata.name: {{ .Values.global.buildsNamespace }}
+    # H-14 — PSS audit + warn at restricted; enforce stays at baseline
+    # because the buildkit-seccomp-installer DaemonSet needs runAsUser:0
+    # + CAP_CHOWN/DAC_OVERRIDE/FOWNER to write the kubelet seccomp dir.
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/enforce: baseline
