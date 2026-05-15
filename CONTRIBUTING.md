@@ -55,7 +55,9 @@ Squash-merge only. Lint + tests must be green. Full discipline:
 
 ## Filing issues
 
-Use GitHub Issues for bugs and feature requests. Include:
+Use GitHub Issues for bugs and feature requests; the
+[`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/) templates seed the
+required structure. Include:
 
 - What you observed (logs, screenshots, `kubectl describe` output)
 - What you expected
@@ -63,3 +65,24 @@ Use GitHub Issues for bugs and feature requests. Include:
 
 Postmortems for incidents land in
 [docs/postmortems/](docs/postmortems/) as `YYYY-MM-DD-<topic>.md`.
+
+## Reporting security issues
+
+**Do not** open a public GitHub issue for a security vulnerability. Use
+GitHub's [private vulnerability reporting](https://github.com/bolin8017/lolday/security/advisories/new).
+Full policy, scope, and SLA: [SECURITY.md](SECURITY.md).
+
+## Repository hygiene (2026-05-15 public flip)
+
+- `main` is branch-protected: PR + linear history required, no force / no
+  delete. Squash-merge only. CI must be green; mechanical chart / doc PRs
+  may be admin-merged after local verification when CI billing is blocked.
+- GitHub Secret Scanning + Push Protection + Dependabot Security Updates
+  are enabled. The `gitleaks` workflow runs on every PR as an extra gate.
+- All container images published from this repo are cosign-signed
+  (GHCR keyless via GHA OIDC; Harbor with an operator-managed key —
+  see [`docs/runbooks/kyverno-harbor-signing.md`](docs/runbooks/kyverno-harbor-signing.md)).
+
+## Community standards
+
+Contributor expectations: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

@@ -158,6 +158,29 @@ Service-token-driven jobs do not notify — by design (Phase 12). Don't try to "
 
 **Action:** STOP. Read root `CLAUDE.md` SSH safety hard rule and `docs/postmortems/2026-03-31-cilium-ssh-incident.md`. Dry-run the change to stdout, prompt the operator to verify SSH from a fresh session, and apply only after explicit confirmation.
 
+### Symptom: Pod admission rejected with `verify-lolday-harbor-image-signatures` (Kyverno)
+
+**Cause hypothesis:** The image being scheduled is from `harbor.lolday.svc:80/lolday/*` but does not carry a cosign signature under the Kyverno-verified key — typically a Harbor push that bypassed `scripts/build-helpers.sh` (manual `docker push` of `mlflow-server` / `pytorch-cu12-base`, or a hand-tag before the cosign keypair was bootstrapped).
+
+**Action:** Sign the image by digest with the operator key:
+
+```bash
+DIGEST=$(docker buildx imagetools inspect --raw \
+  harbor.lolday.svc.cluster.local:80/lolday/<name>:<tag> \
+  | sha256sum | awk '{print "sha256:" $1}')
+cosign sign --yes --tlog-upload=false \
+  --key ~/.cosign/lolday-harbor.key \
+  harbor.lolday.svc:80/lolday/<name>@${DIGEST}
+```
+
+Full flow + bootstrap + key rotation: [`docs/runbooks/kyverno-harbor-signing.md`](kyverno-harbor-signing.md). If the policy was just promoted Audit→Enforce and many pods fail at once, `kubectl patch clusterpolicy verify-lolday-harbor-image-signatures --type=merge -p '{"spec":{"validationFailureAction":"Audit"}}'` rolls back to Audit while the operator backfills signatures via `bash scripts/build-helpers.sh`.
+
+### Symptom: stale `job-token-<uuid>` Secrets pile up in an old namespace after a ns migration
+
+**Cause hypothesis:** `reconcile_orphan_token_secrets` only swept `JOB_NAMESPACE` until #175. A ns migration (e.g. `lolday` → `lolday-jobs`) left orphan Secrets behind in the old ns.
+
+**Action:** Set `JOB_TOKEN_LEGACY_NAMESPACES` on the backend Deployment to a whitespace-separated list of the legacy ns(es) and roll the pod. Sweep runs once per reconciler iteration. Full procedure: [`docs/runbooks/orphan-job-tokens-cleanup.md`](orphan-job-tokens-cleanup.md).
+
 ### Symptom: deadmans-switch CronJob CrashLoopBackOff with "DISCORD_URL env var missing"
 
 **Cause hypothesis:** The CronJob's env is missing `DISCORD_URL`. This is intentionally fail-fast — a silent dead-man switch is worse than a crashing one.

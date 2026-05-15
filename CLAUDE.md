@@ -32,6 +32,14 @@ Day-to-day operator data (Discord channel IDs, `.env` files, server access): `do
 - NFS dataset union mount onboarding (since 2026-05-12) → `docs/runbooks/add-nfs-dataset.md`
 - NFS dataset union mount design (mergerfs over NFSv4.2) → `docs/superpowers/specs/2026-05-12-nfs-dataset-union-mount-design.md`
 - Fernet key rotation (P3 operator runbook) → `docs/runbooks/p3-fernet-rotation.md`
+- Security hardening program (P1–P6 closed 2026-05-14) → `docs/superpowers/specs/2026-05-12-security-hardening-design.md`, `docs/postmortems/2026-05-12-security-audit-program.md`, `docs/phase-history/2026-05-14-security-audit-findings.md`
+- Post-program review (OWASP / ASVS / CIS / NSA-CISA / SLSA cross-check, 14 follow-up PRs 2026-05-15) → `docs/phase-history/2026-05-15-security-post-program-review.md`
+- Harbor cosign signing (operator key, ClusterPolicy `verify-lolday-harbor-image-signatures`) → `docs/runbooks/kyverno-harbor-signing.md`, `scripts/cosign-harbor-init.sh`
+- K3s API audit log + `--secrets-encryption` (operator-apply patch on existing cluster) → `docs/runbooks/k3s-audit-and-secrets-encryption.md`, `scripts/patch-k3s-audit-and-secrets-encryption.sh`
+- PostgreSQL daily backup + restore (MinIO `pg-backups` bucket) → `docs/runbooks/db-restore.md`
+- PSS label promotion (Audit→Enforce ramp; `lolday-builds` stays baseline) → `docs/runbooks/pss-label-promotion.md`
+- Orphan job-token Secrets multi-ns sweep (`JOB_TOKEN_LEGACY_NAMESPACES`) → `docs/runbooks/orphan-job-tokens-cleanup.md`
+- Operator workstation off-site backup (age-encrypted bundle) → `docs/runbooks/operator-workstation-backup.md`
 
 ## Hard rules (every session must remember)
 
@@ -101,11 +109,13 @@ Reverting breaks: the unified retention policy, the SSD expansion workflow, and 
 ## Quickstart commands
 
 ```bash
-bash scripts/install-tools.sh           # CLI tools, no sudo → ~/.local/bin/
+bash scripts/install-tools.sh           # CLI tools (incl. cosign), no sudo → ~/.local/bin/
 sudo bash scripts/setup-k3s.sh          # K3s install — give to sudo-capable account
 sudo bash scripts/patch-k3s-kubelet-args.sh  # host safety reservations on existing K3s
+sudo bash scripts/patch-k3s-audit-and-secrets-encryption.sh  # API audit log + secrets encryption (existing cluster)
+bash scripts/cosign-harbor-init.sh      # one-time: Harbor cosign keypair + Kyverno pubkey Secret
 bash scripts/deploy.sh                  # platform deploy, no sudo
-bash scripts/build-helpers.sh           # build + push helper images, refresh helpers.lock
+bash scripts/build-helpers.sh           # build + push (cosign-signed) helper images, refresh helpers.lock
 cd backend && uv run pytest             # backend tests
 cd frontend && pnpm test                # frontend unit (vitest)
 cd frontend && pnpm playwright test     # frontend E2E

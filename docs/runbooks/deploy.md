@@ -36,7 +36,9 @@ sysctl kernel.apparmor_restrict_unprivileged_userns  # 0
 bash scripts/install-tools.sh
 ```
 
-Installs kubectl, helm, k9s, etc. into `~/.local/bin/`. No sudo.
+Installs kubectl, helm, k9s, cosign, etc. into `~/.local/bin/`. No sudo.
+The script is idempotent and also unsets any redundant
+`core.hooksPath` git config that would shadow `pre-commit` hooks.
 
 ### Operator-local secret files
 
@@ -68,6 +70,11 @@ Open a second SSH session to server30 on port 9453 _now_. Keep it open through e
 ```bash
 sudo bash scripts/setup-k3s.sh
 ```
+
+Fresh installs bake in the kube-apiserver `--audit-log-path` /
+`--audit-policy-file` flags and `--secrets-encryption`. **Existing K3s
+clusters** must be patched in-place via
+[`docs/runbooks/k3s-audit-and-secrets-encryption.md`](k3s-audit-and-secrets-encryption.md).
 
 Verify after install:
 
@@ -111,6 +118,16 @@ Out-of-band steps in the Cloudflare dashboard:
 Backend boot in production rejects empty `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_APP_AUD`.
 
 ## 5. Deploy the platform (no sudo)
+
+Before the first deploy, bootstrap the cosign keypair that the Kyverno
+`verify-lolday-harbor-image-signatures` ClusterPolicy verifies against
+(one-time, per cluster):
+
+```bash
+bash scripts/cosign-harbor-init.sh
+```
+
+Full operator flow + key-rotation cadence: [`docs/runbooks/kyverno-harbor-signing.md`](kyverno-harbor-signing.md).
 
 The deploy script reads `charts/lolday/helpers.lock` and injects the two helper image refs via Helm `--set`. **The lock must exist and match the current HEAD** — see `docs/runbooks/release-helpers.md` for the bootstrap order on a fresh install. A missing or drifted lock exits 1 with a remediation message.
 

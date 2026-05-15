@@ -31,7 +31,7 @@ calibration belong in the detector authors' own repos. See
 ## Quick start
 
 ```bash
-bash scripts/install-tools.sh              # CLI tools, no sudo → ~/.local/bin/
+bash scripts/install-tools.sh              # CLI tools (incl. cosign), no sudo → ~/.local/bin/
 sudo bash scripts/setup-k3s.sh             # K3s install, requires sudo
 helm install gpu-operator nvidia/gpu-operator -n gpu-operator --create-namespace \
   --set driver.enabled=false --set toolkit.enabled=true \
@@ -39,9 +39,15 @@ helm install gpu-operator nvidia/gpu-operator -n gpu-operator --create-namespace
   --wait --timeout 5m
 bash scripts/deploy.sh                     # first round; backend CrashLoopBackOff until helpers pushed
 bash scripts/recover-harbor.sh             # Harbor projects + robot account
-bash scripts/build-helpers.sh              # build + push helper images; refresh helpers.lock
+bash scripts/cosign-harbor-init.sh         # one-time: cosign keypair + Kyverno pubkey Secret
+bash scripts/build-helpers.sh              # build + push (signed) helper images; refresh helpers.lock
 bash scripts/deploy.sh                     # second round; backend clean
 ```
+
+The K3s API audit log + `--secrets-encryption` flags are operator-applied
+to an existing cluster via
+**[`docs/runbooks/k3s-audit-and-secrets-encryption.md`](docs/runbooks/k3s-audit-and-secrets-encryption.md)**.
+Fresh installs ship with the flags baked into `scripts/setup-k3s.sh`.
 
 Full procedure with pre-requisites, sysctls, verification, rollback, and SSH
 safety steps: **[docs/runbooks/deploy.md](docs/runbooks/deploy.md)**.
@@ -64,11 +70,25 @@ Start here:
 
 Runbooks for specific operations:
 
-- [Releasing helper images](docs/runbooks/release-helpers.md)
+- [Admin priority bump](docs/runbooks/admin-priority.md)
 - [Adding an SSD](docs/runbooks/add-ssd.md) (invalidated; see warning at top)
+- [Adding a new NFS-backed sample bank](docs/runbooks/add-nfs-dataset.md)
+- [Cloudflare Access backups](docs/runbooks/cf-access-backups.md)
+- [Fernet key rotation](docs/runbooks/p3-fernet-rotation.md)
+- [K3s API audit log + secrets encryption](docs/runbooks/k3s-audit-and-secrets-encryption.md)
+- [Kyverno Harbor image signing](docs/runbooks/kyverno-harbor-signing.md)
+- [Operator workstation backup](docs/runbooks/operator-workstation-backup.md)
+- [Orphan job-token Secrets cleanup](docs/runbooks/orphan-job-tokens-cleanup.md)
+- [PostgreSQL restore from MinIO backup](docs/runbooks/db-restore.md)
+- [PSS label promotion](docs/runbooks/pss-label-promotion.md)
+- [Releasing helper images](docs/runbooks/release-helpers.md)
 - [Storage migration](docs/runbooks/storage-migration.md) (one-time, historical)
 - [Wiping MLflow](docs/runbooks/wipe-mlflow.md) (pre-MinIO; see warning at top)
-- [Admin priority bump](docs/runbooks/admin-priority.md)
+
+Security:
+
+- [Security policy + vulnerability reporting](SECURITY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
 
 Audit trail (immutable):
 
