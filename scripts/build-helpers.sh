@@ -175,12 +175,18 @@ print(json.loads(sys.stdin.read())["auths"]["harbor.lolday.svc:80"]["auth"])
               -H "Authorization: Basic $auth" "$url" || echo 000)"
   if [ "$status" = "200" ]; then
     # Body is a (possibly empty) JSON array.
-    matches="$(python3 - <"$body" <<'PY'
+    # NOTE: `python3 -c 'script' <file` is the correct pattern. The earlier
+    # `python3 - <file <<HEREDOC` form silently failed: bash applies stdin
+    # redirections left-to-right and the heredoc wins, so python read the
+    # script from the heredoc and sys.stdin.read() returned "" after the
+    # script was consumed. harbor_has_tag therefore always returned 0
+    # matches (silent rebuild every run); harbor_get_digest below errored
+    # explicitly on the empty digest.
+    matches="$(python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 print(len(d) if isinstance(d, list) else 0)
-PY
-)"
+' <"$body")"
     rm -f "$body"
     matches="${matches:-0}"
     [ "$matches" -gt 0 ]
@@ -237,14 +243,14 @@ print(json.loads(sys.stdin.read())["auths"]["harbor.lolday.svc:80"]["auth"])
     echo "ERROR: harbor_get_digest $name $sha returned HTTP $status" >&2
     return 2
   fi
-  digest="$(python3 - <"$body" <<'PY'
+  # See harbor_has_tag note above re: heredoc-overrides-file-as-stdin.
+  digest="$(python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 if not isinstance(d, list) or not d:
     sys.exit(1)
 print(d[0]["digest"])
-PY
-)"
+' <"$body")"
   rm -f "$body"
   if [ -z "$digest" ] || ! echo "$digest" | grep -qE '^sha256:[0-9a-f]{64}$'; then
     echo "ERROR: harbor_get_digest $name $sha returned unexpected digest: $digest" >&2
@@ -281,6 +287,7 @@ docker_build_push() {
 cosign_sign() {
   local name=$1 digest=$2
   local key="${HOME}/.cosign/lolday-harbor.key"
+  local sigcfg="${HOME}/.cosign/lolday-no-tlog.config.json"
   if [ ! -f "$key" ]; then
     echo "WARN: ${key} not found — image pushed but UNSIGNED." >&2
     echo "WARN: run 'bash scripts/cosign-harbor-init.sh' to bootstrap." >&2
@@ -293,18 +300,30 @@ cosign_sign() {
     echo "WARN: cosign not in PATH — image pushed but UNSIGNED." >&2
     return 0
   fi
+  # cosign 3.0 retired --tlog-upload=false in favour of a signing-config
+  # file. Generate one inline if missing (cosign-harbor-init.sh creates it
+  # on bootstrap; this branch covers operators who initialised before the
+  # script started generating it). --no-default-rekor produces a config
+  # whose rekorTlogConfig is empty -> cosign sign skips the transparency
+  # log entirely, matching the policy-side rekor.ignoreTlog: true.
+  if [ ! -f "$sigcfg" ]; then
+    if cosign signing-config create --no-default-rekor --out "$sigcfg" 2>/dev/null; then
+      chmod 0600 "$sigcfg"
+    else
+      echo "WARN: failed to generate ${sigcfg}; sign will fail on cosign 3.0+." >&2
+      return 0
+    fi
+  fi
   local ref="$HARBOR_HOST_REF/$HARBOR_PROJECT/$name@$digest"
   echo "[sign] $name @ ${digest:0:19}..."
   # COSIGN_PASSWORD is read from env; left unset on the operator's path
-  # so cosign prompts interactively. --yes acknowledges the
-  # "Are you sure you want to continue?" Rekor confirmation, which is
-  # bypassed by the next flag but cosign requires the ack regardless.
-  # --tlog-upload=false matches the policy-side `rekor.ignoreTlog: true`:
-  # we do NOT enter signatures into the public transparency log because
-  # Harbor pushes are operator-private.
+  # so cosign prompts interactively. --yes acknowledges the implicit
+  # confirmation. --signing-config points at our no-Rekor profile so the
+  # signature is bound to the operator's private key and never enters
+  # the public transparency log.
   COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign sign \
     --yes \
-    --tlog-upload=false \
+    --signing-config "$sigcfg" \
     --key "$key" \
     "$ref"
 }
