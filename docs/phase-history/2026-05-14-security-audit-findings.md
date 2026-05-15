@@ -77,7 +77,7 @@ fix-up commit.
 | H-13 | P2 #137    | Orphan `deny-training-egress` NetworkPolicy deleted from `network-policy.yaml`                                                                                                                                                            |
 | H-14 | P2 #137    | PSS labels added to `lolday-jobs`, `monitoring`, `lolday` namespaces (`lolday-jobs` ramped `audit:restricted` → `enforce:baseline` → `enforce:restricted` over 7-day windows; BuildKit moved to `lolday-builds` ns at `enforce:baseline`) |
 | H-15 | P2 #137    | Traefik ForwardAuth middleware + `routers/mlflow_authz.py` enforce per-experiment ACL on `/mlflow/*`                                                                                                                                      |
-| H-16 | P2 #137    | `/mlflow/` ingress Traefik middleware restricts method allowlist (`GET, HEAD, OPTIONS` for any SSO user; `POST, PATCH, DELETE` admin-only)                                                                                                |
+| H-16 | P2 #137    | `/mlflow/` ingress restricts method allowlist (`GET, HEAD, OPTIONS` for any SSO user; `POST, PATCH, DELETE` admin-only)[^h16-impl]                                                                                                        |
 | H-21 | P2 #137    | `services/job_spec.py::build_volcano_job_manifest` renders `spec.queue` server-side from authenticated principal (not request body)                                                                                                       |
 
 ### Secrets (P3)
@@ -175,10 +175,12 @@ fix-up commit.
 
 ### P3 LOW
 
-| ID                    | Closed via            | Summary                                                                                                            |
-| --------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| L-harbor-robot-rotate | P3 #138 (+ `2c1fb3c`) | Force-rotate current `robot$build-pusher`; `duration: 7776000` (90d); quarterly `reconciler/harbor_rotate.py` task |
-| L-minio-key-rotate    | P3 #138               | MinIO svcacct AK/SK rotated via `openssl rand -base64 30 \| tr -d '/+=' \| head -c 40`                             |
+| ID                    | Closed via            | Summary                                                                                                                                                                  |
+| --------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| L-harbor-robot-rotate | P3 #138 (+ `2c1fb3c`) | Force-rotate current `robot$build-pusher`; `duration: 90 days` (Harbor v2 swagger unit is days, not seconds)[^harbor-days]; quarterly `reconciler/harbor_rotate.py` task |
+| L-minio-key-rotate    | P3 #138               | MinIO svcacct AK/SK rotated via `openssl rand -base64 30 \| tr -d '/+=' \| head -c 40`                                                                                   |
+
+[^harbor-days]: Harbor v2.x robot-account API: `duration` is in **days**, not seconds (`goharbor/harbor` v2.13.0 swagger `api/v2.0/swagger.yaml` line 7800: "The duration of the robot in days, duration must be either -1 (Never) or a positive integer"). 90d = `"duration": 90`, NOT `7776000`. The `-1` sentinel (Never) is unit-agnostic, which is why the pre-P3 in-repo code path "worked" without surfacing the bug. Verify Harbor REST contracts via the upstream swagger / context7, not in-repo scripts.
 
 ### P5 LOW
 
@@ -271,3 +273,5 @@ Spec §11 acceptance gate items:
 Subsequent security work continues as **ad-hoc PRs per finding** — not as
 another phase. Future audits should produce their own theme set under
 `docs/superpowers/specs/YYYY-MM-DD-*-design.md`.
+
+[^h16-impl]: H-16 implementation footnote (added 2026-05-15 per post-program review D-7): the spec text described enforcement via a Traefik headers middleware. The shipped implementation enforces the method allowlist inside `backend/app/routers/mlflow_authz.py:240,253-257` instead, reading `X-Forwarded-Method` from the Traefik ForwardAuth handshake and rejecting non-admin mutating methods with 403. Behaviour is equivalent — both paths gate `POST/PATCH/DELETE` to admins only — but the enforcement layer differs.
