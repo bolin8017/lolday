@@ -79,7 +79,9 @@ def mlflow_url() -> Generator[str, None, None]:
         .with_exposed_ports(5000)
     )
     mlflow.start()
-    wait_for_logs(mlflow, "Listening at", timeout=60)
+    # MLflow 3.x uses uvicorn; the ready signal changed from Gunicorn's
+    # "Listening at" (2.x) to uvicorn's "Application startup complete."
+    wait_for_logs(mlflow, "Application startup complete.", timeout=60)
     try:
         yield f"http://{mlflow.get_container_host_ip()}:{mlflow.get_exposed_port(5000)}"
     finally:
