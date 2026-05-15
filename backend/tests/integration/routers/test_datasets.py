@@ -3,7 +3,9 @@ from pathlib import Path
 import pytest
 from httpx import AsyncClient
 
-FIXTURE_CSV = (Path(__file__).parent / "fixtures" / "sample_dataset.csv").read_text()
+FIXTURE_CSV = (
+    Path(__file__).parent.parent.parent / "fixtures" / "sample_dataset.csv"
+).read_text()
 
 
 @pytest.mark.asyncio

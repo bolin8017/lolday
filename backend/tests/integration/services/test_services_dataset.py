@@ -10,7 +10,7 @@ from app.services.dataset import (
     spot_check_samples,
 )
 
-FIXTURE = Path(__file__).parent / "fixtures" / "sample_dataset.csv"
+FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "sample_dataset.csv"
 
 
 def test_parse_valid_csv_returns_stats():

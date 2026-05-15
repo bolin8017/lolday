@@ -13,7 +13,7 @@ from app.services.manifest_store import (
     decode_manifest_label,
 )
 
-FIX = Path(__file__).parent / "fixtures" / "valid_maldet_manifest.json"
+FIX = Path(__file__).parent.parent.parent / "fixtures" / "valid_maldet_manifest.json"
 
 
 def _b64(j: dict[str, Any]) -> str:

@@ -34,7 +34,7 @@ from app.config import settings
 from app.models import Role, User
 from sqlalchemy.orm import Session
 
-_PROJECT_ROOT = pathlib.Path(__file__).parent.parent
+_PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent.parent
 
 
 def _alembic_head_engine(tmp_path, monkeypatch):

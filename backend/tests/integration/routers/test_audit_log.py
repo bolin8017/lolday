@@ -7,7 +7,9 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-FIXTURE_CSV = (Path(__file__).parent / "fixtures" / "sample_dataset.csv").read_text()
+FIXTURE_CSV = (
+    Path(__file__).parent.parent.parent / "fixtures" / "sample_dataset.csv"
+).read_text()
 
 
 async def _seed_dataset_for_user_client(

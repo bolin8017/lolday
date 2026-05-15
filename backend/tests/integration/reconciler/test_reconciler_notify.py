@@ -163,7 +163,7 @@ async def test_handle_build_succeeded_fires_completed_on_clean_scan(
     from app.services.harbor import ScanResult, ScanStatus
 
     _fixture_manifest = (
-        Path(__file__).parent / "fixtures" / "valid_maldet_manifest.json"
+        Path(__file__).parent.parent.parent / "fixtures" / "valid_maldet_manifest.json"
     ).read_text()
     _label_b64 = base64.b64encode(_fixture_manifest.encode("utf-8")).decode("ascii")
 

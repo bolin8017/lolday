@@ -21,7 +21,7 @@ from app.config import settings
 from app.models import Base
 from sqlalchemy import create_engine, inspect
 
-_PROJECT_ROOT = pathlib.Path(__file__).parent.parent
+_PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent.parent
 
 
 @pytest.fixture

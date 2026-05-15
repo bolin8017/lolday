@@ -7,7 +7,7 @@ from alembic import command
 from alembic.config import Config
 from app.config import settings
 
-_PROJECT_ROOT = pathlib.Path(__file__).parent.parent
+_PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent.parent
 
 
 @pytest.mark.no_mock_mlflow

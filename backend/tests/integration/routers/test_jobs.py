@@ -305,7 +305,7 @@ async def test_create_job_admin_priority_nonzero_succeeds(client, db_session) ->
     from pathlib import Path
 
     fixture_csv = (
-        Path(__file__).parent / "fixtures" / "sample_dataset.csv"
+        Path(__file__).parent.parent.parent / "fixtures" / "sample_dataset.csv"
     ).read_text()
 
     tr_resp = await client.post(

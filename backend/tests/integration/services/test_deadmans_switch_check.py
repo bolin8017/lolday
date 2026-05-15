@@ -32,7 +32,7 @@ from unittest import mock
 import pytest
 
 _SCRIPT_PATH = (
-    Path(__file__).resolve().parents[2]
+    Path(__file__).resolve().parents[4]
     / "charts"
     / "lolday"
     / "files"

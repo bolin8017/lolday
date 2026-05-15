@@ -27,7 +27,7 @@ from app.models.detector import (
 )
 from sqlalchemy import select
 
-FIX = Path(__file__).parent / "fixtures" / "valid_maldet_manifest.json"
+FIX = Path(__file__).parent.parent.parent / "fixtures" / "valid_maldet_manifest.json"
 
 
 def _b64_manifest() -> str:
