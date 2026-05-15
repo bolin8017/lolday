@@ -57,6 +57,29 @@ def _user_can_see_run_dict(user: User, raw_run: dict) -> bool:
     return _user_can_see_run(user, tags)
 
 
+def _mlflow_user_filter(user_id: Any) -> str:
+    """Build the MLflow ``filter_string`` that gates runs to a single user.
+
+    §3.16 (security-hardening 2026-05-15 post-program review). MLflow's
+    ``filter_string`` is not a parametrised query language -- it's
+    interpolated into the upstream URL as-is. Today the value is a UUID
+    so practically safe, but a future refactor that lets a non-UUID
+    string land here would be a vector. Cast through ``str(uuid)`` and
+    verify the UUID shape before interpolating; ValueError surfaces as
+    a 500 (loud, not silent).
+    """
+    import uuid as _uuid
+
+    if not isinstance(user_id, _uuid.UUID):
+        try:
+            user_id = _uuid.UUID(str(user_id))
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"_mlflow_user_filter rejects non-UUID user_id={user_id!r}"
+            ) from e
+    return f"tags.\"lolday.user_id\" = '{user_id!s}'"
+
+
 def _validate_artifact_path(path: str) -> str:
     """Reject path-traversal and absolute paths in the user-supplied artifact path.
 
@@ -186,12 +209,17 @@ async def list_experiments(
     # lab-scale (< 50 experiments).
     if user.role != Role.ADMIN:
         kept = []
+        # §3.16: build the MLflow filter via a vetted helper. MLflow's
+        # filter_string is not a parametrised query language; the only
+        # safe interpolation is a value that has already been narrowed
+        # to a known shape. UUID is the narrowest shape we can enforce.
+        filter_string = _mlflow_user_filter(user.id)
         for exp in experiments:
             try:
                 runs = await _client().search_runs(
                     experiment_ids=[exp["experiment_id"]],
                     max_results=1,
-                    filter_string=f"tags.\"lolday.user_id\" = '{user.id!s}'",
+                    filter_string=filter_string,
                 )
             except MlflowError:
                 runs = []
