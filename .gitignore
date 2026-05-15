@@ -56,3 +56,6 @@ test.db
 
 # Local GHA debug artifacts (nektos/act)
 /.github/.cache/
+
+# Operator-local prometheus values overlay; never committed
+backend/kube-prometheus-stack/

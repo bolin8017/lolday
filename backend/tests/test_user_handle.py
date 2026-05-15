@@ -33,7 +33,7 @@ class TestIsValidHandle:
 
 class TestDeriveHandleFromEmail:
     def test_simple_prefix(self):
-        assert derive_handle_from_email("bolin8017@gmail.com") == "bolin8017"
+        assert derive_handle_from_email("alice@example.com") == "alice"
 
     def test_dot_in_prefix_replaced_with_hyphen(self):
         assert derive_handle_from_email("first.last@x.com") == "first-last"

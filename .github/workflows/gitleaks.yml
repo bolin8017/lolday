@@ -1,0 +1,36 @@
+name: gitleaks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scan:
+    name: gitleaks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # gitleaks needs full history to walk every commit on the PR
+          # branch; shallow checkouts miss secrets introduced earlier.
+          fetch-depth: 0
+
+      # #173: secret-scan gate ahead of the public flip. The action
+      # downloads the gitleaks binary, runs it across the working tree
+      # + diff range, posts a job summary, and exits non-zero on any
+      # detection. Allowlist + config live in repo-root .gitleaks.toml.
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # GITLEAKS_ENABLE_UPLOAD_ARTIFACT, GITLEAKS_ENABLE_SUMMARY: default true
+          GITLEAKS_NOTIFY_USER_LIST: "@${{ github.actor }}"
