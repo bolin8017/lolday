@@ -1,0 +1,69 @@
+suite: backend NetworkPolicy
+templates:
+  - templates/network-policy.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # network-policy.yaml renders 3 docs (backend-metrics-from-monitoring-only,
+  # backend-internal-from-jobs-only, minio-console-no-ingress) when
+  # minio.enabled=true. With minio.enabled=false (values-test default) it
+  # renders 2 docs (index 0 = backend-metrics-from-monitoring-only,
+  # index 1 = backend-internal-from-jobs-only).
+  - it: is a NetworkPolicy named backend-metrics-from-monitoring-only
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: backend-metrics-from-monitoring-only
+
+  # H-25 / feedback_traefik_is_np_source: ingress uses an AND selector —
+  # namespaceSelector (kube-system) AND podSelector (traefik) are siblings
+  # within the same from[] entry, not separate entries. This encodes the
+  # root-cause fix from PR #162 (bug H-25). A separate-entry (OR) pattern
+  # would allow any pod in kube-system OR any traefik pod across namespaces.
+  - it: ingress allows Traefik from kube-system via AND selector (not OR)
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: traefik
+
+  # Negative invariant: cloudflared must NOT be a source. Cloudflared dials
+  # Traefik, not backend directly — adding it here would bypass the Traefik
+  # hop and reintroduce the P1 bug (H-25) where cloudflared could reach
+  # backend directly.
+  - it: ingress does NOT allow cloudflared as a direct source
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: cloudflared
+
+  - it: internal port 8001 is restricted to lolday-jobs namespace only
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: backend-internal-from-jobs-only
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 8001
