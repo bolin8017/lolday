@@ -1,0 +1,23 @@
+# gitleaks config for lolday — extends the upstream default ruleset.
+# Docs: https://github.com/gitleaks/gitleaks#configuration
+#
+# We start from the mainstream default rules (industry-standard regex set
+# for PATs, AWS keys, GCP keys, Slack tokens, etc.) and only add an
+# allowlist for paths / fixtures where false positives would be unhelpful.
+# Real secrets live in operator-local `.lolday-secrets.env` (gitignored)
+# or in K8s Secret objects, never in tracked files.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for known-safe test fixtures and example values"
+paths = [
+  # Backend tests use synthetic emails / handles / tokens; gitleaks
+  # default rules sometimes match these as low-confidence secrets.
+  '''backend/tests/.*''',
+]
+regexes = [
+  # Well-known fake PAT used in documentation examples.
+  '''ghp_abcdefghijklmnopqrstuvwxyz0123456789''',
+]

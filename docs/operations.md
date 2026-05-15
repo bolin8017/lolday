@@ -64,10 +64,14 @@ Detector samples are **not** stored on server30's local SSD. They live on an
 NFS share exported by server14 and are combined into a single
 `samples_root` view via mergerfs.
 
-| Path on server30        | Backing                                                                    |
-| ----------------------- | -------------------------------------------------------------------------- |
-| `/mnt/server14/dataset` | NFSv4.2 from `140.118.155.14:/mnt/hdd4t/dataset` (ro, `nofail`, `_netdev`) |
-| `/mnt/lolday-samples`   | mergerfs union — branches ordered: 2025 → 2024 → benignware                |
+> Real internal IPs (server30 host, server14 NFS export) live in
+> `~/.lolday-secrets.env` (`SERVER30_IP`, `SERVER14_IP`); this doc uses
+> placeholders so it can be public-flipped without leaking lab topology.
+
+| Path on server30        | Backing                                                                   |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `/mnt/server14/dataset` | NFSv4.2 from `<SERVER14_IP>:/mnt/hdd4t/dataset` (ro, `nofail`, `_netdev`) |
+| `/mnt/lolday-samples`   | mergerfs union — branches ordered: 2025 → 2024 → benignware               |
 
 The chart `samples.hostPath` (`charts/lolday/values.yaml`) points at
 `/mnt/lolday-samples`. Detector vcjob pods mount the resulting PVC at

@@ -8,7 +8,7 @@
 
 Lolday is **ISLab's internal ML platform for managing the lifecycle of malware detectors**. A user defines a detector (Python code following the `maldet` spec), lolday builds it into an OCI image, runs training/evaluation/prediction jobs as Volcano `vcjob` workloads on GPUs, tracks experiments via MLflow, and stores models in MLflow's registry plus images in a private Harbor registry.
 
-- **Deploy target**: server30 (`140.118.155.30`, SSH 9453), Ubuntu 24.04, K3s single-node, NVIDIA GPU operator on host. Shared lab server.
+- **Deploy target**: server30 (`<SERVER30_IP>`, SSH 9453), Ubuntu 24.04, K3s single-node, NVIDIA GPU operator on host. Shared lab server. Real IP lives in `~/.lolday-secrets.env` (`SERVER30_IP`); placeholder used here so this doc can be public-flipped without leaking lab topology.
 - **Non-goals**: multi-tenant SaaS, multi-cluster, cloud-managed deployment, public exposure beyond Cloudflare Access SSO.
 
 ### 1.1 Glue, not framework
@@ -323,7 +323,7 @@ Alert source: `minio_cluster_capacity_usable_free_bytes` and `minio_bucket_usage
 ### 6.7 Detector samples (NFS-backed union mount, since 2026-05-12)
 
 Detector samples are **not** stored on server30's local SSD. They are served
-from server14 (`140.118.155.14:/mnt/hdd4t/dataset`) via NFSv4.2 and combined
+from server14 (`<SERVER14_IP>:/mnt/hdd4t/dataset`) via NFSv4.2 and combined
 into a single read-only view via a mergerfs FUSE union at
 `/mnt/lolday-samples`. The chart's `samples.hostPath` points at the union,
 so backend and detector job pods see one flat `<root>/<prefix>/<sha256>`

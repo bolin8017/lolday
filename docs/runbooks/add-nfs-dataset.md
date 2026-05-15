@@ -25,9 +25,10 @@ ping -c 2 -W 2 <nfs-server-ip>
 
 ### 2. Add the NFS mount on server30
 
-If the NFS source is on a server already used (e.g. `140.118.155.14`),
-mount a new sub-directory the same way as the existing one. If it is a new
-server, follow `docs/runbooks/deploy.md` SSH-safety discipline first.
+If the NFS source is on a server already used (e.g. `<SERVER14_IP>` — real
+IP in `~/.lolday-secrets.env`), mount a new sub-directory the same way as
+the existing one. If it is a new server, follow `docs/runbooks/deploy.md`
+SSH-safety discipline first.
 
 Example fstab line (read-only, soft-mount, boot-safe):
 
