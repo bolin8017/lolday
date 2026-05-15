@@ -1,0 +1,88 @@
+name: frontend-slow
+
+# D2.9 — Playwright E2E + visual snapshots against a k3d cluster running
+# the chart. Informational only (not a required check) — slow-tier failures
+# get fixed forward, not reverted.
+#
+# Scope: triggered on main push + nightly cron. Does NOT run on PRs (the
+# fast tier owns PR gating; slow tier is post-merge regression).
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * *" # 04:00 UTC = 12:00 Asia/Taipei
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-slow-${{ github.ref }}
+  cancel-in-progress: false # never cancel main / nightly runs
+
+jobs:
+  playwright:
+    name: playwright
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup pnpm + node
+        uses: ./.github/actions/setup-pnpm-node
+
+      - name: Install playwright browsers
+        run: pnpm --dir frontend exec playwright install --with-deps chromium
+
+      - name: Install k3d
+        run: |
+          curl -sSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \
+            | TAG=v5.7.5 bash
+
+      - name: Setup Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.16.4
+
+      - name: Spin up k3d cluster (no bundled Traefik / servicelb)
+        # Same Traefik-disable as chart-e2e.yml (closes architecture.md §10.29).
+        run: |
+          k3d cluster create lolday-fe-slow \
+            --k3s-arg "--disable=traefik@server:*" \
+            --k3s-arg "--disable=servicelb@server:*" \
+            --wait --timeout 5m
+
+      - name: helm dep update + install
+        run: |
+          helm dep update charts/lolday
+          helm install lolday charts/lolday \
+            --no-hooks \
+            -n lolday --create-namespace \
+            -f charts/lolday/values-test.yaml
+
+      - name: Run playwright E2E
+        env:
+          E2E_BASE_URL: http://localhost:5173
+        run: |
+          # values-test.yaml ships with fake image digests, so the backend
+          # Deployment never reaches Ready. Real-cluster E2E will block on
+          # the rollout — informational placeholder for now; replace with
+          # actual port-forward + playwright invocation once the cluster
+          # ships real image references in CI (Phase 3 follow-up).
+          echo "::warning::frontend-slow.yml placeholder run — actual playwright invocation pending Phase 3 image-pull fixture work"
+          pnpm --dir frontend playwright test --list
+
+      - name: Upload trace + screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: playwright-trace
+          path: |
+            frontend/test-results/
+            frontend/playwright-report/
+
+      - name: Teardown
+        if: always()
+        run: k3d cluster delete lolday-fe-slow || true

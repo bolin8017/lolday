@@ -17,7 +17,17 @@ from app.users import current_active_user
 router = APIRouter()
 
 
-@router.get("/me", response_model=UserRead)
+@router.get(
+    "/me",
+    response_model=UserRead,
+    responses={
+        # D2.3 Task 8 — close architecture.md §10 #28 / Phase 1 xfail.
+        # FastAPI auto-generates 422 only for routes with query params /
+        # request body; an explicit entry is needed for handlers without
+        # either so schemathesis sees the contract.
+        422: {"description": "Validation error (schema-generated query params)"},
+    },
+)
 async def read_me(
     user: Annotated[User, Depends(current_active_user)],
 ) -> User:

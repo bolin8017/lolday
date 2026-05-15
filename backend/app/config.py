@@ -125,6 +125,16 @@ class Settings(BaseSettings):
     CF_ACCESS_JWKS_CACHE_TTL_SECONDS: int = 600
     AUTH_DEV_MODE: bool = False  # bypass Cloudflare JWT for local dev
     AUTH_DEV_EMAIL: str = ""  # synthetic user email when AUTH_DEV_MODE=true
+    # D2.2 / R4 — multi-persona dev mode. When AUTH_DEV_MODE=true, the backend
+    # honours an X-Dev-Persona request header (admin/developer/user) and
+    # resolves the persona's synthetic email + role for that request. Falls
+    # back to AUTH_DEV_EMAIL when the header is absent (backward compat).
+    # Unblocks Phase 3 multi-persona Playwright parallel (architecture.md §10 #13).
+    AUTH_DEV_PERSONAS: dict[str, dict[str, str]] = {
+        "admin": {"email": "admin@dev.local", "role": "admin"},
+        "developer": {"email": "dev@dev.local", "role": "developer"},
+        "user": {"email": "user@dev.local", "role": "user"},
+    }
 
     # Deployment mode — helm ships "production"; tests / local dev override.
     # `validate_sso_config` only fails the boot when this is "production".

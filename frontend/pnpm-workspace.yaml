@@ -1,0 +1,8 @@
+# pnpm 11 build-script approval. msw ships a post-install that generates
+# its Service Worker stub; esbuild is the existing entry from before.
+allowBuilds:
+  esbuild: true
+  msw: true
+onlyBuiltDependencies:
+  - esbuild
+  - msw

@@ -34,8 +34,14 @@ class MockWebSocket implements MockWebSocketInstance {
 beforeEach(() => {
   wsInstances = [];
   global.fetch = vi.fn();
-  (globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket =
-    MockWebSocket;
+  // jsdom 29 marks window.WebSocket as read-only; defineProperty (rather than
+  // direct assignment) is the mainstream workaround used by Testing Library
+  // examples for stubbing built-in DOM constructors.
+  Object.defineProperty(globalThis, "WebSocket", {
+    configurable: true,
+    writable: true,
+    value: MockWebSocket,
+  });
 });
 
 afterEach(() => {

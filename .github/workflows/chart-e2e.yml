@@ -36,9 +36,18 @@ jobs:
         with:
           version: v3.16.4
 
-      - name: Spin up k3d cluster
+      - name: Spin up k3d cluster (no bundled Traefik / servicelb)
+        # D2.5 Task 15 — k3d v5.7.5 bundles Traefik v2 by default, which
+        # registers `traefik.containo.us/v1alpha1` CRDs. The lolday chart
+        # ships IngressRoute on `traefik.io/v1alpha1` (Traefik v3 API
+        # group). Without dropping the bundled Traefik the helm install
+        # surfaces the Traefik v3 CRDs with no controller backing them,
+        # and any IngressRoute pre-install hook 404s on first apply.
+        # Closes architecture.md §10.29.
         run: |
           k3d cluster create lolday-test \
+            --k3s-arg "--disable=traefik@server:*" \
+            --k3s-arg "--disable=servicelb@server:*" \
             --wait --timeout 5m
           kubectl cluster-info
           kubectl get nodes
@@ -76,6 +85,14 @@ jobs:
             --no-hooks \
             -n lolday \
             -f charts/lolday/values-test.yaml
+
+      - name: D2.5 Task 16 — Kyverno rejects unsigned Harbor image (Enforce ramp)
+        run: bash tests/e2e_chart/test_kyverno_unsigned_image_rejected.sh
+        continue-on-error: true # informational on first run; promote to required after Kyverno bootstrap stabilises
+
+      - name: D2.5 Task 17 — PSS enforce=restricted rejects privileged Pod
+        run: bash tests/e2e_chart/test_pss_enforce_privileged.sh
+        continue-on-error: true # informational on first run
 
       - name: Teardown
         if: always()

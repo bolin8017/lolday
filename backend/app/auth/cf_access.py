@@ -204,6 +204,7 @@ async def resolve_user_from_jwt(
     token: str | None,
     *,
     log_context: str = "",
+    persona_header: str | None = None,
 ) -> User:
     """Verify a Cloudflare Access JWT and return the (get-or-created) User.
 
@@ -214,8 +215,29 @@ async def resolve_user_from_jwt(
 
     `log_context` is a human-readable hint ("path=/foo" or "ws=/jobs/…") for
     the warning line emitted on auth failure.
+
+    `persona_header` (D2.2 / R4): when AUTH_DEV_MODE is on and the request
+    carries an ``X-Dev-Persona`` header, resolve that persona's synthetic
+    email + role for the request. Unknown personas raise; absent header
+    falls back to ``AUTH_DEV_EMAIL`` (backward compat).
     """
     if settings.AUTH_DEV_MODE:
+        if persona_header:
+            persona = settings.AUTH_DEV_PERSONAS.get(persona_header)
+            if persona is None:
+                raise CfAccessAuthError(
+                    f"unknown persona {persona_header!r}; known: {sorted(settings.AUTH_DEV_PERSONAS)}"
+                )
+            user = await get_or_create_user_by_email(session, persona["email"])
+            # Mutate role in-session so per-request persona switches take
+            # effect immediately; commits land via the request handler.
+            from app.models.user import Role as _Role
+
+            target_role = _Role(persona["role"])
+            if user.role != target_role:
+                user.role = target_role
+                await session.flush()
+            return user
         if not settings.AUTH_DEV_EMAIL:
             raise CfAccessAuthError("AUTH_DEV_MODE enabled but AUTH_DEV_EMAIL empty")
         return await get_or_create_user_by_email(session, settings.AUTH_DEV_EMAIL)
@@ -306,6 +328,7 @@ async def cf_access_user(
     or use `selectinload()` at query time.
     """
     token = request.headers.get("cf-access-jwt-assertion")
+    persona = request.headers.get("x-dev-persona") if settings.AUTH_DEV_MODE else None
     if token is None and not settings.AUTH_DEV_MODE:
         # Preserve the pre-refactor warning line that enumerates cf-* headers
         # so operators can see whether the CF IAP actually attached the JWT.
@@ -317,7 +340,10 @@ async def cf_access_user(
         )
     try:
         return await resolve_user_from_jwt(
-            session, token, log_context=f"path={request.url.path}"
+            session,
+            token,
+            log_context=f"path={request.url.path}",
+            persona_header=persona,
         )
     except CfAccessAuthError as e:
         raise HTTPException(401, str(e)) from e

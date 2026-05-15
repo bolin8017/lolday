@@ -1,0 +1,39 @@
+coverage:
+  status:
+    project:
+      backend:
+        target: 80%
+        threshold: 1%
+        flags:
+          - backend
+      frontend:
+        # D2.10 Task 28 — extended scope to src/components + src/routes.
+        # Threshold raised from previous default to 70%. fail_ci_if_error
+        # stays false initially; CI prints a comment on drift but does not
+        # block merges until coverage trend has stabilised.
+        target: 70%
+        threshold: 1%
+        flags:
+          - frontend
+    patch:
+      default:
+        target: 80%
+      frontend:
+        target: 70%
+
+flags:
+  backend:
+    paths:
+      - backend/app/
+  frontend:
+    paths:
+      - frontend/src/
+
+comment:
+  layout: "diff, flags, files"
+  behavior: default
+  require_changes: false
+
+# Don't fail CI on Codecov upload errors during the ramp.
+codecov:
+  require_ci_to_pass: false

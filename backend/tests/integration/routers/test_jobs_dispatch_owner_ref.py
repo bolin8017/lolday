@@ -13,7 +13,7 @@ async def test_dispatch_patches_token_secret_with_vcjob_owner(
     db_session, seed_user, seed_detector_version
 ):
     from app.models.job import Job, JobStatus, JobType
-    from app.services.jobs_dispatch import dispatch_job_to_volcano
+    from app.services.job_dispatch import dispatch_job_to_volcano
 
     # Stub state we can inspect later.
     patches: list = []
@@ -52,9 +52,9 @@ async def test_dispatch_patches_token_secret_with_vcjob_owner(
     await db_session.refresh(job)
 
     with (
-        patch("app.services.jobs_dispatch.volcano_v1alpha1", return_value=_Volcano()),
-        patch("app.services.jobs_dispatch.core_v1", return_value=_Core()),
-        patch("app.services.jobs_dispatch.ensure_user_queue", _fake_queue),
+        patch("app.services.job_dispatch.volcano_v1alpha1", return_value=_Volcano()),
+        patch("app.services.job_dispatch.core_v1", return_value=_Core()),
+        patch("app.services.job_dispatch.ensure_user_queue", _fake_queue),
     ):
         await dispatch_job_to_volcano(db_session, job)
 
