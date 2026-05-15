@@ -314,15 +314,23 @@ cosign_sign() {
       return 0
     fi
   fi
-  local ref="$HARBOR_HOST_REF/$HARBOR_PROJECT/$name@$digest"
+  # Use HARBOR_HOST_PUSH (.svc.cluster.local) for the sign target: server30's
+  # /etc/hosts only resolves the .cluster.local form, not the in-cluster
+  # short name `harbor.lolday.svc`. Cosign stores the signature at a sibling
+  # tag of the same digest, so signing via either alias resolves to the same
+  # blob -- Kyverno's in-cluster verify against `harbor.lolday.svc:80/...`
+  # finds it.
+  local ref="$HARBOR_HOST_PUSH/$HARBOR_PROJECT/$name@$digest"
   echo "[sign] $name @ ${digest:0:19}..."
   # COSIGN_PASSWORD is read from env; left unset on the operator's path
   # so cosign prompts interactively. --yes acknowledges the implicit
   # confirmation. --signing-config points at our no-Rekor profile so the
   # signature is bound to the operator's private key and never enters
-  # the public transparency log.
+  # the public transparency log. --allow-http-registry is required because
+  # the in-cluster Harbor speaks plain HTTP on port 80.
   COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign sign \
     --yes \
+    --allow-http-registry=true \
     --signing-config "$sigcfg" \
     --key "$key" \
     "$ref"
