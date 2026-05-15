@@ -13,7 +13,11 @@ _LEGACY_TEST_FERNET_KEY = "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://lolday:password@postgresql:5432/lolday"
     REDIS_URL: str = "redis://redis:6379/0"
-    DOCS_ENABLED: bool = True
+    # #165: default to False -- production secrets-fail-closed posture.
+    # The chart explicitly wires "false" today regardless, so this only
+    # affects bare-process local dev (where setting DOCS_ENABLED=true in
+    # the local env is a one-line opt-in). Defense-in-depth.
+    DOCS_ENABLED: bool = False
 
     # Phase 2.4 (maldet 2.0 cutover): when truthy, ``POST /api/v1/jobs``
     # short-circuits with HTTP 503 + ``Retry-After`` so in-flight submissions

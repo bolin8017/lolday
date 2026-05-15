@@ -12,6 +12,11 @@ os.environ.setdefault("SAMPLES_LOCAL_ROOT", "/nonexistent-samples-root-for-tests
 # Phase 10.2: opt out of production SSO validation — tests use dependency_override
 # to inject fake users, so CF_ACCESS_* can stay blank.
 os.environ.setdefault("ENVIRONMENT", "test")
+# #165: default DOCS_ENABLED flipped to False in app.config. Most tests
+# don't touch /docs or /openapi.json, but ``test_metrics_not_in_openapi_schema``
+# does. Set the test env to enable so existing assertions still hold; the
+# dedicated #165 test toggles it back to False to assert the gate fires.
+os.environ.setdefault("DOCS_ENABLED", "true")
 
 import pytest
 import pytest_asyncio

@@ -182,6 +182,11 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs" if settings.DOCS_ENABLED else None,
     redoc_url="/redoc" if settings.DOCS_ENABLED else None,
+    # #165: /docs and /redoc were gated but /openapi.json was always served.
+    # The Swagger UI loads its schema from /openapi.json, so this silently
+    # leaks the API surface even with DOCS_ENABLED=false. Gate the schema
+    # endpoint on the same flag.
+    openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
 )
 
 from app.middleware.body_size import BodySizeLimitMiddleware
