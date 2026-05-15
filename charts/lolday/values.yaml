@@ -84,9 +84,16 @@ backend:
     CF_ACCESS_JWKS_CACHE_TTL_SECONDS: "600"
     AUTH_DEV_MODE: "false" # NEVER set to "true" in production
     # One-time Alembic phase10_sso_admin_email migration renames the seeded
-    # admin@lolday.dev row to this email so the operator's first SSO login
+    # admin@lolday.dev row to THIS email so the operator's first SSO login
     # maps onto the existing row (preserving legacy owner_id values).
-    SSO_ADMIN_EMAIL: "bolin8017@gmail.com"
+    #
+    # The literal value here is a placeholder so the chart values stay free
+    # of operator-personal info (the repo is public). Operators MUST
+    # override at deploy time via `--set backend.env.SSO_ADMIN_EMAIL=...`,
+    # which scripts/deploy.sh wires from the operator-local
+    # `.lolday-secrets.env` `SSO_ADMIN_EMAIL` env var (see
+    # `.lolday-secrets.env.example`).
+    SSO_ADMIN_EMAIL: "admin@example.com"
 
 # =============================================================================
 # BuildKit — custom seccomp profile installer (H-11, P2)
