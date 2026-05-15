@@ -14,11 +14,22 @@
 # clone/unshare) that BuildKit's rootlesskit needs. This replaces
 # the previous `seccompProfile: Unconfined` (maximum permissions) with
 # a narrowly-scoped allowlist.
+#
+# H-14 follow-up (#174, 2026-05-15): moved out of the `lolday` infra ns
+# into the dedicated `lolday-builds` ns so that promoting `lolday` to
+# PSS enforce:restricted does not require an exemption. The seccomp
+# installer is the only pod in the lolday infra family that needs
+# runAsUser:0 + CAP_CHOWN/DAC_OVERRIDE/FOWNER — it is now isolated.
+# The profile it writes lands on the kubelet host filesystem
+# (/var/lib/kubelet/seccomp/profiles/buildkit-rootless.json), which is
+# node-scoped, not namespace-scoped — so the BuildKit Jobs running in
+# `lolday-jobs` reference the same profile path regardless of where the
+# installer lives.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: buildkit-seccomp-profile
-  namespace: {{ .Values.global.namespace }}
+  namespace: {{ .Values.global.buildsNamespace }}
   labels:
     {{- include "lolday.labels" . | nindent 4 }}
 data:
@@ -29,7 +40,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: buildkit-seccomp-installer
-  namespace: {{ .Values.global.namespace }}
+  namespace: {{ .Values.global.buildsNamespace }}
   labels:
     {{- include "lolday.labels" . | nindent 4 }}
 spec:

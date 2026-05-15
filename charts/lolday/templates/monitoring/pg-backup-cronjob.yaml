@@ -1,0 +1,178 @@
+{{- if and .Values.postgresql.enabled .Values.pgBackup.enabled }}
+{{/* Close #172 — PostgreSQL backup CronJob.
+
+     Mainstream-package-first (per CLAUDE.md): we ship the upstream
+     `prodrigestivill/postgres-backup-local` image rather than hand-roll
+     a pg_dump + mc / awscli pipeline. The image is the de-facto Postgres
+     -> S3 backup container — handles compression, rotation, and S3
+     auth signing internally. SCHEDULE=@disabled hands scheduling to
+     this CronJob (no internal cron daemon).
+
+     Lives in the lolday infra ns (release ns) — Postgres is in the same
+     ns, so cross-ns RBAC is not needed. Uses the same MinIO endpoint
+     as MLflow / Harbor / Loki (the S3-backend-only invariant from spec
+     2026-05-11). Restore procedure: docs/runbooks/db-restore.md. */}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pg-backup
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pg-backup
+spec:
+  schedule: {{ .Values.pgBackup.schedule | quote }}
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            {{- include "lolday.labels" . | nindent 12 }}
+            app.kubernetes.io/component: pg-backup
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            # prodrigestivill/postgres-backup-local UID per its Dockerfile.
+            runAsUser: 1001
+            runAsGroup: 1001
+            fsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pg-backup
+              # Digest pin lives in values.yaml `pgBackup.image`. The
+              # image-tags-aligned pre-commit hook enforces the @sha256:
+              # suffix. To bump: refresh the manifest with the Docker
+              # Registry v2 manifest endpoint (Accept:
+              # application/vnd.oci.image.index.v1+json) and update
+              # values.yaml.
+              image: {{ .Values.pgBackup.image | quote }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+              env:
+                - name: POSTGRES_HOST
+                  value: postgresql.{{ .Values.global.namespace }}.svc
+                - name: POSTGRES_PORT
+                  value: "5432"
+                - name: POSTGRES_DB
+                  value: {{ .Values.postgresql.auth.database | quote }}
+                - name: POSTGRES_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgresql
+                      key: POSTGRES_USER
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgresql
+                      key: POSTGRES_PASSWORD
+                # @disabled hands scheduling to the K8s CronJob — the image
+                # would otherwise spawn its own cron daemon. See
+                # github.com/prodrigestivill/docker-postgres-backup-local
+                # README "Crontab schedule".
+                - name: SCHEDULE
+                  value: "@disabled"
+                - name: BACKUP_KEEP_DAYS
+                  value: {{ .Values.pgBackup.keepDays | quote }}
+                - name: BACKUP_KEEP_WEEKS
+                  value: "4"
+                - name: BACKUP_KEEP_MONTHS
+                  value: "6"
+                # S3 upload — same MinIO endpoint as MLflow/Harbor/Loki.
+                # The bucket is provisioned by minio-init-buckets-job.yaml.
+                - name: S3_REGION
+                  value: us-east-1
+                - name: S3_ENDPOINT
+                  value: http://{{ .Release.Name }}-minio.{{ .Values.global.namespace }}.svc:9000
+                - name: S3_BUCKET
+                  value: {{ .Values.pgBackup.s3Bucket | quote }}
+                - name: S3_PREFIX
+                  value: ""
+                - name: S3_S3V4
+                  value: "yes"
+                - name: S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-backup-s3-cred
+                      key: access-key
+                - name: S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-backup-s3-cred
+                      key: secret-key
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              volumeMounts:
+                # The image writes pg_dump output to /backups before
+                # uploading. With readOnlyRootFilesystem=true we mount
+                # an emptyDir here. /tmp is also needed for the staging
+                # gzip output.
+                - name: backups
+                  mountPath: /backups
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: backups
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}
+---
+{{/* NetworkPolicy: pg-backup pod talks to postgresql (in-ns) and MinIO
+     (in-ns). Both are in lolday infra ns so this is intra-ns; the
+     existing netpol-lolday-default-deny.yaml ingress rules for
+     postgresql + minio already cover the receive side. Egress side
+     needs an explicit allow because the cron pod is a new workload:
+     DNS + postgresql:5432 + minio:9000. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pg-backup-egress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: pg-backup
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgresql
+      ports:
+        - { protocol: TCP, port: 5432 }
+    # MinIO pod label is `app: minio` per the upstream chart.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - { protocol: TCP, port: 9000 }
+{{- end }}

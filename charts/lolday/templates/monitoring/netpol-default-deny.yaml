@@ -1,0 +1,149 @@
+{{- if .Values.monitoring.enabled }}
+{{/* Close #168 (CIS 5.3.2): the monitoring namespace held no
+     NetworkPolicy and accepted any pod-to-pod traffic. This file adds a
+     ns-wide default-deny plus the minimum allows for Prometheus to scrape
+     siblings (kube-prometheus-stack internals) and reach scrape targets
+     in lolday / lolday-jobs / kube-system.
+
+     Out-of-scope on purpose:
+     - Cross-ns ingress from lolday ns into monitoring is NOT needed.
+       Backend reads Prometheus via the in-cluster `kps-prometheus.monitoring.svc`
+       Service — that traffic is monitoring-ns egress, not ingress.
+     - Alertmanager → Discord webhook egress reuses the same "external 0.0.0.0/0
+       except RFC1918" carve-out we already use for cloudflared egress and the
+       build/job egress NPs. Discord webhook IPs are not stable. Mainstream
+       guidance (Cloudflare, GitHub, Discord support docs) is to allow the
+       public CDN range and rely on TLS + receiver auth.
+
+     SSH-safety: this is a NetworkPolicy, not an iptables rewrite. K3s'
+     kube-router NP controller adds chain rules without touching host SSH. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-default-deny
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # No `ingress:` / `egress:` block — deny everything by default.
+  # Allow rules below add back what each component legitimately needs.
+---
+# Same-ns ingress allow: Prometheus scrapes Alertmanager / Grafana /
+# kube-state-metrics / node-exporter / kps internals, Grafana queries
+# Prometheus, etc. A single intra-ns allow covers all of it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-internal-ingress
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.monitoring.namespace }}
+---
+# Cross-ns ingress: allow Traefik (kube-system) to reach Grafana / Prometheus
+# UI through the chart's Ingress objects. Backend → Prometheus query also
+# routes via Traefik on the public host, so this allow doubles for that.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-traefik-ingress
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+---
+# Egress: DNS + scrape targets across the three workload namespaces +
+# kube-apiserver (Prometheus kube-state-metrics, kubelet metrics) + external
+# (Alertmanager → Discord webhook).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-default-egress
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Cross-ns scrape targets in lolday infra ns (backend :8000, postgres
+    # exporter :9187, mlflow :5000, harbor exporter :8001 etc.). We allow
+    # the ns broadly because Prometheus discovers targets at runtime; the
+    # ingress side of each target restricts further (see e.g.
+    # netpol-lolday-default-deny.yaml).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+    # Cross-ns scrape targets in lolday-jobs ns (vcjob pods that expose
+    # metrics — currently none, but reserved for future detector metrics).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace }}
+    # kube-system: kubelet metrics (:10250), kube-apiserver via Service IP,
+    # CoreDNS metrics (:9153), Traefik metrics (:9100).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+    # trivy-system: VulnerabilityReport metrics endpoint.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trivy-system
+    # gpu-operator: DCGM exporter metrics.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gpu-operator
+    # External egress for Alertmanager Discord webhook. Discord IPs aren't
+    # stable; the carve-out matches the pattern in build-networkpolicy.yaml
+    # and netpol-cloudflared.yaml. TLS + receiver auth gate the receiver
+    # side; this rule only opens the network path.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+              - 169.254.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 } # kube-apiserver via host LB
+{{- end }}

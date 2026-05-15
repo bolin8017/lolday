@@ -156,6 +156,9 @@ spec:
               read_existing mlflow mlflow-s3-cred access-key secret-key
               read_existing harbor harbor-s3-cred REGISTRY_STORAGE_S3_ACCESSKEY REGISTRY_STORAGE_S3_SECRETKEY
               read_existing loki   loki-s3-cred   access-key secret-key
+              # #172: pg-backup CronJob (added 2026-05-15). Same probe-then-write
+              # idempotence model as the other three apps.
+              read_existing pg-backup pg-backup-s3-cred access-key secret-key
               echo "kubectl-probe: done"
         - name: mc-setup
           # Pin to the same mc release as the minio Helm chart's mcImage default.
@@ -196,6 +199,8 @@ spec:
               mc mb --ignore-existing local/harbor-blobs
               mc mb --ignore-existing local/loki-chunks
               mc mb --ignore-existing local/loki-ruler
+              # #172: dedicated bucket for Postgres backups (pg-backup CronJob).
+              mc mb --ignore-existing local/pg-backups
 
               # MLflow artifact versioning — best-effort; single-drive standalone
               # mode does not support versioning, but the spec calls for it once
@@ -222,7 +227,12 @@ spec:
                 "Resource":["arn:aws:s3:::loki-chunks","arn:aws:s3:::loki-chunks/*",
                             "arn:aws:s3:::loki-ruler","arn:aws:s3:::loki-ruler/*"]}]}
               JSON
-              for app in mlflow harbor loki; do
+              # #172: pg-backup IAM policy — scoped to pg-backups bucket.
+              cat > /tmp/pg-backup-rw.json <<'JSON'
+              {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],
+                "Resource":["arn:aws:s3:::pg-backups","arn:aws:s3:::pg-backups/*"]}]}
+              JSON
+              for app in mlflow harbor loki pg-backup; do
                 mc admin policy create local ${app}-rw /tmp/${app}-rw.json || \
                   mc admin policy update local ${app}-rw /tmp/${app}-rw.json
               done
@@ -235,7 +245,7 @@ spec:
               #     path after a MinIO data wipe.
               #   - /creds/<app>-access-key absent → first install. Generate a
               #     random AK/SK pair, create svcacct, stage to /creds.
-              for app in mlflow harbor loki; do
+              for app in mlflow harbor loki pg-backup; do
                 if [ -s /creds/${app}-access-key ] && [ -s /creds/${app}-secret-key ]; then
                   AK=$(cat /creds/${app}-access-key)
                   SK=$(cat /creds/${app}-secret-key)
@@ -310,5 +320,7 @@ spec:
               write_secret mlflow mlflow-s3-cred access-key secret-key
               write_secret harbor harbor-s3-cred REGISTRY_STORAGE_S3_ACCESSKEY REGISTRY_STORAGE_S3_SECRETKEY
               write_secret loki   loki-s3-cred   access-key secret-key
+              # #172: pg-backup CronJob credential (mainstream key naming).
+              write_secret pg-backup pg-backup-s3-cred access-key secret-key
               echo "kubectl-secret-writer: done"
 {{- end }}

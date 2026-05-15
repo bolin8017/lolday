@@ -1,0 +1,28 @@
+{{/* Close #168 (CIS 5.3.2): the lolday-jobs ns ships explicit egress NPs
+     (build-networkpolicy.yaml, job-networkpolicy.yaml) but had no
+     ns-wide default-deny on the ingress side. Build / vcjob pods could
+     accept arbitrary in-cluster ingress.
+
+     Audit before adding: vcjob pods are pure-egress consumers of the
+     backend (`backend/app/routers/internal.py` is the receive side) and
+     of MLflow / Harbor. Backend does NOT dial into vcjob or build pods.
+     Therefore a strict ns-wide ingress default-deny does not need any
+     allow rule.
+
+     The pre-existing per-pod NPs in job-networkpolicy.yaml carry
+     `ingress: []` which is a stricter scope (only `app.kubernetes.io/name:
+     lolday-job` pods) — this file widens the deny to every pod in the ns
+     so non-labeled stragglers (e.g. helm hooks, debug pods) are also
+     covered. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lolday-jobs-default-deny-ingress
+  namespace: {{ .Values.global.jobsNamespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  # No `ingress:` block — deny all by default.

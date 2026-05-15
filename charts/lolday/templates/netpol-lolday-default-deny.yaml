@@ -57,6 +57,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: postgres-exporter-init
+        # #172: daily pg-backup CronJob.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: pg-backup
       ports:
         - port: 5432
           protocol: TCP

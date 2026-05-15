@@ -9,6 +9,12 @@ global:
   # can cap them without constraining infra (postgres / prometheus / etc.).
   # See docs/superpowers/specs/2026-05-05-gpu-scheduling-and-oom-defense-design.md §6.2
   jobsNamespace: lolday-jobs
+  # H-14 follow-up (#174, 2026-05-15): BuildKit seccomp installer needs
+  # CAP_CHOWN/DAC_OVERRIDE/FOWNER + runAsUser:0 to write the kubelet
+  # seccomp profile. That is incompatible with PSS restricted. Isolating
+  # the installer DaemonSet in its own namespace lets us promote the
+  # lolday infra ns to enforce:restricted without exempting BuildKit.
+  buildsNamespace: lolday-builds
 
 # =============================================================================
 # Cloudflare Tunnel
@@ -31,7 +37,7 @@ backend:
   # at release time. (server30 lacks the buildx subcommand; substitute
   # `docker inspect <ref> --format '{{range .RepoDigests}}{{println .}}{{end}}'`
   # against the freshly-pushed tag.)
-  image: harbor.lolday.svc:80/lolday/lolday-backend:v0.23.2@sha256:e761857ec0bf924a4b15974ae51fbd3aca07f82cec4149550e76650bbac04af6
+  image: harbor.lolday.svc:80/lolday/lolday-backend:v0.24.0@sha256:e761857ec0bf924a4b15974ae51fbd3aca07f82cec4149550e76650bbac04af6
   replicas: 1
   # Auth is Cloudflare Access SSO (see CF_ACCESS_* under env below); no
   # backend-side password secrets / firstAdmin seed / cookie config.
@@ -127,6 +133,29 @@ postgresql:
     database: lolday
     username: lolday
     password: "" # --set at deploy time, NEVER commit
+
+# =============================================================================
+# Postgres backup CronJob (#172)
+# =============================================================================
+# Daily pg_dumpall + gzip + upload to MinIO bucket `pg-backups`. Uses the
+# upstream prodrigestivill/postgres-backup-local image (mainstream Postgres
+# -> S3 backup container). SCHEDULE=@disabled inside the image hands
+# scheduling to the K8s CronJob.
+#
+# Restore procedure: docs/runbooks/db-restore.md.
+pgBackup:
+  enabled: true
+  # 03:00 daily, off-peak for the lab.
+  schedule: "0 3 * * *"
+  # H-21-img: digest pin (captured 2026-05-15 via the Docker Registry v2
+  # manifest endpoint with Accept: application/vnd.oci.image.index.v1+json
+  # against tag `16`). Refresh on the next Postgres-major bump or
+  # quarterly. The image-tags-aligned pre-commit hook enforces the pin.
+  image: prodrigestivill/postgres-backup-local:16@sha256:a0103fbce0c48ccc7693ddbb2a2bfa733048db845354f635efef9e4566de185d
+  s3Bucket: pg-backups
+  # 30 days of daily backups + 4 weekly + 6 monthly (the image rotates by
+  # filename prefix). DR target RPO is 24h.
+  keepDays: "30"
 
 # =============================================================================
 # Redis
@@ -299,7 +328,7 @@ jobs:
 # Frontend (React SPA served by nginx-unprivileged)
 # =============================================================================
 frontend:
-  image: harbor.lolday.svc:80/lolday/lolday-frontend:v0.23.2@sha256:0785b683dc0d5b499921ff11fe12a0ab75a5470d9c028b69753c653736c3c38c
+  image: harbor.lolday.svc:80/lolday/lolday-frontend:v0.24.0@sha256:0785b683dc0d5b499921ff11fe12a0ab75a5470d9c028b69753c653736c3c38c
   host: lolday.connlabai.com
   replicas: 1
   resources:

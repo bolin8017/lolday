@@ -1,0 +1,122 @@
+{{- if .Values.minio.enabled }}
+{{/* D-3: minio-console Service residual cleanup.
+
+     The minio sub-chart 5.4.0 templates/console-service.yaml renders a
+     ClusterIP Service for the MinIO Console UI unconditionally —
+     there's no values knob to skip it. M-minio-console (P2 audit)
+     paired with templates/network-policy.yaml `minio-console-no-ingress`
+     gates ingress to port 9001, but the Service still consumes a
+     ClusterIP and shows up in `kubectl get svc` as residual surface.
+
+     This Job deletes the residual `<release>-minio-console` Service
+     after every helm install/upgrade. Operator port-forward still
+     works because port-forward bypasses Service routing entirely; the
+     console pod is reachable via kubectl port-forward to the MinIO
+     Pod's containerPort 9001.
+
+     Hook weight 0 — runs after the MinIO StatefulSet (Bitnami chart
+     weights its install hooks at -10). hook-delete-policy keeps the
+     Job around for one run for visibility, then prunes before the
+     next reconciliation. */}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minio-console-prune
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: minio-console-prune
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames:
+      - {{ .Release.Name }}-minio-console
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: minio-console-prune
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: minio-console-prune
+subjects:
+  - kind: ServiceAccount
+    name: minio-console-prune
+    namespace: {{ .Values.global.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-console-prune
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "lolday.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: minio-console-prune
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: prune
+          # bitnami/kubectl — same pin as minio-init-buckets-job.yaml.
+          image: bitnami/kubectl@sha256:3220dcc839f55be732a29548043a1ddf635a0dd6c8781b0f2a0bcdc19029c7d3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # Idempotent: --ignore-not-found means a fresh install where
+              # the sub-chart hasn't yet rendered the Service is fine.
+              kubectl -n {{ .Values.global.namespace }} delete svc \
+                {{ .Release.Name }}-minio-console --ignore-not-found
+              echo "minio-console Service pruned"
+{{- end }}
