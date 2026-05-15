@@ -53,6 +53,12 @@ class Settings(BaseSettings):
 
     # Phase 4: Dataset & Jobs (MLflow)
     JOB_NAMESPACE: str = "lolday"
+    # #175: namespaces that historically hosted ``job-token-*`` Secrets but
+    # are no longer the live JOB_NAMESPACE. The reconciler sweep cleans up
+    # both current + legacy namespaces in each iteration so a one-shot
+    # migration doesn't leave a stale 718-row backlog in the old namespace.
+    # Whitespace-separated env var; same parsing pattern as FERNET_KEYS.
+    JOB_TOKEN_LEGACY_NAMESPACES: Annotated[list[str], NoDecode] = []
     JOB_HELPER_IMAGE: str = ""
     JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600  # 6h (default)
     JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800  # 30m (default)
@@ -172,6 +178,14 @@ class Settings(BaseSettings):
     @field_validator("FERNET_KEYS", mode="before")
     @classmethod
     def _split_fernet_keys(cls, v):
+        """Accept whitespace-separated env value; collapse to list[str]."""
+        if isinstance(v, str):
+            return [k for k in v.split() if k]
+        return v
+
+    @field_validator("JOB_TOKEN_LEGACY_NAMESPACES", mode="before")
+    @classmethod
+    def _split_job_token_legacy_namespaces(cls, v):
         """Accept whitespace-separated env value; collapse to list[str]."""
         if isinstance(v, str):
             return [k for k in v.split() if k]
