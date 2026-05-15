@@ -130,6 +130,15 @@ echo ""
 # Ensure namespaces
 echo "[3/4] Ensuring namespaces..."
 kubectl create namespace lolday --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# H-14 follow-up (#174, 2026-05-15): label lolday ns with PSS audit/warn at
+# restricted before enforcing. The 3-day observation window lets the operator
+# confirm `kubectl get events --field-selector reason=PodSecurity` shows zero
+# violations before promoting to enforce:restricted via the runbook (see
+# docs/runbooks/pss-label-promotion.md).
+kubectl label ns lolday \
+  pod-security.kubernetes.io/audit=restricted \
+  pod-security.kubernetes.io/warn=restricted \
+  --overwrite >/dev/null
 kubectl create namespace harbor --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 # Phase 6: kube-prometheus-stack's pre-upgrade hook creates a ServiceAccount in
 # monitoring ns before helm applies the Namespace template. Pre-create + mark as
@@ -137,6 +146,13 @@ kubectl create namespace harbor --dry-run=client -o yaml | kubectl apply -f - >/
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl label ns monitoring app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
 kubectl annotate ns monitoring meta.helm.sh/release-name=lolday meta.helm.sh/release-namespace=lolday --overwrite >/dev/null
+# H-14 follow-up (#174): kps sub-chart's templates/monitoring/namespace.yaml
+# does not include PSS labels. Apply audit+warn here so the operator can
+# promote the ns later without a chart fork.
+kubectl label ns monitoring \
+  pod-security.kubernetes.io/audit=restricted \
+  pod-security.kubernetes.io/warn=restricted \
+  --overwrite >/dev/null
 # Phase 7.2: pre-create trivy-system ns and mark as Helm-owned — same shape as
 # monitoring. Trivy Operator subchart has `operator.namespace: trivy-system` so
 # its resources render into a ns outside the release ns; helm needs the ns to
@@ -144,6 +160,13 @@ kubectl annotate ns monitoring meta.helm.sh/release-name=lolday meta.helm.sh/rel
 kubectl create namespace trivy-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl label ns trivy-system app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
 kubectl annotate ns trivy-system meta.helm.sh/release-name=lolday meta.helm.sh/release-namespace=lolday --overwrite >/dev/null
+# H-14 follow-up (#174): trivy-operator sub-chart also does not add PSS labels.
+# trivy-system runs operator + on-demand scanner pods; the chart's pod
+# specs already meet restricted. Apply audit+warn so the operator can promote.
+kubectl label ns trivy-system \
+  pod-security.kubernetes.io/audit=restricted \
+  pod-security.kubernetes.io/warn=restricted \
+  --overwrite >/dev/null
 # Phase 7.3: Volcano subchart hardcodes `.Release.Namespace` in every template
 # (no namespaceOverride option), so its controller / scheduler / admission pods
 # land in the release ns (lolday) alongside the backend / frontend / mlflow.
