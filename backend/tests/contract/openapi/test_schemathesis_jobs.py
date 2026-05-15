@@ -15,7 +15,8 @@ This test catches:
 
 Auth setup: the standard X-Test-User-Email / cf_access_user dependency
 override from the integration tier is reused here. A per-test autouse
-fixture installs the overrides and seeds the test user row.
+fixture installs the overrides and seeds the test user row via the shared
+``install_contract_auth`` helper in ``tests/contract/conftest.py``.
 
 Lifespan setup: schemathesis's call_asgi() uses starlette_testclient
 (which enters the ASGI lifespan), unlike httpx.ASGITransport (which does
@@ -42,7 +43,8 @@ import pytest
 import pytest_asyncio
 import schemathesis
 from hypothesis import settings as h_settings
-from sqlalchemy import select
+
+from tests.contract.conftest import install_contract_auth
 
 pytestmark = pytest.mark.contract
 
@@ -66,93 +68,20 @@ schema = schemathesis.from_pytest_fixture("schema").include(path_regex=r"^/api/v
 # ---------------------------------------------------------------------------
 # Auth + DB + lifespan setup fixture
 #
-# Installs the header-based fake auth override, seeds the test user row,
-# and points app.db.engine at the SQLite test engine so the ASGI lifespan
-# (triggered by case.call_asgi()) runs cleanly without a real Postgres DB.
+# Delegates to install_contract_auth (contract/conftest.py) which patches
+# both engine references, seeds the test user, and installs the header-based
+# fake-auth override. Runs per-test (function scope) because setup_db
+# recreates the schema per test.
 # ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def _install_jobs_contract_auth(setup_db):
-    """Install auth + DB overrides and seed the test user for jobs contract tests.
+    """Install auth + DB overrides and seed the test user for jobs contract tests."""
+    from app.models import Role
 
-    setup_db dependency ensures the SQLite schema is created before we
-    seed the user row. Runs per-test (function scope) because setup_db
-    recreates the schema per test.
-    """
-    import app.db as _app_db
-    import app.main as _app_main
-    from app.auth.cf_access import cf_access_user as _cf_dep
-    from app.db import get_async_session
-    from app.main import app
-    from app.models import Role, User
-    from app.services.user_handle import derive_handle_from_email, next_unique_handle
-    from fastapi import Depends, HTTPException, Request
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from tests.conftest import test_engine, test_session_maker
-
-    # --- Override the production engine with the test engine so that
-    # _assert_schema_at_head() inside the ASGI lifespan reads from SQLite.
-    # SQLite has no alembic_version table → the check returns early via
-    # OperationalError catch, and no Postgres DNS lookup is attempted.
-    #
-    # NOTE: app.main does `from app.db import engine` which creates a
-    # local binding. We must patch the `engine` name in app.main, not just
-    # in app.db, for _assert_schema_at_head() to see the test engine.
-    original_db_engine = _app_db.engine
-    original_main_engine = _app_main.engine
-    _app_db.engine = test_engine
-    _app_main.engine = test_engine
-
-    async def _override_session():
-        async with test_session_maker() as session:
-            yield session
-
-    # Seed the test user in the current (freshly created) test DB.
-    async with test_session_maker() as session:
-        existing = (
-            await session.execute(select(User).where(User.email == _TEST_USER_EMAIL))
-        ).scalar_one_or_none()
-        if existing is None:
-            existing_handles = set(
-                (await session.execute(select(User.handle))).scalars().all()
-            )
-            base_handle = derive_handle_from_email(_TEST_USER_EMAIL)
-            handle = next_unique_handle(base_handle, existing=existing_handles)
-            user = User(
-                email=_TEST_USER_EMAIL,
-                handle=handle,
-                role=Role.USER,
-                display_name="contract-jobs",
-            )
-            session.add(user)
-            await session.commit()
-
-    # Header-based fake auth: reads user email from X-Test-User-Email header.
-    async def _fake_auth(
-        request: Request,
-        session: AsyncSession = Depends(get_async_session),
-    ) -> User:
-        email = request.headers.get("x-test-user-email")
-        if not email:
-            raise HTTPException(401, "missing X-Test-User-Email (contract fixture)")
-        row = (
-            await session.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
-        if row is None:
-            raise HTTPException(401, f"contract fixture: user not seeded: {email}")
-        return row
-
-    app.dependency_overrides[get_async_session] = _override_session
-    app.dependency_overrides[_cf_dep] = _fake_auth
-
-    yield
-
-    app.dependency_overrides.pop(get_async_session, None)
-    app.dependency_overrides.pop(_cf_dep, None)
-    _app_db.engine = original_db_engine
-    _app_main.engine = original_main_engine
+    async with install_contract_auth(_TEST_USER_EMAIL, Role.USER):
+        yield
 
 
 # ---------------------------------------------------------------------------
