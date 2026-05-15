@@ -77,7 +77,7 @@ fix-up commit.
 | H-13 | P2 #137    | Orphan `deny-training-egress` NetworkPolicy deleted from `network-policy.yaml`                                                                                                                                                            |
 | H-14 | P2 #137    | PSS labels added to `lolday-jobs`, `monitoring`, `lolday` namespaces (`lolday-jobs` ramped `audit:restricted` → `enforce:baseline` → `enforce:restricted` over 7-day windows; BuildKit moved to `lolday-builds` ns at `enforce:baseline`) |
 | H-15 | P2 #137    | Traefik ForwardAuth middleware + `routers/mlflow_authz.py` enforce per-experiment ACL on `/mlflow/*`                                                                                                                                      |
-| H-16 | P2 #137    | `/mlflow/` ingress Traefik middleware restricts method allowlist (`GET, HEAD, OPTIONS` for any SSO user; `POST, PATCH, DELETE` admin-only)                                                                                                |
+| H-16 | P2 #137    | `/mlflow/` ingress restricts method allowlist (`GET, HEAD, OPTIONS` for any SSO user; `POST, PATCH, DELETE` admin-only)[^h16-impl]                                                                                                        |
 | H-21 | P2 #137    | `services/job_spec.py::build_volcano_job_manifest` renders `spec.queue` server-side from authenticated principal (not request body)                                                                                                       |
 
 ### Secrets (P3)
@@ -273,3 +273,5 @@ Spec §11 acceptance gate items:
 Subsequent security work continues as **ad-hoc PRs per finding** — not as
 another phase. Future audits should produce their own theme set under
 `docs/superpowers/specs/YYYY-MM-DD-*-design.md`.
+
+[^h16-impl]: H-16 implementation footnote (added 2026-05-15 per post-program review D-7): the spec text described enforcement via a Traefik headers middleware. The shipped implementation enforces the method allowlist inside `backend/app/routers/mlflow_authz.py:240,253-257` instead, reading `X-Forwarded-Method` from the Traefik ForwardAuth handshake and rejecting non-admin mutating methods with 403. Behaviour is equivalent — both paths gate `POST/PATCH/DELETE` to admins only — but the enforcement layer differs.
