@@ -135,6 +135,29 @@ postgresql:
     password: "" # --set at deploy time, NEVER commit
 
 # =============================================================================
+# Postgres backup CronJob (#172)
+# =============================================================================
+# Daily pg_dumpall + gzip + upload to MinIO bucket `pg-backups`. Uses the
+# upstream prodrigestivill/postgres-backup-local image (mainstream Postgres
+# -> S3 backup container). SCHEDULE=@disabled inside the image hands
+# scheduling to the K8s CronJob.
+#
+# Restore procedure: docs/runbooks/db-restore.md.
+pgBackup:
+  enabled: true
+  # 03:00 daily, off-peak for the lab.
+  schedule: "0 3 * * *"
+  # H-21-img: digest pin (captured 2026-05-15 via the Docker Registry v2
+  # manifest endpoint with Accept: application/vnd.oci.image.index.v1+json
+  # against tag `16`). Refresh on the next Postgres-major bump or
+  # quarterly. The image-tags-aligned pre-commit hook enforces the pin.
+  image: prodrigestivill/postgres-backup-local:16@sha256:a0103fbce0c48ccc7693ddbb2a2bfa733048db845354f635efef9e4566de185d
+  s3Bucket: pg-backups
+  # 30 days of daily backups + 4 weekly + 6 monthly (the image rotates by
+  # filename prefix). DR target RPO is 24h.
+  keepDays: "30"
+
+# =============================================================================
 # Redis
 # =============================================================================
 redis:
