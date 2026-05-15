@@ -303,6 +303,24 @@ async def register(
     )
     session.add(d)
     try:
+        await session.flush()
+        # #166: audit detector.register. Capture the repo URL and resolved
+        # detector name but NEVER the PAT -- the credential helper guard
+        # in _clone_and_validate already keeps the PAT out of subprocess
+        # argv and stderr; the audit row stays in the same posture.
+        await write_audit_log(
+            session,
+            actor_id=user.id,
+            action="detector.register",
+            target_type="detector",
+            target_id=d.id,
+            before=None,
+            after={
+                "name": name,
+                "display_name": display_name,
+                "git_url": normalized,
+            },
+        )
         await session.commit()
     except IntegrityError as e:
         await session.rollback()

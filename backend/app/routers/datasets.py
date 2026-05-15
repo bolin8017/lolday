@@ -191,8 +191,21 @@ async def update_dataset(
         ds.name = body.name
     if body.description is not None:
         ds.description = body.description
-    if body.visibility is not None:
+    # #166: audit dataset visibility flips. PUBLIC <-> PRIVATE governs who
+    # can read the CSV body via _get_readable_dataset; making this surface
+    # auditable closes the "I didn't change that" forensic loop.
+    if body.visibility is not None and body.visibility != ds.visibility:
+        old_visibility = ds.visibility.value
         ds.visibility = body.visibility
+        await write_audit_log(
+            session,
+            actor_id=user.id,
+            action="dataset.visibility",
+            target_type="dataset",
+            target_id=ds.id,
+            before={"visibility": old_visibility},
+            after={"visibility": body.visibility.value},
+        )
 
     await session.commit()
     await session.refresh(ds)

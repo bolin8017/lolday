@@ -644,12 +644,32 @@ async def cancel_job(
                 extra={"job_id": str(job.id), "k8s_job_name": job.k8s_job_name},
             )
 
+    prev_status = job.status
     job.status = JobStatus.CANCELLED
+    is_admin_cancel = job.owner_id != user.id
     job.failure_reason = (
-        "cancelled_by_user" if job.owner_id == user.id else "cancelled_by_admin"
+        "cancelled_by_user" if not is_admin_cancel else "cancelled_by_admin"
     )
     job.finished_at = datetime.now(UTC)
     job.token_hash = None  # H-20: invalidate the init-container token on cancel
+    # #166: admin-cancel is a forensically interesting cross-user mutation.
+    # Capture before/after status. Self-cancel is the user's own action and
+    # not audit-worthy.
+    if is_admin_cancel:
+        from app.services.audit import write_audit_log
+
+        await write_audit_log(
+            session,
+            actor_id=user.id,
+            action="job.cancel.admin",
+            target_type="job",
+            target_id=job.id,
+            before={
+                "status": prev_status.value,
+                "owner_id": str(job.owner_id),
+            },
+            after={"status": job.status.value},
+        )
     await session.commit()
     await session.refresh(job)
     # Same defensive ``dv if dv else None`` guard as ``get_job`` — the
