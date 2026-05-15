@@ -42,6 +42,7 @@ from app.reconciler.orphans import (
     reconcile_orphan_token_secrets,
     reconcile_orphan_vcjobs,
 )
+from app.services.mlflow_client import MlflowClient
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,9 @@ async def _scan_builds(session, limit: int = RECONCILER_SCAN_LIMIT):
     return rows
 
 
-async def reconciler_loop(stop_event: asyncio.Event) -> None:
+async def reconciler_loop(
+    stop_event: asyncio.Event, mlflow: MlflowClient | None = None
+) -> None:
     logger.info("reconciler started (build + job)")
     iteration = 0
     while not stop_event.is_set():
@@ -118,7 +121,7 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                 jobs_to_reconcile = await _scan_jobs(session)
                 for j in jobs_to_reconcile:
                     try:
-                        await reconcile_job(session, j)
+                        await reconcile_job(session, j, mlflow)
                     except Exception:
                         BACKEND_ERRORS.labels(stage="reconcile_job").inc()
                         logger.exception(
@@ -128,7 +131,7 @@ async def reconciler_loop(stop_event: asyncio.Event) -> None:
                 # Model version sync every N iterations (~60s at default N=6)
                 if iteration % SYNC_EVERY_N_ITERATIONS == 0:
                     try:
-                        await sync_model_versions(session)
+                        await sync_model_versions(session, mlflow)
                     except Exception:
                         BACKEND_ERRORS.labels(stage="sync_model_versions").inc()
                         logger.exception("sync_model_versions failed")

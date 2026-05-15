@@ -1,0 +1,61 @@
+suite: Kyverno ClusterPolicies
+templates:
+  - templates/policies/verify-images.yaml
+  - templates/policies/verify-images-harbor.yaml
+  - templates/policies/pss-baseline-audit.yaml
+values:
+  - ../values-test.yaml
+set:
+  # All three ClusterPolicy templates are gated on kyverno.enabled.
+  # Enable it so the suite can render and assert on them.
+  kyverno.enabled: true
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # GHCR policy must be Enforce: keyless GHA-signed images are only
+  # trusted if admission blocks unsigned pulls immediately.
+  - it: GHCR ClusterPolicy (verify-lolday-image-signatures) is in Enforce mode
+    template: templates/policies/verify-images.yaml
+    asserts:
+      - isKind:
+          of: ClusterPolicy
+      - equal:
+          path: metadata.name
+          value: verify-lolday-image-signatures
+      - equal:
+          path: spec.validationFailureAction
+          value: Enforce
+
+  # Harbor policy ships in Audit mode (spec 2026-05-12 §4, chart 0.24.0):
+  # operator promotes to Enforce via kubectl patch after the 7d audit window.
+  # This test pins the shipped default so a stray PR cannot silently promote
+  # it to Enforce (which would block all Harbor image pulls before the key
+  # is distributed to every node).
+  - it: Harbor ClusterPolicy (verify-lolday-harbor-image-signatures) ships in Audit mode
+    template: templates/policies/verify-images-harbor.yaml
+    asserts:
+      - isKind:
+          of: ClusterPolicy
+      - equal:
+          path: metadata.name
+          value: verify-lolday-harbor-image-signatures
+      - equal:
+          path: spec.validationFailureAction
+          value: Audit
+
+  # PSS baseline audit policy must also remain in Audit — the enforcement
+  # is done by the built-in Pod Security Admission labels on each namespace.
+  # Double-enforce via Kyverno Enforce would block admission even on
+  # intentional exceptions (e.g. the seccomp installer in lolday-builds).
+  - it: PSS baseline ClusterPolicy stays in Audit mode
+    template: templates/policies/pss-baseline-audit.yaml
+    asserts:
+      - isKind:
+          of: ClusterPolicy
+      - equal:
+          path: spec.validationFailureAction
+          value: Audit

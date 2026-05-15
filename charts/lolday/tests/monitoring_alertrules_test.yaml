@@ -1,0 +1,55 @@
+suite: monitoring PrometheusRule
+templates:
+  - templates/monitoring/alertmanager-rules.yaml
+values:
+  - ../values-test.yaml
+set:
+  monitoring.enabled: true
+release:
+  name: lolday
+  namespace: monitoring
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a single PrometheusRule named lolday-baseline
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PrometheusRule
+      - equal:
+          path: metadata.name
+          value: lolday-baseline
+
+  # lolday-baseline.rules group — verify the two key lolday-specific alerts
+  # that the monitoring spec mandates are present. Using explicit group/index
+  # paths since helm-unittest JSONPath-lite does not support wildcard filters.
+  - it: group 0 (lolday-baseline.rules) contains LoldayBackendErrorRateElevated at rule index 4
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[4].alert
+          value: LoldayBackendErrorRateElevated
+
+  # lolday-resource-pressure.rules group — GpuSignalFailSafeStuck is the
+  # fail-safe-stuck alert (scheduler goes fail-closed for 30m). Pinning its
+  # position so renaming/moving it is caught by CI.
+  - it: group 1 (lolday-resource-pressure.rules) contains GpuSignalFailSafeStuck at rule index 3
+    asserts:
+      - equal:
+          path: spec.groups[1].rules[3].alert
+          value: GpuSignalFailSafeStuck
+
+  # Critical alerts must carry severity: critical.
+  - it: LoldayCoreServiceDown alert carries severity critical
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[3].labels.severity
+          value: critical
+
+  # All three PrometheusRule groups must be present (baseline, resource-pressure, trivy).
+  - it: PrometheusRule has 3 alert groups
+    asserts:
+      - lengthEqual:
+          path: spec.groups
+          count: 3

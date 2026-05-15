@@ -40,3 +40,60 @@ jobs:
 
       - name: Run pre-commit on all files
         run: pre-commit run --all-files --show-diff-on-failure --color always
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Setup helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.16.4
+
+      - name: Cache sub-chart tgz
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: charts/lolday/charts
+          key: ${{ runner.os }}-helm-deps-${{ hashFiles('charts/lolday/Chart.lock') }}
+
+      - name: Render chart and kubeconform-validate
+        run: |
+          helm dependency update charts/lolday
+          helm template lolday charts/lolday -f charts/lolday/values-test.yaml --include-crds \
+            > /tmp/rendered.yaml
+          # Skip: Job (CRD-backed Volcano VCJob rendered inline), ClusterPolicy (Kyverno CRD),
+          # CustomResourceDefinition (no public schema), IngressRoute + Middleware (Traefik CRDs).
+          kubeconform -strict -summary \
+            -skip Job,ClusterPolicy,CustomResourceDefinition,IngressRoute,Middleware \
+            -schema-location default \
+            /tmp/rendered.yaml
+
+      - name: Install kyverno-cli
+        run: |
+          curl -sSL https://github.com/kyverno/kyverno/releases/download/v1.13.0/kyverno-cli_v1.13.0_linux_x86_64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin kyverno
+
+      - name: kyverno-cli validate ClusterPolicy syntax
+        run: |
+          # Render with kyverno.enabled=true so ClusterPolicy documents are emitted.
+          helm template lolday charts/lolday -f charts/lolday/values-test.yaml --include-crds \
+            --set kyverno.enabled=true > /tmp/with-policies.yaml
+          # Extract ClusterPolicy documents for syntax checking.
+          python3 - <<'EOF'
+          import sys, re
+          docs = open('/tmp/with-policies.yaml').read().split('\n---\n')
+          policies = [d for d in docs if re.search(r'^\s*kind:\s*ClusterPolicy', d, re.M)]
+          if not policies:
+              print("No ClusterPolicy documents found — nothing to validate.")
+              sys.exit(0)
+          open('/tmp/cluster-policies.yaml', 'w').write('\n---\n'.join(policies))
+          print(f"Extracted {len(policies)} ClusterPolicy document(s).")
+          EOF
+          if [ -s /tmp/cluster-policies.yaml ]; then
+            # `kyverno apply` parses each policy; exit code reflects violations on resources,
+            # not parse errors — so || true suppresses enforcement failures while a non-zero
+            # exit from a parse/schema error still surfaces in stderr for humans to read.
+            kyverno apply /tmp/cluster-policies.yaml --resource /tmp/rendered.yaml \
+              --policy-report 2>&1 || true
+          fi

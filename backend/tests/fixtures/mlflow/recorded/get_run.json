@@ -1,0 +1,25 @@
+{
+  "run": {
+    "info": {
+      "run_uuid": "8002e3e2fd024f7e89b8dadfe8665739",
+      "experiment_id": "1",
+      "run_name": "abrasive-pig-64",
+      "user_id": "",
+      "status": "RUNNING",
+      "start_time": 1778850531793,
+      "artifact_uri": "/tmp/artifacts/1/8002e3e2fd024f7e89b8dadfe8665739/artifacts",
+      "lifecycle_stage": "active",
+      "run_id": "8002e3e2fd024f7e89b8dadfe8665739"
+    },
+    "data": {
+      "tags": [
+        {
+          "key": "mlflow.runName",
+          "value": "abrasive-pig-64"
+        }
+      ]
+    },
+    "inputs": {},
+    "outputs": {}
+  }
+}

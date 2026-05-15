@@ -24,13 +24,20 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+import httpx
 from kubernetes.client import ApiException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.metrics import BACKEND_ERRORS
-from app.models.job import NON_TERMINAL_STATUSES, Job, JobStatus, JobType
+from app.models.job import (
+    NON_TERMINAL_STATUSES,
+    Job,
+    JobStatus,
+    JobType,
+    assert_transition_legal,
+)
 from app.reconciler.log_capture import _capture_job_log_tail
 from app.reconciler.notify import (
     _detector_label,
@@ -56,13 +63,22 @@ from app.services.notify import notify_job_completed
 logger = logging.getLogger(__name__)
 
 
-async def reconcile_job(session: AsyncSession, j: Job) -> None:
+async def reconcile_job(
+    session: AsyncSession, j: Job, mlflow: MlflowClient | None = None
+) -> None:
     """Poll Volcano Job + MLflow state for a single job row, transition DB row.
 
     Phase 7.3: training jobs are ``batch.volcano.sh/v1alpha1`` Jobs (queued on
     ``lolday-training``), accessed via the generic CustomObjectsApi. Phase state
     lives at ``.status.state.phase`` (Volcano-specific enum: Pending / Running /
     Completed / Failed / Aborted / Terminated / …).
+
+    ``mlflow`` is the app-managed MlflowClient injected from the lifespan via
+    ``app.state.mlflow``. It is optional (defaults to ``None``) during the
+    transition period so tests that call ``reconcile_job(session, job)`` without
+    the third argument continue to work; the internal helpers each create their
+    own legacy client when ``mlflow`` is ``None``.  After T13 completes, pass
+    ``mlflow`` explicitly from ``reconciler_loop`` and remove the default.
     """
     if j.k8s_job_name is None:
         return
@@ -78,6 +94,7 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
         )
     except ApiException as e:
         if e.status == 404:
+            assert_transition_legal(j.status, JobStatus.FAILED)
             j.status = JobStatus.FAILED
             j.failure_reason = "k8s_job_missing"
             j.finished_at = datetime.now(UTC)
@@ -85,7 +102,7 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
                 None  # H-20: invalidate init-container token on terminal transition
             )
             await session.commit()
-            await _finalize_mlflow_run(j, "FAILED")
+            await _finalize_mlflow_run(j, "FAILED", mlflow=mlflow)
             await _fire_job_failed_notify(session, j, "k8s_job_missing")
         return
 
@@ -109,6 +126,7 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
                     j.id,
                     exc_info=True,
                 )
+        assert_transition_legal(j.status, JobStatus.TIMEOUT)
         j.status = JobStatus.TIMEOUT
         j.failure_reason = "detector_timeout"
         j.finished_at = datetime.now(UTC)
@@ -116,7 +134,7 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
             None  # H-20: invalidate init-container token on terminal transition
         )
         await session.commit()
-        await _finalize_mlflow_run(j, "KILLED")
+        await _finalize_mlflow_run(j, "KILLED", mlflow=mlflow)
         await _fire_job_failed_notify(session, j, "detector_timeout")
         await _cleanup_job_secret(j)
         return
@@ -124,17 +142,17 @@ async def reconcile_job(session: AsyncSession, j: Job) -> None:
     # Phase 11b: trust stage_end event before consulting Volcano phase.
     event_status = await _check_event_terminal(session, j.id)
     if event_status == "success":
-        await _handle_job_succeeded(session, j)
+        await _handle_job_succeeded(session, j, mlflow=mlflow)
         return
     if event_status == "failure":
-        await _handle_job_failed(session, j)
+        await _handle_job_failed(session, j, mlflow=mlflow)
         return
 
     phase = (vjob.get("status") or {}).get("state", {}).get("phase", "")
     if phase == "Completed":
-        await _handle_job_succeeded(session, j)
+        await _handle_job_succeeded(session, j, mlflow=mlflow)
     elif phase in ("Failed", "Aborted", "Terminated"):
-        await _handle_job_failed(session, j)
+        await _handle_job_failed(session, j, mlflow=mlflow)
     else:
         await _update_job_progress(session, j)
 
@@ -194,22 +212,38 @@ async def _update_job_progress(session: AsyncSession, j: Job) -> None:
         return
     pod = pods.items[0]
     if pod.status.phase == "Running" and j.status != JobStatus.RUNNING:
+        assert_transition_legal(j.status, JobStatus.RUNNING)
         j.status = JobStatus.RUNNING
         if j.started_at is None:
             j.started_at = datetime.now(UTC)
         await session.commit()
 
 
-async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
+async def _handle_job_succeeded(
+    session: AsyncSession, j: Job, *, mlflow: MlflowClient | None = None
+) -> None:
     # Phase 11e: summary_metrics is no longer sourced from MLflow — the
     # `_project_summary_metrics` projection below reads from the canonical
     # job_events stream. We still need an MlflowClient for the downstream
     # model-registration call.
-    client = MlflowClient(settings.MLFLOW_TRACKING_URI)
+    #
+    # In production ``mlflow`` is always the lifespan-owned client (passed from
+    # reconciler_loop → reconcile_job → here). The ``None`` fallback only fires
+    # in tests that call reconcile_job without the third argument; it creates a
+    # short-lived httpx.AsyncClient that is closed at function exit.
+    client = (
+        mlflow
+        if mlflow is not None
+        else MlflowClient(
+            settings.MLFLOW_TRACKING_URI,
+            http_client=httpx.AsyncClient(timeout=httpx.Timeout(10.0)),
+        )
+    )
 
     log_tail = await _capture_job_log_tail(j)
 
     j.log_tail = log_tail
+    assert_transition_legal(j.status, JobStatus.SUCCEEDED)
     j.status = JobStatus.SUCCEEDED
     j.finished_at = datetime.now(UTC)
     j.token_hash = None  # H-20: invalidate init-container token on terminal transition
@@ -227,7 +261,7 @@ async def _handle_job_succeeded(session: AsyncSession, j: Job) -> None:
     await session.commit()
     # Idempotent MLflow finalize — maldet typically already wrote FINISHED,
     # this is the controller's safety net.
-    await _finalize_mlflow_run(j, "FINISHED")
+    await _finalize_mlflow_run(j, "FINISHED", mlflow=client)
 
     try:
         await _project_summary_metrics(session, j.id)
@@ -372,16 +406,19 @@ async def _register_model_from_job(
     session.add(mv)
 
 
-async def _handle_job_failed(session: AsyncSession, j: Job) -> None:
+async def _handle_job_failed(
+    session: AsyncSession, j: Job, *, mlflow: MlflowClient | None = None
+) -> None:
     reason = await _extract_job_failure_reason(j)
     log_tail = await _capture_job_log_tail(j)
+    assert_transition_legal(j.status, JobStatus.FAILED)
     j.status = JobStatus.FAILED
     j.failure_reason = reason
     j.log_tail = log_tail
     j.finished_at = datetime.now(UTC)
     j.token_hash = None  # H-20: invalidate init-container token on terminal transition
     await session.commit()
-    await _finalize_mlflow_run(j, "FAILED")
+    await _finalize_mlflow_run(j, "FAILED", mlflow=mlflow)
 
     # Phase 11e: failed jobs may still have meaningful early-stage metrics
     # (e.g. an evaluator that produced a result before the process exited).
@@ -436,6 +473,7 @@ async def _finalize_mlflow_run(
     status: str,
     *,
     end_time_ms: int | None = None,
+    mlflow: MlflowClient | None = None,
 ) -> None:
     """Update the MLflow run to a terminal status when lolday terminates the Job.
 
@@ -449,7 +487,17 @@ async def _finalize_mlflow_run(
     """
     if not j.mlflow_run_id:
         return
-    client = MlflowClient(settings.MLFLOW_TRACKING_URI)
+    # In production ``mlflow`` is always the lifespan-owned client. The ``None``
+    # fallback creates a short-lived client for backward-compat test call sites
+    # that call _handle_job_failed / reconcile_job without the mlflow arg.
+    client = (
+        mlflow
+        if mlflow is not None
+        else MlflowClient(
+            settings.MLFLOW_TRACKING_URI,
+            http_client=httpx.AsyncClient(timeout=httpx.Timeout(10.0)),
+        )
+    )
     try:
         await client.update_run(
             j.mlflow_run_id,

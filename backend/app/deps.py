@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_async_session
@@ -10,6 +10,7 @@ from app.models import Job, Role, User
 from app.models.detector import Detector
 from app.models.job import NON_TERMINAL_STATUSES
 from app.services.job_tokens import verify_token
+from app.services.mlflow_client import MlflowClient
 from app.users import current_active_user
 
 ROLE_HIERARCHY = {
@@ -86,3 +87,17 @@ async def require_job_token(
     if not verify_token(token, job.token_hash):
         raise HTTPException(status_code=403, detail="invalid token")
     return job
+
+
+def get_mlflow(request: Request) -> MlflowClient:
+    """FastAPI dependency that yields the app.state-managed MlflowClient.
+
+    Routers and other ASGI handlers should use Depends(get_mlflow) instead
+    of importing mlflow_client module-level functions. The reconciler (a
+    background task, not a FastAPI handler) accepts the MlflowClient as a
+    function argument from main.py's lifespan instead.
+
+    See spec docs/superpowers/specs/2026-05-15-test-architecture-redesign-design.md
+    §9 R2 for rationale.
+    """
+    return request.app.state.mlflow

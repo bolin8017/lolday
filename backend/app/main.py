@@ -3,6 +3,7 @@ import contextlib
 import logging
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -21,6 +22,7 @@ from app.routers import (
     mlflow_authz,
     models_registry,
 )
+from app.services.mlflow_client import MlflowClient
 from app.services.rate_limit import rate_limit_ip
 
 logger = logging.getLogger(__name__)
@@ -134,10 +136,18 @@ async def lifespan(app: FastAPI):
         BACKEND_ERRORS.labels(stage="harbor_init").inc()
         logger.exception("harbor init failed — continuing, build pipeline may not work")
 
+    # app.state-managed httpx.AsyncClient + MlflowClient — created before the
+    # reconciler task so the task receives the live client instance.
+    # The legacy module-level _HTTP_CLIENT shim is removed in T13 (this step).
+    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+    app.state.mlflow = MlflowClient.from_settings(settings, app.state.http)
+
     reconciler_task: asyncio.Task | None = None
     if settings.RECONCILER_ENABLED:
         stop_event = asyncio.Event()
-        reconciler_task = asyncio.create_task(reconciler_loop(stop_event))
+        reconciler_task = asyncio.create_task(
+            reconciler_loop(stop_event, app.state.mlflow)
+        )
 
     # Phase 6d: FIFO scheduler — submits queued_backend jobs to Volcano in
     # strict (priority DESC, submitted_at ASC) order.  Runs independently of
@@ -170,10 +180,10 @@ async def lifespan(app: FastAPI):
             with contextlib.suppress(asyncio.CancelledError):
                 await fifo_task
     finally:
-        from app.services import gpu_signal, mlflow_client
+        from app.services import gpu_signal
 
         gpu_signal.close_http_client()
-        await mlflow_client.close_http_client()
+        await app.state.http.aclose()
 
 
 app = FastAPI(

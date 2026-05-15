@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
 from app.config import settings
 from app.db import async_session_maker, get_async_session
-from app.deps import require_role
+from app.deps import get_mlflow, require_role
 from app.metrics import BACKEND_ERRORS, PRIORITY_BUMP_TOTAL
 from app.models import (
     DatasetConfig,
@@ -39,6 +39,7 @@ from app.models.job import (
     RESOURCE_PROFILE_GPU_COUNT,
     JobStatus,
     JobType,
+    assert_transition_legal,
 )
 from app.models.user import Role
 from app.schemas.job import JobCreate, JobList, JobPatch, JobRead, JobSummary
@@ -67,12 +68,6 @@ from app.users import current_active_user
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _get_mlflow_client() -> MlflowClient:
-    return MlflowClient(
-        settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
-    )
 
 
 async def _load_dataset(
@@ -144,6 +139,7 @@ async def create_job(
     body: JobCreate,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
+    client: Annotated[MlflowClient, Depends(get_mlflow)],
 ) -> JobRead:
     # Phase 2.4: maintenance mode short-circuit. Fires before any DB /
     # MLflow side-effect so the operator can flip the flag mid-cutover and
@@ -307,7 +303,6 @@ async def create_job(
     exp_name = f"{user.handle}/{detector_version_label}"
     run_name = f"{body.type.value}-{job_id.hex[:8]}"
 
-    client = _get_mlflow_client()
     newly_created_experiment = False
     if not dv.mlflow_experiment_id:
         dv.mlflow_experiment_id = await client.get_or_create_experiment(exp_name)
@@ -645,6 +640,7 @@ async def cancel_job(
             )
 
     prev_status = job.status
+    assert_transition_legal(prev_status, JobStatus.CANCELLED)
     job.status = JobStatus.CANCELLED
     is_admin_cancel = job.owner_id != user.id
     job.failure_reason = (

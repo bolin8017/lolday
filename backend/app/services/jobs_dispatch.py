@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models import DetectorVersion
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobStatus, assert_transition_legal
 from app.services.job_config import resolve_source_model_path
 from app.services.job_spec import build_job_token_secret, build_volcano_job_manifest
 from app.services.job_tokens import generate_token, hash_token
@@ -208,4 +208,5 @@ async def dispatch_job_to_volcano(session: AsyncSession, job: Job) -> None:
         )
 
     job.k8s_job_name = manifest["metadata"]["name"]
+    assert_transition_legal(job.status, JobStatus.PREPARING)
     job.status = JobStatus.PREPARING

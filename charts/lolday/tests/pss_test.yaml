@@ -1,0 +1,64 @@
+suite: Pod Security Standards labels
+templates:
+  - templates/builds-namespace.yaml
+  - templates/jobs-namespace.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # NOTE: The `lolday` main namespace has no chart template — it is expected
+  # to be pre-existing on the cluster (K3s installs it as part of K8s core).
+  # PSS label on `lolday` is applied out-of-band per docs/runbooks/pss-label-promotion.md.
+  # Only the two namespaces with chart templates are tested here.
+
+  # lolday-builds: enforce=privileged because the buildkit-seccomp-installer
+  # DaemonSet needs hostPath (forbidden by baseline AND restricted per K8s PSS
+  # reference table; only privileged allows it). This is the hotfix from PR #181.
+  # audit + warn at restricted remain informational.
+  - it: lolday-builds namespace enforces privileged PSS (hostPath required by seccomp installer)
+    template: templates/builds-namespace.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: lolday-builds
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/audit"]
+          value: restricted
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+          value: restricted
+
+  # lolday-jobs: enforce=baseline per chart default (H-14). The operator
+  # promotes to `restricted` post-deploy via:
+  #   kubectl label ns lolday-jobs pod-security.kubernetes.io/enforce=restricted --overwrite
+  # after verifying 7 days of clean audit logs. Test pins the chart default
+  # to catch an accidental premature promotion or regression.
+  - it: lolday-jobs namespace enforces baseline PSS (promoted to restricted out-of-band post-deploy)
+    template: templates/jobs-namespace.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: lolday-jobs
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: baseline
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/audit"]
+          value: restricted
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+          value: restricted

@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.db import get_async_session
+from app.deps import get_mlflow
 from app.models import (
     Detector,
     DetectorVersion,
@@ -44,12 +44,6 @@ from app.users import current_active_user
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _mlflow() -> MlflowClient:
-    return MlflowClient(
-        settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
-    )
 
 
 def _model_version_to_read(
@@ -385,6 +379,7 @@ async def transition_model_version(
     body: ModelTransitionRequest,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
+    client: Annotated[MlflowClient, Depends(get_mlflow)],
 ) -> ModelVersionRead:
     rm = await resolve_registered_model(owner, name, session, user, write=True)
     mv = (
@@ -421,7 +416,6 @@ async def transition_model_version(
     ).scalar_one()
     mlflow_name = f"{owner_handle}/{detector_name}"
 
-    client = _mlflow()
     archive = body.to_stage == ModelVersionStage.PRODUCTION
     try:
         await client.transition_model_version_stage(
@@ -546,7 +540,7 @@ async def transfer_owner(
     body: OwnerTransferRequest,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
-    client: Annotated[MlflowClient, Depends(_mlflow)],
+    client: Annotated[MlflowClient, Depends(get_mlflow)],
 ) -> RegisteredModelRead:
     rm = await resolve_registered_model(owner, name, session, user, write=True)
 
@@ -620,7 +614,7 @@ async def delete_model(
     name: str,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
-    client: Annotated[MlflowClient, Depends(_mlflow)],
+    client: Annotated[MlflowClient, Depends(get_mlflow)],
 ) -> None:
     rm = await resolve_registered_model(owner, name, session, user, write=True)
     # Capture mlflow_name BEFORE deletion to avoid lazy-load issues post-delete.
@@ -652,7 +646,7 @@ async def delete_model_version_namespaced(
     version: int,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
-    client: Annotated[MlflowClient, Depends(_mlflow)],
+    client: Annotated[MlflowClient, Depends(get_mlflow)],
 ) -> None:
     rm = await resolve_registered_model(owner, name, session, user, write=True)
     mv = (
