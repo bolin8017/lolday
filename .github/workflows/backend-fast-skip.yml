@@ -1,0 +1,36 @@
+name: backend-fast
+
+# Skip-companion for backend-fast.yml. Branch protection requires the
+# `backend-fast / pytest` check by name; when a PR doesn't touch any
+# backend/** file, backend-fast.yml's path filter prevents the real job
+# from running and the required check would stay "Expected — waiting for
+# status to be reported" forever, blocking the merge. This workflow has
+# the same `name:` and same job `pytest`, runs on the inverse path set,
+# and emits an immediate success so the required check is satisfied.
+#
+# Mainstream pattern: https://github.community/t/required-checks-for-paths-filter
+# (a.k.a. the "skip companion" workflow). The required-status-checks API
+# matches by `<workflow_name> / <job_name>`, so both files contribute to
+# the same check slot.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "backend/**"
+      - ".github/workflows/backend-fast.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-fast-skip-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: echo "::notice::No backend/** changes — skip-companion satisfies required check."

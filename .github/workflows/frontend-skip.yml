@@ -1,0 +1,32 @@
+name: frontend
+
+# Skip-companion for frontend.yml. The real workflow uses `paths-ignore`
+# to skip on backend / charts / scripts / docs / md-only PRs; that path
+# set is the trigger condition for this companion (`paths:` matches if
+# any changed file is in the list). Required check name `frontend / unit`
+# is satisfied by whichever workflow runs.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**.md"
+      - "docs/**"
+      - "backend/**"
+      - "charts/**"
+      - "scripts/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-skip-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: echo "::notice::No frontend changes — skip-companion satisfies required check."

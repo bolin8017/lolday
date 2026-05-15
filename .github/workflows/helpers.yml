@@ -31,6 +31,7 @@ jobs:
       contents: read
       packages: write
       id-token: write # H-23: cosign keyless OIDC flow needs this at job scope
+      attestations: write # #170: actions/attest-build-provenance writes to the repo's attestation store
     strategy:
       fail-fast: false
       matrix:

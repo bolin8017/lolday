@@ -47,11 +47,15 @@ jobs:
         run: helm dep update charts/lolday
 
       - name: helm install lolday
-        # --wait is intentionally omitted: values-test.yaml uses fake image digests
-        # that will never pull, so pods never reach Ready. The smoke validates that
-        # helm applies all manifests without API-server errors (no wait = no timeout).
+        # --no-hooks skips the alembic-upgrade pre-install Job, which Helm
+        # always blocks on regardless of --wait. values-test.yaml uses a fake
+        # backend image digest that never pulls, so the hook would otherwise
+        # hit a 5-min ImagePullBackOff timeout. --wait is also omitted: the
+        # smoke validates that the API server applies all chart manifests
+        # without errors — Ready is not the goal.
         run: |
           helm install lolday charts/lolday \
+            --no-hooks \
             -n lolday --create-namespace \
             -f charts/lolday/values-test.yaml \
             || (echo "=== helm install failed ===" && kubectl -n lolday get all && kubectl -n lolday describe pods && exit 1)
@@ -65,9 +69,11 @@ jobs:
           kubectl -n lolday get secret backend-fernet-secret
 
       - name: helm upgrade to same chart (idempotency)
-        # No --wait for the same reason: fake images, pods stay in ImagePullBackOff.
+        # --no-hooks for the same reason as install: alembic pre-upgrade
+        # hook would block on the fake image digest.
         run: |
           helm upgrade lolday charts/lolday \
+            --no-hooks \
             -n lolday \
             -f charts/lolday/values-test.yaml
 

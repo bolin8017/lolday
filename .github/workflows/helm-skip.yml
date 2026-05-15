@@ -1,0 +1,28 @@
+name: helm
+
+# Skip-companion for helm.yml. Required check name `helm / lint-template`
+# is satisfied via the same workflow + job name. Triggers on PRs that
+# don't touch charts/** so the real workflow stays skipped while the
+# branch protection slot still gets a green report.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "charts/**"
+      - ".github/workflows/helm.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-skip-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-template:
+    name: lint-template
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: echo "::notice::No charts/** changes — skip-companion satisfies required check."
