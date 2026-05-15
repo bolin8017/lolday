@@ -22,6 +22,12 @@ echo ""
 : "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${DISCORD_WEBHOOK_URL_CRITICAL:?DISCORD_WEBHOOK_URL_CRITICAL must be set — webhook URL for #lolday-alerts-critical}"
 : "${DISCORD_WEBHOOK_URL_WARNING:?DISCORD_WEBHOOK_URL_WARNING must be set — webhook URL for #lolday-alerts-warning}"
+# Phase 10 — SSO admin email. Used by the one-time phase10_sso_admin_email
+# Alembic migration to rename the seeded admin row onto the operator's IdP
+# identity. Kept out of values.yaml so the public chart does not embed
+# operator-personal info. Hard-fail here so a fresh deploy can never seed
+# admin@example.com (the placeholder in values.yaml) into a real cluster.
+: "${SSO_ADMIN_EMAIL:?SSO_ADMIN_EMAIL must be set — operator's CF Access IdP email}"
 # Phase 7.4 — user-event Discord webhook (#lolday-alerts-events).
 # Optional: backend treats empty string as "notify disabled". Hard-fail only if
 # present-but-malformed (silent half-config is the worst outcome).
@@ -251,6 +257,7 @@ helm upgrade --install lolday "$CHART_DIR" \
   --set monitoring.postgresExporter.password="$PG_EXPORTER_PASSWORD" \
   --set backend.env.BUILD_IMAGE_HELPER="$BUILD_IMAGE_HELPER" \
   --set backend.env.JOB_HELPER_IMAGE="$JOB_HELPER_IMAGE" \
+  --set backend.env.SSO_ADMIN_EMAIL="$SSO_ADMIN_EMAIL" \
   "${HELM_IMAGE_OVERRIDES[@]}" \
   --wait --timeout 20m
 
