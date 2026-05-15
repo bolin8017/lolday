@@ -175,10 +175,12 @@ fix-up commit.
 
 ### P3 LOW
 
-| ID                    | Closed via            | Summary                                                                                                            |
-| --------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| L-harbor-robot-rotate | P3 #138 (+ `2c1fb3c`) | Force-rotate current `robot$build-pusher`; `duration: 7776000` (90d); quarterly `reconciler/harbor_rotate.py` task |
-| L-minio-key-rotate    | P3 #138               | MinIO svcacct AK/SK rotated via `openssl rand -base64 30 \| tr -d '/+=' \| head -c 40`                             |
+| ID                    | Closed via            | Summary                                                                                                                                                                  |
+| --------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| L-harbor-robot-rotate | P3 #138 (+ `2c1fb3c`) | Force-rotate current `robot$build-pusher`; `duration: 90 days` (Harbor v2 swagger unit is days, not seconds)[^harbor-days]; quarterly `reconciler/harbor_rotate.py` task |
+| L-minio-key-rotate    | P3 #138               | MinIO svcacct AK/SK rotated via `openssl rand -base64 30 \| tr -d '/+=' \| head -c 40`                                                                                   |
+
+[^harbor-days]: Harbor v2.x robot-account API: `duration` is in **days**, not seconds (`goharbor/harbor` v2.13.0 swagger `api/v2.0/swagger.yaml` line 7800: "The duration of the robot in days, duration must be either -1 (Never) or a positive integer"). 90d = `"duration": 90`, NOT `7776000`. The `-1` sentinel (Never) is unit-agnostic, which is why the pre-P3 in-repo code path "worked" without surfacing the bug. Verify Harbor REST contracts via the upstream swagger / context7, not in-repo scripts.
 
 ### P5 LOW
 
