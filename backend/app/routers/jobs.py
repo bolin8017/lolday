@@ -794,7 +794,21 @@ async def _resolve_user_from_ws(websocket: WebSocket) -> User | None:
     """
     from app.auth.cf_access import cf_access_user as _cf_access_user_dep
     from app.main import app as _app
+    from app.middleware.csrf import origin_matches_host
 
+    # #162 (CSWSH defense): browsers attach an ``Origin`` header to the WS
+    # handshake but the SOP / CORS preflight does NOT apply to WebSockets.
+    # If an attacker page on https://evil.example opens a WS to our backend,
+    # the user's JWT cookie rides along on the handshake and the server
+    # treats it as authenticated. Gate the handshake on
+    # ``Origin host == Host`` the same way ``middleware/csrf.py`` does for
+    # state-changing HTTP requests. Fail open when ``Origin`` is absent --
+    # CLI / Python clients legitimately don't set it (mirrors the CSRF
+    # middleware's non-browser fall-through).
+    origin = websocket.headers.get("origin")
+    host = websocket.headers.get("host", "")
+    if origin is not None and not origin_matches_host(origin, host):
+        return None
     session, holder = await _ws_session()
     try:
         if (

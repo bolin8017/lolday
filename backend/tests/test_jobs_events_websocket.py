@@ -249,3 +249,84 @@ async def test_ws_unknown_job_closes_4404(db_session: AsyncSession) -> None:
         assert excinfo.value.code == 4404
     finally:
         client.app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# #162 — CSWSH defense. WS handshake must reject a cross-origin Origin
+# even when the JWT (test header) is valid.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ws_rejects_cross_origin(db_session: AsyncSession) -> None:
+    """Origin != Host on the handshake -> WS closes with 4401 (CSWSH guard)."""
+    job = await _seed_job_for_owner(db_session, "user1@example.dev")
+
+    client = _make_test_client()
+    try:
+        with (
+            pytest.raises(WebSocketDisconnect) as excinfo,
+            client.websocket_connect(
+                f"/api/v1/jobs/{job.id}/events",
+                headers={
+                    "x-test-user-email": "user1@example.dev",
+                    "origin": "https://evil.example",
+                    "host": "lolday.connlabai.com",
+                },
+            ) as ws,
+        ):
+            ws.receive_json()
+        assert excinfo.value.code == 4401
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_ws_accepts_matching_origin(db_session: AsyncSession) -> None:
+    """Matching Origin and Host -> WS handshake proceeds normally."""
+    job = await _seed_job_for_owner(db_session, "user1@example.dev")
+
+    from app.services.events_tail import event_broker
+
+    client = _make_test_client()
+    try:
+        with client.websocket_connect(
+            f"/api/v1/jobs/{job.id}/events",
+            headers={
+                "x-test-user-email": "user1@example.dev",
+                "origin": "https://lolday.connlabai.com",
+                "host": "lolday.connlabai.com",
+            },
+        ) as ws:
+            ws.portal.call(event_broker.publish, job.id, {"kind": "ping"})
+            msg = ws.receive_json()
+            assert msg["kind"] == "ping"
+    finally:
+        client.app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_ws_accepts_missing_origin(db_session: AsyncSession) -> None:
+    """Non-browser client (no Origin header) -> fail open, handshake succeeds.
+
+    Mirrors the CSRF middleware's behaviour: a CLI / Python httpx client
+    legitimately omits Origin; we still authenticate via JWT (or test
+    header in dev). Only an Origin that mismatches Host is rejected.
+    """
+    job = await _seed_job_for_owner(db_session, "user1@example.dev")
+
+    from app.services.events_tail import event_broker
+
+    client = _make_test_client()
+    try:
+        with client.websocket_connect(
+            f"/api/v1/jobs/{job.id}/events",
+            headers={
+                "x-test-user-email": "user1@example.dev",
+            },
+        ) as ws:
+            ws.portal.call(event_broker.publish, job.id, {"kind": "ping"})
+            msg = ws.receive_json()
+            assert msg["kind"] == "ping"
+    finally:
+        client.app.dependency_overrides.clear()

@@ -33,7 +33,7 @@ _EXEMPT_PREFIXES = (
 _ALLOWED_SEC_FETCH_SITE = frozenset({"same-origin", "none"})
 
 
-def _origin_matches_host(origin: str, host: str) -> bool:
+def origin_matches_host(origin: str, host: str) -> bool:
     """Return True iff Origin's scheme://host[:port] matches the request's Host.
 
     The Host header carries ``host[:port]`` (no scheme). We strip default
@@ -41,6 +41,11 @@ def _origin_matches_host(origin: str, host: str) -> bool:
     ``Origin: http://example.com:80`` correctly matches ``Host: example.com``.
     Default-port forms are uncommon in browser traffic (browsers omit them
     per RFC 6454) but legitimate for some non-browser clients.
+
+    Exported (renamed from the previous private ``_origin_matches_host``)
+    so the WebSocket handler in ``routers/jobs.py`` can reuse the same
+    comparison — CSWSH defense in WebSocket land needs identical
+    Origin/Host semantics to the HTTP CSRF middleware (#162).
     """
     try:
         parsed = urlparse(origin)
@@ -90,7 +95,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if origin is not None:
-            if not _origin_matches_host(origin, host):
+            if not origin_matches_host(origin, host):
                 return Response(
                     content=(
                         f"csrf check failed: Origin={origin!r} does not "
