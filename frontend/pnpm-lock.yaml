@@ -60,14 +60,14 @@ importers:
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@rjsf/core':
-        specifier: ^5.24.13
-        version: 5.24.13(@rjsf/utils@5.24.13(react@19.2.6))(react@19.2.6)
+        specifier: ^6.5.2
+        version: 6.5.2(@rjsf/utils@6.5.2(react@19.2.6))(react@19.2.6)
       '@rjsf/utils':
-        specifier: ^5.24.13
-        version: 5.24.13(react@19.2.6)
+        specifier: ^6.5.2
+        version: 6.5.2(react@19.2.6)
       '@rjsf/validator-ajv8':
-        specifier: ^5.24.13
-        version: 5.24.13(@rjsf/utils@5.24.13(react@19.2.6))
+        specifier: ^6.5.2
+        version: 6.5.2(@rjsf/utils@6.5.2(react@19.2.6))
       '@tanstack/react-query':
         specifier: ^5.100.10
         version: 5.100.10(react@19.2.6)
@@ -939,24 +939,24 @@ packages:
       react-redux:
         optional: true
 
-  '@rjsf/core@5.24.13':
-    resolution: {integrity: sha512-ONTr14s7LFIjx2VRFLuOpagL76sM/HPy6/OhdBfq6UukINmTIs6+aFN0GgcR0aXQHFDXQ7f/fel0o/SO05Htdg==}
-    engines: {node: '>=14'}
+  '@rjsf/core@6.5.2':
+    resolution: {integrity: sha512-Fx+aVNQRYQyoY0vM8zYDZkuOiNe+5PLsxUySUdHfjljlT23mJnTCpPKMkxWJwh4UEWeSN0xjmknW9LfIwuQmOg==}
+    engines: {node: '>=20'}
     peerDependencies:
-      '@rjsf/utils': ^5.24.x
-      react: ^16.14.0 || >=17
+      '@rjsf/utils': ^6.5.x
+      react: '>=18'
 
-  '@rjsf/utils@5.24.13':
-    resolution: {integrity: sha512-rNF8tDxIwTtXzz5O/U23QU73nlhgQNYJ+Sv5BAwQOIyhIE2Z3S5tUiSVMwZHt0julkv/Ryfwi+qsD4FiE5rOuw==}
-    engines: {node: '>=14'}
+  '@rjsf/utils@6.5.2':
+    resolution: {integrity: sha512-qBVQ5qf9BKMOQy/DjMl/IjD5s6akRDx18cgiSYunKt/CYc+kPzHyCVA2TU0rXCsigNlhgnfM8piC3LEHye6vpA==}
+    engines: {node: '>=20'}
     peerDependencies:
-      react: ^16.14.0 || >=17
+      react: '>=18'
 
-  '@rjsf/validator-ajv8@5.24.13':
-    resolution: {integrity: sha512-oWHP7YK581M8I5cF1t+UXFavnv+bhcqjtL1a7MG/Kaffi0EwhgcYjODrD8SsnrhncsEYMqSECr4ZOEoirnEUWw==}
-    engines: {node: '>=14'}
+  '@rjsf/validator-ajv8@6.5.2':
+    resolution: {integrity: sha512-MSyF0Q0lZhmByDV/eL3QF03g1K7RVGGAHMytlQ2ybuakvzJGODGzWKfTLcP320ixrrCqDq5rs8IJP+WJCRnhig==}
+    engines: {node: '>=20'}
     peerDependencies:
-      '@rjsf/utils': ^5.24.x
+      '@rjsf/utils': ^6.5.x
 
   '@rolldown/binding-android-arm64@1.0.0':
     resolution: {integrity: sha512-TWMZnRLMe63C2Lhyicviu7ZHaU4kxa6PS3rofvc9GmcvptzNN11BcfQ4Sl7MwTOsisQoa2keB/EBdNCAnUo8vA==}
@@ -1303,6 +1303,9 @@ packages:
   '@vitest/utils@4.1.6':
     resolution: {integrity: sha512-FxIY+U81R3LGKCxaHHFRQ5+g6/iRgGLmeHWdp2Amj4ljQRrEIWHmZyDfDYBRZlpyqA7qKxtS9DD1dhk8RnRIVQ==}
 
+  '@x0k/json-schema-merge@1.0.3':
+    resolution: {integrity: sha512-lerJC4sI9CNUQWdff3PnU1YJOqazD6TjMcvxZIPXUBjn4j1cUiXE0LvzhMnGYzKKr271TkvXJtH7gEwksrtn+w==}
+
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
     peerDependencies:
@@ -1536,12 +1539,6 @@ packages:
   commander@4.1.1:
     resolution: {integrity: sha512-NOKm8xhkzAjzFx8B2v5OAHT+u5pRQc2UCa2Vq9jYL/31o2wi9mxBA7LIFs3sV5VSC49z6pEhfbMULvShKj26WA==}
     engines: {node: '>= 6'}
-
-  compute-gcd@1.2.1:
-    resolution: {integrity: sha512-TwMbxBNz0l71+8Sc4czv13h4kEqnchV9igQZBi6QUaz09dnz13juGnnaWWJTRsP3brxOoxeB4SA2WELLw1hCtg==}
-
-  compute-lcm@1.1.2:
-    resolution: {integrity: sha512-OFNPdQAXnQhDSKioX8/XYT6sdUlXwpeMjfd6ApxMJfyZ4GxmLR1xvMERctlYhlHwIiz6CSpBc2+qYKjHGZw4TQ==}
 
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
@@ -1834,6 +1831,10 @@ packages:
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
+
+  fast-equals@6.0.0:
+    resolution: {integrity: sha512-PFhhIGgdM79r5Uztdj9Zb6Tt1zKafqVfdMGwVca1z5z6fbX7DmsySSuJd8HiP6I1j505DCS83cLxo5rmSNeVEA==}
+    engines: {node: '>=6.0.0'}
 
   fast-glob@3.3.3:
     resolution: {integrity: sha512-7MptL8U0cqcFdzIzwOTHoilX9x5BrNqye7Z/LuC7kCMRio1EMSyqRK3BEAUD7sXRq4iT4AzTVuZdhgQ2TCvYLg==}
@@ -2200,13 +2201,6 @@ packages:
   json-buffer@3.0.1:
     resolution: {integrity: sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==}
 
-  json-schema-compare@0.2.2:
-    resolution: {integrity: sha512-c4WYmDKyJXhs7WWvAWm3uIYnfyWFoIp+JEoX34rctVvEkMYCPGhXtvmFFXiffBbxfZsvQ0RNnV5H7GvDF5HCqQ==}
-
-  json-schema-merge-allof@0.8.1:
-    resolution: {integrity: sha512-CTUKmIlPJbsWfzRRnOXz+0MjIqvnleIXwFTzz+t9T86HnYX/Rozria6ZVGLktAU9e+NygNljveP+yxqtQp/Q4w==}
-    engines: {node: '>=12.0.0'}
-
   json-schema-traverse@0.4.1:
     resolution: {integrity: sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg==}
 
@@ -2345,8 +2339,8 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  markdown-to-jsx@7.7.17:
-    resolution: {integrity: sha512-7mG/1feQ0TX5I7YyMZVDgCC/y2I3CiEhIRQIhyov9nGBP5eoVrOXXHuL5ZP8GRfxVZKRiXWJgwXkb9It+nQZfQ==}
+  markdown-to-jsx@8.0.0:
+    resolution: {integrity: sha512-hWEaRxeCDjes1CVUQqU+Ov0mCqBqkGhLKjL98KdbwHSgEWZZSJQeGlJQatVfeZ3RaxrfTrZZ3eczl2dhp5c/pA==}
     engines: {node: '>= 10'}
     peerDependencies:
       react: '>= 0.14.0'
@@ -3205,21 +3199,6 @@ packages:
 
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
-
-  validate.io-array@1.0.6:
-    resolution: {integrity: sha512-DeOy7CnPEziggrOO5CZhVKJw6S3Yi7e9e65R1Nl/RTN1vTQKnzjfvks0/8kQ40FP/dsjRAOd4hxmJ7uLa6vxkg==}
-
-  validate.io-function@1.0.2:
-    resolution: {integrity: sha512-LlFybRJEriSuBnUhQyG5bwglhh50EpTL2ul23MPIuR1odjO7XaMLFV8vHGwp7AZciFxtYOeiSCT5st+XSPONiQ==}
-
-  validate.io-integer-array@1.0.0:
-    resolution: {integrity: sha512-mTrMk/1ytQHtCY0oNO3dztafHYyGU88KL+jRxWuzfOmQb+4qqnWmI+gykvGp8usKZOM0H7keJHEbRaFiYA0VrA==}
-
-  validate.io-integer@1.0.5:
-    resolution: {integrity: sha512-22izsYSLojN/P6bppBqhgUDjCkr5RY2jd+N2a3DCAUey8ydvrZ/OkGvFPR7qfOpwR2LC5p4Ngzxz36g5Vgr/hQ==}
-
-  validate.io-number@1.0.3:
-    resolution: {integrity: sha512-kRAyotcbNaSYoDnXvb4MHg/0a1egJdLwS6oJ38TJY7aw9n93Fl/3blIXdyYvPOp55CNxywooG/3BcrwNrBpcSg==}
 
   vaul@1.1.2:
     resolution: {integrity: sha512-ZFkClGpWyI2WUQjdLJ/BaGuV6AVQiJ3uELGk3OYtP+B6yCO7Cmn9vPFXVJkRaGkOJu3m8bQMgtyzNHixULceQA==}
@@ -4136,27 +4115,29 @@ snapshots:
       react: 19.2.6
       react-redux: 9.2.0(@types/react@19.2.14)(react@19.2.6)(redux@5.0.1)
 
-  '@rjsf/core@5.24.13(@rjsf/utils@5.24.13(react@19.2.6))(react@19.2.6)':
+  '@rjsf/core@6.5.2(@rjsf/utils@6.5.2(react@19.2.6))(react@19.2.6)':
     dependencies:
-      '@rjsf/utils': 5.24.13(react@19.2.6)
+      '@rjsf/utils': 6.5.2(react@19.2.6)
       lodash: 4.18.1
       lodash-es: 4.18.1
-      markdown-to-jsx: 7.7.17(react@19.2.6)
+      markdown-to-jsx: 8.0.0(react@19.2.6)
       prop-types: 15.8.1
       react: 19.2.6
 
-  '@rjsf/utils@5.24.13(react@19.2.6)':
+  '@rjsf/utils@6.5.2(react@19.2.6)':
     dependencies:
-      json-schema-merge-allof: 0.8.1
+      '@x0k/json-schema-merge': 1.0.3
+      fast-equals: 6.0.0
+      fast-uri: 3.1.2
       jsonpointer: 5.0.1
       lodash: 4.18.1
       lodash-es: 4.18.1
       react: 19.2.6
       react-is: 18.3.1
 
-  '@rjsf/validator-ajv8@5.24.13(@rjsf/utils@5.24.13(react@19.2.6))':
+  '@rjsf/validator-ajv8@6.5.2(@rjsf/utils@6.5.2(react@19.2.6))':
     dependencies:
-      '@rjsf/utils': 5.24.13(react@19.2.6)
+      '@rjsf/utils': 6.5.2(react@19.2.6)
       ajv: 8.18.0
       ajv-formats: 2.1.1(ajv@8.18.0)
       lodash: 4.18.1
@@ -4489,6 +4470,10 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
+  '@x0k/json-schema-merge@1.0.3':
+    dependencies:
+      '@types/json-schema': 7.0.15
+
   acorn-jsx@5.3.2(acorn@8.16.0):
     dependencies:
       acorn: 8.16.0
@@ -4741,19 +4726,6 @@ snapshots:
   comma-separated-tokens@2.0.3: {}
 
   commander@4.1.1: {}
-
-  compute-gcd@1.2.1:
-    dependencies:
-      validate.io-array: 1.0.6
-      validate.io-function: 1.0.2
-      validate.io-integer-array: 1.0.0
-
-  compute-lcm@1.1.2:
-    dependencies:
-      compute-gcd: 1.2.1
-      validate.io-array: 1.0.6
-      validate.io-function: 1.0.2
-      validate.io-integer-array: 1.0.0
 
   concat-map@0.0.1: {}
 
@@ -5125,6 +5097,8 @@ snapshots:
   extend@3.0.2: {}
 
   fast-deep-equal@3.1.3: {}
+
+  fast-equals@6.0.0: {}
 
   fast-glob@3.3.3:
     dependencies:
@@ -5513,16 +5487,6 @@ snapshots:
 
   json-buffer@3.0.1: {}
 
-  json-schema-compare@0.2.2:
-    dependencies:
-      lodash: 4.18.1
-
-  json-schema-merge-allof@0.8.1:
-    dependencies:
-      compute-lcm: 1.1.2
-      json-schema-compare: 0.2.2
-      lodash: 4.18.1
-
   json-schema-traverse@0.4.1: {}
 
   json-schema-traverse@1.0.0: {}
@@ -5626,7 +5590,7 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  markdown-to-jsx@7.7.17(react@19.2.6):
+  markdown-to-jsx@8.0.0(react@19.2.6):
     optionalDependencies:
       react: 19.2.6
 
@@ -6719,21 +6683,6 @@ snapshots:
       react: 19.2.6
 
   util-deprecate@1.0.2: {}
-
-  validate.io-array@1.0.6: {}
-
-  validate.io-function@1.0.2: {}
-
-  validate.io-integer-array@1.0.0:
-    dependencies:
-      validate.io-array: 1.0.6
-      validate.io-integer: 1.0.5
-
-  validate.io-integer@1.0.5:
-    dependencies:
-      validate.io-number: 1.0.3
-
-  validate.io-number@1.0.3: {}
 
   vaul@1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
     dependencies:

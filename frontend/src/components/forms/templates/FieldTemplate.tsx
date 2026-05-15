@@ -10,9 +10,14 @@ import type { RjsfFormContext } from "../RjsfConfigForm.types";
  * and per-field reset button) above the widget, then the description below.
  *
  * Per-field reset is opt-in: shows only when (a) the current value differs
- * from schema.default AND (b) `formContext.onResetField` is provided. The
- * parent form (RjsfConfigForm) wires `onResetField` via formContext using
- * the shared RjsfFormContext interface — see RjsfConfigForm.types.ts.
+ * from schema.default AND (b) `registry.formContext.onResetField` is
+ * provided. The parent form (RjsfConfigForm) wires `onResetField` via
+ * formContext using the shared RjsfFormContext interface — see
+ * RjsfConfigForm.types.ts.
+ *
+ * RJSF v6 moved `formContext` off `FieldTemplateProps` and onto
+ * `registry.formContext`; reading it from `registry` here keeps the prop
+ * surface aligned with v6's typed templates API (CHANGELOG v6.0.0).
  *
  * Default-vs-modified detection uses reference equality (formData !== default).
  * This is correct for scalar defaults (number, integer, boolean, string) and
@@ -31,10 +36,10 @@ export function FieldTemplate(props: FieldTemplateProps) {
     schema,
     formData,
     displayLabel,
-    formContext,
+    registry,
   } = props;
 
-  const ctx = (formContext ?? {}) as RjsfFormContext;
+  const ctx = (registry?.formContext ?? {}) as RjsfFormContext;
   const defaultValue = (schema as { default?: unknown }).default;
   const isModified = defaultValue !== undefined && formData !== defaultValue;
   const showReset = isModified && typeof ctx.onResetField === "function";
