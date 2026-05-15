@@ -103,11 +103,6 @@ async def _install_users_me_contract_auth(setup_db):
 @h_settings(max_examples=50, deadline=None)
 def test_users_me_endpoints_match_schema(case):
     """Every generated payload is either accepted per spec or rejected with a documented status code."""
-    if case.method.upper() == "GET" and case.path == "/api/v1/users/me":
-        pytest.xfail(
-            "contract gap: GET /api/v1/users/me returns 422 (undocumented) when "
-            "schemathesis generates unexpected query params; schema only declares 200. "
-            "Fix: add responses={422: ...} to the read_me route decorator."
-        )
+    # D2.3 Task 8: 422 response now declared on GET /users/me; xfail lifted.
     response = case.call(headers={"x-test-user-email": _TEST_USER_EMAIL})
     case.validate_response(response)
