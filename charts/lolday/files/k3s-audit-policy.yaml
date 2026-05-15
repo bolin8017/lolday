@@ -1,0 +1,175 @@
+# K3s API server audit policy — lolday baseline.
+#
+# Derived from the upstream Kubernetes auditing docs example
+# (https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/ — "Here is an
+# example audit policy file"), with the lolday-specific tightening below:
+#
+#   - Secrets and ConfigMaps: RequestResponse on write verbs, Metadata on read.
+#     ConfigMaps with the "binaryData" of a JKS / cert payload count as a
+#     credential surface (same as Secrets) — same treatment.
+#   - RBAC objects (Roles, RoleBindings, ClusterRoles, ClusterRoleBindings):
+#     RequestResponse on every verb. Privilege-escalation surface.
+#   - Admission events: covered by the catch-all Metadata rule at the bottom;
+#     Kyverno's own controller logs hold the per-policy decision payload.
+#   - High-volume read endpoints (`get|list|watch pods`, `get|list|watch
+#     services`, `get|list|watch endpoints`, `get|list|watch nodes`): None
+#     for the kube-system service accounts (controller-manager / scheduler
+#     / kubelet) — these issue thousands per minute and the security value
+#     of logging the same controller-loop read over and over is nil.
+#   - Health-check / version endpoints: None at the `system:authenticated`
+#     and `system:unauthenticated` group level.
+#
+# CIS 5.5 (audit log enabled) + CIS 1.2.22 (audit-log-maxage / maxbackup /
+# maxsize) are addressed by the kube-apiserver flags in
+# `scripts/patch-k3s-audit-and-secrets-encryption.sh`, not by this file.
+#
+# When to edit: when a new credential-bearing resource type lands (e.g.
+# external-secrets ExternalSecret), add it to the RequestResponse rules. When
+# a new controller-loop read becomes top-1 in `journalctl -u k3s | grep audit`,
+# add it to the None rules. Bump the file timestamp comment below.
+#
+# Last touched: 2026-05-15 — issue #167 baseline.
+# Source reference: kubernetes.io/docs/tasks/debug/debug-cluster/audit/ (the
+# example audit policy file shown under "Audit policy").
+
+apiVersion: audit.k8s.io/v1
+kind: Policy
+# Skip the RequestReceived stage globally — we only care about
+# ResponseStarted / ResponseComplete (the events that carry the verdict).
+# Halves the log volume.
+omitStages:
+  - "RequestReceived"
+rules:
+  # ---------------------------------------------------------------------------
+  # 1. Drop noise from controller-loop reads. None = no event recorded.
+  # ---------------------------------------------------------------------------
+  - level: None
+    users:
+      - "system:kube-controller-manager"
+      - "system:kube-scheduler"
+      - "system:serviceaccount:kube-system:endpoint-controller"
+      - "system:apiserver"
+    verbs: ["get", "list", "watch"]
+    resources:
+      - group: ""
+        resources: ["endpoints", "services", "pods", "nodes", "namespaces"]
+
+  - level: None
+    userGroups: ["system:nodes"]
+    verbs: ["get", "list", "watch"]
+    resources:
+      - group: ""
+        resources: ["pods", "nodes", "configmaps", "secrets"]
+
+  # Health-check / version / discovery endpoints — None for authenticated
+  # AND unauthenticated traffic (k3s exposes /healthz over both).
+  - level: None
+    userGroups: ["system:authenticated", "system:unauthenticated"]
+    nonResourceURLs:
+      - "/api*"
+      - "/version"
+      - "/healthz*"
+      - "/readyz*"
+      - "/livez*"
+      - "/metrics"
+      - "/openapi/*"
+      - "/swagger*"
+
+  # ---------------------------------------------------------------------------
+  # 2. Credential surfaces — RequestResponse on writes, Metadata on reads.
+  # ---------------------------------------------------------------------------
+  # Secrets: every write captured with request + response body. A leaked
+  # Secret without a forensic trail is a CIS 5.5 fail; this rule plus the
+  # `--secrets-encryption` flag together provide the data-at-rest +
+  # data-in-flight audit pair.
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+    resources:
+      - group: ""
+        resources: ["secrets"]
+
+  - level: Metadata
+    verbs: ["get", "list", "watch"]
+    resources:
+      - group: ""
+        resources: ["secrets"]
+
+  # ConfigMaps: same treatment. Lolday wires several auth-relevant
+  # ConfigMaps (alertmanager-config-discord references the Discord webhook
+  # Secret keys, kyverno PolicyReports, etc.) — write trail is mandatory.
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+    resources:
+      - group: ""
+        resources: ["configmaps"]
+
+  - level: Metadata
+    verbs: ["get", "list", "watch"]
+    resources:
+      - group: ""
+        resources: ["configmaps"]
+
+  # RBAC: every verb. Privilege-escalation gateway. RoleBindings + ClusterRole
+  # creations are the canonical attack surface for K8s.
+  - level: RequestResponse
+    resources:
+      - group: "rbac.authorization.k8s.io"
+        resources:
+          - "roles"
+          - "rolebindings"
+          - "clusterroles"
+          - "clusterrolebindings"
+
+  # ServiceAccount token-request (creating a fresh bearer token) — capture.
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources: ["serviceaccounts/token"]
+
+  # ---------------------------------------------------------------------------
+  # 3. Workload surfaces — Metadata on mutate, None on no-op reads.
+  # ---------------------------------------------------------------------------
+  # Pod create / delete / exec / portforward — Metadata is enough to spot
+  # a suspicious `kubectl exec`; the request body of a Pod is usually
+  # the Deployment template which the audit trail already captured at the
+  # higher-level resource.
+  - level: Metadata
+    verbs: ["create", "delete", "patch", "update"]
+    resources:
+      - group: ""
+        resources: ["pods"]
+      - group: "apps"
+        resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+      - group: "batch"
+        resources: ["jobs", "cronjobs"]
+      - group: "batch.volcano.sh"
+        resources: ["jobs"]
+
+  # exec / portforward / attach subresources — these are the operator-side
+  # attack-recovery audit trail. Capture metadata on each.
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources:
+          - "pods/exec"
+          - "pods/portforward"
+          - "pods/attach"
+          - "pods/proxy"
+
+  # ---------------------------------------------------------------------------
+  # 4. Network surfaces — capture every NetworkPolicy / Ingress mutation.
+  # ---------------------------------------------------------------------------
+  # NetworkPolicy / Ingress changes affect SSH-equivalent reachability
+  # (see CLAUDE.md SSH safety hard rule + the 2026-03-31 Cilium incident).
+  - level: RequestResponse
+    verbs: ["create", "update", "patch", "delete"]
+    resources:
+      - group: "networking.k8s.io"
+        resources: ["networkpolicies", "ingresses"]
+
+  # ---------------------------------------------------------------------------
+  # 5. Catch-all — Metadata for everything else.
+  # ---------------------------------------------------------------------------
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"

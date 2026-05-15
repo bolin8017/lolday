@@ -1,0 +1,97 @@
+{{- if .Values.kyverno.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-lolday-harbor-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify lolday Harbor image signatures
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >
+      Closes the second half of the supply-chain gate. The sister policy
+      verify-lolday-image-signatures covers ghcr.io/bolin8017/lolday-*
+      (CI-produced artefacts, signed via the GHA workflow keyless identity).
+      Every long-running production Deployment in lolday actually
+      references harbor.lolday.svc:80/lolday/* (backend, frontend,
+      mlflow-server, postgres, redis, helpers consumed by vcjobs) — those
+      images push through scripts/build-helpers.sh and the operator's
+      manual flow, NOT GHA, so the keyless trust root does not apply.
+      This policy uses a key-based attestor with the cosign public key
+      held in cluster as Secret kyverno/cosign-harbor-pubkey, key
+      cosign.pub. Issue #171 option 2.
+spec:
+  # Start in Audit for 7d. Operator promotes to Enforce by flipping
+  # this value (chart values: `harborImageSignatureEnforce: true` once
+  # plumbed). Mainstream rollout pattern — every workload pod gets the
+  # admission decision recorded as a PolicyReport without blocking
+  # admission, so an unsigned push surfaces in `kubectl get
+  # policyreports.wgpolicyk8s.io -A -l ...` before it blocks a deploy.
+  validationFailureAction: Audit
+  # failurePolicy: Fail — same as the GHCR sister policy. If Kyverno is
+  # down, lolday + lolday-jobs + lolday-builds admissions block. Matches
+  # prod-grade installs (Kyverno 3.x default).
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 30
+  # background: false — Cosign verify needs network egress (Rekor
+  # transparency log fetch when not ignored, or at minimum a registry
+  # round-trip for the signature manifest). Admission-time only is the
+  # mainstream choice. Spec rationale matches the GHCR sister policy
+  # in verify-images.yaml.
+  background: false
+  rules:
+    - name: verify-harbor-images-signed
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                # lolday — backend/frontend/mlflow/postgres/redis chart pods.
+                # lolday-jobs — detector vcjobs + their job-helper sidecars.
+                # lolday-builds — Phase 1 future BuildKit pods (the spec
+                #   2026-05-05-gpu-scheduling-and-oom-defense-design §6.2
+                #   reserves the namespace; if it does not yet exist the
+                #   policy is a no-op for it).
+                - lolday
+                - lolday-jobs
+                - lolday-builds
+      verifyImages:
+        - imageReferences:
+            - "harbor.lolday.svc:80/lolday/*"
+          # Reference the public key via the canonical k8s:// URI form
+          # (Kyverno docs: "The public key may either be defined in the
+          # policy directly or reference a standard Kubernetes Secret
+          # elsewhere in the cluster by specifying it in the format
+          # k8s://<namespace>/<secret_name>. The named Secret must
+          # specify a key cosign.pub containing the public key used for
+          # verification."). Rotation is a single edit to the Secret:
+          # `kubectl create secret generic cosign-harbor-pubkey -n kyverno
+          # --from-file=cosign.pub=lolday-harbor.pub --dry-run=client -o yaml
+          # | kubectl apply -f -` — no chart re-render needed.
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: "k8s://kyverno/cosign-harbor-pubkey"
+                    # rekor.ignoreTlog: true — Harbor pushes are
+                    # operator-private; we do NOT enter signatures into
+                    # the public Rekor transparency log (no value, leaks
+                    # repo names). The keyless ghcr.io sister policy DOES
+                    # use Rekor because GHA-signed images are public.
+                    rekor:
+                      ignoreTlog: true
+                      # url is required by Kyverno schema even when
+                      # ignoreTlog: true. Mainstream default. Behavior:
+                      # ignoreTlog short-circuits before any HTTP call.
+                      url: "https://rekor.sigstore.dev"
+          # mutateDigest: false — same rationale as the GHCR policy.
+          # build-helpers.sh already pins helpers.lock by digest, and
+          # the chart's images.* values resolve to digests at deploy
+          # time. An unpinned ref must be REJECTED, not silently rewritten.
+          mutateDigest: false
+          # verifyDigest: true — end-to-end content integrity: the
+          # in-cluster image manifest digest MUST match what cosign
+          # signed.
+          verifyDigest: true
+          required: true
+{{- end }}

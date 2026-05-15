@@ -18,6 +18,9 @@ Spec: `docs/superpowers/specs/2026-04-29-helper-image-versioning-design.md`.
 - Host docker (the operator's machine, typically server30) with network reach to `harbor.lolday.svc.cluster.local:80`.
 - `kubectl` context pointing at the lolday cluster.
 - `harbor-push-cred` Secret already in the `lolday` namespace. Create it via `bash scripts/recover-harbor.sh` if missing.
+- `cosign` installed (`bash scripts/install-tools.sh` puts it under `~/.local/bin/`). Required since issue #171 — every Harbor push is signed.
+- Cosign keypair already bootstrapped via `bash scripts/cosign-harbor-init.sh` (one-time, per cluster). Private key at `~/.cosign/lolday-harbor.key` (chmod 600); public key as Secret `kyverno/cosign-harbor-pubkey` (consumed by ClusterPolicy `verify-lolday-harbor-image-signatures`).
+- `COSIGN_PASSWORD` available — either exported in the shell (sourced from your password manager) or supplied interactively when `cosign sign` prompts.
 - A clean working tree on the feature branch — the build script refuses dirty subtrees.
 
 ## Standard flow
@@ -36,6 +39,7 @@ Spec: `docs/superpowers/specs/2026-04-29-helper-image-versioning-design.md`.
    Output:
    - `[skip] <name>:<sha> already in Harbor` — Harbor already serves this SHA, no rebuild.
    - `[build] <name> -> <ref>` followed by docker build + push output.
+   - `[sign] <name> @ sha256:...` — cosign-sign-by-digest, runs on BOTH `[skip]` and `[build]` paths to backfill signatures over the prior un-signed Harbor inventory. Idempotent (re-signing the same digest is a no-op cosign-side). Skipped under `--allow-dirty` (the `-dirty-<ts>` tag is not a promotion target).
    - `[lock] charts/lolday/helpers.lock updated` at the end.
 
 5. Inspect the lock diff and commit:
@@ -106,3 +110,5 @@ GHCR images are not used by production. They are a parallel CI artefact stream. 
 | `helpers.lock drift detected` from `deploy.sh`    | Helper subtree changed but lock not regenerated           | `bash scripts/build-helpers.sh` and commit the new lock                                                                                           |
 | Pod stuck in `ImagePullBackOff` after deploy      | Harbor lost the tag (unusual — tag was deleted manually?) | `bash scripts/build-helpers.sh` to re-push; the same SHA tag is regenerated                                                                       |
 | Pre-commit hook trips with `helpers.lock missing` | Fresh clone before the bootstrap rehearsal                | Run `bash scripts/build-helpers.sh` then commit the lock; or set `LOLDAY_SKIP_HELPERS_LOCK_CHECK=1` for the single commit if the build cannot run |
+| `WARN: ~/.cosign/lolday-harbor.key not found`     | Cosign keypair never bootstrapped on this host            | `bash scripts/cosign-harbor-init.sh`. Re-run `bash scripts/build-helpers.sh` to backfill signatures over already-pushed tags                      |
+| `cosign sign` exits with `password required`      | `COSIGN_PASSWORD` not exported AND non-interactive shell  | Export the password from your password manager, or run the build from an interactive terminal so cosign can prompt                                |
