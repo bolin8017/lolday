@@ -71,6 +71,18 @@ _RE_IFRAME = re.compile(
 )
 _RE_MD_LINK = re.compile(r"\[[^\[\]]*\]\((?:[^()]*|\([^()]*\))*\)")
 
+# #161: scrub GitHub PAT-shaped substrings from any error string returned to
+# the caller. Matches the same shapes the credential validator accepts in
+# `app/schemas/credential.py`. Defense-in-depth — even if a future code path
+# accidentally embeds a PAT into an exception message, the response body
+# never carries it. Classic ghp_<36>; fine-grained github_pat_<82>.
+_RE_GITHUB_PAT = re.compile(r"ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82}")
+
+
+def _scrub_github_pat(value: str) -> str:
+    """Replace any GitHub PAT substring with ``<redacted>``."""
+    return _RE_GITHUB_PAT.sub("<redacted>", value)
+
 
 def sanitize_detector_description(value: str | None) -> str | None:
     """Strip <script>, <iframe>, and Markdown link syntax from a detector description.
@@ -127,24 +139,43 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
 
     tmpdir = tempfile.mkdtemp(prefix="lolday-register-")
     try:
-        url_with_cred = (
-            f"https://{pat}@github.com/{owner}/{repo}.git"
-            if pat
-            else f"https://github.com/{owner}/{repo}.git"
-        )
+        # #161: never embed the PAT into the URL — it would land in process
+        # argv, debug logs, and any error stderr verbatim. Mirror the
+        # `services/build.py` pattern: use a git credential helper that
+        # reads $GIT_USER / $GIT_TOKEN from the subprocess env. The clone
+        # URL itself stays bare https.
+        clone_url = f"https://github.com/{owner}/{repo}.git"
+        clone_env = {
+            **os.environ,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_ASKPASS": "",
+        }
+        if pat is not None:
+            clone_args: list[str] = [
+                "git",
+                "-c",
+                "credential.helper=!f() { echo username=$GIT_USER; "
+                "echo password=$GIT_TOKEN; }; f",
+                "clone",
+                "--depth=1",
+                clone_url,
+                tmpdir,
+            ]
+            clone_env["GIT_USER"] = "x-token-auth"
+            clone_env["GIT_TOKEN"] = pat
+        else:
+            clone_args = [
+                "git",
+                "clone",
+                "--depth=1",
+                clone_url,
+                tmpdir,
+            ]
         proc = await asyncio.create_subprocess_exec(
-            "git",
-            "clone",
-            "--depth=1",
-            url_with_cred,
-            tmpdir,
+            *clone_args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            env={
-                **os.environ,
-                "GIT_TERMINAL_PROMPT": "0",
-                "GIT_ASKPASS": "",
-            },
+            env=clone_env,
         )
         try:
             _, err = await asyncio.wait_for(proc.communicate(), timeout=60)
@@ -156,11 +187,16 @@ async def _clone_and_validate(normalized_url: str, pat: str | None) -> dict:
                 detail={"code": "git_clone_timeout", "message": "clone exceeded 60s"},
             ) from e
         if proc.returncode != 0:
+            # #161: scrub any PAT-shaped substring from the stderr before
+            # returning it to the caller. Belt-and-braces: argv no longer
+            # carries the PAT, but a future regression in git's own logging
+            # or a misconfigured askpass could still surface one.
+            err_str = _scrub_github_pat(err.decode(errors="ignore"))[:200]
             raise HTTPException(
                 status_code=400,
                 detail={
                     "code": "git_clone_failed",
-                    "message": err.decode(errors="ignore")[:200],
+                    "message": err_str,
                 },
             )
         try:

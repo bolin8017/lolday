@@ -2,6 +2,119 @@ from uuid import UUID
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# #161 — PAT-in-URL regression. _clone_and_validate must NOT embed the PAT
+# into the subprocess argv, and must scrub any PAT-shaped substring from the
+# returned error body.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clone_does_not_pass_pat_in_argv(monkeypatch):
+    """argv passed to ``asyncio.create_subprocess_exec`` must not contain the PAT."""
+    from app.routers import detectors as dr
+
+    captured: dict = {}
+
+    class _FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+        def kill(self):
+            return None
+
+        async def wait(self):
+            return None
+
+    async def fake_create(*args, **kwargs):
+        captured["argv"] = list(args)
+        captured["env"] = kwargs.get("env", {})
+        return _FakeProc()
+
+    monkeypatch.setattr(dr.asyncio, "create_subprocess_exec", fake_create)
+
+    async def fake_repo_accessible(owner, repo, pat):
+        return True
+
+    monkeypatch.setattr(dr, "check_repo_accessible", fake_repo_accessible)
+
+    def fake_validate(path):
+        return None
+
+    monkeypatch.setattr(dr, "validate_repo_static", fake_validate)
+
+    pat = "ghp_" + "A" * 36
+    # Pre-create a fake pyproject.toml the helper reads after clone.
+    import tempfile
+    from pathlib import Path
+
+    real_mkdtemp = tempfile.mkdtemp
+
+    def fake_mkdtemp(prefix=""):
+        d = real_mkdtemp(prefix=prefix)
+        (Path(d) / "pyproject.toml").write_text(
+            '[project]\nname = "fake"\ndescription = "x"\n'
+        )
+        return d
+
+    monkeypatch.setattr(dr.tempfile, "mkdtemp", fake_mkdtemp)
+
+    await dr._clone_and_validate("https://github.com/owner/repo.git", pat)
+
+    # PAT must NOT appear anywhere in argv.
+    for token in captured["argv"]:
+        assert pat not in token, f"PAT leaked into argv: {token!r}"
+    # PAT must be passed via env, not argv.
+    assert captured["env"].get("GIT_TOKEN") == pat
+    assert captured["env"].get("GIT_USER") == "x-token-auth"
+
+
+@pytest.mark.asyncio
+async def test_clone_failure_scrubs_pat_from_response(monkeypatch):
+    """If git stderr accidentally surfaces a PAT, the HTTPException detail must redact it."""
+    from app.routers import detectors as dr
+    from fastapi import HTTPException
+
+    pat = "ghp_" + "B" * 36
+    leaked_stderr = (
+        f"fatal: unable to access https://x-token-auth:{pat}@github.com/o/r.git/: "
+        "Could not resolve host"
+    ).encode()
+
+    class _FakeProc:
+        returncode = 1
+
+        async def communicate(self):
+            return b"", leaked_stderr
+
+        def kill(self):
+            return None
+
+        async def wait(self):
+            return None
+
+    async def fake_create(*args, **kwargs):
+        return _FakeProc()
+
+    monkeypatch.setattr(dr.asyncio, "create_subprocess_exec", fake_create)
+
+    async def fake_repo_accessible(owner, repo, pat):
+        return True
+
+    monkeypatch.setattr(dr, "check_repo_accessible", fake_repo_accessible)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await dr._clone_and_validate("https://github.com/owner/repo.git", pat)
+
+    message = excinfo.value.detail["message"]
+    assert pat not in message
+    assert "<redacted>" in message
+    # The fine-grained pattern would also be scrubbed by the same regex.
+    fg_pat = "github_pat_" + "C" * 82
+    assert dr._scrub_github_pat(f"prefix {fg_pat} suffix") == "prefix <redacted> suffix"
+
 
 @pytest.mark.asyncio
 async def test_get_version_legacy_null_manifest_returns_200(
