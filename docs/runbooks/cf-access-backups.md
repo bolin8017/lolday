@@ -105,3 +105,27 @@ encrypted files.
 age has a single binary, no agent / keyring machinery, X25519 keys that double
 as the encrypt + decrypt material, and no key-server dependency. The operator
 is one person; GPG's web-of-trust adds no value here.
+
+## Recommended JWT session duration (post-program review §5.3)
+
+Cloudflare Access default JWT lifetime is 24h. A leaked JWT is replayable
+for the lifetime of the token from any IP (CF Access does not maintain a
+server-side revocation list; even revoking the user does not invalidate
+already-issued tokens until expiry).
+
+Mainstream practice: short-lived sessions matching workday duration.
+
+Recommended settings (set in the Cloudflare Access app config UI):
+
+- USER role: `Session duration: 8 hours`
+- ADMIN role: `Session duration: 2 hours` (if a separate Access app exists for admin)
+- Service-token CN: `Session duration: 1 hour` (machine-authenticated, no UX cost)
+
+Trade-off: users will re-auth more frequently. With CF Access's SSO this is
+typically a one-click experience (Google / GitHub redirect + return).
+
+To apply: log in to Cloudflare dashboard → Zero Trust → Access → Applications →
+lolday app → Edit → Session duration. The change applies to all NEW tokens;
+existing tokens continue at the old TTL until they expire.
+
+No code change required.
