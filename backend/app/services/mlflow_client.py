@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from app.metrics import BACKEND_ERRORS
+
+if TYPE_CHECKING:
+    from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +78,21 @@ class MlflowClient:
 
     We don't import mlflow-skinny's own client because it's sync; we reuse httpx
     for backend-wide async consistency. Endpoints per MLflow 2.20 REST API.
+
+    Phase 1 R2 (D1.5): supports two construction paths:
+
+    * **Legacy path** — ``MlflowClient(tracking_uri, timeout=..., retries=...)``.
+      Callers that still instantiate directly (routers, reconciler) before T13
+      migrates them to ``Depends(get_mlflow)`` use this path.  The module-level
+      ``_HTTP_CLIENT`` singleton is acquired lazily on first ``_request`` call.
+
+    * **Lifespan path** — ``MlflowClient.from_settings(settings, http_client)``.
+      Used by ``app/main.py`` lifespan (T12) and injected via
+      ``Depends(get_mlflow)`` (T13).  The caller-owned ``AsyncClient`` is used
+      directly; the module-level singleton is bypassed entirely.
+
+    The shim layer will be removed in T13 once every caller uses
+    ``Depends(get_mlflow)``.
     """
 
     def __init__(
@@ -80,10 +100,38 @@ class MlflowClient:
         tracking_uri: str,
         timeout: float = 10.0,
         retries: int = 3,
+        *,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._base = tracking_uri.rstrip("/")
         self._timeout = httpx.Timeout(timeout)
         self._retries = retries
+        # When an explicit AsyncClient is injected (lifespan path), store it.
+        # _request uses it directly and skips the module-level singleton.
+        # When None (legacy path), _request falls back to _get_http_client().
+        self._http: httpx.AsyncClient | None = http_client
+
+    @classmethod
+    def from_settings(
+        cls,
+        settings: Settings,
+        http_client: httpx.AsyncClient,
+    ) -> MlflowClient:
+        """Construct an MlflowClient from app settings + a caller-owned AsyncClient.
+
+        Intended for use in ``app/main.py`` lifespan (T12):
+
+            app.state.mlflow = MlflowClient.from_settings(settings, http)
+
+        The ``http_client`` lifetime is managed by the lifespan context; the
+        module-level ``_HTTP_CLIENT`` singleton is NOT used.
+        """
+        return cls(
+            settings.MLFLOW_TRACKING_URI,
+            timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS,
+            retries=3,
+            http_client=http_client,
+        )
 
     async def _request(
         self,
@@ -94,7 +142,12 @@ class MlflowClient:
         params: dict | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base}/api/2.0/mlflow{path}"
-        client = await _get_http_client(self._timeout)
+        # Lifespan path: use the injected client directly (no module singleton).
+        # Legacy path: acquire the lazy module-level singleton.
+        if self._http is not None:
+            client = self._http
+        else:
+            client = await _get_http_client(self._timeout)
         last_exc: Exception | None = None
         for attempt in range(self._retries):
             try:
