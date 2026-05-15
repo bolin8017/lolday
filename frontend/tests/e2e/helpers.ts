@@ -30,12 +30,26 @@ export async function login(page: Page, _creds: SeedCreds = seedCreds()) {
 }
 
 /**
- * TODO(non-admin-persona): backend's AUTH_DEV_MODE only honours a single
- * `AUTH_DEV_EMAIL`, so every spec runs as the same admin user. To exercise
- * the negative side of role-gated UI (admin-only nav links, role-mutation
- * buttons hidden for `developer` / `user`), the backend needs to honour a
- * per-request override (e.g. an `X-Dev-User-Email` header) that AUTH_DEV_MODE
- * resolves into a synthetic user with the matching role. Tracked in
- * `docs/architecture.md` §9 #14. Until then, sidebar-drawer.spec's
- * admin-link assertion is positive-case only.
+ * D2.2 / R4 — multi-persona dev auth.
+ *
+ * Backend AUTH_DEV_MODE honours an `X-Dev-Persona` request header that
+ * resolves to one of `AUTH_DEV_PERSONAS` (admin / developer / user) with
+ * the corresponding email + role. Closes architecture.md §10 #13 (the
+ * single-persona limitation) and unblocks Phase 3 multi-persona Playwright
+ * parallel.
+ *
+ * Usage:
+ *   await loginAs(page, "admin");
+ *   await page.goto("/admin");
  */
+export type DevPersona = "admin" | "developer" | "user";
+
+export async function loginAs(page: Page, role: DevPersona): Promise<void> {
+  await page.context().setExtraHTTPHeaders({ "X-Dev-Persona": role });
+  // Reload (if already on a page) so the next render reads /users/me with
+  // the new persona; on a fresh page, the next navigation picks it up.
+  const url = page.url();
+  if (url && url !== "about:blank") {
+    await page.reload();
+  }
+}
