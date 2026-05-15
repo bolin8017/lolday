@@ -139,3 +139,32 @@ runs:
       run: |
         cosign sign --yes --recursive \
           "ghcr.io/bolin8017/${{ inputs.image }}:sha-${{ github.sha }}"
+    # #170: SLSA build provenance attestation. Lifts the supply-chain
+    # posture from SLSA L2 (signed artefacts via cosign above) to SLSA L3
+    # (signed + non-falsifiable build provenance). The action emits an
+    # in-toto SLSA v1 statement that records: the GHA workflow ref, the
+    # invocation parameters, the source commit, the produced subject
+    # digest. The attestation is signed via the same Sigstore keyless flow
+    # (id-token: write granted at job scope in images.yml + helpers.yml)
+    # and pushed to the OCI registry alongside the image so consumers can
+    # `gh attestation verify` or `cosign verify-attestation`.
+    #
+    # subject-digest sourced from steps.build.outputs.digest — that's the
+    # buildx push manifest digest (registry-side), which is what the
+    # attestation must anchor to. Cosign sign (above) uses the tag-based
+    # path to sidestep buildx's local-vs-registry digest mismatch; the
+    # attest-build-provenance action does its own registry round-trip so
+    # the digest output is the correct anchor here.
+    #
+    # Migration note: existing prod images do NOT have provenance
+    # attestations. The Kyverno enforcement to require this attestation
+    # is intentionally staged in a follow-up PR (see
+    # docs/superpowers/plans/2026-05-15-kyverno-attestation-enforcement.md)
+    # so existing pods do not fail admission on restart.
+    - name: Generate SLSA build provenance
+      if: inputs.push == 'true'
+      uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+      with:
+        subject-name: ghcr.io/${{ github.repository_owner }}/${{ inputs.image }}
+        subject-digest: ${{ steps.build.outputs.digest }}
+        push-to-registry: true
