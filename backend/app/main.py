@@ -3,6 +3,7 @@ import contextlib
 import logging
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import Depends, FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -21,6 +22,7 @@ from app.routers import (
     mlflow_authz,
     models_registry,
 )
+from app.services.mlflow_client import MlflowClient
 from app.services.rate_limit import rate_limit_ip
 
 logger = logging.getLogger(__name__)
@@ -151,6 +153,13 @@ async def lifespan(app: FastAPI):
             _run_fifo_reconciler_forever(settings.FIFO_RECONCILER_PERIOD_SECONDS)
         )
 
+    # NEW: app.state-managed httpx.AsyncClient + MlflowClient (R2 step 2/3).
+    # The legacy module-level _HTTP_CLIENT in mlflow_client.py is still
+    # present as a shim for callers that haven't been migrated to
+    # Depends(get_mlflow) yet (T13 removes it).
+    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+    app.state.mlflow = MlflowClient.from_settings(settings, app.state.http)
+
     yield
 
     # Best-effort hygiene cleanup: shut the shared Prometheus httpx.Client
@@ -174,6 +183,9 @@ async def lifespan(app: FastAPI):
 
         gpu_signal.close_http_client()
         await mlflow_client.close_http_client()
+
+        # NEW: close the app.state-managed AsyncClient (R2 step 2/3).
+        await app.state.http.aclose()
 
 
 app = FastAPI(
