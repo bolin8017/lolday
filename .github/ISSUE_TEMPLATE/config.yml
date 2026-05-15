@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue (private)
+    url: https://github.com/bolin8017/lolday/security/advisories/new
+    about: For security issues, use GitHub's private vulnerability reporting. Do NOT open a public issue. See SECURITY.md.
+  - name: Question / discussion
+    url: https://github.com/bolin8017/lolday/discussions
+    about: For usage questions or open-ended discussion. The issue tracker is for tracked bug reports + feature requests.
