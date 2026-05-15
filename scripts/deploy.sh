@@ -302,8 +302,24 @@ echo "=== Phase 4: wait for MLflow ==="
 kubectl -n lolday wait deploy/mlflow --for=condition=Available --timeout=180s
 
 echo "=== Phase 4: smoke test MLflow from backend pod ==="
-kubectl -n lolday exec deploy/backend -- curl -sf http://mlflow.lolday.svc:5000/health || \
-  echo "WARN: MLflow /health failed — may still be initializing. Check 'kubectl -n lolday logs deploy/mlflow'."
+# Backend image has no curl; use the in-venv httpx (the same client backend
+# code uses to call MLflow). The previous curl-based smoke silently WARN'd
+# because `curl` is not in PATH inside the container — masking a no-op.
+if MLFLOW_OUT=$(kubectl -n lolday exec deploy/backend -- /app/.venv/bin/python -c "
+import httpx, sys
+try:
+    r = httpx.get('http://mlflow.lolday.svc:5000/health', timeout=5)
+    print(f'HTTP={r.status_code}')
+    sys.exit(0 if r.status_code == 200 else 1)
+except Exception as e:
+    print(f'error={type(e).__name__}: {e}')
+    sys.exit(2)
+" 2>&1); then
+  echo "  OK: MLflow /health reachable (${MLFLOW_OUT})"
+else
+  echo "  WARN: MLflow /health failed: ${MLFLOW_OUT}"
+  echo "  May still be initializing. Check 'kubectl -n lolday logs deploy/mlflow'."
+fi
 
 echo
 echo "Phase 4 deploy complete."

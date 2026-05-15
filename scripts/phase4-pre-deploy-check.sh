@@ -30,10 +30,25 @@ fi
 echo "  OK: MLFLOW_DB_PASSWORD present"
 
 echo "[3/4] Checking Harbor is reachable from backend pod..."
-if ! kubectl -n lolday exec deploy/backend -- curl -sf -o /dev/null http://harbor.lolday.svc:80/api/v2.0/health 2>/dev/null; then
-  echo "WARN: Harbor health check failed from backend pod. Deploy may still work; investigate if Phase 3 pipeline was OK."
+# The backend image is the slim Python runtime — no curl/wget. Use the
+# in-venv httpx (the same client backend code uses for outbound HTTP) so
+# this probe exercises the production code path. The previous curl-based
+# check silently WARN'd because `curl` is not in PATH inside the
+# container; the WARN was masking a no-op.
+if HARBOR_OUT=$(kubectl -n lolday exec deploy/backend -- /app/.venv/bin/python -c "
+import httpx, sys
+try:
+    r = httpx.get('http://harbor.lolday.svc:80/api/v2.0/health', timeout=5)
+    print(f'HTTP={r.status_code}')
+    sys.exit(0 if r.status_code == 200 else 1)
+except Exception as e:
+    print(f'error={type(e).__name__}: {e}')
+    sys.exit(2)
+" 2>&1); then
+  echo "  OK: Harbor reachable (${HARBOR_OUT})"
 else
-  echo "  OK: Harbor reachable"
+  echo "  WARN: Harbor health check failed: ${HARBOR_OUT}"
+  echo "  Deploy may still work; investigate if Phase 3 pipeline was OK."
 fi
 
 echo "[4/4] Checking PostgreSQL is reachable..."
