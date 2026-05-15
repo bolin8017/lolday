@@ -46,7 +46,7 @@ from hypothesis import settings as h_settings
 
 from tests.contract.conftest import install_contract_auth
 
-pytestmark = pytest.mark.contract
+pytestmark = [pytest.mark.contract, pytest.mark.timeout(180)]
 
 _TEST_USER_EMAIL = "contract-jobs@example.dev"
 
