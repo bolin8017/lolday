@@ -1,0 +1,75 @@
+suite: AlertmanagerConfig routes
+templates:
+  - templates/monitoring/alertmanager-config-discord.yaml
+values:
+  - ../values-test.yaml
+set:
+  monitoring.enabled: true
+release:
+  name: lolday
+  namespace: monitoring
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a single AlertmanagerConfig named discord-receivers
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: AlertmanagerConfig
+      - equal:
+          path: metadata.name
+          value: discord-receivers
+
+  # 2026-05-10 alerting redesign: critical alerts route to discord-critical
+  # (Captain Hook, @here). The route is a sub-route matched on severity=critical.
+  - it: has a route with receiver discord-critical for critical severity
+    asserts:
+      - contains:
+          path: spec.route.routes
+          content:
+            receiver: discord-critical
+            matchers:
+              - name: severity
+                value: critical
+                matchType: "="
+            repeatInterval: 4h
+
+  # 2026-05-10 alerting redesign: warning alerts route to discord-warning
+  # (Spidey Warnings, no @here ping).
+  - it: has a route with receiver discord-warning for warning severity
+    asserts:
+      - contains:
+          path: spec.route.routes
+          content:
+            receiver: discord-warning
+            matchers:
+              - name: severity
+                value: warning
+                matchType: "="
+            repeatInterval: 24h
+
+  # 2026-05-10 spec §6.2 mandates exactly 5 inhibit rules.
+  # Fewer = missing suppression (noise); more = unexpected new rule
+  # that needs design review.
+  - it: has exactly 5 inhibit rules per 2026-05-10 alerting redesign spec
+    asserts:
+      - lengthEqual:
+          path: spec.inhibitRules
+          count: 5
+
+  # Verify both required receivers are declared (by name).
+  # `contains` requires exact object match, so check names by index position
+  # (discord-critical first, discord-warning second — matches template order).
+  - it: defines both discord-critical and discord-warning receivers
+    asserts:
+      - lengthEqual:
+          path: spec.receivers
+          count: 2
+      - equal:
+          path: spec.receivers[0].name
+          value: discord-critical
+      - equal:
+          path: spec.receivers[1].name
+          value: discord-warning
