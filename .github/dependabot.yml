@@ -33,6 +33,19 @@ updates:
       day: monday
     open-pull-requests-limit: 10
     groups:
+      # @rjsf/core, @rjsf/utils, @rjsf/validator-ajv8 share peer-deps and
+      # MUST move in lockstep. Ungrouped, each major bump arrives as its
+      # own PR and CI fails for all three until the trio merges together
+      # — the situation that produced #143/#144/#146 (closed in favour
+      # of the coordinated v6 migration). First-matching-group wins per
+      # Dependabot, so this entry must precede frontend-minor-patch to
+      # capture minor/patch bumps too.
+      rjsf:
+        patterns: ["@rjsf/*"]
+        update-types:
+          - major
+          - minor
+          - patch
       frontend-minor-patch:
         patterns: ["*"]
         update-types:

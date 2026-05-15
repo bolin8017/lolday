@@ -3,6 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { FieldTemplate } from "@/components/forms/templates/FieldTemplate";
 
+// RJSF v6: formContext moved off FieldTemplateProps onto registry.formContext;
+// onKeyChange/onDropPropertyClick replaced by direct callbacks
+// onKeyRename/onKeyRenameBlur/onRemoveProperty; idSchema replaced by
+// fieldPathId. Tests cover only label/badge/description rendering, so the
+// new callback noops are stubs and fieldPathId is a minimal valid object.
 const baseProps = {
   id: "f",
   classNames: "",
@@ -18,13 +23,14 @@ const baseProps = {
   rawErrors: [] as string[],
   schema: { type: "number", default: 0.5 } as const,
   uiSchema: {},
-  formContext: {},
-  registry: {} as never,
+  registry: { formContext: {} } as never,
   hidden: false,
   displayLabel: true,
+  fieldPathId: { $id: "f" } as never,
   onChange: () => {},
-  onKeyChange: () => () => {},
-  onDropPropertyClick: () => () => {},
+  onKeyRename: () => {},
+  onKeyRenameBlur: () => {},
+  onRemoveProperty: () => {},
 };
 
 describe("FieldTemplate", () => {
@@ -52,7 +58,7 @@ describe("FieldTemplate", () => {
       <FieldTemplate
         {...baseProps}
         formData={0.7}
-        formContext={{ onResetField: () => {} }}
+        registry={{ formContext: { onResetField: () => {} } } as never}
       >
         <input value="0.7" readOnly />
       </FieldTemplate>,
@@ -65,7 +71,7 @@ describe("FieldTemplate", () => {
       <FieldTemplate
         {...baseProps}
         formData={0.5}
-        formContext={{ onResetField: () => {} }}
+        registry={{ formContext: { onResetField: () => {} } } as never}
       >
         <input value="0.5" readOnly />
       </FieldTemplate>,
@@ -79,7 +85,7 @@ describe("FieldTemplate", () => {
       <FieldTemplate
         {...baseProps}
         formData={0.7}
-        formContext={{ onResetField }}
+        registry={{ formContext: { onResetField } } as never}
       >
         <input value="0.7" readOnly />
       </FieldTemplate>,
