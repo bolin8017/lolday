@@ -27,7 +27,7 @@ echo ""
 # identity. Kept out of values.yaml so the public chart does not embed
 # operator-personal info. Hard-fail here so a fresh deploy can never seed
 # admin@example.com (the placeholder in values.yaml) into a real cluster.
-: "${SSO_ADMIN_EMAIL:?SSO_ADMIN_EMAIL must be set — operator's CF Access IdP email}"
+: "${SSO_ADMIN_EMAIL:?SSO_ADMIN_EMAIL must be set — operator CF Access IdP email; was hardcoded in values.yaml until 5ae224e}"
 # Phase 7.4 — user-event Discord webhook (#lolday-alerts-events).
 # Optional: backend treats empty string as "notify disabled". Hard-fail only if
 # present-but-malformed (silent half-config is the worst outcome).
