@@ -1,0 +1,100 @@
+{{- if index .Values "trivy-operator" "enabled" }}
+{{/* Close #168 (CIS 5.3.2): the trivy-system namespace (created by the
+     trivy-operator sub-chart's `operator.namespace: trivy-system`) had no
+     NetworkPolicy. The operator and its on-demand trivy scanner pods could
+     accept arbitrary in-cluster traffic. This file adds a ns-wide
+     default-deny plus the minimum allows for:
+       - Prometheus to scrape trivy metrics (servicemonitor-trivy.yaml)
+       - trivy-operator to reach kube-apiserver, Harbor (to pull image
+         manifests during scan), and the Aqua Trivy DB CDN.
+
+     The trivy-system ns is managed by the operator sub-chart, not by an
+     explicit Namespace template — but NetworkPolicy is a namespaced
+     resource and can be created in any existing ns from any chart.
+
+     `index .Values "trivy-operator"` is the Helm idiom for kebab-case
+     subkeys (the values block is `trivy-operator:` per upstream chart).
+
+     SSH-safety: K8s NetworkPolicy, not host iptables. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trivy-system-default-deny
+  namespace: trivy-system
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Ingress allow: Prometheus scrapes trivy-operator :8080/metrics and
+# trivy server (if it were enabled) :4954. trivy.operator.builtInTrivyServer
+# is currently false (see values.yaml), but allow the port anyway so a
+# future flip doesn't need a chart change.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trivy-system-monitoring-ingress
+  namespace: trivy-system
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.monitoring.namespace }}
+---
+# Egress: DNS + kube-apiserver + Harbor (image manifest pulls during scan)
+# + external CDN for Trivy DB updates (Aqua hosts these on
+# ghcr.io and a CloudFront-fronted endpoint; can't pin IPs).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trivy-system-default-egress
+  namespace: trivy-system
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Harbor (image manifest + layer pulls during scan).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+          podSelector:
+            matchLabels:
+              app: harbor
+    # kube-apiserver — the operator's controller watches K8s resources
+    # cluster-wide. K3s' apiserver listens on the host, so traffic egresses
+    # to the host IP; allow the broad RFC-internal range.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16
+              - 10.43.0.0/16
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+              - 169.254.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 } # kube-apiserver
+{{- end }}
