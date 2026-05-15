@@ -44,20 +44,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
 from app.config import settings
 from app.db import get_async_session
+from app.deps import get_mlflow
 from app.models import Job, Role, User
 from app.models.job import NON_TERMINAL_STATUSES
-
-# NOTE: ``MlflowClient`` is imported as a module attribute (``_mc.MlflowClient``)
-# rather than via ``from app.services.mlflow_client import MlflowClient`` so the
-# test fixture's ``monkeypatch.setattr(mc, "MlflowClient", ...)`` is picked up by
-# this router.  A ``from X import Y`` binding captures the class object at
-# import time and is no longer affected when ``X.Y`` is reassigned later —
-# tests would silently fall through to the real class even though the stub
-# is meant to take over.  Resolving via ``_mc.MlflowClient`` per call follows
-# the live module attribute and stays in lockstep with conftest's patching.
-from app.services import mlflow_client as _mc
 from app.services.job_tokens import hash_token
-from app.services.mlflow_client import MlflowError
+from app.services.mlflow_client import MlflowClient, MlflowError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -107,13 +98,6 @@ QUERY_RUN_ID_RE = re.compile(r"[?&]run_id=(?P<run_id>[A-Za-z0-9_-]+)")
 # Job tokens (sidecar path) are NOT subject to this restriction; they need to
 # write metrics/params for their own run.
 MUTATING_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
-
-
-def _mlflow_client():
-    """Construct an MlflowClient. Looked up dynamically so tests can stub it."""
-    return _mc.MlflowClient(
-        settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
-    )
 
 
 async def _identify_via_cf(request: Request, session: AsyncSession) -> User | None:
@@ -206,7 +190,7 @@ def _extract_run_id_from_url(uri: str) -> str | None:
     return None
 
 
-async def _run_owner_id(run_id: str) -> str | None:
+async def _run_owner_id(run_id: str, mlflow: MlflowClient) -> str | None:
     """Read the ``lolday.user_id`` tag from MLflow for a given run.
 
     Returns the owner UUID string, or ``None`` if the run is missing /
@@ -216,7 +200,7 @@ async def _run_owner_id(run_id: str) -> str | None:
     :func:`experiments_proxy._user_can_see_run_dict` policy.
     """
     try:
-        run = await _mlflow_client().get_run(run_id)
+        run = await mlflow.get_run(run_id)
     except MlflowError:
         logger.warning("mlflow-authz: get_run(%s) failed", run_id, exc_info=True)
         return None
@@ -236,6 +220,7 @@ async def _run_owner_id(run_id: str) -> str | None:
 async def mlflow_authz(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
+    mlflow: Annotated[MlflowClient, Depends(get_mlflow)],
     x_forwarded_uri: Annotated[str, Header()] = "",
     x_forwarded_method: Annotated[str, Header()] = "GET",
 ) -> dict:
@@ -262,7 +247,7 @@ async def mlflow_authz(
             raise HTTPException(
                 status_code=403, detail="cannot resolve run for ACL check"
             )
-        owner = await _run_owner_id(run_id)
+        owner = await _run_owner_id(run_id, mlflow)
         if owner and owner == str(user.id):
             return {"allow": True, "as": "user", "run_id": run_id}
         raise HTTPException(status_code=403, detail="not run owner")

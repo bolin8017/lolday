@@ -136,10 +136,18 @@ async def lifespan(app: FastAPI):
         BACKEND_ERRORS.labels(stage="harbor_init").inc()
         logger.exception("harbor init failed — continuing, build pipeline may not work")
 
+    # app.state-managed httpx.AsyncClient + MlflowClient — created before the
+    # reconciler task so the task receives the live client instance.
+    # The legacy module-level _HTTP_CLIENT shim is removed in T13 (this step).
+    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+    app.state.mlflow = MlflowClient.from_settings(settings, app.state.http)
+
     reconciler_task: asyncio.Task | None = None
     if settings.RECONCILER_ENABLED:
         stop_event = asyncio.Event()
-        reconciler_task = asyncio.create_task(reconciler_loop(stop_event))
+        reconciler_task = asyncio.create_task(
+            reconciler_loop(stop_event, app.state.mlflow)
+        )
 
     # Phase 6d: FIFO scheduler — submits queued_backend jobs to Volcano in
     # strict (priority DESC, submitted_at ASC) order.  Runs independently of
@@ -152,13 +160,6 @@ async def lifespan(app: FastAPI):
         fifo_task = asyncio.create_task(
             _run_fifo_reconciler_forever(settings.FIFO_RECONCILER_PERIOD_SECONDS)
         )
-
-    # NEW: app.state-managed httpx.AsyncClient + MlflowClient (R2 step 2/3).
-    # The legacy module-level _HTTP_CLIENT in mlflow_client.py is still
-    # present as a shim for callers that haven't been migrated to
-    # Depends(get_mlflow) yet (T13 removes it).
-    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
-    app.state.mlflow = MlflowClient.from_settings(settings, app.state.http)
 
     yield
 
@@ -179,12 +180,9 @@ async def lifespan(app: FastAPI):
             with contextlib.suppress(asyncio.CancelledError):
                 await fifo_task
     finally:
-        from app.services import gpu_signal, mlflow_client
+        from app.services import gpu_signal
 
         gpu_signal.close_http_client()
-        await mlflow_client.close_http_client()
-
-        # NEW: close the app.state-managed AsyncClient (R2 step 2/3).
         await app.state.http.aclose()
 
 

@@ -209,13 +209,25 @@ def mock_k8s_batch(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def mock_mlflow(request, monkeypatch):
+def mock_mlflow(request):
     if "no_mock_mlflow" in request.keywords:
-        import app.routers.experiments_proxy as ep_mod
-        import app.services.mlflow_client as mc
+        # Tests that opt out of the stub (marked no_mock_mlflow) expect the real
+        # MlflowClient to be reachable via Depends(get_mlflow) so they can
+        # intercept at the HTTP layer (e.g. via respx.MockRouter).
+        # app.state.mlflow is set by the FastAPI lifespan, which does NOT run
+        # when tests use ASGITransport directly. Install a real client backed by
+        # a fresh httpx.AsyncClient so get_mlflow(request) succeeds; respx will
+        # intercept the outbound HTTP calls per test.
+        import httpx
+        from app.config import settings
+        from app.main import app as fastapi_app
+        from app.services.mlflow_client import MlflowClient
 
-        ep_mod.MlflowClient = mc.MlflowClient
+        _test_http = httpx.AsyncClient()
+        fastapi_app.state.mlflow = MlflowClient.from_settings(settings, _test_http)
         yield
+        # Leave app.state.mlflow in place — teardown may trigger aclose warnings
+        # but httpx silently drops un-closed clients; no explicit cleanup needed.
         return
 
     class _Stub:
@@ -301,21 +313,15 @@ def mock_mlflow(request, monkeypatch):
         ):
             return []
 
-    import app.routers.experiments_proxy as ep_mod
-    import app.routers.jobs as jobs_mod
-    import app.routers.models_registry as mr_mod
-    import app.services.mlflow_client as mc
-
-    real_mlflow_cls = mc.MlflowClient
+    from app.deps import get_mlflow
+    from app.main import app as fastapi_app
 
     stub = _Stub()
-    monkeypatch.setattr(mc, "MlflowClient", lambda *a, **kw: stub)
-    monkeypatch.setattr(jobs_mod, "MlflowClient", lambda *a, **kw: stub)
-    monkeypatch.setattr(mr_mod, "MlflowClient", lambda *a, **kw: stub)
-    monkeypatch.setattr(ep_mod, "MlflowClient", lambda *a, **kw: stub)
+    # Override Depends(get_mlflow) so all routers using the new DI path receive
+    # the stub. This is the primary mock path after T13 migration.
+    fastapi_app.dependency_overrides[get_mlflow] = lambda: stub
     yield stub
-    if ep_mod.MlflowClient is not real_mlflow_cls:
-        ep_mod.MlflowClient = real_mlflow_cls
+    fastapi_app.dependency_overrides.pop(get_mlflow, None)
 
 
 @pytest_asyncio.fixture

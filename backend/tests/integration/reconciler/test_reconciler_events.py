@@ -80,11 +80,11 @@ async def test_reconcile_trusts_stage_end_success(db_session, monkeypatch) -> No
 
     calls: list[str] = []
 
-    async def fake_succeeded(session, j):
+    async def fake_succeeded(session, j, **_kw):
         calls.append("succeeded")
         j.status = JobStatus.SUCCEEDED
 
-    async def fake_failed(session, j):
+    async def fake_failed(session, j, **_kw):
         calls.append("failed")
         j.status = JobStatus.FAILED
 
@@ -127,10 +127,10 @@ async def test_reconcile_trusts_stage_end_failure(db_session, monkeypatch) -> No
 
     calls: list[str] = []
 
-    async def fake_succeeded(session, j):
+    async def fake_succeeded(session, j, **_kw):
         calls.append("succeeded")
 
-    async def fake_failed(session, j):
+    async def fake_failed(session, j, **_kw):
         calls.append("failed")
 
     monkeypatch.setattr("app.reconciler.jobs._handle_job_succeeded", fake_succeeded)
@@ -164,10 +164,10 @@ async def test_reconcile_falls_back_to_volcano_phase_when_no_events(
 
     calls: list[str] = []
 
-    async def fake_succeeded(session, j):
+    async def fake_succeeded(session, j, **_kw):
         calls.append("succeeded")
 
-    async def fake_failed(session, j):
+    async def fake_failed(session, j, **_kw):
         calls.append("failed")
 
     async def fake_update(session, j):
@@ -222,11 +222,11 @@ async def test_reconcile_event_wins_against_volcano_failed_race(
 
     calls: list[str] = []
 
-    async def fake_succeeded(session, j):
+    async def fake_succeeded(session, j, **_kw):
         calls.append("succeeded")
         j.status = JobStatus.SUCCEEDED
 
-    async def fake_failed(session, j):
+    async def fake_failed(session, j, **_kw):
         calls.append("failed")
         j.status = JobStatus.FAILED
 

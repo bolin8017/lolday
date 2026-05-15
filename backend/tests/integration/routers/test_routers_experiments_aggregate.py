@@ -11,6 +11,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.routers.experiments_proxy import _flatten_run
 
+# ---------------------------------------------------------------------------
+# Helper: configure the autouse mock_mlflow stub for aggregate endpoint tests.
+#
+# After T13, experiments_proxy handlers use Depends(get_mlflow) — no module-
+# level _client() factory. Tests configure the autouse stub via the
+# ``mock_mlflow`` fixture instead of patching _client.
+# ---------------------------------------------------------------------------
+
 
 def _run(
     run_id: str,
@@ -67,19 +75,16 @@ def test_flatten_run_handles_missing_data_and_info() -> None:
 
 @pytest.mark.asyncio
 async def test_experiments_no_include_returns_bare_list(
-    async_client, auth_owner_headers
+    async_client, auth_owner_headers, mock_mlflow
 ):
     fake_experiments = [{"experiment_id": "1", "name": "exp_a"}]
     # H-1: non-admin callers trigger a per-experiment owner filter that issues
     # one ``search_runs`` per experiment. Mocking it to return a non-empty list
     # admits the experiment without imposing strict signature expectations on
     # the kwargs (filter_string, max_results).
-    with patch("app.routers.experiments_proxy._client") as mc:
-        mc.return_value.search_experiments = AsyncMock(return_value=fake_experiments)
-        mc.return_value.search_runs = AsyncMock(
-            return_value=[{"info": {"run_id": "r"}}]
-        )
-        resp = await async_client.get("/api/v1/experiments", headers=auth_owner_headers)
+    mock_mlflow.search_experiments = AsyncMock(return_value=fake_experiments)
+    mock_mlflow.search_runs = AsyncMock(return_value=[{"info": {"run_id": "r"}}])
+    resp = await async_client.get("/api/v1/experiments", headers=auth_owner_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body == fake_experiments
@@ -87,22 +92,21 @@ async def test_experiments_no_include_returns_bare_list(
 
 
 @pytest.mark.asyncio
-async def test_experiments_with_stats_aggregates(async_client, auth_owner_headers):
+async def test_experiments_with_stats_aggregates(
+    async_client, auth_owner_headers, mock_mlflow
+):
     fake_experiments = [{"experiment_id": "1", "name": "exp_a"}]
     fake_runs = [
         _run("r1", "FINISHED", 1700000000000, metrics={"f1": 0.91}),
         _run("r2", "FINISHED", 1700001000000, metrics={"f1": 0.93}),
         _run("r3", "RUNNING", 1700002000000),
     ]
-    with (
-        patch("app.routers.experiments_proxy._client") as mc,
-        patch(
-            "app.routers.experiments_proxy._stats_cache",
-            new_callable=lambda: __import__("cachetools").TTLCache(maxsize=64, ttl=30),
-        ),
+    mock_mlflow.search_experiments = AsyncMock(return_value=fake_experiments)
+    mock_mlflow.search_runs = AsyncMock(return_value=fake_runs)
+    with patch(
+        "app.routers.experiments_proxy._stats_cache",
+        new_callable=lambda: __import__("cachetools").TTLCache(maxsize=64, ttl=30),
     ):
-        mc.return_value.search_experiments = AsyncMock(return_value=fake_experiments)
-        mc.return_value.search_runs = AsyncMock(return_value=fake_runs)
         resp = await async_client.get(
             "/api/v1/experiments?include=stats",
             headers=auth_owner_headers,
@@ -115,7 +119,7 @@ async def test_experiments_with_stats_aggregates(async_client, auth_owner_header
 
 
 @pytest.mark.asyncio
-async def test_experiments_stats_cached(auth_client_admin):
+async def test_experiments_stats_cached(auth_client_admin, mock_mlflow):
     """The stats aggregator's TTL cache must serve the second call from memory.
 
     Authenticated as admin so the H-1 per-experiment ACL filter is skipped
@@ -130,23 +134,20 @@ async def test_experiments_stats_cached(auth_client_admin):
         runs_called += 1
         return [_run("r1", "FINISHED", 1, metrics={"f1": 0.5})]
 
-    with (
-        patch("app.routers.experiments_proxy._client") as mc,
-        patch(
-            "app.routers.experiments_proxy._stats_cache",
-            new_callable=lambda: __import__("cachetools").TTLCache(maxsize=64, ttl=30),
-        ),
-    ):
-        mc.return_value.search_experiments = AsyncMock(return_value=fake_experiments)
-        mc.return_value.search_runs = AsyncMock(side_effect=mock_search_runs)
+    mock_mlflow.search_experiments = AsyncMock(return_value=fake_experiments)
+    mock_mlflow.search_runs = AsyncMock(side_effect=mock_search_runs)
 
+    with patch(
+        "app.routers.experiments_proxy._stats_cache",
+        new_callable=lambda: __import__("cachetools").TTLCache(maxsize=64, ttl=30),
+    ):
         await auth_client_admin.get("/api/v1/experiments?include=stats")
         await auth_client_admin.get("/api/v1/experiments?include=stats")
     assert runs_called == 1  # second call hit cache
 
 
 @pytest.mark.asyncio
-async def test_list_runs_returns_flat_shape(auth_client_admin):
+async def test_list_runs_returns_flat_shape(auth_client_admin, mock_mlflow):
     """Admin auth bypasses the H-1 owner filter so this test stays focused on
     the flatten contract."""
     fake_runs = [
@@ -158,9 +159,8 @@ async def test_list_runs_returns_flat_shape(auth_client_admin):
             tags={"lolday.job_id": "job-1"},
         )
     ]
-    with patch("app.routers.experiments_proxy._client") as mc:
-        mc.return_value.search_runs = AsyncMock(return_value=fake_runs)
-        resp = await auth_client_admin.get("/api/v1/experiments/1/runs")
+    mock_mlflow.search_runs = AsyncMock(return_value=fake_runs)
+    resp = await auth_client_admin.get("/api/v1/experiments/1/runs")
     assert resp.status_code == 200
     body = resp.json()
     assert body[0]["run_id"] == "r1"
@@ -171,13 +171,12 @@ async def test_list_runs_returns_flat_shape(auth_client_admin):
 
 
 @pytest.mark.asyncio
-async def test_get_run_returns_flat_shape(auth_client_admin):
+async def test_get_run_returns_flat_shape(auth_client_admin, mock_mlflow):
     """Admin auth bypasses the H-1 owner filter so this test stays focused on
     the flatten contract."""
     raw = _run("r1", "FINISHED", 123, params={"lr": "0.01"})
-    with patch("app.routers.experiments_proxy._client") as mc:
-        mc.return_value.get_run = AsyncMock(return_value=raw)
-        resp = await auth_client_admin.get("/api/v1/runs/r1")
+    mock_mlflow.get_run = AsyncMock(return_value=raw)
+    resp = await auth_client_admin.get("/api/v1/runs/r1")
     assert resp.status_code == 200
     body = resp.json()
     assert body["run_id"] == "r1"

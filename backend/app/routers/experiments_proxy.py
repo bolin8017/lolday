@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_async_session
+from app.deps import get_mlflow
 from app.models import Role, User
 from app.services.http_headers import build_content_disposition
 from app.services.mlflow_client import MlflowClient, MlflowError
@@ -115,12 +116,6 @@ _stats_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
 _MLFLOW_STREAM_SEM: asyncio.Semaphore = asyncio.Semaphore(8)
 
 
-def _client() -> MlflowClient:
-    return MlflowClient(
-        settings.MLFLOW_TRACKING_URI, timeout=settings.MLFLOW_HTTP_TIMEOUT_SECONDS
-    )
-
-
 def _flatten_run(
     r: dict[str, Any],
     *,
@@ -195,11 +190,12 @@ async def _fetch_lolday_job_meta(
 @router.get("/experiments")
 async def list_experiments(
     user: Annotated[User, Depends(current_active_user)],
+    mlflow: Annotated[MlflowClient, Depends(get_mlflow)],
     max_results: int = Query(100, ge=1, le=1000),
     include: str | None = Query(None, pattern="^stats$"),
 ):
     try:
-        experiments = await _client().search_experiments(max_results=max_results)
+        experiments = await mlflow.search_experiments(max_results=max_results)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
@@ -216,7 +212,7 @@ async def list_experiments(
         filter_string = _mlflow_user_filter(user.id)
         for exp in experiments:
             try:
-                runs = await _client().search_runs(
+                runs = await mlflow.search_runs(
                     experiment_ids=[exp["experiment_id"]],
                     max_results=1,
                     filter_string=filter_string,
@@ -233,7 +229,7 @@ async def list_experiments(
     enriched = []
     for exp in experiments:
         try:
-            stats = await _experiment_stats(exp["experiment_id"])
+            stats = await _experiment_stats(exp["experiment_id"], mlflow)
         except MlflowError as e:
             # Stats failure shouldn't poison the whole list; degrade gracefully.
             logger.warning(
@@ -244,7 +240,7 @@ async def list_experiments(
     return enriched
 
 
-async def _experiment_stats(experiment_id: str) -> dict:
+async def _experiment_stats(experiment_id: str, mlflow: MlflowClient) -> dict:
     """Async TTL-cached aggregate. cachetools.@cached doesn't support async,
     so we cache by hand with a per-key Lock to avoid stampede."""
     if experiment_id in _stats_cache:
@@ -253,7 +249,7 @@ async def _experiment_stats(experiment_id: str) -> dict:
     async with lock:
         if experiment_id in _stats_cache:  # double-check after acquiring lock
             return _stats_cache[experiment_id]
-        raw = await _client().search_runs([experiment_id], max_results=1000)
+        raw = await mlflow.search_runs([experiment_id], max_results=1000)
         runs = [_flatten_run(r) for r in raw]
         f1s = [r["metrics"].get("f1") for r in runs if r.get("status") == "FINISHED"]
         f1s = [x for x in f1s if x is not None]
@@ -273,10 +269,11 @@ async def list_runs(
     experiment_id: str,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
+    mlflow: Annotated[MlflowClient, Depends(get_mlflow)],
     max_results: int = Query(100, ge=1, le=1000),
 ):
     try:
-        raw = await _client().search_runs(
+        raw = await mlflow.search_runs(
             experiment_ids=[experiment_id], max_results=max_results
         )
     except MlflowError as e:
@@ -299,9 +296,10 @@ async def get_run(
     run_id: str,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     user: Annotated[User, Depends(current_active_user)],
+    mlflow: Annotated[MlflowClient, Depends(get_mlflow)],
 ):
     try:
-        raw = await _client().get_run(run_id)
+        raw = await mlflow.get_run(run_id)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     # H-1: 404 (not 403) for non-owners to avoid leaking run existence.
@@ -356,11 +354,12 @@ async def _audit_cross_user_mlflow_read(
 async def list_artifacts(
     run_id: str,
     user: Annotated[User, Depends(current_active_user)],
+    mlflow: Annotated[MlflowClient, Depends(get_mlflow)],
     path: str | None = None,
 ):
     # H-1: authorise via get_run before doing any artifact listing.
     try:
-        run = await _client().get_run(run_id)
+        run = await mlflow.get_run(run_id)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     if not _user_can_see_run_dict(user, run):
@@ -385,9 +384,10 @@ async def download_artifact(
     path: str,
     user: Annotated[User, Depends(current_active_user)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
+    mlflow: Annotated[MlflowClient, Depends(get_mlflow)],
 ) -> StreamingResponse:
     try:
-        run = await _client().get_run(run_id)
+        run = await mlflow.get_run(run_id)
     except MlflowError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     # H-1: ACL on owner.

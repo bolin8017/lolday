@@ -9,6 +9,7 @@ transitions back into the lolday DB so the UI shows current state.
 
 from datetime import UTC, datetime
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -17,9 +18,20 @@ from app.config import settings
 from app.services.mlflow_client import MlflowClient
 
 
-async def sync_model_versions(session: AsyncSession) -> None:
+async def sync_model_versions(
+    session: AsyncSession, mlflow: MlflowClient | None = None
+) -> None:
     """Pull latest stages from MLflow; reflect transitions initiated outside lolday."""
-    client = MlflowClient(settings.MLFLOW_TRACKING_URI)
+    # In production ``mlflow`` is always the lifespan-owned client. The ``None``
+    # fallback is for backward-compat test call sites without the mlflow arg.
+    client = (
+        mlflow
+        if mlflow is not None
+        else MlflowClient(
+            settings.MLFLOW_TRACKING_URI,
+            http_client=httpx.AsyncClient(timeout=httpx.Timeout(10.0)),
+        )
+    )
     from app.models import ModelVersion
     from app.models.model_registry import ModelVersionStage, RegisteredModel
 

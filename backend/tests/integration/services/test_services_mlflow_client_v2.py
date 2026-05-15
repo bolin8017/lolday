@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from app.services.mlflow_client import MlflowClient
 
 
 @pytest.fixture
 def client() -> MlflowClient:
-    return MlflowClient("http://mlflow.test", timeout=1.0, retries=1)
+    return MlflowClient(
+        "http://mlflow.test",
+        timeout=1.0,
+        retries=1,
+        http_client=httpx.AsyncClient(),
+    )
 
 
 @pytest.mark.asyncio

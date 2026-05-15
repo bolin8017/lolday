@@ -33,11 +33,13 @@ async def test_download_artifact_streams_not_buffers(user_client, monkeypatch):
     """download_artifact must use httpx.stream + StreamingResponse, not r.content."""
     from unittest.mock import AsyncMock
 
-    from app.routers import experiments_proxy
+    from app.main import app as fastapi_app
 
     uid = await _user1_id()
 
     # Mock the upstream MLflow get_run to return a run with the right artifact_uri.
+    # The handler now uses Depends(get_mlflow), so we patch get_run on the live
+    # app.state.mlflow instance that the no_mock_mlflow fixture installed.
     get_run_mock = AsyncMock(
         return_value={
             "info": {
@@ -47,13 +49,7 @@ async def test_download_artifact_streams_not_buffers(user_client, monkeypatch):
             "data": {"tags": [{"key": "lolday.user_id", "value": uid}]},
         }
     )
-    # _client() returns a fresh MlflowClient each call; patch the class so
-    # any instance returns our get_run mock.
-    monkeypatch.setattr(
-        experiments_proxy,
-        "MlflowClient",
-        lambda *a, **kw: type("_M", (), {"get_run": get_run_mock})(),
-    )
+    monkeypatch.setattr(fastapi_app.state.mlflow, "get_run", get_run_mock)
 
     # Patch httpx.AsyncClient.stream so we can assert it's called (not .get).
     stream_used = {"called": False}
@@ -142,7 +138,7 @@ async def test_download_artifact_upstream_error_returns_502(user_client, monkeyp
     """
     from unittest.mock import AsyncMock
 
-    from app.routers import experiments_proxy
+    from app.main import app as fastapi_app
 
     uid = await _user1_id()
 
@@ -155,11 +151,7 @@ async def test_download_artifact_upstream_error_returns_502(user_client, monkeyp
             "data": {"tags": [{"key": "lolday.user_id", "value": uid}]},
         }
     )
-    monkeypatch.setattr(
-        experiments_proxy,
-        "MlflowClient",
-        lambda *a, **kw: type("_M", (), {"get_run": get_run_mock})(),
-    )
+    monkeypatch.setattr(fastapi_app.state.mlflow, "get_run", get_run_mock)
 
     class _FakeErrorStream:
         status_code = 503
@@ -211,6 +203,7 @@ async def test_download_artifact_releases_semaphore_on_upstream_error(
     8 errors in a row would lock out subsequent legitimate streams."""
     from unittest.mock import AsyncMock
 
+    from app.main import app as fastapi_app
     from app.routers import experiments_proxy
 
     uid = await _user1_id()
@@ -224,11 +217,7 @@ async def test_download_artifact_releases_semaphore_on_upstream_error(
             "data": {"tags": [{"key": "lolday.user_id", "value": uid}]},
         }
     )
-    monkeypatch.setattr(
-        experiments_proxy,
-        "MlflowClient",
-        lambda *a, **kw: type("_M", (), {"get_run": get_run_mock})(),
-    )
+    monkeypatch.setattr(fastapi_app.state.mlflow, "get_run", get_run_mock)
 
     class _FakeErrorStream:
         status_code = 503
