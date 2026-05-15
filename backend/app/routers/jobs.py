@@ -39,6 +39,7 @@ from app.models.job import (
     RESOURCE_PROFILE_GPU_COUNT,
     JobStatus,
     JobType,
+    assert_transition_legal,
 )
 from app.models.user import Role
 from app.schemas.job import JobCreate, JobList, JobPatch, JobRead, JobSummary
@@ -639,6 +640,7 @@ async def cancel_job(
             )
 
     prev_status = job.status
+    assert_transition_legal(prev_status, JobStatus.CANCELLED)
     job.status = JobStatus.CANCELLED
     is_admin_cancel = job.owner_id != user.id
     job.failure_reason = (

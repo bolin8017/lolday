@@ -31,7 +31,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.metrics import BACKEND_ERRORS
-from app.models.job import NON_TERMINAL_STATUSES, Job, JobStatus, JobType
+from app.models.job import (
+    NON_TERMINAL_STATUSES,
+    Job,
+    JobStatus,
+    JobType,
+    assert_transition_legal,
+)
 from app.reconciler.log_capture import _capture_job_log_tail
 from app.reconciler.notify import (
     _detector_label,
@@ -88,6 +94,7 @@ async def reconcile_job(
         )
     except ApiException as e:
         if e.status == 404:
+            assert_transition_legal(j.status, JobStatus.FAILED)
             j.status = JobStatus.FAILED
             j.failure_reason = "k8s_job_missing"
             j.finished_at = datetime.now(UTC)
@@ -119,6 +126,7 @@ async def reconcile_job(
                     j.id,
                     exc_info=True,
                 )
+        assert_transition_legal(j.status, JobStatus.TIMEOUT)
         j.status = JobStatus.TIMEOUT
         j.failure_reason = "detector_timeout"
         j.finished_at = datetime.now(UTC)
@@ -204,6 +212,7 @@ async def _update_job_progress(session: AsyncSession, j: Job) -> None:
         return
     pod = pods.items[0]
     if pod.status.phase == "Running" and j.status != JobStatus.RUNNING:
+        assert_transition_legal(j.status, JobStatus.RUNNING)
         j.status = JobStatus.RUNNING
         if j.started_at is None:
             j.started_at = datetime.now(UTC)
@@ -234,6 +243,7 @@ async def _handle_job_succeeded(
     log_tail = await _capture_job_log_tail(j)
 
     j.log_tail = log_tail
+    assert_transition_legal(j.status, JobStatus.SUCCEEDED)
     j.status = JobStatus.SUCCEEDED
     j.finished_at = datetime.now(UTC)
     j.token_hash = None  # H-20: invalidate init-container token on terminal transition
@@ -401,6 +411,7 @@ async def _handle_job_failed(
 ) -> None:
     reason = await _extract_job_failure_reason(j)
     log_tail = await _capture_job_log_tail(j)
+    assert_transition_legal(j.status, JobStatus.FAILED)
     j.status = JobStatus.FAILED
     j.failure_reason = reason
     j.log_tail = log_tail

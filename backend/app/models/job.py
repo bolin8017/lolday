@@ -40,6 +40,57 @@ NON_TERMINAL_STATUSES = frozenset(
     }
 )
 
+# Legal state-machine edges for Job.status.  Every explicit write to job.status
+# must pass through assert_transition_legal() before the assignment.
+#
+# Derivation (reconciler + router):
+#   QUEUED_BACKEND → PREPARING : dispatch_job_to_volcano (fifo_scheduler / router)
+#   QUEUED_BACKEND → CANCELLED : cancel endpoint (job not yet dispatched)
+#   PENDING        → CANCELLED : cancel endpoint (legacy ORM-default state)
+#   PREPARING      → RUNNING   : _update_job_progress (pod Running)
+#   PREPARING      → SUCCEEDED : _handle_job_succeeded (stage_end success / Completed)
+#   PREPARING      → FAILED    : _handle_job_failed / 404 path
+#   PREPARING      → TIMEOUT   : wall-clock timeout check
+#   PREPARING      → CANCELLED : cancel endpoint
+#   RUNNING        → SUCCEEDED : _handle_job_succeeded
+#   RUNNING        → FAILED    : _handle_job_failed / 404 path
+#   RUNNING        → TIMEOUT   : wall-clock timeout check
+#   RUNNING        → CANCELLED : cancel endpoint
+#
+# PENDING → PREPARING / terminal: PENDING is the SQLAlchemy ORM column default
+# and is included in NON_TERMINAL_STATUSES so the reconciler scans it, but
+# reconcile_job returns early when k8s_job_name is None (which is always the
+# case for a PENDING row).  In practice no transition originates from PENDING
+# in normal operation, so no edges are declared for it beyond CANCELLED.
+LEGAL_TRANSITIONS: frozenset[tuple[JobStatus, JobStatus]] = frozenset(
+    {
+        (JobStatus.QUEUED_BACKEND, JobStatus.PREPARING),
+        (JobStatus.QUEUED_BACKEND, JobStatus.CANCELLED),
+        (JobStatus.PENDING, JobStatus.CANCELLED),
+        (JobStatus.PREPARING, JobStatus.RUNNING),
+        (JobStatus.PREPARING, JobStatus.SUCCEEDED),
+        (JobStatus.PREPARING, JobStatus.FAILED),
+        (JobStatus.PREPARING, JobStatus.TIMEOUT),
+        (JobStatus.PREPARING, JobStatus.CANCELLED),
+        (JobStatus.RUNNING, JobStatus.SUCCEEDED),
+        (JobStatus.RUNNING, JobStatus.FAILED),
+        (JobStatus.RUNNING, JobStatus.TIMEOUT),
+        (JobStatus.RUNNING, JobStatus.CANCELLED),
+    }
+)
+
+
+def assert_transition_legal(src: JobStatus, dst: JobStatus) -> None:
+    """Raise ValueError if (src, dst) is not in LEGAL_TRANSITIONS.
+
+    No-op transitions (src == dst) are silently allowed — those are common
+    when a reconciler re-reads the same state without any Volcano phase change.
+    """
+    if src == dst:
+        return
+    if (src, dst) not in LEGAL_TRANSITIONS:
+        raise ValueError(f"illegal Job status transition {src.value!r} → {dst.value!r}")
+
 
 class ResourceProfile(StrEnum):
     STANDARD = "standard"
