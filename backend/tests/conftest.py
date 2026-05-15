@@ -27,7 +27,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+# xdist runs each worker in its own process; PYTEST_XDIST_WORKER is set
+# by xdist/remote.py before any conftest imports.  Give each worker its own
+# DB file so workers don't collide on create_all / drop_all.
+_WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "main")
+TEST_DATABASE_URL = f"sqlite+aiosqlite:///./test_{_WORKER_ID}.db"
 test_engine = create_async_engine(TEST_DATABASE_URL)
 test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
@@ -1200,3 +1204,20 @@ async def soft_deleted_detector_with_build(db_session):
     r = _Result()
     r.build_id = build.id
     return r
+
+
+def pytest_collection_modifyitems(config, items):
+    """Reject @pytest.mark.flaky_tracked without an issue URL.
+
+    .claude/rules/testing.md quarantine workflow: every flaky-tracked test
+    must carry issue=<github-url>. The hook is enforced at collection so
+    tests cannot ship without traceability.
+    """
+    for item in items:
+        for marker in item.iter_markers(name="flaky_tracked"):
+            issue = marker.kwargs.get("issue")
+            if not issue or not issue.startswith("https://github.com/"):
+                raise pytest.UsageError(
+                    f"{item.nodeid}: @pytest.mark.flaky_tracked requires "
+                    f"issue=<github-url> kwarg; got {issue!r}"
+                )

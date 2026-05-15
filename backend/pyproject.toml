@@ -48,6 +48,11 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-n auto --dist loadscope --maxfail=10 --durations=20 --strict-markers --timeout=30"
 markers = [
     "no_mock_mlflow: do not apply the MLflow autouse mock",
+    "heavy: testcontainers slow tier; skipped by default in fast tier (-m 'not heavy')",
+    "contract: API or manifest contract test (runs serial)",
+    "flaky_tracked: known flaky test; must carry issue=<github-url> kwarg",
 ]
