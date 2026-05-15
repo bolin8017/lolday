@@ -1,0 +1,55 @@
+name: dispatch
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  filter:
+    runs-on: ubuntu-24.04
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      charts: ${{ steps.filter.outputs.charts }}
+      routers_jobs: ${{ steps.filter.outputs.routers_jobs }}
+      mlflow_client: ${{ steps.filter.outputs.mlflow_client }}
+      migrations: ${{ steps.filter.outputs.migrations }}
+      networkpolicy: ${{ steps.filter.outputs.networkpolicy }}
+      kyverno: ${{ steps.filter.outputs.kyverno }}
+      monitoring: ${{ steps.filter.outputs.monitoring }}
+      schema_gen: ${{ steps.filter.outputs.schema_gen }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            charts:
+              - 'charts/**'
+            routers_jobs:
+              - 'backend/app/routers/jobs.py'
+            mlflow_client:
+              - 'backend/app/services/mlflow_client.py'
+            migrations:
+              - 'backend/migrations/**'
+            networkpolicy:
+              - 'charts/lolday/templates/networkpolicy/**'
+            kyverno:
+              - 'charts/lolday/templates/kyverno/**'
+              - 'charts/lolday/templates/policies/**'
+            monitoring:
+              - 'charts/lolday/templates/monitoring/**'
+            schema_gen:
+              - 'frontend/src/api/schema.gen.ts'
