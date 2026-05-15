@@ -264,6 +264,51 @@ docker_build_push() {
   docker push "$ref"
 }
 
+# cosign_sign NAME DIGEST — sign the image by digest using the operator's
+# Harbor cosign keypair. Closes issue #171 — Kyverno
+# verify-lolday-harbor-image-signatures expects a signature attached to
+# harbor.lolday.svc:80/lolday/<NAME>@<DIGEST>. Sign-by-digest is the
+# mainstream practice (cosign docs: "use the digest, not the tag, to
+# ensure the signature is bound to the exact image content"). The signature
+# is pushed to the same registry as a sibling tag (cosign default).
+#
+# The function is a no-op if the operator has not yet run
+# scripts/cosign-harbor-init.sh — emits a warning so the operator can act
+# before promoting the policy from Audit to Enforce. cosign itself reads
+# COSIGN_PASSWORD from env; if unset, cosign will prompt. In an unattended
+# context (e.g. a future cron) the operator MUST export it; in interactive
+# context we let cosign prompt.
+cosign_sign() {
+  local name=$1 digest=$2
+  local key="${HOME}/.cosign/lolday-harbor.key"
+  if [ ! -f "$key" ]; then
+    echo "WARN: ${key} not found — image pushed but UNSIGNED." >&2
+    echo "WARN: run 'bash scripts/cosign-harbor-init.sh' to bootstrap." >&2
+    echo "WARN: ClusterPolicy verify-lolday-harbor-image-signatures will" >&2
+    echo "WARN: reject this image in lolday/lolday-jobs/lolday-builds once" >&2
+    echo "WARN: promoted from Audit to Enforce." >&2
+    return 0
+  fi
+  if ! command -v cosign >/dev/null 2>&1; then
+    echo "WARN: cosign not in PATH — image pushed but UNSIGNED." >&2
+    return 0
+  fi
+  local ref="$HARBOR_HOST_REF/$HARBOR_PROJECT/$name@$digest"
+  echo "[sign] $name @ ${digest:0:19}..."
+  # COSIGN_PASSWORD is read from env; left unset on the operator's path
+  # so cosign prompts interactively. --yes acknowledges the
+  # "Are you sure you want to continue?" Rekor confirmation, which is
+  # bypassed by the next flag but cosign requires the ack regardless.
+  # --tlog-upload=false matches the policy-side `rekor.ignoreTlog: true`:
+  # we do NOT enter signatures into the public transparency log because
+  # Harbor pushes are operator-private.
+  COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign sign \
+    --yes \
+    --tlog-upload=false \
+    --key "$key" \
+    "$ref"
+}
+
 # ----- orchestrator ----------------------------------------------------
 
 # parse_args — populate the OPT_* / ONLY globals from argv. Unknown args
@@ -390,6 +435,17 @@ main() {
       # entry is always double-anchored.
       local digest
       digest="$(harbor_get_digest "$helper" "${ref##*:}")"
+      # Issue #171 — cosign sign by digest. Runs on BOTH paths (freshly
+      # built AND already-in-Harbor): re-signing an already-signed digest
+      # is idempotent (cosign creates a new signature manifest sibling
+      # tag), and for already-in-Harbor images the prior push may have
+      # happened before the cosign infra existed (catches the migration
+      # backlog on the first post-PR build run). --allow-dirty skips
+      # signing because the -dirty-<ts> tag is by definition not what
+      # the operator would promote to production.
+      if [ "$OPT_ALLOW_DIRTY" -eq 0 ]; then
+        cosign_sign "$helper" "$digest"
+      fi
       ref="${ref}@${digest}"
     fi
 
