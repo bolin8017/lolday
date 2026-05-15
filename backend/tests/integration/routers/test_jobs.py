@@ -1,5 +1,7 @@
 import pytest
 
+from tests.fixtures.manifests import _MINIMAL_MANIFEST
+
 
 @pytest.mark.asyncio
 async def test_create_train_job_happy_path(
@@ -296,7 +298,7 @@ async def test_create_job_admin_priority_nonzero_succeeds(client, db_session) ->
     from app.models import Detector, DetectorVersion, Role
     from app.models.detector import DetectorVersionStatus
 
-    from tests.conftest import _MINIMAL_MANIFEST, _make_user
+    from tests.conftest import _make_user
 
     admin_user = await _make_user("adm@example.dev", role=Role.ADMIN)
     client.headers["x-test-user-email"] = "adm@example.dev"
@@ -375,7 +377,7 @@ async def _seed_admin_with_queued_job(
     from app.models.detector import DetectorVersionStatus
     from app.models.job import JobStatus, JobType
 
-    from tests.conftest import _MINIMAL_MANIFEST, _make_user
+    from tests.conftest import _make_user
 
     admin_user = await _make_user("adm-patch@example.dev", role=Role.ADMIN)
     client.headers["x-test-user-email"] = "adm-patch@example.dev"

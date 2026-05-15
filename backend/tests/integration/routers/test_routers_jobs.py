@@ -17,7 +17,7 @@ from app.services.jobs_dispatch import _strategy_from_manifest
 from app.services.jobs_params_validate import resolve_detector_defaults
 from maldet.manifest import DetectorManifest
 
-from tests.conftest import RICH_MANIFEST_WITH_TRAIN_DEFAULTS
+from tests.fixtures.manifests import RICH_MANIFEST_WITH_TRAIN_DEFAULTS
 
 # ---------------------------------------------------------------------------
 # Unit tests for _strategy_from_manifest

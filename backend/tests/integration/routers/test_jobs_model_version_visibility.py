@@ -29,7 +29,8 @@ from app.models import (
 )
 from httpx import ASGITransport, AsyncClient
 
-from tests.conftest import _MINIMAL_MANIFEST, test_session_maker
+from tests.conftest import test_session_maker
+from tests.fixtures.manifests import _MINIMAL_MANIFEST
 
 # ---------------------------------------------------------------------------
 # Helpers
