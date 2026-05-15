@@ -3,16 +3,19 @@
 
      Why a separate namespace from `lolday` (infra) and `lolday-jobs`
      (vcjobs + build Jobs)? The seccomp installer is a privileged hostPath
-     writer — it copies files/buildkit/seccomp.json onto every node's
-     /var/lib/kubelet/seccomp directory. To do that it needs runAsUser:0
-     + CAP_CHOWN + CAP_DAC_OVERRIDE + CAP_FOWNER. That violates PSS
-     restricted-mode capability and runAsNonRoot rules.
+     writer — it mounts /var/lib/kubelet/seccomp and copies
+     files/buildkit/seccomp.json onto every node. It needs runAsUser:0 +
+     CAP_CHOWN + CAP_DAC_OVERRIDE + CAP_FOWNER, AND it uses a hostPath
+     volume.
 
-     Mirror jobs-namespace.yaml's PSS-label progression: start at
-     enforce:baseline so the existing installer pod can keep running,
-     while audit:restricted + warn:restricted surface any new pod that
-     drifts. Promotion of enforce:restricted is out of scope here —
-     this ns is by design the home for the privileged installer.
+     PSS level note: hostPath volumes are forbidden by `baseline` AND
+     `restricted` (K8s PSS reference table — only `privileged` allows
+     them). The original 0.24.0 ship used `enforce: baseline` and the
+     installer DaemonSet was blocked with FailedCreate. Hotfix: set
+     `enforce: privileged` here. audit + warn at `restricted` remain
+     informational — they generate one PodSecurity warning per installer
+     pod recreation (intentional, ignore in alert rules), and they would
+     flag any future non-privileged pod that drifts into this ns.
 
      See docs/runbooks/pss-label-promotion.md for the lolday + lolday-jobs
      ns enforce-promotion procedure. */}}
@@ -26,9 +29,11 @@ metadata:
     # explicit duplicate of K8s' auto-injected label, for older K3s + tooling
     # that don't reliably honour the projected `kubernetes.io/metadata.name`.
     kubernetes.io/metadata.name: {{ .Values.global.buildsNamespace }}
-    # H-14 — PSS audit + warn at restricted; enforce stays at baseline
-    # because the buildkit-seccomp-installer DaemonSet needs runAsUser:0
-    # + CAP_CHOWN/DAC_OVERRIDE/FOWNER to write the kubelet seccomp dir.
+    # H-14 — PSS enforce at `privileged` because the buildkit-seccomp-installer
+    # DaemonSet mounts a hostPath volume (`/var/lib/kubelet/seccomp`). hostPath
+    # is forbidden by `baseline` AND `restricted` (only `privileged` allows it).
+    # audit + warn at `restricted` keep an informational signal for any future
+    # non-installer pod that drifts into this ns.
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: privileged
