@@ -10,19 +10,18 @@ Source spec:
 ## Twelve anti-flaky rules
 
 1. **No network in tests.** backend → `respx` with `assert_all_called=True`;
-   frontend → MSW (`tests/mocks/handlers.ts`) and a `globalSetup` that
+   frontend → MSW (`frontend/tests/mocks/handlers.ts`) and a `globalSetup` that
    intercepts `fetch` / `XMLHttpRequest` and fails on un-mocked calls.
-2. **Time is injected.** Use `freezegun.freeze_time` / `pytest-freezer`
-   for backend, vitest fake timers for frontend, `clock.install()` for
-   playwright. Never read the wall clock.
+2. **Time is injected.** Use `freezegun.freeze_time` for backend, vitest
+   fake timers for frontend, `clock.install()` for playwright. Never
+   read the wall clock.
 3. **Deterministic random seeds.** Configure `hypothesis` profile;
-   `Faker(); fake.seed_instance(42)`; `vi.useFakeTimers()`.
+   `fake = Faker(); fake.seed_instance(42)`; `vi.useFakeTimers()`.
 4. **Order-independent tests.** `pytest-randomly` is in `addopts`;
    reshuffle every run. If a test breaks under reshuffle, fix the fixture
    leak — do not pin the order.
-5. **Eventually-consistent waits poll.** `wait_for(condition,
-timeout=10)` / `expect.toHaveCount()` / `waitFor(...)` — never
-   `time.sleep`.
+5. **Eventually-consistent waits poll.** `wait_for(condition, timeout=10)` /
+   `expect.toHaveCount()` / `waitFor(...)` — never `time.sleep`.
 6. **Shared resources are scope-aware.** testcontainers run
    session-scoped; per-test isolation uses transaction rollback. Fixtures
    default to `function` scope; `module` / `session` requires a
@@ -62,8 +61,8 @@ def test_xxx():
 `backend/tests/conftest.py` (the root one) installs a `pytest_collection_modifyitems`
 hook that rejects `flaky_tracked` without an `issue` kwarg.
 
-`flaky-tracker.yml` (weekly cron) aggregates the last 7 days of JUnit XML;
-any test with failure rate > 1 % gets an auto-issue with the `flaky` label.
+`flaky-tracker.yml` (created in D1.13; weekly cron) will aggregate the last
+7 days of JUnit XML; any test with failure rate > 1 % gets an auto-issue with the `flaky` label.
 The original PR author is assigned. 14-day SLO triggers a Spidey Warnings
 ping; 21-day SLO blocks CI on that test (re-fix or delete — never silently
 disable).
@@ -88,11 +87,11 @@ no test.
 - `loadscope` groups same-file tests on one worker; safe for aiosqlite per-file fixtures.
 - `contract` tests are forced serial (schemathesis runs against a single FastAPI port).
 - `heavy` tests use session-scoped testcontainers; `--dist loadgroup` keeps a test class on one worker.
-- playwright stays `fullyParallel: false` until Phase 2 R4 (multi-persona) lands.
+- playwright stays `fullyParallel: false` until R4 (Phase 2) + D3.4 (Phase 3) land.
 
 ## Test execution telemetry
 
-`test-telemetry.yml` (weekly cron) ingests `--junitxml` artifacts and writes
+`test-telemetry.yml` (created in D4.4; weekly cron) will ingest `--junitxml` artifacts and write
 `docs/test-telemetry/dashboard.md` with P50/P95/P99 timings, 7-day failure
 rate, and slow-test ranking. Use the dashboard to decide what to refactor
 or retire.
@@ -100,8 +99,8 @@ or retire.
 ## Per-area required tests
 
 When you touch the listed area, the corresponding test type **must** be
-present in the same PR. Path-filtered triggers in `dispatch.yml` enforce
-this in CI:
+present in the same PR. Path-filtered triggers in `dispatch.yml` (created
+in D1.12) enforce this in CI:
 
 | Touched path                            | Required additional test                  |
 | --------------------------------------- | ----------------------------------------- |
