@@ -21,16 +21,24 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Allow normal API traffic (port 8000) from cloudflared only — jobs ns
-    # now uses port 8001 via the backend-internal-from-jobs-only policy below
-    # (M-internal-split).
+    # Allow normal API traffic (port 8000) from Traefik. The actual data
+    # path is cloudflared (lolday) -> Traefik (kube-system) -> backend;
+    # cloudflared never connects to backend directly — its tunnel ingress
+    # points at the Traefik Service (see netpol-cloudflared.yaml egress and
+    # the Cloudflare-side tunnel config in cloudflared.yaml). The
+    # K3s-bundled Traefik IngressController lives in kube-system; identify
+    # it by its standard label, mirroring `mlflow-ingress-allow` in
+    # netpol-lolday-default-deny.yaml.
+    #
+    # Jobs ns calls the internal sub-app on port 8001 via the
+    # `backend-internal-from-jobs-only` policy below (M-internal-split).
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+              kubernetes.io/metadata.name: kube-system
           podSelector:
             matchLabels:
-              app.kubernetes.io/component: cloudflared
+              app.kubernetes.io/name: traefik
       ports:
         - port: 8000
           protocol: TCP

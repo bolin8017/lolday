@@ -2,11 +2,11 @@ apiVersion: v2
 name: lolday
 description: ISLab Malware Detector Management Platform
 type: application
-version: 0.23.1
+version: 0.23.2
 # appVersion tracks `version` (semver). Bump together unless app and chart
 # need to diverge intentionally. Phase-named appVersions ("phase12", "phase13b")
 # are retired as of 2026-04-29 — see docs/conventions.md §4.
-appVersion: "0.23.1"
+appVersion: "0.23.2"
 
 dependencies:
   - name: harbor

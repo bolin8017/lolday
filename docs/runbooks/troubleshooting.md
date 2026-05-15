@@ -2,6 +2,42 @@
 
 > Symptom-keyed lookup for fast triage. Where a script exists for the symptom, point at it. Where a phase-specific incident covers it, link the relevant `docs/phase-history/` or `docs/postmortems/` file.
 
+### Symptom: HTTP 502 from Cloudflare edge with valid CF Access JWT (or service token); kubectl exec to backend works
+
+**Cause hypothesis:** A NetworkPolicy in the lolday ns is missing the allow for `kube-system` Traefik → the target pod. Both `/api/v1/*` and `/` traverse `cloudflared (lolday) -> Traefik (kube-system) -> backend|frontend (lolday)`; cloudflared NEVER connects to backend or frontend pods directly (its tunnel ingress points at the Traefik Service — see `charts/lolday/templates/cloudflared.yaml`). Without an explicit allow, K3s kube-router REJECTs the cross-ns traffic; Traefik sees connection-refused and returns 502 to cloudflared, which propagates to the edge as `error code: 502` (plain text, not the Cloudflare HTML error page) with NO matching backend log line.
+
+The 302 on cookieless requests is unrelated — it is generated entirely at the Cloudflare edge before any origin call, so its presence does not prove the origin is reachable. Service-token auth fails the same way as the cookie because both forms of CF Access auth complete edge-side and only THEN forward to origin.
+
+**Action:**
+
+```bash
+# 1. Confirm symptom shape: 502 with valid auth, kubelet probes still pass
+kubectl logs -n lolday deploy/backend --tail=50 | grep -E 'users/me|GET /'   # absent => request not reaching backend
+curl -sS --cookie "CF_Authorization=$JWT" https://lolday.connlabai.com/api/v1/users/me -o /dev/null -w '%{http_code}\n'
+
+# 2. Inspect ingress allow rules — look for an allow with from: kube-system + traefik
+kubectl get netpol -n lolday -o yaml | grep -B2 -A20 'name: backend-metrics-from-monitoring-only\|name: frontend-ingress-allow'
+
+# 3. If the rule is missing or names cloudflared@lolday as the source, that is the bug. The fix is in
+#    charts/lolday/templates/network-policy.yaml (backend) and netpol-lolday-default-deny.yaml (frontend);
+#    re-deploy via `bash scripts/deploy.sh` to roll out chart >= 0.23.2.
+#
+# Hot-patch (safe, additive — does not touch helm-managed resources):
+cat <<'YAML' | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: zz-hotfix-traefik-to-backend, namespace: lolday }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/component: backend } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }, podSelector: { matchLabels: { app.kubernetes.io/name: traefik } } }]
+      ports: [{ port: 8000, protocol: TCP }]
+YAML
+```
+
+NetworkPolicy `port:` is the POD-side port (kube-router enforces NP after kube-proxy DNAT). Frontend Service `:80 -> :8080`, so an analogous frontend hotfix uses port 8080 — not 80.
+
 ### Symptom: backend 401 on every request / can't log in
 
 **Cause hypothesis:** Cloudflare Access JWT not reaching backend, or `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_APP_AUD` misconfigured, or the JWKS cache is poisoned.
