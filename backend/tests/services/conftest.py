@@ -31,7 +31,9 @@ def _reenable_app_loggers():
     autouse fixture centralises the same logic for all services tests.
     """
     app_loggers = [
-        name for name in logging.Logger.manager.loggerDict if name.startswith("app.")
+        name
+        for name, obj in logging.Logger.manager.loggerDict.items()
+        if name.startswith("app.") and isinstance(obj, logging.Logger)
     ]
     saved = {name: logging.getLogger(name).disabled for name in app_loggers}
     for name in app_loggers:
