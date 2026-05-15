@@ -1,0 +1,36 @@
+name: helpers
+
+# Skip-companion for helpers.yml. The real workflow builds a matrix of
+# {build-helper, job-helper}, producing required checks
+# `helpers / build-helper (build-helper)` +
+# `helpers / build-helper (job-helper)`. This companion mirrors the
+# matrix so both names report success when the PR doesn't touch helper
+# Dockerfiles or the docker-meta-build composite.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "charts/lolday/helpers/build-helper/**"
+      - "charts/lolday/helpers/job-helper/**"
+      - ".github/workflows/helpers.yml"
+      - ".github/actions/docker-meta-build/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helpers-skip-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-helper:
+    name: build-helper
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        helper: [build-helper, job-helper]
+    steps:
+      - run: echo "::notice::No helper changes — skip-companion satisfies required check for ${{ matrix.helper }}."

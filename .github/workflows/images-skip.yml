@@ -1,0 +1,35 @@
+name: images
+
+# Skip-companion for images.yml. The real workflow builds a matrix of
+# {backend, frontend} images, producing required checks
+# `images / build-image (backend)` + `images / build-image (frontend)`.
+# This companion reproduces the same matrix structure so both check
+# names are emitted on PRs that don't touch backend/frontend code.
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/images.yml"
+      - ".github/actions/docker-meta-build/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-skip-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-image:
+    name: build-image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, frontend]
+    steps:
+      - run: echo "::notice::No backend/frontend changes — skip-companion satisfies required check for ${{ matrix.image }}."
