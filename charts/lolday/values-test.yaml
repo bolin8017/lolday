@@ -1,0 +1,170 @@
+# charts/lolday/values-test.yaml
+# Minimal renderable values for helm-unittest. Fake secrets, sub-charts
+# disabled. Never used for production rendering — see values.yaml for
+# the canonical production defaults.
+#
+# Design constraints:
+#   - backend.image / frontend.image are plain strings (not repository+tag maps)
+#   - Required validators always fire for backend, redis, postgresql, cloudflare;
+#     supply fake values to satisfy them
+#   - Sub-charts disabled via their Chart.yaml condition keys:
+#     harbor.enabled, monitoring.enabled (alias: kps), loki.enabled,
+#     alloy.enabled, trivy-operator.enabled, volcano.enabled,
+#     minio.enabled, kyverno.enabled
+#   - mlflow.enabled: false disables mlflow-secret.yaml (which has required())
+#   - monitoring.enabled: false disables grafana-admin-secret.yaml (required())
+#     and postgres-exporter.yaml (required())
+#   - buildkit.seccompProfile.enabled can stay true (no required() inside)
+#   - pgBackup.enabled: false to avoid needing pg-backup s3 infra
+#   - samples.enabled: false to skip hostPath PV (path won't exist in CI)
+
+global:
+  namespace: lolday
+  jobsNamespace: lolday-jobs
+  buildsNamespace: lolday-builds
+
+cloudflare:
+  enabled: true
+  tunnelToken: "fake-cf-tunnel-token"
+  replicas: 1
+  image: cloudflare/cloudflared:2026.3.0@sha256:6b599ca3e974349ead3286d178da61d291961182ec3fe9c505e1dd02c8ac31b0
+
+backend:
+  enabled: true
+  image: ghcr.io/bolin8017/lolday-backend:test@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  replicas: 1
+  fernetKeys: "fake-fernet-key-for-test-only"
+  harborAdminPassword: "fake-harbor-admin-pw"
+  env:
+    DOCS_ENABLED: "false"
+    HARBOR_URL: "http://harbor.lolday.svc.cluster.local:80"
+    HARBOR_ADMIN_USERNAME: "admin"
+    HARBOR_IMAGE_PREFIX: "harbor.lolday.svc:80"
+    GITHUB_API_URL: "https://api.github.com"
+    BUILD_IMAGE_BUILDKIT: "moby/buildkit:v0.29.0-rootless"
+    BUILD_IMAGE_GIT: "alpine/git:v2.52.0"
+    BUILD_TIMEOUT_SECONDS: "1200"
+    BUILD_CONCURRENCY_PER_USER: "2"
+    BACKEND_INTERNAL_URL: "http://backend.lolday.svc:8000"
+    RECONCILER_ENABLED: "true"
+    MLFLOW_TRACKING_URI: "http://mlflow.lolday.svc:5000"
+    DATASET_CSV_MAX_BYTES: "10485760"
+    JOB_PER_USER_CONCURRENCY: "2"
+    JOB_IDEMPOTENCY_WINDOW_SECONDS: "300"
+    INTERNAL_EVENTS_BASE_URL: "http://backend:8001"
+    JOB_BACKEND_URL: "http://backend.lolday.svc:8001"
+    SAMPLES_ROOT: "/mnt/samples"
+    SAMPLES_LOCAL_ROOT: "/data"
+    JOB_NODE_SELECTOR_HOSTNAME: "server30"
+    LOLDAY_UI_BASE_URL: "https://test.example.com"
+    ENVIRONMENT: "production"
+    CF_ACCESS_TEAM_DOMAIN: "test.cloudflareaccess.com"
+    CF_ACCESS_APP_AUD: "0000000000000000000000000000000000000000000000000000000000000000"
+    CF_ACCESS_JWKS_CACHE_TTL_SECONDS: "600"
+    AUTH_DEV_MODE: "false"
+    SSO_ADMIN_EMAIL: "admin@example.com"
+
+buildkit:
+  seccompProfile:
+    enabled: true
+
+postgresql:
+  enabled: true
+  image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
+  storage:
+    size: 1Gi
+  auth:
+    database: lolday
+    username: lolday
+    password: "fake-pg-pw"
+
+pgBackup:
+  # Disabled: avoids needing MinIO/S3 infra in test rendering
+  enabled: false
+  schedule: "0 3 * * *"
+  image: prodrigestivill/postgres-backup-local:16@sha256:a0103fbce0c48ccc7693ddbb2a2bfa733048db845354f635efef9e4566de185d
+  s3Bucket: pg-backups
+  keepDays: "30"
+
+redis:
+  enabled: true
+  image: redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+  auth:
+    password: "fake-redis-pw"
+
+frontend:
+  image: ghcr.io/bolin8017/lolday-frontend:test@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  host: test.lolday.svc
+  replicas: 1
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 100m, memory: 128Mi }
+
+samples:
+  # Disabled: the hostPath PV references a node-local path (/mnt/lolday-samples)
+  # that does not exist in CI or the test runner.
+  enabled: false
+  hostPath: /tmp/test-samples
+  storage: 1Gi
+  nodeHostname: test-node
+
+jobs:
+  activeDeadlineSeconds:
+    train: 21600
+    evaluate: 1800
+    predict: 3600
+  perUserConcurrency: 2
+  idempotencyWindowSeconds: 300
+  networkPolicy:
+    enabled: true
+
+mlflow:
+  # Disabled: mlflow-secret.yaml has a required() on mlflow.db.password;
+  # disabling avoids wiring a fake DB for test rendering.
+  enabled: false
+
+harbor:
+  # Disabled: sub-chart renders many CRDs and expects real S3/storage backends.
+  enabled: false
+
+monitoring:
+  # Disabled: kps sub-chart + grafana-admin-secret.yaml (required()) +
+  # postgres-exporter.yaml (required()) all gate on this flag.
+  enabled: false
+  namespace: monitoring
+  grafana:
+    adminPassword: "fake-grafana-pw"
+  postgresExporter:
+    enabled: false
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0@sha256:f8381eb4326afd254efcdc2ef127cd16a0a8cd68c32c4a6bf1629a4f3dd71c0a
+    password: "fake-pg-exporter-pw"
+    resources:
+      requests: { cpu: 20m, memory: 64Mi }
+      limits: { cpu: 100m, memory: 128Mi }
+
+loki:
+  # Disabled: sub-chart + S3 storage config not needed for unit tests.
+  enabled: false
+
+alloy:
+  # Disabled: DaemonSet log shipper not needed for unit tests.
+  enabled: false
+
+trivy-operator:
+  # Disabled: image-vuln scanner sub-chart not needed for unit tests.
+  enabled: false
+
+volcano:
+  # Disabled: GPU batch scheduler sub-chart not needed for unit tests.
+  enabled: false
+
+minio:
+  # Disabled: object storage sub-chart not needed for unit tests.
+  enabled: false
+
+kyverno:
+  # Disabled: admission-controller sub-chart not needed for unit tests.
+  # Note: templates/policies/*.yaml (ClusterPolicies) are NOT gated on
+  # kyverno.enabled — they always render. This is intentional; the suites
+  # in T28 test those templates directly.
+  enabled: false
