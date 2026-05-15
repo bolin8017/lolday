@@ -93,6 +93,37 @@ spec:
         - port: 6379
           protocol: TCP
 ---
+# Frontend: React SPA served by an in-cluster nginx. Traffic path is
+# cloudflared (lolday) -> Traefik (kube-system) -> frontend nginx. The
+# frontend Service maps port 80 -> POD targetPort 8080; the K3s
+# kube-router enforces NetworkPolicy AFTER kube-proxy DNAT, so the
+# `port:` below MUST be the POD-side 8080 (using Service port 80 silently
+# fails to match — same gotcha as harbor-nginx-ingress-allow).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-ingress-allow
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 8080
+          protocol: TCP
+---
 # MLflow: reachable from backend (proxy) and Traefik (for ForwardAuth-gated
 # /mlflow/ routes). Direct access from jobs ns is BLOCKED — jobs must use
 # the Traefik route. The Traefik IngressController lives in kube-system

@@ -216,6 +216,14 @@ fi
 echo "  Namespaces ready"
 echo ""
 
+# Static check: every public-facing pod has the right NetworkPolicy allow.
+# Catches the regression class that 502'd prod for ~16h before PR #152
+# (cloudflared@lolday named as backend NP source instead of traefik@kube-system).
+# Fails fast on bad chart shape — exits before helm touches the cluster.
+echo "[3.5/4] Static check: user-facing NetworkPolicy allowlist..."
+"$SCRIPT_DIR/check-user-facing-np.sh" "$CHART_DIR"
+echo ""
+
 # Deploy
 echo "[4/4] Deploying lolday..."
 # Image-tag overrides — opt-in, layered on top of values.yaml defaults.
