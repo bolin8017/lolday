@@ -1,9 +1,8 @@
 import asyncio
 import contextlib
 import logging
-import time
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import (
@@ -24,19 +23,13 @@ from app.db import async_session_maker, get_async_session
 from app.deps import get_mlflow, require_role
 from app.metrics import BACKEND_ERRORS, PRIORITY_BUMP_TOTAL
 from app.models import (
-    DatasetConfig,
-    Detector,
     DetectorVersion,
     Job,
     JobEvent,
-    ModelVersion,
-    ModelVersionVisibility,
     User,
 )
-from app.models.dataset import DatasetVisibility
 from app.models.job import (
     NON_TERMINAL_STATUSES,
-    RESOURCE_PROFILE_GPU_COUNT,
     JobStatus,
     JobType,
     assert_transition_legal,
@@ -45,73 +38,21 @@ from app.models.user import Role
 from app.schemas.job import JobCreate, JobList, JobPatch, JobRead, JobSummary
 from app.schemas.job_event import JobEventOut, JobEventsPage
 from app.services.cluster_status import get_job_queue_position
-from app.services.dataset import DatasetIntegrityError, parse_csv, spot_check_samples
 from app.services.events_tail import event_broker
-from app.services.job_config import (
-    JobConfigRenderer,
-    compute_idempotency_key,
-)
-from app.services.jobs_params_validate import (
-    UserParamsRejected,
-    resolve_detector_defaults,
-    validate_user_params,
-)
+from app.services.job_submission import submit_job
+from app.services.job_validation import ValidationError, validate_submission
+from app.services.jobs_params_validate import resolve_detector_defaults
 from app.services.k8s import (
     batch_v1,
     core_v1,
 )
-from app.services.mlflow_client import MlflowClient, MlflowError
+from app.services.mlflow_client import MlflowClient
 from app.services.rate_limit import rate_limit_user
-from app.services.validator import JobSubmissionError, validate_job_submission
 from app.users import current_active_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-async def _load_dataset(
-    ds_id: uuid.UUID | None, session: AsyncSession, user: User, field: str
-) -> DatasetConfig | None:
-    if ds_id is None:
-        return None
-    ds = await session.get(DatasetConfig, ds_id)
-    if ds is None or ds.deleted_at is not None:
-        raise HTTPException(
-            status_code=422, detail=f"{field}: dataset not found or deleted"
-        )
-    if (
-        ds.visibility == DatasetVisibility.PRIVATE
-        and ds.owner_id != user.id
-        and user.role.value != "admin"
-    ):
-        raise HTTPException(status_code=422, detail=f"{field}: dataset not accessible")
-    return ds
-
-
-async def _load_model_version_for_predict(
-    mv_id: uuid.UUID | None, session: AsyncSession, user: User
-) -> ModelVersion | None:
-    """Validate access to a ``source_model_version_id`` for a predict job.
-
-    Mirrors ``_load_dataset``: 422 if not found OR if the version is private
-    and the caller is not the owner / admin (hide-existence variant for the
-    job-validation context — the dataset helper uses the same status code).
-    """
-    if mv_id is None:
-        return None
-    mv = await session.get(ModelVersion, mv_id)
-    if mv is None:
-        raise HTTPException(status_code=422, detail="source_model_version not found")
-    if (
-        mv.visibility == ModelVersionVisibility.PRIVATE
-        and mv.owner_id != user.id
-        and user.role.value != "admin"
-    ):
-        raise HTTPException(
-            status_code=422, detail="source_model_version not accessible"
-        )
-    return mv
 
 
 def _build_job_read_with_defaults(job: Job, manifest: dict[str, Any] | None) -> JobRead:
@@ -153,295 +94,26 @@ async def create_job(
             headers={"Retry-After": "3600"},
         )
 
-    # 1. detector_version
-    dv = await session.get(DetectorVersion, body.detector_version_id)
-    if dv is None:
-        raise HTTPException(status_code=422, detail="detector_version not found")
-
-    # 2. dataset refs
-    train_ds = await _load_dataset(
-        body.train_dataset_id, session, user, "train_dataset_id"
-    )
-    test_ds = await _load_dataset(
-        body.test_dataset_id, session, user, "test_dataset_id"
-    )
-    predict_ds = await _load_dataset(
-        body.predict_dataset_id, session, user, "predict_dataset_id"
-    )
-
-    # 3. source model
-    source_model = await _load_model_version_for_predict(
-        body.source_model_version_id, session, user
-    )
-
-    # 4. Manifest pre-flight (resource_profile / dataset_contract / stage)
-    if dv.manifest is None:
-        raise HTTPException(
-            status_code=400,
-            detail="detector_version has no maldet manifest (older detector?); rebuild the detector with maldet >= 1.1",
-        )
+    # D2.1 / R3: the body of POST /jobs is split into three pure services
+    # so the validation surface can be exercised by hypothesis +
+    # schemathesis without a TestClient. validate_submission does steps
+    # 1-7 of the pre-R3 inline flow (detector / datasets / source-model /
+    # manifest / stage / params / idempotency / concurrency / FK / spot-
+    # check). submit_job does the MLflow experiment+run create, YAML
+    # render, and the Job row insert. dispatch happens later out-of-band
+    # via the FIFO scheduler reconciler.
     try:
-        from maldet.manifest import DetectorManifest
-
-        manifest_model = DetectorManifest.model_validate(dv.manifest)
-    except Exception as exc:
+        validated = await validate_submission(session, user, body)
+        job = await submit_job(session, user, validated, client)
+    except ValidationError as exc:
         raise HTTPException(
-            status_code=400, detail=f"stored manifest invalid: {exc}"
+            status_code=exc.status_code,
+            detail=exc.message,
         ) from exc
-    try:
-        validate_job_submission(
-            manifest=manifest_model,
-            resource_profile=body.resource_profile,
-            dataset_contract="sample_csv",
-            stage=body.type.value,
-        )
-    except JobSubmissionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # 4b. User-params validation against manifest's params_schema (phase 11e).
-    # `validate_job_submission` already verified the stage is in `lifecycle.stages`,
-    # but the manifest may declare a stage in lifecycle without filling in a
-    # matching `[stages.X]` block (e.g. detector author forgot evaluate). Reject
-    # with a 400 + actionable message instead of letting `KeyError` 500.
-    stage_spec = manifest_model.stages.get(body.type.value)
-    if stage_spec is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"manifest declares lifecycle stage {body.type.value!r} but "
-                f"missing [stages.{body.type.value}] block; rebuild detector with maldet ≥ 1.1"
-            ),
-        )
-    try:
-        validate_user_params(params=body.params, schema=stage_spec.params_schema)
-    except UserParamsRejected as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-
-    # 5. Idempotency
-    idem_key = compute_idempotency_key(
-        user_id=str(user.id),
-        detector_version_id=str(dv.id),
-        job_type=body.type.value,
-        train_ds=str(train_ds.id) if train_ds else None,
-        test_ds=str(test_ds.id) if test_ds else None,
-        predict_ds=str(predict_ds.id) if predict_ds else None,
-        source_model=str(source_model.id) if source_model else None,
-        params=body.params,
-    )
-    window_start = datetime.now(UTC) - timedelta(
-        seconds=settings.JOB_IDEMPOTENCY_WINDOW_SECONDS
-    )
-    dup = (
-        await session.execute(
-            select(Job).where(
-                Job.idempotency_key == idem_key,
-                Job.submitted_at >= window_start,
-                Job.status.in_(NON_TERMINAL_STATUSES),
-            )
-        )
-    ).scalar_one_or_none()
-    if dup is not None:
-        raise HTTPException(
-            status_code=409, detail=f"duplicate submission; existing job: {dup.id}"
-        )
-
-    # 6. Concurrency
-    in_flight = (
-        await session.execute(
-            select(func.count())
-            .select_from(Job)
-            .where(
-                Job.owner_id == user.id,
-                Job.status.in_(NON_TERMINAL_STATUSES),
-            )
-        )
-    ).scalar_one()
-    if in_flight >= settings.JOB_PER_USER_CONCURRENCY:
-        raise HTTPException(
-            status_code=429,
-            detail=f"in-flight limit ({settings.JOB_PER_USER_CONCURRENCY}) reached",
-        )
-
-    # 7. Integrity spot-check (only if samples dir exists locally)
-    from pathlib import Path
-
-    samples_root = Path(settings.SAMPLES_LOCAL_ROOT)
-    if samples_root.exists():
-        try:
-            for ds in (train_ds, test_ds, predict_ds):
-                if ds is None:
-                    continue
-                parsed = parse_csv(ds.csv_content)
-                spot_check_samples(
-                    file_names=parsed.file_names,
-                    labels=parsed.labels,
-                    samples_root=samples_root,
-                    sample_count=settings.DATASET_SPOT_CHECK_COUNT,
-                    missing_threshold=settings.DATASET_SPOT_CHECK_MISSING_THRESHOLD,
-                )
-        except DatasetIntegrityError as e:
-            raise HTTPException(
-                status_code=422, detail=f"dataset_integrity_failed: {e}"
-            ) from e
-
-    # 8. MLflow experiment + run.
-    #
-    # Naming aligns with the v0.20.0 model-registry namespace: every MLflow
-    # primitive that surfaces in the UI uses the human-readable
-    # `{owner_handle}/{detector_name}` namespace instead of opaque UUIDs. UUIDs
-    # remain available as `*_id` tag companions so backend search by ID still
-    # works. A pre-generated job UUID lets us tag the run with a stable
-    # `{action}-{job_short_id}` run name in a single create_run call.
-    det = await session.get(Detector, dv.detector_id)
-    if det is None:
-        raise HTTPException(
-            status_code=500,
-            detail=f"FK invariant violated: DetectorVersion {dv.id} references missing Detector {dv.detector_id}",
-        )
-    job_id = uuid.uuid4()
-    detector_version_label = f"{det.name}/{dv.git_tag}"
-    exp_name = f"{user.handle}/{detector_version_label}"
-    run_name = f"{body.type.value}-{job_id.hex[:8]}"
-
-    newly_created_experiment = False
-    if not dv.mlflow_experiment_id:
-        dv.mlflow_experiment_id = await client.get_or_create_experiment(exp_name)
-        newly_created_experiment = True
-        await session.flush()
-
-    if newly_created_experiment:
-        # Spec § 5.9 — populate the MLflow native UI's experiment page header
-        # with a human-readable description on first creation. Best-effort:
-        # tag failures don't block job submission.
-        note = (
-            f"**Detector**: `{det.name}` @ `{dv.git_tag}`\n\n"
-            f"**Owner**: `{user.handle}`\n\n"
-            f"**Description**: {(det.description or '_no description_')}\n\n"
-            f"**Maldet framework**: `{dv.maldet_version or '_unknown_'}`\n"
-        )
-        for k, v in (
-            ("mlflow.note.content", note),
-            ("lolday.detector_id", str(det.id)),
-            ("lolday.detector_version_id", str(dv.id)),
-            ("lolday.owner_id", str(user.id)),
-            ("lolday.owner_handle", user.handle),
-        ):
-            try:
-                await client.set_experiment_tag(dv.mlflow_experiment_id, k, v)
-            except MlflowError as exc:
-                logger.warning(
-                    "set_experiment_tag failed for %s key=%s: %s",
-                    dv.mlflow_experiment_id,
-                    k,
-                    exc,
-                )
-
-    gpu_count_val = RESOURCE_PROFILE_GPU_COUNT[body.resource_profile]
-    run_id = await client.create_run(
-        dv.mlflow_experiment_id,
-        start_time_ms=int(time.time() * 1000),
-        tags=[
-            # MLflow native conventions (Python SDK fills these automatically;
-            # we use the REST API so populate them explicitly).
-            {"key": "mlflow.runName", "value": run_name},
-            {"key": "mlflow.source.name", "value": detector_version_label},
-            {"key": "mlflow.source.type", "value": "JOB"},
-            {"key": "mlflow.source.git.commit", "value": dv.git_sha or ""},
-            # maldet stage identifier
-            {"key": "maldet.action", "value": body.type.value},
-            # lolday namespace — Job <-> MLflow run correlation
-            {"key": "lolday.job_id", "value": str(job_id)},
-            {"key": "lolday.user", "value": user.handle},
-            {"key": "lolday.user_id", "value": str(user.id)},
-            {"key": "lolday.detector_version", "value": detector_version_label},
-            {"key": "lolday.detector_version_id", "value": str(dv.id)},
-            # Provenance — reproducibility recipe (spec § 5.7)
-            {"key": "lolday.detector_image_digest", "value": dv.image_digest or ""},
-            {"key": "lolday.maldet_version", "value": dv.maldet_version or ""},
-            {"key": "lolday.resource_profile", "value": body.resource_profile.value},
-            {"key": "lolday.gpu_count", "value": str(gpu_count_val)},
-            # Dataset lineage — lightweight queryable companions to log_input
-            {
-                "key": "lolday.train_dataset_id",
-                "value": str(train_ds.id) if train_ds else "",
-            },
-            {
-                "key": "lolday.test_dataset_id",
-                "value": str(test_ds.id) if test_ds else "",
-            },
-            {
-                "key": "lolday.predict_dataset_id",
-                "value": str(predict_ds.id) if predict_ds else "",
-            },
-            {
-                "key": "lolday.source_model_version_id",
-                "value": str(source_model.id) if source_model else "",
-            },
-        ],
-    )
-
-    # 9. Render resolved config (Hydra YAML)
-    renderer = JobConfigRenderer(
-        samples_root=settings.SAMPLES_ROOT,
-        config_mount="/mnt/config",
-        output_mount="/mnt/output",
-        source_model_mount="/mnt/source-model",
-    )
-    try:
-        resolved_yaml = renderer.render_config_yaml(
-            stage=body.type.value,
-            user_params=body.params,
-            mlflow_tracking_uri=settings.MLFLOW_TRACKING_URI,
-            mlflow_run_id=run_id,
-            mlflow_experiment_id=dv.mlflow_experiment_id,
-            lolday_meta={
-                "train_dataset_id": str(train_ds.id) if train_ds else "",
-                "test_dataset_id": str(test_ds.id) if test_ds else "",
-                "predict_dataset_id": str(predict_ds.id) if predict_ds else "",
-                "source_model_version_id": str(source_model.id) if source_model else "",
-                "job_id": str(job_id),
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    resolved = {"yaml": resolved_yaml}
-
-    # 10. Priority: admin-only field. Non-admin submitting priority != 0 → 403.
-    # Phase 6 (Task E): the fifo_scheduler reconciler picks up queued_backend
-    # jobs in DESC(priority), ASC(submitted_at) order. Default is 0 (normal).
-    requested_priority = body.priority  # int | None; None means "use default 0"
-    if requested_priority not in (None, 0) and user.role.value != "admin":
-        raise HTTPException(status_code=403, detail="priority field is admin-only")
-    priority_to_persist = requested_priority if requested_priority is not None else 0
-
-    # 11. Insert job row with status=queued_backend. The fifo_scheduler
-    # reconciler (Phase 6d) picks this up and calls dispatch_job_to_volcano.
-    # No K8s side-effects happen here; the row is the only write.
-    job = Job(
-        id=job_id,
-        type=body.type,
-        status=JobStatus.QUEUED_BACKEND,
-        detector_version_id=dv.id,
-        train_dataset_id=train_ds.id if train_ds else None,
-        test_dataset_id=test_ds.id if test_ds else None,
-        predict_dataset_id=predict_ds.id if predict_ds else None,
-        source_model_version_id=source_model.id if source_model else None,
-        owner_id=user.id,
-        resolved_config=resolved,
-        user_params=body.params,  # phase 13b B3
-        mlflow_experiment_id=dv.mlflow_experiment_id,
-        mlflow_run_id=run_id,
-        idempotency_key=idem_key,
-        resource_profile=body.resource_profile,
-        active_deadline_seconds=body.active_deadline_seconds,
-        priority=priority_to_persist,
-    )
-    session.add(job)
     await session.commit()
     await session.refresh(job)
-    # ``dv`` is guaranteed non-None at this point (loaded + validated above);
-    # no defensive ``if dv else None`` guard needed here.
-    return _build_job_read_with_defaults(job, dv.manifest)
+    return _build_job_read_with_defaults(job, validated.detector_version.manifest)
 
 
 @router.get("", response_model=JobList)
