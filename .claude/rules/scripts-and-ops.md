@@ -8,12 +8,15 @@ paths:
 
 ## Script categories (live inventory in `scripts/`)
 
-- **Install / deploy** — `install-tools.sh` (CLI tools to `~/.local/bin/`, no sudo), `setup-k3s.sh` (sudo-required, hand to operator), `deploy.sh` (Helm dep update + upgrade --install), `build-helpers.sh` (helper-image release: subtree SHA tag, idempotent push, writes `charts/lolday/helpers.lock`; runbook `docs/runbooks/release-helpers.md`), `check-helpers-lock.sh` (drift guard used by pre-commit + deploy), `teardown.sh`.
+- **Install / deploy** — `install-tools.sh` (CLI tools incl. cosign to `~/.local/bin/`, no sudo; also unsets a redundant `core.hooksPath` that would shadow pre-commit), `setup-k3s.sh` (sudo-required; bakes in kube-apiserver audit + `--secrets-encryption` flags on fresh installs), `deploy.sh` (Helm dep update + upgrade --install), `build-helpers.sh` (helper-image release: subtree SHA tag, idempotent push, cosign sign by digest, writes `charts/lolday/helpers.lock`; runbook `docs/runbooks/release-helpers.md`), `check-helpers-lock.sh` (drift guard used by pre-commit + deploy), `teardown.sh`.
+- **Supply-chain bootstrap** — `cosign-harbor-init.sh` (one-time per cluster: generates `~/.cosign/lolday-harbor.{key,pub}`, installs the public half as `kyverno/cosign-harbor-pubkey`; `--force-new` for key rotation; runbook `docs/runbooks/kyverno-harbor-signing.md`).
 - **Diagnostics** — `diag-backend-401.sh`, `diag-pv-data.sh`, `disk-diag.sh`, `find-lost-data.sh`.
 - **Recovery** — `recover-harbor.sh`, `harbor-inventory.sh`, `fix-lolday-project-public.sh`, `patch-k3s-registries.sh`.
-- **Data migration (Phase 8.2 / 9.6)** — `migrate-ephemeral-to-ssd.sh`, `migrate-all-root-pvcs.sh`, `cleanup-migrated-shelves.sh`.
+- **K3s host patches** — `patch-k3s-kubelet-args.sh` (kubelet reservations on an existing cluster), `patch-k3s-audit-and-secrets-encryption.sh` (apply kube-apiserver audit log + `--secrets-encryption` to an existing cluster; sudo + step-by-step `read -r -p` confirmation; runbook `docs/runbooks/k3s-audit-and-secrets-encryption.md`).
+- **Data migration (Phase 8.2 / 9.6 / 2026-05-11 MinIO)** — `migrate-ephemeral-to-ssd.sh`, `migrate-all-root-pvcs.sh`, `cleanup-migrated-shelves.sh`, `migrate-harbor-to-s3.sh`, `migrate-mlflow-to-s3.sh`, `migrate-jobs-namespace.sh`, `migrate-mlflow-experiment-naming.sh`, `storage-audit.sh`, `rotate-minio-keys.sh`, `validate-add-ssd-runbook.sh`.
 - **Phase pre-checks** — `phase4-pre-deploy-check.sh`, `phase6-pre-deploy-check.sh`. Templates for future phases that touch deploy.
 - **One-shot Python** — `backfill-summary-metrics.py`, `sample_elf_dataset.py`.
+- **One-shot user-facing-NP guard** — `check-user-facing-np.sh`, `check-image-tags-aligned.sh` (pre-commit-style guards used by `.pre-commit-config.yaml`).
 
 ## Sudo discipline
 

@@ -9,12 +9,14 @@ paths:
 
 ## App structure
 
-- Entry: `backend/app/main.py` (FastAPI app + lifespan + Prometheus instrumentator + router registration).
+- Entry: `backend/app/main.py` (FastAPI app + lifespan + Prometheus instrumentator + router registration). `openapi_url` is gated on `DOCS_ENABLED`; the in-code default is `False` (post-program review hardening — public flip prep).
+- `entrypoint.sh` — runs uvicorn with `--proxy-headers --forwarded-allow-ips='*'` so the backend trusts Traefik / cloudflared `X-Forwarded-*` headers. Required for correct client-IP recovery in audit_log and rate-limit middleware.
 - `routers/` — one router per resource: admin, builds, cluster, credentials, datasets, detectors, experiments_proxy (MLflow proxy), internal, jobs, models_registry, users_me.
-- `services/` — external integrations and business logic: build, cluster_status, crypto, dataset, discord (embed builders), events_tail, git, **gpu_signal** (host-aware GPU state via Prom + DCGM), harbor (init + main), job_config, jobs_params_validate, job_spec, job_tokens, k8s, manifest_store, mlflow_client, model_registry, notify (Discord HTTP delivery), rate_limit, validator.
-- `models/` (SQLAlchemy 2.0 async ORM classes) and `schemas/` (Pydantic v2) are strictly separate. Keep DB types out of API responses.
+- `services/` — external integrations and business logic: build, cluster_status, crypto, dataset, discord (embed builders), events_tail, git, **gpu_signal** (host-aware GPU state via Prom + DCGM), harbor (init + main), job_config, jobs_params_validate, job_spec, job_tokens, k8s, manifest_store, mlflow_client, model_registry, notify (Discord HTTP delivery), rate_limit, **audit** (audit_log emitter — credential CRUD / dataset visibility / detector register / admin job-cancel / MLflow cross-user read / login events), validator.
+- `models/` (SQLAlchemy 2.0 async ORM classes) and `schemas/` (Pydantic v2) are strictly separate. Keep DB types out of API responses. The `audit_log` table is appended-to by `services/audit.py` from six router-side call sites; do not write to it directly from routes.
 - `auth/cf_access.py` is the only auth path. JWT is verified against Cloudflare Access JWKS.
 - `deps.py` holds shared FastAPI `Depends(...)` factories: `current_active_user`, `require_role(...)`, `load_detector`, `require_detector_access`, `require_job_token`.
+- `middleware/csrf.py` exports `origin_matches_host(...)` — the same helper that gates CSRF-mutating routes is also used by the WebSocket Origin check in `routers/jobs.py`. Keep them on the same helper so one fix lands in both surfaces.
 - `users.py` is a thin re-export — `from app.auth.cf_access import cf_access_user as current_active_user`. Do not add password-flow logic here.
 
 ## Startup fail-fast behaviour (onboarding trap)
@@ -38,6 +40,14 @@ Both checks run inside the FastAPI lifespan. A misconfigured deploy crashes the 
 - SQLAlchemy 2.0 async + asyncpg in production.
 - aiosqlite in tests via `backend/tests/conftest.py`.
 - Session via `Depends(db.get_async_session)`. Do not create engines or sessions ad-hoc.
+
+## Multi-namespace orphan-token sweep
+
+`reconciler/orphans.py::reconcile_orphan_token_secrets` iterates `[JOB_NAMESPACE, *config.JOB_TOKEN_LEGACY_NAMESPACES]`. The legacy list is whitespace-separated env (parsed via the `JOB_TOKEN_LEGACY_NAMESPACES` field validator in `config.py`, mirroring the `FERNET_KEYS` shape). When a ns migration moves vcjobs to a new ns (e.g. `lolday` → `lolday-jobs` in 2026-05-05), register the old ns here so the next reconciler iteration cleans up the orphans that K8s GC misses on `--grace-period=0 --force` deletes. Operator runbook: `docs/runbooks/orphan-job-tokens-cleanup.md`.
+
+## MLflow per-user filter shape check
+
+`routers/experiments_proxy.py::_mlflow_user_filter` is the single source of the MLflow filter f-string. It wraps the `lolday.user_id` tag predicate in a UUID-shape check so a malformed user id cannot inject a fragment of an MLflow filter expression. Do not build the same predicate inline anywhere else in the proxy; add fields to `_mlflow_user_filter` instead.
 
 ## Discord notify pattern
 

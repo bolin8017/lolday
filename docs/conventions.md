@@ -106,14 +106,16 @@ Read the path-scoped rule for the area you're touching:
 
 ### 10.1 Workflow inventory
 
-| Workflow       | Triggers                                                          | What it does                                                                              |
-| -------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `lint.yml`     | every push to `main`, every PR                                    | `pre-commit run --all-files` (single source of truth for ruff / mypy / prettier / eslint) |
-| `backend.yml`  | path-filtered to `backend/**`                                     | `cd backend && uv run pytest`                                                             |
-| `frontend.yml` | path-filtered to `frontend/**`                                    | `pnpm typecheck` + `pnpm test` (vitest); playwright deferred                              |
-| `helm.yml`     | path-filtered to `charts/**`                                      | `helm dep update` + `helm lint` + `helm template`                                         |
-| `images.yml`   | `backend/Dockerfile` / `frontend/Dockerfile` paths + tag `v*.*.*` | matrix build backend / frontend → GHCR (PR builds only, no push)                          |
-| `helpers.yml`  | path-filtered to `charts/lolday/helpers/{build,job}-helper/**`    | matrix build → GHCR; `mlflow-server` and `pytorch-cu12-base` excluded by design           |
+| Workflow         | Triggers                                                          | What it does                                                                                                                                |
+| ---------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lint.yml`       | every push to `main`, every PR                                    | `pre-commit run --all-files` (single source of truth for ruff / mypy / prettier / eslint)                                                   |
+| `backend.yml`    | path-filtered to `backend/**`                                     | `cd backend && uv run pytest`                                                                                                               |
+| `frontend.yml`   | path-filtered to `frontend/**`                                    | `pnpm typecheck` + `pnpm test` (vitest); playwright deferred                                                                                |
+| `helm.yml`       | path-filtered to `charts/**`                                      | `helm dep update` + `helm lint` + `helm template`                                                                                           |
+| `images.yml`     | `backend/Dockerfile` / `frontend/Dockerfile` paths + tag `v*.*.*` | matrix build backend / frontend → GHCR (PR builds only, no push) + cosign sign + SLSA attest-build-provenance on main / tag pushes          |
+| `helpers.yml`    | path-filtered to `charts/lolday/helpers/{build,job}-helper/**`    | matrix build → GHCR (cosign sign + SLSA attest-build-provenance on main / tag); `mlflow-server` and `pytorch-cu12-base` are operator-manual |
+| `gitleaks.yml`   | every PR                                                          | secret-scan gate via `gitleaks/gitleaks-action` (config: repo-root `.gitleaks.toml`); seeded for the 2026-05-15 public flip                 |
+| `trivy-cron.yml` | scheduled                                                         | scheduled Trivy image scan of the published `ghcr.io/bolin8017/lolday-*` set                                                                |
 
 ### 10.2 Pre-commit is the single source of truth
 
@@ -161,12 +163,9 @@ GitHub provides no in-repo declarative branch-protection API stable enough to de
 6. **Restrict who can push to matching branches / disallow force pushes** — yes.
 7. **Allow squash merge only** (Settings → General → Pull Requests).
 
-> **Footnote — current plan-tier limitation.** As of 2026-05-01 the repo is on a personal account with the GitHub Free plan and is private; `gh api repos/bolin8017/lolday/branches/main/protection` returns HTTP 403 (`Upgrade to GitHub Pro or make this repository public to enable this feature`). The rules in steps 1–7 above are therefore **not** in effect today. Two paths to lift the limitation:
+> **Footnote — status update (2026-05-15 public flip).** Path 1 above was chosen: the repo went public on 2026-05-15 after the post-program review (`docs/phase-history/2026-05-15-security-post-program-review.md`). Branch protection on `main` is now **active**: PR required, no force-push, no delete, linear history; `required_approving_review_count: 0` (single-operator project). The supplementary controls — GitHub Secret Scanning + Push Protection, Dependabot Security Updates, private vulnerability reporting — were enabled at the same time. The `gitleaks` workflow (`.github/workflows/gitleaks.yml`) runs on every PR as an additional pre-merge secret-scan gate.
 >
-> 1. **Make the repo public.** Branch protection becomes available immediately, and the free Codecov tier + extra Dependabot security tooling light up. A privacy review is required before flipping (the repo documents internal infra paths and Harbor topology).
-> 2. **Upgrade to GitHub Pro** (~USD 4 / month). Keeps the repo private and unlocks branch protection on the personal account.
->
-> Until one of those lands, the merge discipline is enforced socially (CI must be green before squash-merge), not by the GitHub API.
+> Mechanical chart / doc PRs may be admin-merged after local verification when CI billing is blocked (project precedent — see `feedback_gha_billing_can_block_ci.md` in auto-memory).
 
 ### 10.7 Dependabot SOP
 

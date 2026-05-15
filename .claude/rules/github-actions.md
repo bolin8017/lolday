@@ -34,6 +34,20 @@ Lint/format/typecheck/lock checks are owned by `.pre-commit-config.yaml`. CI run
 
 Adding a new lint hook: edit `.pre-commit-config.yaml`. CI follows automatically.
 
+## Secret scanning + supply chain
+
+Three orthogonal gates run on PRs into `main`:
+
+- `gitleaks.yml` — secret-scan gate via `gitleaks/gitleaks-action`. Config + allowlist: repo-root `.gitleaks.toml`. Seeded ahead of the 2026-05-15 public flip. Required full git history (`fetch-depth: 0`).
+- **GitHub Secret Scanning + Push Protection** — repo-level setting (no in-repo yaml). Catches leaks on push BEFORE they hit the workflow. Verify via Settings → Code security and analysis.
+- **Dependabot Security Updates** — repo-level setting, separate from the `dependabot.yml` version-bump scheduler. Auto-opens PRs against high-severity advisories on the existing `pip` / `npm` / `docker` / `github-actions` ecosystems.
+
+Image-signing + provenance (`docker-meta-build` composite): cosign sign + `actions/attest-build-provenance` on every `main` / tag push. Verified at admission by the Kyverno `verify-lolday-image-signatures` ClusterPolicy (GHCR keyless) and `verify-lolday-harbor-image-signatures` (Harbor key-based). See `.claude/rules/charts-and-helm.md` §Top-level templates and `docs/runbooks/kyverno-bootstrap.md` / `docs/runbooks/kyverno-harbor-signing.md`.
+
+## Branch protection
+
+Active on `main` since 2026-05-15: PR required; no force-push; no delete; linear history. `required_approving_review_count: 0` (single-operator project). Full ruleset + admin-merge precedent: `docs/conventions.md` §10.6.
+
 ## Two-registry model
 
 - `ghcr.io/bolin8017/lolday-*` — CI artifact registry. PR builds verify; `main` and tag pushes publish.
@@ -50,6 +64,8 @@ Add a matrix entry to the appropriate workflow:
 
 Do not create a new workflow file per image — the matrix pattern is the mainstream way.
 
+Every image added via the matrix automatically inherits cosign sign + SLSA `attest-build-provenance` from the `docker-meta-build` composite. **Do not** publish to Harbor from CI — Harbor pushes are operator-driven via `scripts/build-helpers.sh` (which signs by digest against `~/.cosign/lolday-harbor.key`).
+
 ## Adding a new ecosystem to Dependabot
 
 Edit `.github/dependabot.yml`. Do not bypass with hand-edits to lockfiles.
@@ -60,7 +76,7 @@ Three composites under `.github/actions/`:
 
 - `setup-uv` — wraps `astral-sh/setup-uv` + `uv sync --frozen --project <dir>`.
 - `setup-pnpm-node` — corepack + setup-node (with pnpm cache) + `pnpm --dir frontend install --frozen-lockfile`.
-- `docker-meta-build` — buildx + conditional GHCR login + metadata-action + build-push-action with per-image GHA cache scope.
+- `docker-meta-build` — buildx + conditional GHCR login + metadata-action + build-push-action with per-image GHA cache scope, followed by `cosign sign` (GHCR keyless via GHA OIDC) + `actions/attest-build-provenance` for SLSA L3 attestation on `main` / tag pushes. The `syft` SBOM step is currently disabled (private-GHCR scan + SPDX-JSON mix breaks the action's stdout parsing; see auto-memory `project_syft_ghcr_sbom_disabled.md`).
 
 Use `${{ github.token }}` (not `env.GITHUB_TOKEN`) inside composites — env is not auto-inherited.
 
