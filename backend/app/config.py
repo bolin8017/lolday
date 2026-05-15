@@ -13,7 +13,11 @@ _LEGACY_TEST_FERNET_KEY = "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://lolday:password@postgresql:5432/lolday"
     REDIS_URL: str = "redis://redis:6379/0"
-    DOCS_ENABLED: bool = True
+    # #165: default to False -- production secrets-fail-closed posture.
+    # The chart explicitly wires "false" today regardless, so this only
+    # affects bare-process local dev (where setting DOCS_ENABLED=true in
+    # the local env is a one-line opt-in). Defense-in-depth.
+    DOCS_ENABLED: bool = False
 
     # Phase 2.4 (maldet 2.0 cutover): when truthy, ``POST /api/v1/jobs``
     # short-circuits with HTTP 503 + ``Retry-After`` so in-flight submissions
@@ -49,6 +53,12 @@ class Settings(BaseSettings):
 
     # Phase 4: Dataset & Jobs (MLflow)
     JOB_NAMESPACE: str = "lolday"
+    # #175: namespaces that historically hosted ``job-token-*`` Secrets but
+    # are no longer the live JOB_NAMESPACE. The reconciler sweep cleans up
+    # both current + legacy namespaces in each iteration so a one-shot
+    # migration doesn't leave a stale 718-row backlog in the old namespace.
+    # Whitespace-separated env var; same parsing pattern as FERNET_KEYS.
+    JOB_TOKEN_LEGACY_NAMESPACES: Annotated[list[str], NoDecode] = []
     JOB_HELPER_IMAGE: str = ""
     JOB_ACTIVE_DEADLINE_TRAIN_SECONDS: int = 21600  # 6h (default)
     JOB_ACTIVE_DEADLINE_EVALUATE_SECONDS: int = 1800  # 30m (default)
@@ -168,6 +178,14 @@ class Settings(BaseSettings):
     @field_validator("FERNET_KEYS", mode="before")
     @classmethod
     def _split_fernet_keys(cls, v):
+        """Accept whitespace-separated env value; collapse to list[str]."""
+        if isinstance(v, str):
+            return [k for k in v.split() if k]
+        return v
+
+    @field_validator("JOB_TOKEN_LEGACY_NAMESPACES", mode="before")
+    @classmethod
+    def _split_job_token_legacy_namespaces(cls, v):
         """Accept whitespace-separated env value; collapse to list[str]."""
         if isinstance(v, str):
             return [k for k in v.split() if k]

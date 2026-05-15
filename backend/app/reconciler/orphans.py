@@ -185,17 +185,26 @@ async def reconcile_orphan_token_secrets(session: AsyncSession) -> int:
     removes the vcjob without firing finalizers or the GC controller,
     leaving the Secret as an orphan.
 
-    We list every Secret in JOB_NAMESPACE matching the ``job-token-`` name
+    We list every Secret in JOB_NAMESPACE (plus any namespace listed in
+    ``JOB_TOKEN_LEGACY_NAMESPACES``) matching the ``job-token-`` name
     prefix, check each one's age + whether a matching vcjob exists, and
     delete those that are both stale (older than
     ``JOB_TTL_SECONDS_AFTER_FINISHED``) and unowned (no matching vcjob).
 
-    Returns the number of orphan Secrets deleted, for metrics.
+    #175: a 2026-05-05 ns migration moved live vcjob traffic from
+    ``lolday`` to ``lolday-jobs`` but the sweep stayed scoped to the new
+    namespace only, leaving 718 stale Secrets in ``lolday``. The sweep
+    now iterates ``[JOB_NAMESPACE, *JOB_TOKEN_LEGACY_NAMESPACES]`` so a
+    future ns split doesn't repeat the bug.
+
+    Returns the total number of orphan Secrets deleted across all
+    in-scope namespaces, for metrics.
     """
-    secrets = await asyncio.to_thread(
-        core_v1().list_namespaced_secret,
-        namespace=settings.JOB_NAMESPACE,
-    )
+    # Vcjob liveness is computed from the *current* JOB_NAMESPACE only --
+    # legacy namespaces are pure cleanup targets and should not be looked
+    # up for live vcjobs (a stale vcjob in a legacy ns would extend the
+    # life of an unrelated Secret in the live ns by short-id collision,
+    # which is rare but worse than the alternative of cleaning eagerly).
     vcjobs = await asyncio.to_thread(
         volcano_v1alpha1().list_namespaced_custom_object,
         group=VOLCANO_BATCH_GROUP,
@@ -220,6 +229,37 @@ async def reconcile_orphan_token_secrets(session: AsyncSession) -> int:
 
     now = datetime.now(UTC)
     ttl = settings.JOB_TTL_SECONDS_AFTER_FINISHED
+    # #175: dedup the namespace list so a misconfiguration that puts
+    # JOB_NAMESPACE into the legacy list doesn't cause us to scan twice.
+    sweep_namespaces: list[str] = []
+    for ns in [settings.JOB_NAMESPACE, *settings.JOB_TOKEN_LEGACY_NAMESPACES]:
+        if ns not in sweep_namespaces:
+            sweep_namespaces.append(ns)
+
+    deleted = 0
+    for ns in sweep_namespaces:
+        deleted += await _sweep_orphan_token_secrets_in_namespace(
+            namespace=ns, live_short_ids=live_short_ids, ttl=ttl, now=now
+        )
+    return deleted
+
+
+async def _sweep_orphan_token_secrets_in_namespace(
+    *,
+    namespace: str,
+    live_short_ids: set[str],
+    ttl: int,
+    now: datetime,
+) -> int:
+    """List + delete orphan ``job-token-*`` Secrets in a single namespace.
+
+    Extracted as a helper so the per-namespace logic stays single-source
+    while the outer caller loops over the current + legacy namespaces.
+    """
+    secrets = await asyncio.to_thread(
+        core_v1().list_namespaced_secret,
+        namespace=namespace,
+    )
     deleted = 0
     for sec in secrets.items:
         # Conftest stub passes dicts; real K8s passes objects. Handle both.
@@ -256,15 +296,21 @@ async def reconcile_orphan_token_secrets(session: AsyncSession) -> int:
             await asyncio.to_thread(
                 core_v1().delete_namespaced_secret,
                 name=name,
-                namespace=settings.JOB_NAMESPACE,
+                namespace=namespace,
             )
             deleted += 1
-            logger.info("deleted orphan job-token Secret %s (age=%.0fs)", name, age)
+            logger.info(
+                "deleted orphan job-token Secret %s/%s (age=%.0fs)",
+                namespace,
+                name,
+                age,
+            )
         except ApiException as exc:
             if exc.status != 404:
                 BACKEND_ERRORS.labels(stage="orphan_token_secret_delete").inc()
                 logger.warning(
-                    "orphan token Secret %s delete returned %s",
+                    "orphan token Secret %s/%s delete returned %s",
+                    namespace,
                     name,
                     exc.status,
                     exc_info=True,

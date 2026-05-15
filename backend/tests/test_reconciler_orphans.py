@@ -321,6 +321,120 @@ async def test_age_guard_skips_freshly_created_vcjobs(db_session):
     assert delete_calls == [], delete_calls
 
 
+# ---------------------------------------------------------------------------
+# #175 — reconcile_orphan_token_secrets multi-namespace sweep
+# ---------------------------------------------------------------------------
+
+
+def _secret(name: str, age_seconds: int) -> dict:
+    """Build a minimal Secret dict with a synthetic creationTimestamp."""
+    from datetime import datetime, timedelta
+
+    created = (datetime.now(UTC) - timedelta(seconds=age_seconds)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    return {"metadata": {"name": name, "creationTimestamp": created}}
+
+
+class _NsResult:
+    """Mimic kubernetes.client.V1SecretList shape (.items attribute)."""
+
+    def __init__(self, items: list):
+        self.items = items
+
+
+@pytest.mark.asyncio
+async def test_orphan_token_sweep_clears_legacy_namespaces(db_session, monkeypatch):
+    """#175: stale job-token-* Secrets in JOB_TOKEN_LEGACY_NAMESPACES are
+    swept in the same iteration as the live JOB_NAMESPACE."""
+    from app.config import settings
+    from app.reconciler.orphans import reconcile_orphan_token_secrets
+
+    monkeypatch.setattr(settings, "JOB_NAMESPACE", "lolday-jobs")
+    monkeypatch.setattr(settings, "JOB_TOKEN_LEGACY_NAMESPACES", ["lolday"])
+    monkeypatch.setattr(settings, "JOB_TTL_SECONDS_AFTER_FINISHED", 60)
+
+    delete_calls: list[tuple[str, str]] = []  # (namespace, name)
+
+    secrets_by_ns = {
+        "lolday-jobs": _NsResult(
+            [
+                _secret("job-token-aaaaaaaaaaaaaaaa", age_seconds=300),
+                _secret("other-secret", age_seconds=300),
+            ]
+        ),
+        "lolday": _NsResult(
+            [
+                _secret("job-token-bbbbbbbbbbbbbbbb", age_seconds=400),
+                _secret("job-token-cccccccccccccccc", age_seconds=400),
+            ]
+        ),
+    }
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": []}
+
+    class _CoreStub:
+        def list_namespaced_secret(self, namespace, **kw):
+            return secrets_by_ns[namespace]
+
+        def delete_namespaced_secret(self, name, namespace, **kw):
+            delete_calls.append((namespace, name))
+
+    with (
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
+    ):
+        deleted = await reconcile_orphan_token_secrets(db_session)
+
+    # 1 in lolday-jobs + 2 in lolday = 3 deletions across both namespaces
+    assert deleted == 3
+    assert ("lolday-jobs", "job-token-aaaaaaaaaaaaaaaa") in delete_calls
+    assert ("lolday", "job-token-bbbbbbbbbbbbbbbb") in delete_calls
+    assert ("lolday", "job-token-cccccccccccccccc") in delete_calls
+    # Non-matching name is left alone.
+    assert ("lolday-jobs", "other-secret") not in delete_calls
+
+
+@pytest.mark.asyncio
+async def test_orphan_token_sweep_dedupes_namespace_list(db_session, monkeypatch):
+    """If the legacy list happens to repeat JOB_NAMESPACE, do not scan
+    twice -- a duplicate scan would attempt double-delete and the second
+    delete would 404."""
+    from app.config import settings
+    from app.reconciler.orphans import reconcile_orphan_token_secrets
+
+    monkeypatch.setattr(settings, "JOB_NAMESPACE", "lolday-jobs")
+    monkeypatch.setattr(
+        settings, "JOB_TOKEN_LEGACY_NAMESPACES", ["lolday-jobs", "lolday"]
+    )
+    monkeypatch.setattr(settings, "JOB_TTL_SECONDS_AFTER_FINISHED", 60)
+
+    list_calls: list[str] = []
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": []}
+
+    class _CoreStub:
+        def list_namespaced_secret(self, namespace, **kw):
+            list_calls.append(namespace)
+            return _NsResult([])
+
+        def delete_namespaced_secret(self, name, namespace, **kw):
+            return None
+
+    with (
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_token_secrets(db_session)
+
+    # Despite the duplicate in the legacy list, each namespace is scanned once.
+    assert list_calls == ["lolday-jobs", "lolday"]
+
+
 @pytest.mark.asyncio
 async def test_malformed_label_increments_metric(db_session):
     """A vcjob carrying a non-UUID lolday.job-id label is foreign data —

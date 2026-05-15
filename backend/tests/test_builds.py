@@ -162,3 +162,67 @@ async def test_flat_build_route_404s_if_parent_detector_deleted(
     build_id = soft_deleted_detector_with_build.build_id
     r = await user_client.get(f"/api/v1/builds/{build_id}")
     assert r.status_code == 404, r.text
+
+
+# ---------------------------------------------------------------------------
+# #163 — cross-tenant build read. The flat /builds/<id> route previously
+# returned any build to any authenticated user. Enforce owner-or-admin.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_flat_build_route_404s_for_non_owner(
+    auth_client_developer, seed_detector, monkeypatch
+):
+    """User A creates a build; user B (non-owner, non-admin) gets 404, not 200."""
+    from app.models import Role
+    from app.routers import detectors as dr
+
+    from tests.conftest import _make_user
+
+    monkeypatch.setattr(dr, "_create_k8s_resources", AsyncMock(return_value="b-x"))
+
+    create = await auth_client_developer.post(
+        f"/api/v1/detectors/{seed_detector}/builds", json={"git_tag": "v0.1.0"}
+    )
+    assert create.status_code == 201
+    build_id = create.json()["id"]
+
+    # Owner read succeeds.
+    own_resp = await auth_client_developer.get(f"/api/v1/builds/{build_id}")
+    assert own_resp.status_code == 200, own_resp.text
+
+    # Switch the header to a different user (same client, no auth side-effects).
+    # Seed the user so the dep resolves.
+    await _make_user("non-owner@example.dev", role=Role.USER)
+    other_resp = await auth_client_developer.get(
+        f"/api/v1/builds/{build_id}",
+        headers={"x-test-user-email": "non-owner@example.dev"},
+    )
+    assert other_resp.status_code == 404, other_resp.text
+
+
+@pytest.mark.asyncio
+async def test_flat_build_route_admin_can_read_any(
+    auth_client_developer, seed_detector, monkeypatch
+):
+    """Admin can read another user's build through the flat route."""
+    from app.models import Role
+    from app.routers import detectors as dr
+
+    from tests.conftest import _make_user
+
+    monkeypatch.setattr(dr, "_create_k8s_resources", AsyncMock(return_value="b-x"))
+
+    create = await auth_client_developer.post(
+        f"/api/v1/detectors/{seed_detector}/builds", json={"git_tag": "v0.1.0"}
+    )
+    assert create.status_code == 201
+    build_id = create.json()["id"]
+
+    await _make_user("flat-build-admin@example.dev", role=Role.ADMIN)
+    admin_resp = await auth_client_developer.get(
+        f"/api/v1/builds/{build_id}",
+        headers={"x-test-user-email": "flat-build-admin@example.dev"},
+    )
+    assert admin_resp.status_code == 200, admin_resp.text

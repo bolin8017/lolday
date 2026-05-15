@@ -6,6 +6,7 @@ from app.db import get_async_session
 from app.models import User
 from app.models.credential import UserGitCredential
 from app.schemas.credential import GitCredentialRead, GitCredentialSet
+from app.services.audit import write_audit_log
 from app.services.crypto import TokenCipher
 from app.users import current_active_user
 
@@ -28,6 +29,14 @@ async def set_credential(
     existing = await session.get(UserGitCredential, user.id)
     encrypted = cipher.encrypt(body.token)
     hint = TokenCipher.token_hint(body.token)
+    # #166: audit credential set/rotate. Capture provider + token_hint in
+    # after-state -- never the cleartext PAT. before-state only meaningful
+    # on rotation.
+    audit_before = (
+        {"provider": existing.provider.value, "token_hint": existing.token_hint}
+        if existing is not None
+        else None
+    )
     if existing:
         existing.provider = body.provider
         existing.encrypted_token = encrypted
@@ -40,6 +49,15 @@ async def set_credential(
             token_hint=hint,
         )
         session.add(existing)
+    await write_audit_log(
+        session,
+        actor_id=user.id,
+        action="credential.upsert",
+        target_type="git_credential",
+        target_id=user.id,  # each user has at most one credential
+        before=audit_before,
+        after={"provider": body.provider.value, "token_hint": hint},
+    )
     await session.commit()
     await session.refresh(existing)
     return GitCredentialRead(
@@ -73,6 +91,21 @@ async def delete_credential(
 ) -> Response:
     existing = await session.get(UserGitCredential, user.id)
     if existing:
+        # #166: audit credential deletion. before-state captures the
+        # token_hint so post-incident review can verify which credential
+        # was wiped without exposing the cleartext.
+        await write_audit_log(
+            session,
+            actor_id=user.id,
+            action="credential.delete",
+            target_type="git_credential",
+            target_id=user.id,
+            before={
+                "provider": existing.provider.value,
+                "token_hint": existing.token_hint,
+            },
+            after=None,
+        )
         await session.delete(existing)
         await session.commit()
     return Response(status_code=204)

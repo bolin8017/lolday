@@ -277,3 +277,32 @@ async def test_download_artifact_rejects_absolute_path(user_client):
             "/api/v1/runs/r-a/artifacts/download?path=/etc/passwd"
         )
     assert r.status_code == 400, r.text
+
+
+# ---------------------------------------------------------------------------
+# §3.16 — MLflow filter_string defense-in-depth helper. UUID-only input.
+# ---------------------------------------------------------------------------
+
+
+def test_mlflow_user_filter_accepts_uuid_object():
+    import uuid
+
+    from app.routers.experiments_proxy import _mlflow_user_filter
+
+    uid = uuid.UUID("11111111-1111-4111-8111-111111111111")
+    out = _mlflow_user_filter(uid)
+    assert out == "tags.\"lolday.user_id\" = '11111111-1111-4111-8111-111111111111'"
+
+
+def test_mlflow_user_filter_accepts_uuid_string():
+    from app.routers.experiments_proxy import _mlflow_user_filter
+
+    out = _mlflow_user_filter("22222222-2222-4222-8222-222222222222")
+    assert out == "tags.\"lolday.user_id\" = '22222222-2222-4222-8222-222222222222'"
+
+
+def test_mlflow_user_filter_rejects_non_uuid():
+    from app.routers.experiments_proxy import _mlflow_user_filter
+
+    with pytest.raises(ValueError, match="non-UUID"):
+        _mlflow_user_filter("not-a-uuid'; OR 1=1 --")

@@ -57,6 +57,29 @@ def _user_can_see_run_dict(user: User, raw_run: dict) -> bool:
     return _user_can_see_run(user, tags)
 
 
+def _mlflow_user_filter(user_id: Any) -> str:
+    """Build the MLflow ``filter_string`` that gates runs to a single user.
+
+    §3.16 (security-hardening 2026-05-15 post-program review). MLflow's
+    ``filter_string`` is not a parametrised query language -- it's
+    interpolated into the upstream URL as-is. Today the value is a UUID
+    so practically safe, but a future refactor that lets a non-UUID
+    string land here would be a vector. Cast through ``str(uuid)`` and
+    verify the UUID shape before interpolating; ValueError surfaces as
+    a 500 (loud, not silent).
+    """
+    import uuid as _uuid
+
+    if not isinstance(user_id, _uuid.UUID):
+        try:
+            user_id = _uuid.UUID(str(user_id))
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"_mlflow_user_filter rejects non-UUID user_id={user_id!r}"
+            ) from e
+    return f"tags.\"lolday.user_id\" = '{user_id!s}'"
+
+
 def _validate_artifact_path(path: str) -> str:
     """Reject path-traversal and absolute paths in the user-supplied artifact path.
 
@@ -186,12 +209,17 @@ async def list_experiments(
     # lab-scale (< 50 experiments).
     if user.role != Role.ADMIN:
         kept = []
+        # §3.16: build the MLflow filter via a vetted helper. MLflow's
+        # filter_string is not a parametrised query language; the only
+        # safe interpolation is a value that has already been narrowed
+        # to a known shape. UUID is the narrowest shape we can enforce.
+        filter_string = _mlflow_user_filter(user.id)
         for exp in experiments:
             try:
                 runs = await _client().search_runs(
                     experiment_ids=[exp["experiment_id"]],
                     max_results=1,
-                    filter_string=f"tags.\"lolday.user_id\" = '{user.id!s}'",
+                    filter_string=filter_string,
                 )
             except MlflowError:
                 runs = []
@@ -279,8 +307,49 @@ async def get_run(
     # H-1: 404 (not 403) for non-owners to avoid leaking run existence.
     if not _user_can_see_run_dict(user, raw):
         raise HTTPException(status_code=404, detail="run not found")
+    # #166: admin reading another user's MLflow run is an audit-worthy
+    # cross-user data access. Skip when admin is reading their own data
+    # (would otherwise drown the audit log in a high-volume noise stream).
+    await _audit_cross_user_mlflow_read(session, user, raw, run_id)
     lolday_meta = await _fetch_lolday_job_meta([run_id], session)
     return _flatten_run(raw, lolday_job_meta=lolday_meta)
+
+
+async def _audit_cross_user_mlflow_read(
+    session: AsyncSession, user: User, raw_run: dict, run_id: str
+) -> None:
+    """Audit ``mlflow.run.read.cross_user`` when an admin reads another user's run.
+
+    #166. Self-reads (admin reading their own data) are excluded -- the
+    expected volume is high (every refresh of the admin's own dashboard)
+    and the forensic value is zero.
+    """
+    if user.role != Role.ADMIN:
+        return
+    data = raw_run.get("data") or {}
+    tags_list = data.get("tags") or []
+    tags = {t["key"]: t["value"] for t in tags_list if "key" in t}
+    owner_id_str = tags.get("lolday.user_id")
+    if owner_id_str is None or owner_id_str == str(user.id):
+        return
+    from uuid import UUID as _UUID
+
+    from app.services.audit import write_audit_log
+
+    try:
+        owner_uuid = _UUID(owner_id_str)
+    except ValueError:
+        return  # Malformed tag -- don't poison the audit log.
+    await write_audit_log(
+        session,
+        actor_id=user.id,
+        action="mlflow.run.read.cross_user",
+        target_type="mlflow_run",
+        target_id=owner_uuid,
+        before=None,
+        after={"run_id": run_id, "owner_id": owner_id_str},
+    )
+    await session.commit()
 
 
 @router.get("/runs/{run_id}/artifacts")
@@ -315,6 +384,7 @@ async def download_artifact(
     run_id: str,
     path: str,
     user: Annotated[User, Depends(current_active_user)],
+    session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> StreamingResponse:
     try:
         run = await _client().get_run(run_id)
@@ -323,6 +393,9 @@ async def download_artifact(
     # H-1: ACL on owner.
     if not _user_can_see_run_dict(user, run):
         raise HTTPException(status_code=404, detail="run not found")
+    # #166: same cross-user audit hook as get_run -- a download is the more
+    # serious read (raw artifact bytes), at minimum needs the same trail.
+    await _audit_cross_user_mlflow_read(session, user, run, run_id)
     # H-2: block traversal / absolute paths before interpolating ``path``.
     _validate_artifact_path(path)
     artifact_uri: str = run["info"]["artifact_uri"]

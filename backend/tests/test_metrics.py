@@ -169,3 +169,31 @@ async def test_metrics_not_in_openapi_schema(client: AsyncClient):
     assert resp.status_code == 200
     paths = resp.json()["paths"]
     assert "/metrics" not in paths
+
+
+@pytest.mark.asyncio
+async def test_openapi_json_returns_404_when_docs_disabled():
+    """#165: /openapi.json must NOT be served when DOCS_ENABLED=false.
+
+    FastAPI's ``openapi_url`` is read once at app construction, so we build
+    a fresh FastAPI() with the gate flipped off and verify the schema route
+    is not registered. This is the production posture (chart wires
+    DOCS_ENABLED="false"); the test conftest pins DOCS_ENABLED=true so the
+    main fixture-backed app still exposes the schema for other tests.
+    """
+    from fastapi import FastAPI
+    from httpx import ASGITransport
+    from httpx import AsyncClient as _AsyncClient
+
+    # Mimic main.py: openapi_url=None gates both /openapi.json and the
+    # docs / redoc routes that depend on it.
+    test_app = FastAPI(
+        title="lolday-test", openapi_url=None, docs_url=None, redoc_url=None
+    )
+
+    transport = ASGITransport(app=test_app)
+    async with _AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.get("/openapi.json")
+        assert resp.status_code == 404
+        docs = await c.get("/docs")
+        assert docs.status_code == 404

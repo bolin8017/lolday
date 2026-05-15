@@ -97,6 +97,7 @@ def _default_display_name_for(email: str) -> str:
 
 async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User:
     from app.models.user import SERVICE_TOKEN_DISPLAY_NAME, SERVICE_TOKEN_EMAIL_DOMAIN
+    from app.services.audit import write_audit_log
 
     existing = (
         await session.execute(select(User).where(User.email == email))
@@ -150,6 +151,25 @@ async def get_or_create_user_by_email(session: AsyncSession, email: str) -> User
     # don't auto-commit; new users would otherwise rollback into the void
     # on first visit and never make it into /admin/users.
     try:
+        await session.flush()
+        # #166: audit first-time user resolution (auth.login = a new User
+        # row is materialised). Logging on EVERY request would blow up the
+        # audit_log table; logging only at the get-or-create cache-miss
+        # gives us "this principal first appeared at <ts>" without
+        # per-request noise.
+        await write_audit_log(
+            session,
+            actor_id=user.id,
+            action="auth.login",
+            target_type="user",
+            target_id=user.id,
+            before=None,
+            after={
+                "email": email,
+                "role": initial_role.value,
+                "handle": handle,
+            },
+        )
         await session.commit()
     except IntegrityError:
         await session.rollback()
