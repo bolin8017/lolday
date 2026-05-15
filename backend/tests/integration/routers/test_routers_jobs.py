@@ -13,7 +13,7 @@ from copy import deepcopy
 
 import pytest
 from app.models.job import JobType
-from app.services.jobs_dispatch import _strategy_from_manifest
+from app.services.job_dispatch import _strategy_from_manifest
 from app.services.jobs_params_validate import resolve_detector_defaults
 from maldet.manifest import DetectorManifest
 

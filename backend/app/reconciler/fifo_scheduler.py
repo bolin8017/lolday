@@ -53,7 +53,7 @@ from app.config import settings
 from app.metrics import BACKEND_ERRORS
 from app.models.job import Job, JobStatus
 from app.services import gpu_signal
-from app.services.jobs_dispatch import dispatch_job_to_volcano
+from app.services.job_dispatch import dispatch_job_to_volcano
 
 logger = logging.getLogger(__name__)
 
