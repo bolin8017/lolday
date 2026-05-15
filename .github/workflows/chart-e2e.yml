@@ -1,0 +1,77 @@
+name: chart-e2e
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/chart-e2e.yml"
+  schedule:
+    - cron: "0 20 * * *" # 04:00 Asia/Taipei
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  k3d-helm-smoke:
+    name: k3d + helm install smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install k3d
+        run: |
+          curl -sSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \
+            | TAG=v5.7.5 bash
+
+      - name: Setup Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.16.4
+
+      - name: Spin up k3d cluster
+        run: |
+          k3d cluster create lolday-test \
+            --wait --timeout 5m
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: helm dep update
+        run: helm dep update charts/lolday
+
+      - name: helm install lolday
+        # --wait is intentionally omitted: values-test.yaml uses fake image digests
+        # that will never pull, so pods never reach Ready. The smoke validates that
+        # helm applies all manifests without API-server errors (no wait = no timeout).
+        run: |
+          helm install lolday charts/lolday \
+            -n lolday --create-namespace \
+            -f charts/lolday/values-test.yaml \
+            || (echo "=== helm install failed ===" && kubectl -n lolday get all && kubectl -n lolday describe pods && exit 1)
+
+      - name: Smoke probes
+        run: |
+          kubectl -n lolday get all -o wide
+          # Verify expected top-level resources were created (Deployment, Service, Secret)
+          kubectl -n lolday get deploy backend
+          kubectl -n lolday get svc backend
+          kubectl -n lolday get secret backend-fernet-secret
+
+      - name: helm upgrade to same chart (idempotency)
+        # No --wait for the same reason: fake images, pods stay in ImagePullBackOff.
+        run: |
+          helm upgrade lolday charts/lolday \
+            -n lolday \
+            -f charts/lolday/values-test.yaml
+
+      - name: Teardown
+        if: always()
+        run: |
+          k3d cluster delete lolday-test || true
