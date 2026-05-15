@@ -82,6 +82,8 @@ class ValidatedJob:
     resource_profile: ResourceProfile
     job_type: JobType
     idempotency_key: str
+    priority: int
+    active_deadline_seconds: int | None
 
 
 async def validate_submission(
@@ -209,6 +211,14 @@ async def validate_submission(
             500,
         )
 
+    # Priority is admin-only; non-admin requesting non-zero gets a clean 403.
+    requested_priority = body.priority
+    if requested_priority not in (None, 0) and user.role.value != "admin":
+        raise ValidationError(
+            "priority_admin_only", "priority field is admin-only", 403
+        )
+    priority_to_persist = requested_priority if requested_priority is not None else 0
+
     samples_root = Path(settings.SAMPLES_LOCAL_ROOT)
     if samples_root.exists():
         try:
@@ -242,6 +252,8 @@ async def validate_submission(
         resource_profile=body.resource_profile,
         job_type=body.type,
         idempotency_key=idem_key,
+        priority=priority_to_persist,
+        active_deadline_seconds=body.active_deadline_seconds,
     )
 
 
