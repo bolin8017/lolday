@@ -44,7 +44,10 @@ def parse_junit_dir(artifact_dir: Path) -> dict[str, TestStat]:
     stats: dict[str, TestStat] = collections.defaultdict(
         lambda: {"runs": 0, "fails": 0, "durations": []}
     )
-    for xml in artifact_dir.rglob("junit*.xml"):
+    # sorted() makes the iteration order deterministic across runners — without
+    # it rglob's order varies between filesystems, which surfaces in any test
+    # that asserts the durations list in a specific order.
+    for xml in sorted(artifact_dir.rglob("junit*.xml")):
         try:
             tree = ET.parse(xml)  # local artifact, not network input
         except ET.ParseError as e:
