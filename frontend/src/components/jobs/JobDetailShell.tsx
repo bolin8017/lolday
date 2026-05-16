@@ -12,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useJobQueuePosition } from "@/api/queries/cluster";
 import { isTerminal } from "@/lib/status";
 import { formatDuration, formatRelative } from "@/lib/date";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 type JobRead = components["schemas"]["JobRead"];
 

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client } from "@/api/client";
 import { LoldayApiError } from "@/api/errors";
 import { authKeys } from "./auth";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 export type GitCredential = components["schemas"]["GitCredentialRead"];
 

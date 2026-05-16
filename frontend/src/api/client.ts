@@ -1,5 +1,5 @@
 import createClient, { type Middleware } from "openapi-fetch";
-import type { paths } from "./schema.gen";
+import type { paths } from "./schema";
 import { parseError } from "./errors";
 
 // openapi-fetch prepends baseUrl to each operation path. The generated schema

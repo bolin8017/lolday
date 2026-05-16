@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import JobDetailPage from "@/routes/_authed.jobs.$id";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 type JobRead = components["schemas"]["JobRead"];
 

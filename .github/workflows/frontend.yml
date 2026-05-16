@@ -42,6 +42,37 @@ jobs:
       - name: Vitest
         run: pnpm --dir frontend test
 
+      # D3.8 / R5 part 4 — regen the OpenAPI snapshot from a live backend
+      # and assert no drift. Backend OpenAPI drift fails the PR loud;
+      # the contributor must `pnpm regen-openapi-snapshot` locally and
+      # commit the refreshed snapshot.
+      - name: Setup uv (for backend boot)
+        uses: ./.github/actions/setup-uv
+        with:
+          working-directory: backend
+
+      - name: Boot backend uvicorn for snapshot regen (background)
+        env:
+          AUTH_DEV_MODE: "true"
+          AUTH_DEV_EMAIL: "admin@dev.local"
+          ENVIRONMENT: "development"
+          DATABASE_URL: "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true"
+          CF_ACCESS_TEAM_DOMAIN: ""
+          CF_ACCESS_APP_AUD: ""
+        run: |
+          cd backend
+          nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 \
+            > /tmp/uvicorn.log 2>&1 &
+          for i in {1..30}; do
+            curl -fsSL http://127.0.0.1:8000/healthz && break || sleep 1
+          done
+
+      - name: Regen openapi snapshot — fail on drift
+        run: |
+          pnpm --dir frontend regen-openapi-snapshot
+          git diff --exit-code -- frontend/tests/fixtures/openapi.snapshot.json \
+            || (echo "::error::OpenAPI snapshot drift — run 'pnpm regen-openapi-snapshot' locally and commit." && exit 1)
+
   # ---------------------------------------------------------------------------
   # FUTURE PHASE: Playwright E2E. Spec §4.3 deferred (no Postgres/MLflow/CF
   # Access mocking infrastructure in CI yet). Spec doc:

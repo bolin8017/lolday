@@ -22,7 +22,7 @@ import {
 import { useJobs } from "@/api/queries/jobs";
 
 import { JobDetailShell } from "@/components/jobs/JobDetailShell";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 // ─── hoisted mock state ────────────────────────────────────────────────────
 type Role = "user" | "developer" | "admin";

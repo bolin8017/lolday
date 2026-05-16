@@ -4,7 +4,7 @@ import { Download } from "lucide-react";
 import { SourceModelCard } from "./SourceModelCard";
 import { PredictionSummaryCard } from "./PredictionSummaryCard";
 import { ResolvedConfigCard } from "./ResolvedConfigCard";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 type JobRead = components["schemas"]["JobRead"];
 

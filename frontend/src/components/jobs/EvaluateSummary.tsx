@@ -4,7 +4,7 @@ import { PerClassMetrics } from "./PerClassMetrics";
 import { ConfusionMatrix } from "@/components/charts/ConfusionMatrix";
 import { SourceModelCard } from "./SourceModelCard";
 import { ResolvedConfigCard } from "./ResolvedConfigCard";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 type JobRead = components["schemas"]["JobRead"];
 

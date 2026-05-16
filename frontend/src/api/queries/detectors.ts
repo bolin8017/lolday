@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client } from "@/api/client";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 export type Detector = components["schemas"]["DetectorRead"];
 export type DetectorVersion = components["schemas"]["VersionDetailRead"];

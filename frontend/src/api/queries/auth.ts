@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { client } from "@/api/client";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 export type User = components["schemas"]["UserRead"];
 

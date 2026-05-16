@@ -14,7 +14,8 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "gen-api-types": "bash scripts/gen-api-types.sh"
+    "gen-api-types": "bash scripts/gen-api-types.sh",
+    "regen-openapi-snapshot": "bash scripts/regen-openapi-snapshot.sh"
   },
   "engines": {
     "node": ">=22"

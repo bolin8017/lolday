@@ -1196,10 +1196,6 @@ export interface components {
             user_params?: {
                 [key: string]: unknown;
             } | null;
-            /** Detector Defaults */
-            detector_defaults?: {
-                [key: string]: unknown;
-            } | null;
             /** Positive Class */
             positive_class?: string | null;
             /** Log Tail */
@@ -1417,7 +1413,7 @@ export interface components {
          * ResourceProfile
          * @enum {string}
          */
-        ResourceProfile: "standard" | "gpu1" | "gpu2";
+        ResourceProfile: "standard" | "gpu2";
         /**
          * Role
          * @enum {string}
