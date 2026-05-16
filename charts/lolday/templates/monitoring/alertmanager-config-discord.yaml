@@ -16,12 +16,32 @@ metadata:
     {{- include "lolday.labels" . | nindent 4 }}
 spec:
   route:
+    # Catch-all default receiver: `discord-warning`. Any future alert
+    # rule that ships without an explicit `severity` label (or with a
+    # severity not matched by the routes below) will still surface to
+    # Spidey Warnings rather than disappear silently — fail-loud is
+    # safer than fail-silent for the alerting chain.
     receiver: discord-warning
     groupBy: [alertname, severity]
     groupWait: 30s
     groupInterval: 5m
     repeatInterval: 24h
     routes:
+      # severity=none (kps convention for "informational, do not page")
+      # is black-holed via the `null` receiver. This covers the
+      # always-firing `Watchdog` (used in-cluster as a Prom → AM
+      # liveness probe by the deadmans-switch CronJob) and the
+      # `InfoInhibitor` meta-alert (kps `general.rules`, only useful as
+      # an inhibition source — never as an operator notification).
+      # Without this rule both leak to the catch-all `discord-warning`
+      # and pop up in Spidey Warnings as `[WARNING] Watchdog` /
+      # `[WARNING] InfoInhibitor` — a rendering bug because the Discord
+      # receiver template hard-codes the title prefix.
+      - receiver: 'null'
+        matchers:
+          - name: severity
+            value: none
+            matchType: "="
       - receiver: discord-critical
         matchers:
           - name: severity
@@ -62,6 +82,12 @@ spec:
         - { name: alertname, value: DCGMThrottleReasonsPersistent, matchType: "=" }
       equal: []
   receivers:
+    # Black-hole receiver — see the `severity=none` route block above.
+    # Declared with no integrations (no discordConfigs / webhookConfigs)
+    # so Alertmanager silently drops messages routed here. Removing
+    # this receiver would resurface the [WARNING] Watchdog / [WARNING]
+    # InfoInhibitor leak in Spidey Warnings.
+    - name: 'null'
     - name: discord-critical
       discordConfigs:
         - apiURL:
