@@ -147,11 +147,16 @@ pgBackup:
   enabled: true
   # 03:00 daily, off-peak for the lab.
   schedule: "0 3 * * *"
-  # H-21-img: digest pin (captured 2026-05-15 via the Docker Registry v2
-  # manifest endpoint with Accept: application/vnd.oci.image.index.v1+json
-  # against tag `16`). Refresh on the next Postgres-major bump or
-  # quarterly. The image-tags-aligned pre-commit hook enforces the pin.
-  image: prodrigestivill/postgres-backup-local:16@sha256:a0103fbce0c48ccc7693ddbb2a2bfa733048db845354f635efef9e4566de185d
+  # H-21-img: digest pin. Switched 2026-05-16 from the Debian `:16` tag
+  # (digest a0103fb…) to `:16-alpine` to drop three CRITICAL Trivy CVEs
+  # that have no upstream Debian fix (CVE-2026-33845 + CVE-2026-42010 on
+  # libgnutls30t64; CVE-2026-7598 on libssh2-1t64) and to pull in the
+  # newer openssl carrying the CVE-2025-15467 fix. Alpine variant uses
+  # musl + apk packages, so the gnutls/libssh2 attack surface is absent;
+  # pg_dump / mc / gzip behaviour is unchanged. Refresh on next Postgres
+  # major bump or quarterly. The image-tags-aligned pre-commit hook
+  # enforces the @sha256 suffix.
+  image: prodrigestivill/postgres-backup-local:16-alpine@sha256:08e7b70879af45a89305b91f4600cfbc88da2419a65948df870cddb082b8cf83
   s3Bucket: pg-backups
   # 30 days of daily backups + 4 weekly + 6 monthly (the image rotates by
   # filename prefix). DR target RPO is 24h.
@@ -180,38 +185,43 @@ redis:
 # glibc / NSS / google.golang.org/grpc). Upstream v2.15.0 ships rebuilt
 # Photon bases. The v2.15 docker-hub proxy-cache regression
 # (goharbor/harbor#23145) doesn't affect us — we don't enable that feature.
+# Bumped to v2.15.1 (2026-05-06) on 2026-05-16 to pick up the
+# libarchive 3.8.2 → 3.8.7 Photon-base bump that fixes CRITICAL
+# CVE-2026-5121 across nginx-photon / harbor-portal / harbor-db /
+# redis-photon. All 10 component images bumped together — Harbor
+# does not support mixed-version components.
 harbor:
   enabled: true
   nginx:
     image:
-      tag: v2.15.0@sha256:4fcfe831b1d99e3193a586e59ba4984ca2587a9b2998ccd433f8e9425beaabdc
+      tag: v2.15.1@sha256:1f9d06d040f2478f6cf7f6da0091877bf987a641810f4bfaadb2a87d73dbf4fb
   portal:
     image:
-      tag: v2.15.0@sha256:541d5fa95bf77240d46a438f86245cdfd6afa6dd7fdd0cf4dd4c905af6a980b1
+      tag: v2.15.1@sha256:ac55161c57a8351807adf8f8def264bdd52667c371d0436beefebdac4341c9e2
   core:
     image:
-      tag: v2.15.0@sha256:32a13f6693a278261e9c9cb7eb606c5e2aa021308ae44fdc73225755048500a8
+      tag: v2.15.1@sha256:887a85b8ea98b76bfc9f715f1a0785bb99f9a1034241513902dd6e95be922a83
   jobservice:
     image:
-      tag: v2.15.0@sha256:a22c7cccba4673b26ffb96f5c37971d85d879dd837bc82448e01c0170b68cf28
+      tag: v2.15.1@sha256:0de4fd2ce3a02d3e6591b439e4674ea085885ddf43652b44004cc67eb19dba12
   registry:
     registry:
       image:
-        tag: v2.15.0@sha256:beb49fd16cf0906c04a2bf51a22f7210289e7cc2ae43a733e2a0364380aceae6
+        tag: v2.15.1@sha256:ebf0325c2661729dbb317cbf839608eb8b15cfa158911a94976f2c21563c466e
     controller:
       image:
-        tag: v2.15.0@sha256:463172f71d3a1e8d4f9e3b4e687a447f41fbc3126316d8c150dba04a903bbc47
+        tag: v2.15.1@sha256:554147a956989175f63f8d41573d716c6ddf6052acd1749c88c0f99ce6ee2bff
   database:
     internal:
       image:
-        tag: v2.15.0@sha256:b54e48a70a7bc173a213f59d826d09bd5d3ad94ab00f2b3335751ff43edeb842
+        tag: v2.15.1@sha256:7944d8594a48a8d014e1fa440bc788348f2a779fa2c612ed6b79390cd767e6db
   redis:
     internal:
       image:
-        tag: v2.15.0@sha256:5da5570c0a4c2adae897a30656f1f2f6377f84c11e789b1010732a96b938f34e
+        tag: v2.15.1@sha256:5669d4828805d9ed0bbfc18c101c6ec82d26a13cb9242b48f6348a3e3b2e4cca
   exporter:
     image:
-      tag: v2.15.0@sha256:ad065e4e1a0ee900a0bb1a03d57028ed4b51dc04933f5c1cb5c4aee301a72ddb
+      tag: v2.15.1@sha256:372275b6b6abeb571fa7bd5de458e3d75f1a1636503b3c0abe02938f2b285d75
   expose:
     type: clusterIP
     tls:
@@ -246,7 +256,7 @@ harbor:
     enabled: true
     skipUpdate: false
     image:
-      tag: v2.15.0@sha256:6fd6de9cfbbb04cb1d94722cfa01cf71b8994d3f9e7891d3b03a89a7536480ba
+      tag: v2.15.1@sha256:f0c52bed36c083ec4fded26cefab01e4cd58c9354c261cb3156c69f57bb50131
   notary:
     enabled: false
   chartmuseum:
@@ -779,6 +789,13 @@ volcano:
 # =============================================================================
 minio:
   enabled: true
+  # Bumped 2026-05-16 from the chart-default RELEASE.2024-12-18T13-15-44Z
+  # (Trivy CRITICAL CVE-2024-45337 on golang.org/x/crypto v0.27.0 → fixed
+  # at 0.31.0 / 2024-12-19) to the latest stable RELEASE.2025-09-07. The
+  # mc client image stays on the sub-chart default (no CRITICAL flagged).
+  image:
+    repository: quay.io/minio/minio
+    tag: RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
   mode: standalone # Single-node-single-drive; multi-pool via extraArgs later
   rootUser: minio-admin
   existingSecret: minio-root-cred
