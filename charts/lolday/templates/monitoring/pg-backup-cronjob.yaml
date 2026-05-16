@@ -56,6 +56,18 @@ spec:
               # values.yaml.
               image: {{ .Values.pgBackup.image | quote }}
               imagePullPolicy: IfNotPresent
+              # Override the upstream image's go-cron entrypoint and run
+              # /backup.sh directly so the container runs the backup once
+              # and exits, letting the K8s CronJob finish cleanly. The
+              # upstream init.sh runs `go-cron -s "$SCHEDULE" ... -i`, but
+              # with SCHEDULE=@disabled go-cron's main loop never starts
+              # — even with the `-i` flag from BACKUP_ON_START=TRUE — so
+              # the container sits idle on the health-check port forever
+              # and fires KubeJobNotCompleted. Upstream issue
+              # github.com/prodrigestivill/docker-postgres-backup-local#45
+              # documents this go-cron + K8s-CronJob interaction; the
+              # mainstream workaround is exactly this command override.
+              command: ["/backup.sh"]
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -78,19 +90,12 @@ spec:
                     secretKeyRef:
                       name: postgresql
                       key: POSTGRES_PASSWORD
-                # @disabled hands scheduling to the K8s CronJob — the image
-                # would otherwise spawn its own cron daemon. See
-                # github.com/prodrigestivill/docker-postgres-backup-local
-                # README "Crontab schedule".
+                # SCHEDULE is irrelevant under the /backup.sh command
+                # override above (go-cron is bypassed entirely) — kept
+                # at @disabled as documentation of intent (K8s CronJob
+                # is the only scheduler).
                 - name: SCHEDULE
                   value: "@disabled"
-                # When the K8s CronJob fires, run a single backup on container
-                # startup, then exit so the Job completes. Without this the
-                # container idles on the health-check listener forever and
-                # KubeJobNotCompleted fires. See the upstream README
-                # "Run the backup at startup" section.
-                - name: BACKUP_ON_START
-                  value: "TRUE"
                 - name: BACKUP_KEEP_DAYS
                   value: {{ .Values.pgBackup.keepDays | quote }}
                 - name: BACKUP_KEEP_WEEKS
