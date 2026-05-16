@@ -1,0 +1,36 @@
+{{- if and .Values.harbor.enabled .Values.monitoring.enabled }}
+{{/* Allow kps-prometheus to scrape Harbor metrics endpoints (:8001 on
+     harbor-core / harbor-exporter / harbor-jobservice). The existing
+     `harbor-internal-ingress-allow` only allows in-Harbor pod-to-pod
+     traffic (app=harbor → app=harbor); Prometheus carries a different
+     label set and is in another namespace.
+
+     Mirrors the `backend-metrics-from-monitoring-only` pattern
+     (network-policy.yaml).
+
+     Closes the 0.24.0 NP-hardening regression that fired TargetDown
+     {job=harbor} + LoldayCoreServiceDown {job=harbor}. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: harbor-metrics-from-monitoring-only
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: harbor
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.monitoring.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - { protocol: TCP, port: 8001 }
+{{- end }}
