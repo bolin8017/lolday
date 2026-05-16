@@ -1,0 +1,82 @@
+name: test-telemetry
+
+on:
+  schedule:
+    - cron: "30 6 * * 1" # 14:30 Asia/Taipei every Monday (30 min after mutation.yml)
+  workflow_dispatch:
+
+permissions:
+  contents: write # commit dashboard back to main
+  actions: read # download artifacts
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  aggregate:
+    name: aggregate JUnit + post Discord summary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download last 7 days of JUnit artifacts
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+            const { data: { artifacts } } = await github.rest.actions.listArtifactsForRepo({
+              owner: 'bolin8017',
+              repo: 'lolday',
+              per_page: 100,
+            });
+            const recent = artifacts.filter(a =>
+              a.name.startsWith('junit-') && a.created_at > since
+            );
+            console.log(`Found ${recent.length} recent JUnit artifacts`);
+            const fs = require('fs');
+            fs.mkdirSync('artifacts', { recursive: true });
+            for (const art of recent) {
+              const { data } = await github.rest.actions.downloadArtifact({
+                owner: 'bolin8017',
+                repo: 'lolday',
+                artifact_id: art.id,
+                archive_format: 'zip',
+              });
+              fs.writeFileSync(`artifacts/${art.id}.zip`, Buffer.from(data));
+            }
+            const { execSync } = require('child_process');
+            const dir = 'artifacts';
+            for (const entry of fs.readdirSync(dir)) {
+              if (entry.endsWith('.zip')) {
+                const sub = `${dir}/${entry.replace('.zip', '')}`;
+                fs.mkdirSync(sub, { recursive: true });
+                execSync(`unzip -q ${dir}/${entry} -d ${sub}`);
+              }
+            }
+
+      - name: Run aggregator
+        run: |
+          python3 -m scripts.lib.test_telemetry artifacts/ \
+            --dashboard-out docs/test-telemetry/dashboard.md \
+            --summary-out /tmp/discord-summary.txt
+
+      - name: Commit dashboard
+        uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5.2.0
+        with:
+          commit_message: "docs(test-telemetry): weekly dashboard refresh"
+          file_pattern: docs/test-telemetry/dashboard.md
+          branch: main
+
+      - name: Post summary to Spidey Warnings
+        if: env.DISCORD_WEBHOOK_URL_WARNING != ''
+        env:
+          DISCORD_WEBHOOK_URL_WARNING: ${{ secrets.DISCORD_WEBHOOK_URL_WARNING }}
+        run: |
+          SUMMARY=$(cat /tmp/discord-summary.txt)
+          jq -nc \
+            --arg content "$SUMMARY" \
+            '{content: $content}' \
+            | curl -sS -X POST -H 'Content-Type: application/json' \
+                --data @- "$DISCORD_WEBHOOK_URL_WARNING"
