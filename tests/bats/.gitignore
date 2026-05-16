@@ -1,0 +1,4 @@
+# Local bats helper-library checkouts (CI fetches via setup-bats action).
+bats-core/
+bats-support/
+bats-assert/
