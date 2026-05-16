@@ -14,7 +14,8 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "gen-api-types": "bash scripts/gen-api-types.sh"
+    "gen-api-types": "bash scripts/gen-api-types.sh",
+    "regen-openapi-snapshot": "bash scripts/regen-openapi-snapshot.sh"
   },
   "engines": {
     "node": ">=22"
@@ -72,6 +73,7 @@
     }
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
     "@testing-library/jest-dom": "^6.9.1",

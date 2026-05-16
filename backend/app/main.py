@@ -306,6 +306,15 @@ app.include_router(
     tags=["cluster"],
 )
 
+# D3.3 — dev-mode E2E seed endpoint. The router registers unconditionally;
+# the handler gates on settings.AUTH_DEV_MODE and returns 404 when off, so
+# production never exposes the surface (defence in depth on top of the
+# existing Settings.validate_sso_config rejection of AUTH_DEV_MODE=true in
+# ENVIRONMENT=production boots).
+from app.routers import dev_seed  # router registration order
+
+app.include_router(dev_seed.router)
+
 
 # H-26: IP-keyed rate limit. 120/60s = 2 RPS per source — well above any
 # legitimate probe cadence (Cloudflare Access health check is 30s, browser

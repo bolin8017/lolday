@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { test as baseTest, type Page } from "@playwright/test";
 
 export interface SeedCreds {
   email: string;
@@ -44,12 +44,35 @@ export async function login(page: Page, _creds: SeedCreds = seedCreds()) {
  */
 export type DevPersona = "admin" | "developer" | "user";
 
-export async function loginAs(page: Page, role: DevPersona): Promise<void> {
-  await page.context().setExtraHTTPHeaders({ "X-Dev-Persona": role });
+export async function loginAs(page: Page, role?: DevPersona): Promise<void> {
+  // D3.4 — when `role` is omitted, the worker-index → persona mapping
+  // picks one so parallel workers stay isolated. Explicit persona
+  // callers (Tasks 6/7/10/11/12) keep working unchanged.
+  const resolved = role ?? personaForWorker(baseTest.info().workerIndex);
+  await page.context().setExtraHTTPHeaders({ "X-Dev-Persona": resolved });
   // Reload (if already on a page) so the next render reads /users/me with
   // the new persona; on a fresh page, the next navigation picks it up.
   const url = page.url();
   if (url && url !== "about:blank") {
     await page.reload();
   }
+}
+
+/**
+ * D3.4 — worker-aware persona for `fullyParallel: true` runs.
+ *
+ * Mod-3 cycle through admin / developer / user. Tests that need a
+ * specific persona still call `loginAs(page, "admin")` directly; this
+ * helper picks the default for the worker so each test gets a
+ * deterministic identity without leaking state across workers.
+ */
+const PERSONAS_ROTATION: readonly DevPersona[] = ["admin", "developer", "user"];
+
+export function personaForWorker(workerIndex: number): DevPersona {
+  if (workerIndex < 0 || !Number.isInteger(workerIndex)) {
+    throw new Error(
+      `personaForWorker expects a non-negative integer worker index; got ${workerIndex}`,
+    );
+  }
+  return PERSONAS_ROTATION[workerIndex % PERSONAS_ROTATION.length];
 }

@@ -67,4 +67,51 @@ export const handlers = [
       { status: 202 },
     ),
   ),
+
+  // D3 §10 #30 carry-over — extra endpoints needed by per-route MSW
+  // integration tests (Task 28 routes/jobs + JobSubmitForm).
+  http.get("/api/v1/datasets", () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: "00000000-0000-0000-0000-000000000033",
+          name: "fixture-train",
+          owner_id: "00000000-0000-0000-0000-000000000001",
+          visibility: "private",
+          sample_count: 10,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 25,
+    }),
+  ),
+
+  http.get("/api/v1/detector-versions/:id", ({ params }) =>
+    HttpResponse.json({
+      id: params.id,
+      detector_id: "00000000-0000-0000-0000-000000000022",
+      git_tag: "v1.0.0-fixture",
+      image_digest:
+        "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      manifest: { framework: "lightning" },
+    }),
+  ),
+
+  http.get("/api/v1/models", () =>
+    HttpResponse.json({
+      items: [
+        {
+          id: "00000000-0000-0000-0000-000000000044",
+          owner_id: "00000000-0000-0000-0000-000000000001",
+          namespace: "fixture",
+          name: "fixture-model",
+          version: 1,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 25,
+    }),
+  ),
 ];

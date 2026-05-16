@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client } from "@/api/client";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 import { NON_TERMINAL_JOB_STATUSES } from "@/lib/status";
 
 export type Job = components["schemas"]["JobRead"];

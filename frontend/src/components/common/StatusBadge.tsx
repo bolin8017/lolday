@@ -16,6 +16,11 @@ export function StatusBadge({ status }: { status: string }) {
   const key = `status.${status}`;
   const label = i18n.exists(key) ? t(key) : status;
   return (
-    <Badge className={cn(TONE_CLASSES[statusTone(status)])}>{label}</Badge>
+    <Badge
+      className={cn(TONE_CLASSES[statusTone(status)])}
+      data-testid={`status-badge-${status}`}
+    >
+      {label}
+    </Badge>
   );
 }

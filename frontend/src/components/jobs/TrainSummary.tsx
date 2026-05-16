@@ -7,7 +7,7 @@ import { TrainedModelCard } from "./TrainedModelCard";
 import { ResolvedConfigCard } from "./ResolvedConfigCard";
 import { useJobEvents, type MaldetEvent } from "@/hooks/useJobEvents";
 import { NON_TERMINAL_JOB_STATUSES } from "@/lib/status";
-import type { components } from "@/api/schema.gen";
+import type { components } from "@/api/schema";
 
 type JobRead = components["schemas"]["JobRead"];
 
