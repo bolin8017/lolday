@@ -90,24 +90,18 @@ PY
 
 # _harbor_creds_ns — print the namespace where the harbor-push-cred Secret
 # lives, or empty + return 1 if absent. recover-harbor.sh creates the
-# Secret in BOTH `lolday` AND `lolday-jobs` (see scripts/recover-harbor.sh
-# `for NS in lolday lolday-jobs`); historically the lolday copy has been
-# pruned between runs, so the script falls through both. Cached in
-# $HARBOR_CRED_NS for subsequent calls within the same invocation.
+# Secret in BOTH `lolday` AND `lolday-jobs`; historically the lolday copy
+# has been pruned between runs, so the lookup falls through both.
+# Delegates to scripts/lib/harbor_api.py (Phase 4 D4.2 R6).
 _harbor_creds_ns() {
   if [ -n "${HARBOR_CRED_NS:-}" ]; then
     echo "$HARBOR_CRED_NS"
     return 0
   fi
   local ns
-  for ns in lolday lolday-jobs; do
-    if kubectl -n "$ns" get secret harbor-push-cred >/dev/null 2>&1; then
-      HARBOR_CRED_NS="$ns"
-      echo "$ns"
-      return 0
-    fi
-  done
-  return 1
+  ns="$(PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api creds-namespace 2>/dev/null)" || return 1
+  HARBOR_CRED_NS="$ns"
+  echo "$ns"
 }
 
 # harbor_login — pull the robot$build-pusher credentials out of the
@@ -125,14 +119,11 @@ harbor_login() {
   local cfg auth user secret
   cfg="$(kubectl -n "$cred_ns" get secret harbor-push-cred \
            -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d)"
-  auth="$(python3 -c '
-import json, sys
-d = json.loads(sys.stdin.read())
-# The Secret carries auth for both DNS forms; either decodes to the
-# same robot$build-pusher:<secret> tuple. Pick the cluster-DNS form
-# because docker login below uses .cluster.local.
-print(d["auths"]["harbor.lolday.svc:80"]["auth"])
-' <<<"$cfg" | base64 -d)"
+  # Decode "robot$build-pusher:<secret>" tuple via the shared Python helper
+  # (Phase 4 D4.2 R6). Picks the harbor.lolday.svc:80 entry by default;
+  # docker login below uses .cluster.local but cosign / Kyverno resolve
+  # both aliases to the same blob.
+  auth="$(PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api decode-dockerconfig <<<"$cfg")"
   user="${auth%%:*}"
   secret="${auth#*:}"
   echo "$secret" | \
@@ -146,59 +137,17 @@ print(d["auths"]["harbor.lolday.svc:80"]["auth"])
 # interpolated directly into the URL without encoding.
 harbor_has_tag() {
   local name=$1 sha=$2
-  # M-harbor-sha-validate: $sha is interpolated directly into the Harbor
-  # REST query string. A caller that hands in contaminated input (e.g.
-  # `; rm -rf /` via a hypothetical future caller that doesn't sanitize)
-  # would issue a malformed query and may surface misleading results.
-  # Regex-guard to the docker-tag SHA range (short-12 subtree SHA up to
-  # full 64-char sha256 digest hex) and fail closed on mismatch. No
-  # legitimate caller is affected — build_ref() generates only this form.
-  if [[ ! "$sha" =~ ^[0-9a-f]{6,64}$ ]]; then
-    echo "ERROR: harbor_has_tag refusing non-SHA arg: $sha" >&2
-    return 2
-  fi
+  # Delegates to scripts/lib/harbor_api.py (Phase 4 D4.2 R6). The Python
+  # module enforces the same M-harbor-sha-validate regex guard, makes the
+  # Harbor REST call via httpx, and translates the JSON-array length into
+  # an exit code (0 = match exists, 1 = not found, 2 = error).
   local cred_ns
   if ! cred_ns="$(_harbor_creds_ns)"; then
     echo "ERROR: K8s Secret harbor-push-cred not found in lolday or lolday-jobs." >&2
     return 2
   fi
-  local cfg auth url status body matches
-  cfg="$(kubectl -n "$cred_ns" get secret harbor-push-cred \
-           -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d)"
-  auth="$(python3 -c '
-import json, sys
-print(json.loads(sys.stdin.read())["auths"]["harbor.lolday.svc:80"]["auth"])
-' <<<"$cfg")"
-  url="http://$HARBOR_HOST_PUSH/api/v2.0/projects/$HARBOR_PROJECT/repositories/$name/artifacts?with_tag=true&q=tags=$sha"
-  body="$(mktemp)"
-  status="$(curl -sS -o "$body" -w '%{http_code}' \
-              -H "Authorization: Basic $auth" "$url" || echo 000)"
-  if [ "$status" = "200" ]; then
-    # Body is a (possibly empty) JSON array.
-    # NOTE: `python3 -c 'script' <file` is the correct pattern. The earlier
-    # `python3 - <file <<HEREDOC` form silently failed: bash applies stdin
-    # redirections left-to-right and the heredoc wins, so python read the
-    # script from the heredoc and sys.stdin.read() returned "" after the
-    # script was consumed. harbor_has_tag therefore always returned 0
-    # matches (silent rebuild every run); harbor_get_digest below errored
-    # explicitly on the empty digest.
-    matches="$(python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-print(len(d) if isinstance(d, list) else 0)
-' <"$body")"
-    rm -f "$body"
-    matches="${matches:-0}"
-    [ "$matches" -gt 0 ]
-  elif [ "$status" = "404" ]; then
-    rm -f "$body"
-    return 1
-  else
-    cat "$body" >&2
-    rm -f "$body"
-    echo "ERROR: harbor_has_tag $name $sha returned HTTP $status" >&2
-    return 2
-  fi
+  HARBOR_CRED_NS="$cred_ns" HARBOR_HOST="$HARBOR_HOST_PUSH" \
+    PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api has-tag "$name" "$sha"
 }
 
 # harbor_get_digest NAME SHA — print the artifact digest (sha256:<64-hex>)
@@ -214,49 +163,17 @@ print(len(d) if isinstance(d, list) else 0)
 # pattern this script already uses (no new dependency).
 harbor_get_digest() {
   local name=$1 sha=$2
-  # Same regex guard as harbor_has_tag — $sha is interpolated directly
-  # into the Harbor REST query string; contaminated input would produce
-  # misleading results.
-  if [[ ! "$sha" =~ ^[0-9a-f]{6,64}$ ]]; then
-    echo "ERROR: harbor_get_digest refusing non-SHA arg: $sha" >&2
-    return 2
-  fi
+  # Delegates to scripts/lib/harbor_api.py (Phase 4 D4.2 R6); the Python
+  # module enforces the same SHA-shape guard, makes the Harbor REST call,
+  # validates the returned digest is a well-formed sha256:<64-hex>, and
+  # writes it to stdout. Errors exit 2 with a message on stderr.
   local cred_ns
   if ! cred_ns="$(_harbor_creds_ns)"; then
     echo "ERROR: K8s Secret harbor-push-cred not found in lolday or lolday-jobs." >&2
     return 2
   fi
-  local cfg auth url status body digest
-  cfg="$(kubectl -n "$cred_ns" get secret harbor-push-cred \
-           -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d)"
-  auth="$(python3 -c '
-import json, sys
-print(json.loads(sys.stdin.read())["auths"]["harbor.lolday.svc:80"]["auth"])
-' <<<"$cfg")"
-  url="http://$HARBOR_HOST_PUSH/api/v2.0/projects/$HARBOR_PROJECT/repositories/$name/artifacts?with_tag=true&q=tags=$sha"
-  body="$(mktemp)"
-  status="$(curl -sS -o "$body" -w '%{http_code}' \
-              -H "Authorization: Basic $auth" "$url" || echo 000)"
-  if [ "$status" != "200" ]; then
-    cat "$body" >&2
-    rm -f "$body"
-    echo "ERROR: harbor_get_digest $name $sha returned HTTP $status" >&2
-    return 2
-  fi
-  # See harbor_has_tag note above re: heredoc-overrides-file-as-stdin.
-  digest="$(python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-if not isinstance(d, list) or not d:
-    sys.exit(1)
-print(d[0]["digest"])
-' <"$body")"
-  rm -f "$body"
-  if [ -z "$digest" ] || ! echo "$digest" | grep -qE '^sha256:[0-9a-f]{64}$'; then
-    echo "ERROR: harbor_get_digest $name $sha returned unexpected digest: $digest" >&2
-    return 2
-  fi
-  echo "$digest"
+  HARBOR_CRED_NS="$cred_ns" HARBOR_HOST="$HARBOR_HOST_PUSH" \
+    PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api get-digest "$name" "$sha"
 }
 
 # docker_build_push NAME SHA — build the image from the helper subtree
