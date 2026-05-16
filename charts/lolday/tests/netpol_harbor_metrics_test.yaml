@@ -1,0 +1,67 @@
+suite: harbor-metrics-from-monitoring-only NetworkPolicy
+templates:
+  - templates/netpol-harbor-metrics.yaml
+values:
+  - ../values-test.yaml
+set:
+  harbor.enabled: true
+  monitoring.enabled: true
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders one NetworkPolicy in lolday ns
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: harbor-metrics-from-monitoring-only
+      - equal:
+          path: metadata.namespace
+          value: lolday
+
+  - it: scopes the policy to app=harbor pods on ingress only
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: harbor
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress]
+
+  - it: allows ingress from monitoring/prometheus on TCP 8001
+    asserts:
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: prometheus
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            protocol: TCP
+            port: 8001
+
+  - it: is gated off when harbor.enabled=false
+    set:
+      harbor.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: is gated off when monitoring.enabled=false
+    set:
+      monitoring.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

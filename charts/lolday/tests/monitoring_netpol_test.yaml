@@ -1,0 +1,136 @@
+suite: monitoring NetworkPolicies (default-deny + egress + cross-ns ingress)
+templates:
+  - templates/monitoring/netpol-default-deny.yaml
+values:
+  - ../values-test.yaml
+set:
+  monitoring.enabled: true
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # Document indices (helm-unittest does not support JSONPath wildcard filters):
+  #   0: monitoring-default-deny      (deny all ingress/egress)
+  #   1: monitoring-internal-ingress  (same-ns ingress allow)
+  #   2: monitoring-traefik-ingress   (kube-system/traefik ingress)
+  #   3: monitoring-default-egress    (egress allows — added same-ns + kubelet 10250)
+  #   4: prometheus-from-lolday-backend  (new, cross-ns ingress on :9090)
+  - it: renders five NetworkPolicies
+    asserts:
+      - hasDocuments:
+          count: 5
+
+  - it: index 0 is the default-deny shell
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: monitoring-default-deny
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - notExists:
+          path: spec.ingress
+      - notExists:
+          path: spec.egress
+
+  # monitoring-default-egress (index 3) — verify the three rules added in the
+  # 2026-05-16 hotfix exist alongside the pre-existing DNS / scrape-target /
+  # external-443 rules.
+  - it: monitoring-default-egress allows DNS first
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: monitoring-default-egress
+      - contains:
+          path: spec.egress[0].ports
+          content:
+            protocol: UDP
+            port: 53
+      - contains:
+          path: spec.egress[0].ports
+          content:
+            protocol: TCP
+            port: 53
+
+  - it: monitoring-default-egress allows same-namespace egress
+    documentIndex: 3
+    asserts:
+      - contains:
+          path: spec.egress[1].to
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+
+  - it: monitoring-default-egress opens TCP 10250 to host-network kubelet via ipBlock
+    documentIndex: 3
+    asserts:
+      - contains:
+          path: spec.egress[7].to
+          content:
+            ipBlock:
+              cidr: 0.0.0.0/0
+              except:
+                - 10.42.0.0/16
+                - 10.43.0.0/16
+                - 192.168.0.0/16
+                - 172.16.0.0/12
+                - 169.254.0.0/16
+      - contains:
+          path: spec.egress[7].ports
+          content:
+            protocol: TCP
+            port: 10250
+
+  - it: monitoring-default-egress retains external 443/6443 for Discord + apiserver
+    documentIndex: 3
+    asserts:
+      - contains:
+          path: spec.egress[8].ports
+          content:
+            protocol: TCP
+            port: 443
+      - contains:
+          path: spec.egress[8].ports
+          content:
+            protocol: TCP
+            port: 6443
+
+  # prometheus-from-lolday-backend (index 4) — new cross-ns ingress for the
+  # host-aware GPU signal path (backend → kps-prometheus.monitoring.svc:9090).
+  - it: prometheus-from-lolday-backend is scoped to prometheus pods only
+    documentIndex: 4
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: prometheus-from-lolday-backend
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/name"]
+          value: prometheus
+
+  - it: prometheus-from-lolday-backend allows lolday/backend on :9090 only
+    documentIndex: 4
+    asserts:
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: lolday
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: backend
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            protocol: TCP
+            port: 9090
