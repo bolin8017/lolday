@@ -57,3 +57,27 @@ markers = [
     "contract: API or manifest contract test (runs serial)",
     "flaky_tracked: known flaky test; must carry issue=<github-url> kwarg",
 ]
+
+[tool.mutmut]
+# Phase 4 D4.3 — weekly mutation tier. Targets the top-10 high-risk
+# modules per spec §1.2 (ranked by 30-day churn × fan-in × postmortem
+# involvement). Phase 4 exit gate: ≥60% killed per module; final
+# target (Phase 4 spec §7.4): ≥80%.
+paths_to_mutate = [
+    "app/routers/jobs.py",
+    "app/reconciler/jobs.py",
+    "app/services/mlflow_client.py",
+    "app/reconciler/fifo_scheduler.py",
+    "app/services/build.py",
+    "app/routers/experiments_proxy.py",
+    "app/auth/cf_access.py",
+    "app/models/job.py",
+    "app/services/gpu_signal.py",
+    "app/reconciler/build_finalize.py",
+]
+tests_dir = ["tests/"]
+# Skip heavy testcontainers tests during mutation runs (would take
+# hours per module). Also disable xdist (mutmut runs its own workers)
+# and rerunfailures (a failed-on-mutant rerun adds latency without
+# improving the kill signal).
+pytest_add_cli_args = ["-m", "not heavy", "-p", "no:xdist", "-p", "no:rerunfailures"]
