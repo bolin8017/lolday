@@ -59,17 +59,49 @@ tests:
           path: spec.inhibitRules
           count: 5
 
-  # Verify both required receivers are declared (by name).
+  # 2026-05-16: route severity=none alerts (Watchdog, InfoInhibitor) to
+  # the `null` receiver — they're informational kps internals, not for
+  # operator notification. The fall-through to discord-warning before
+  # this rule landed surfaced them as `[WARNING] Watchdog` /
+  # `[WARNING] InfoInhibitor` in Spidey Warnings.
+  - it: has a route with receiver null for severity=none (Watchdog / InfoInhibitor)
+    asserts:
+      - contains:
+          path: spec.route.routes
+          content:
+            receiver: "null"
+            matchers:
+              - name: severity
+                value: none
+                matchType: "="
+
+  # Verify the three required receivers are declared (by name + index).
   # `contains` requires exact object match, so check names by index position
-  # (discord-critical first, discord-warning second — matches template order).
-  - it: defines both discord-critical and discord-warning receivers
+  # (null first, then discord-critical, then discord-warning — matches template order).
+  - it: defines null, discord-critical, and discord-warning receivers
     asserts:
       - lengthEqual:
           path: spec.receivers
-          count: 2
+          count: 3
       - equal:
           path: spec.receivers[0].name
-          value: discord-critical
+          value: "null"
       - equal:
           path: spec.receivers[1].name
+          value: discord-critical
+      - equal:
+          path: spec.receivers[2].name
           value: discord-warning
+
+  # The `null` receiver must be a true black hole — no discordConfigs,
+  # no webhookConfigs, no integrations whatsoever. A typo / paste-from-
+  # warning that adds discordConfigs here would re-leak severity=none
+  # alerts to a Discord channel, defeating the fix.
+  - it: null receiver has no integrations (true black hole)
+    asserts:
+      - notExists:
+          path: spec.receivers[0].discordConfigs
+      - notExists:
+          path: spec.receivers[0].webhookConfigs
+      - notExists:
+          path: spec.receivers[0].emailConfigs
