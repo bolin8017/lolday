@@ -84,6 +84,13 @@ spec:
                 # README "Crontab schedule".
                 - name: SCHEDULE
                   value: "@disabled"
+                # When the K8s CronJob fires, run a single backup on container
+                # startup, then exit so the Job completes. Without this the
+                # container idles on the health-check listener forever and
+                # KubeJobNotCompleted fires. See the upstream README
+                # "Run the backup at startup" section.
+                - name: BACKUP_ON_START
+                  value: "TRUE"
                 - name: BACKUP_KEEP_DAYS
                   value: {{ .Values.pgBackup.keepDays | quote }}
                 - name: BACKUP_KEEP_WEEKS
