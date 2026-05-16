@@ -151,22 +151,22 @@ C4Container
 
 ### Monitoring (`charts/lolday/templates/monitoring/`)
 
-| Resource                                                                | Purpose                                                                                  |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `alertmanager-rules.yaml` + `alertmanager-config-discord.yaml`          | Prom rules + Discord receiver                                                            |
-| `deadmans-switch.yaml` + `charts/lolday/files/deadmans_switch/check.py` | CronJob heartbeat to an independent Discord webhook (fail-fast on missing `DISCORD_URL`) |
-| `grafana-admin-secret.yaml` + `grafana-dashboards.yaml`                 | Grafana wiring + dashboards                                                              |
-| `pg-backup-cronjob.yaml` + ServiceAccount + Secret + NetPol             | Daily Postgres dump to MinIO `pg-backups` bucket — see `docs/runbooks/db-restore.md`     |
-| `postgres-exporter-initjob.yaml` + `postgres-exporter.yaml`             | Postgres metrics exporter                                                                |
-| `servicemonitor-{backend,dcgm,postgres,traefik,trivy,volcano}.yaml`     | ServiceMonitors × 6                                                                      |
-| `netpol-default-deny.yaml` + 3 supplemental NPs (chart 0.24.0)          | Monitoring-ns default-deny ingress + scoped allows for Prom / Grafana / Alertmanager     |
+| Resource                                                                | Purpose                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `alertmanager-rules.yaml` + `alertmanager-config-discord.yaml`          | Prom rules + Discord receiver                                                                                                                                                                                                        |
+| `deadmans-switch.yaml` + `charts/lolday/files/deadmans_switch/check.py` | SRE dead-man-switch CronJob: POSTs to the Discord critical webhook (`DISCORD_URL` → `webhook-url-critical` → Captain Hook) on Watchdog-fail; silent on success. Positive-heartbeat repurposing of Spidey Heartbeat is tracked in §10 |
+| `grafana-admin-secret.yaml` + `grafana-dashboards.yaml`                 | Grafana wiring + dashboards                                                                                                                                                                                                          |
+| `pg-backup-cronjob.yaml` + ServiceAccount + Secret + NetPol             | Daily Postgres dump to MinIO `pg-backups` bucket — see `docs/runbooks/db-restore.md`                                                                                                                                                 |
+| `postgres-exporter-initjob.yaml` + `postgres-exporter.yaml`             | Postgres metrics exporter                                                                                                                                                                                                            |
+| `servicemonitor-{backend,dcgm,postgres,traefik,trivy,volcano}.yaml`     | ServiceMonitors × 6                                                                                                                                                                                                                  |
+| `netpol-default-deny.yaml` + 3 supplemental NPs (chart 0.24.0)          | Monitoring-ns default-deny ingress + scoped allows for Prom / Grafana / Alertmanager                                                                                                                                                 |
 
 ### Notifications
 
-| Channel                | Code path                                                                                 | Pattern                                                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Discord events webhook | `backend/app/services/discord.py` (embed builders) + `services/notify.py` (HTTP delivery) | Fire-and-forget; `asyncio.create_task(notify_*(...))`; errors counted to `BACKEND_ERRORS{stage="discord_notify"}` |
-| Deadmans-switch        | `charts/lolday/files/deadmans_switch/check.py`                                            | Independent webhook (`DISCORD_URL` env); fail-fast on missing                                                     |
+| Channel                | Code path                                                                                 | Pattern                                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Discord events webhook | `backend/app/services/discord.py` (embed builders) + `services/notify.py` (HTTP delivery) | Fire-and-forget; `asyncio.create_task(notify_*(...))`; errors counted to `BACKEND_ERRORS{stage="discord_notify"}`       |
+| Deadmans-switch        | `charts/lolday/files/deadmans_switch/check.py`                                            | SRE dead-man-switch — POST to critical webhook on Watchdog-fail (silent on success); fail-fast on missing `DISCORD_URL` |
 
 ## 4. Data flows
 
@@ -444,7 +444,7 @@ cd frontend && pnpm typecheck && pnpm lint
 
 - **Cloudflare Access** — SSO. JWKS at `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. Backend rejects boot in production if `CF_ACCESS_TEAM_DOMAIN` or `CF_ACCESS_APP_AUD` is empty.
 - **Cloudflare Tunnel (cloudflared)** — exposes the cluster to the public internet. Token in `.lolday-secrets.env` as `CF_TUNNEL_TOKEN`.
-- **Discord webhooks (× 4 channels)** — Alertmanager critical (`DISCORD_WEBHOOK_URL_CRITICAL` → Captain Hook) + Alertmanager warning (`DISCORD_WEBHOOK_URL_WARNING` → Spidey Warnings) + backend user-events (`DISCORD_WEBHOOK_URL_EVENTS` → Spidey Service Alerts) + deadmans-switch heartbeat (`DISCORD_URL` on the CronJob env → Spidey Heartbeat; independent secret). Channel directory + behaviour map: `docs/operations.md` §Discord channels. The 2 → 4 split was the 2026-05-10 alerting redesign.
+- **Discord webhooks (× 3 active + 1 reserved channel)** — Alertmanager critical (`DISCORD_WEBHOOK_URL_CRITICAL` → Captain Hook) + Alertmanager warning (`DISCORD_WEBHOOK_URL_WARNING` → Spidey Warnings) + backend user-events (`DISCORD_WEBHOOK_URL_EVENTS` → Spidey Service Alerts). `deadmans-switch` reuses `DISCORD_WEBHOOK_URL_CRITICAL` today (its `DISCORD_URL` env points at `alertmanager-discord/webhook-url-critical` → Captain Hook) and POSTs only on Watchdog-fail — silence-on-success is the SRE dead-man-switch pattern. The Spidey Heartbeat channel exists but receives nothing today; promotion to a true positive-heartbeat sink is tracked in §10. Channel directory + behaviour map: `docs/operations.md` §Discord channels. The 2 → 4 split was the 2026-05-10 alerting redesign.
 - **GitHub** — code host. No Actions configured.
 - **maldet (PyPI)** — external detector framework. Pin `maldet>=1.1,<2`. Bumping requires reading the maldet repo CHANGELOG.
 - **NVIDIA GPU operator** — installed via upstream Helm chart (NOT lolday's chart). DCGM exporter feeds Prometheus.
