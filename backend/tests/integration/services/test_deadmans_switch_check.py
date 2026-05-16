@@ -257,3 +257,124 @@ def test_payload_carries_required_discord_shape(check_mod, monkeypatch):
     field_by_name = {f["name"]: f["value"] for f in embed["fields"]}
     assert field_by_name["Cluster"] == "lolday-unit-test"
     assert field_by_name["Timestamp"] == "2026-04-22T12:34:56+00:00"
+
+
+# --- positive heartbeat (Phase 11) ----------------------------------------
+
+
+def test_heartbeat_payload_is_green_with_age_and_timestamp(check_mod, monkeypatch):
+    """The success embed must (a) NOT carry `@here` (no notification ping
+    for healthy state) and (b) include the Watchdog age so an observer can
+    sanity-check the chain at a glance."""
+    now = datetime(2026, 5, 16, 22, 0, 0, tzinfo=UTC)
+    monkeypatch.setenv("CLUSTER_NAME", "lolday-unit-test")
+    payload = check_mod._build_heartbeat_payload(age_seconds=42, now=now)
+    assert "content" not in payload, "heartbeat must not @here-ping"
+    assert len(payload["embeds"]) == 1
+    embed = payload["embeds"][0]
+    assert "heartbeat" in embed["title"].lower()
+    assert "healthy" in embed["title"].lower()
+    assert embed["color"] == 3066993  # Discord green
+    field_by_name = {f["name"]: f["value"] for f in embed["fields"]}
+    assert field_by_name["Cluster"] == "lolday-unit-test"
+    assert "42s" in field_by_name["Watchdog age"]
+    assert f"{check_mod.MAX_AGE_SECONDS}s" in field_by_name["Watchdog age"]
+    assert field_by_name["Timestamp"] == "2026-05-16T22:00:00+00:00"
+
+
+def test_check_success_with_heartbeat_url_posts_heartbeat(check_mod):
+    """Happy path: Watchdog fresh + heartbeat URL set → exactly one POST
+    to the heartbeat URL with the green embed payload."""
+    now = datetime.now(UTC)
+    fresh = now - timedelta(seconds=30)
+    seen_requests: list[dict] = []
+
+    def opener(req, timeout):
+        # Snapshot URL + body for assertion. The script calls _discord_post
+        # once for success — verify the call shape, not the network.
+        seen_requests.append({"url": req.full_url, "body": req.data})
+        return _SuccessResp()
+
+    with mock.patch.object(check_mod, "fetch_alerts", return_value=[_watchdog(fresh)]):
+        reason = check_mod.check(
+            now=now,
+            heartbeat_url="http://heartbeat.test/webhook/abc",
+            heartbeat_opener=opener,
+            heartbeat_sleep=lambda *_: None,
+        )
+
+    assert reason is None
+    assert len(seen_requests) == 1
+    posted = seen_requests[0]
+    assert posted["url"] == "http://heartbeat.test/webhook/abc"
+    body = (
+        posted["body"].decode() if isinstance(posted["body"], bytes) else posted["body"]
+    )
+    assert "heartbeat" in body.lower()
+    # No @here on the heartbeat — that would re-notify a healthy state.
+    assert "@here" not in body
+
+
+def test_check_success_without_heartbeat_url_does_not_post(check_mod):
+    """Backwards compat: existing deploys without DISCORD_HEARTBEAT_URL
+    must continue to be silent on success."""
+    now = datetime.now(UTC)
+    fresh = now - timedelta(seconds=30)
+    seen_requests: list[dict] = []
+
+    def opener(req, timeout):
+        seen_requests.append({"url": req.full_url})
+        return _SuccessResp()
+
+    with mock.patch.object(check_mod, "fetch_alerts", return_value=[_watchdog(fresh)]):
+        reason = check_mod.check(now=now, heartbeat_opener=opener)
+
+    assert reason is None
+    assert seen_requests == [], "no heartbeat URL → no POST"
+
+
+def test_check_success_heartbeat_post_failure_is_swallowed(check_mod):
+    """A flapping heartbeat sink must NOT cause the CronJob to crash —
+    that would page Captain Hook (KubeJobFailed) on top of Spidey
+    Heartbeat silence, doubling the operator's noise."""
+    now = datetime.now(UTC)
+    fresh = now - timedelta(seconds=30)
+
+    def opener(req, timeout):
+        raise urllib.error.URLError("heartbeat sink down")
+
+    with mock.patch.object(check_mod, "fetch_alerts", return_value=[_watchdog(fresh)]):
+        # Should NOT raise — the failure must be swallowed.
+        reason = check_mod.check(
+            now=now,
+            heartbeat_url="http://heartbeat.test/webhook/abc",
+            heartbeat_opener=opener,
+            heartbeat_sleep=lambda *_: None,
+        )
+
+    assert reason is None  # Watchdog itself is healthy
+
+
+def test_check_failure_does_not_post_heartbeat(check_mod):
+    """If Watchdog is stale or missing, the heartbeat path must be
+    skipped — we shouldn't tell Spidey Heartbeat "all healthy" while
+    Captain Hook is being paged."""
+    now = datetime.now(UTC)
+    stale = now - timedelta(seconds=check_mod.MAX_AGE_SECONDS + 60)
+    seen_requests: list[dict] = []
+
+    def opener(req, timeout):
+        seen_requests.append({"url": req.full_url})
+        return _SuccessResp()
+
+    with mock.patch.object(check_mod, "fetch_alerts", return_value=[_watchdog(stale)]):
+        reason = check_mod.check(
+            now=now,
+            heartbeat_url="http://heartbeat.test/webhook/abc",
+            heartbeat_opener=opener,
+            heartbeat_sleep=lambda *_: None,
+        )
+
+    assert reason is not None
+    assert "stopped sending" in reason
+    assert seen_requests == [], "failure path must not also send heartbeat"
