@@ -73,19 +73,10 @@ assert_not_shallow() {
 # check-helpers-lock.sh asserts it.
 write_lock() {
   local build_ref=$1 job_ref=$2
-  local tmp
-  tmp="$(mktemp "${LOCK_FILE}.XXXXXX")"
-  BUILD_REF="$build_ref" JOB_REF="$job_ref" python3 - "$tmp" <<'PY'
-import json, os, sys
-out = {
-    "build_helper": os.environ["BUILD_REF"],
-    "job_helper":   os.environ["JOB_REF"],
-}
-with open(sys.argv[1], "w", encoding="utf-8") as f:
-    json.dump(out, f, indent=2, sort_keys=True)
-    f.write("\n")
-PY
-  mv "$tmp" "$LOCK_FILE"
+  # Delegates to scripts/lib/helpers_lock.py (Phase 4 D4.2 R6) which
+  # handles atomic tmp+rename + fsync internally.
+  PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.helpers_lock write \
+    "$LOCK_FILE" "$build_ref" "$job_ref"
 }
 
 # _harbor_creds_ns — print the namespace where the harbor-push-cred Secret
@@ -406,16 +397,10 @@ main() {
   # away the other helper's pinned ref.
   local existing_build="" existing_job=""
   if [ -f "$LOCK_FILE" ]; then
-    existing_build="$(python3 -c '
-import json, sys
-d = json.load(open(sys.argv[1]))
-print(d.get("build_helper", ""))
-' "$LOCK_FILE")"
-    existing_job="$(python3 -c '
-import json, sys
-d = json.load(open(sys.argv[1]))
-print(d.get("job_helper", ""))
-' "$LOCK_FILE")"
+    # helpers_lock.read returns one ref per line: build_helper then job_helper.
+    { read -r existing_build; read -r existing_job; } < <(
+      PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.helpers_lock read "$LOCK_FILE"
+    )
   fi
 
   local final_build="${new_refs[build-helper]:-$existing_build}"

@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - "backend/**"
+      - "scripts/lib/**"
+      - "scripts/tests/**"
       - ".github/workflows/backend-fast.yml"
   push:
     branches: [main]
     paths:
       - "backend/**"
+      - "scripts/lib/**"
+      - "scripts/tests/**"
 
 permissions:
   contents: read
@@ -37,6 +41,13 @@ jobs:
             --junitxml=junit.xml \
             -v --tb=short
 
+      - name: Run scripts/lib unit tests
+        working-directory: backend
+        run: |
+          uv run pytest ../scripts/tests/lib/ \
+            --junitxml=junit-scripts.xml \
+            -v --tb=short
+
       # Codecov upload — gate to non-fork PRs and push events.
       # The action no-ops with a warning when CODECOV_TOKEN is unset on a
       # private repo, so this step is safe before the operator wires the secret.
@@ -55,4 +66,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-backend-fast-${{ github.run_id }}
-          path: backend/junit.xml
+          path: |
+            backend/junit.xml
+            backend/junit-scripts.xml
