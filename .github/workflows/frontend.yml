@@ -59,6 +59,10 @@ jobs:
           DATABASE_URL: "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true"
           CF_ACCESS_TEAM_DOMAIN: ""
           CF_ACCESS_APP_AUD: ""
+          # DOCS_ENABLED gates /openapi.json on the FastAPI app (post-
+          # program review hardening — default off in prod). Snapshot
+          # regen needs it on.
+          DOCS_ENABLED: "true"
         run: |
           cd backend
           nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 \

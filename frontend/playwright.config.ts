@@ -45,6 +45,10 @@ export default defineConfig({
               "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true",
             CF_ACCESS_TEAM_DOMAIN: "",
             CF_ACCESS_APP_AUD: "",
+            // /openapi.json is gated by DOCS_ENABLED (default off in
+            // prod). Off doesn't matter for E2E specs, but on keeps
+            // parity with the regen + drift guard.
+            DOCS_ENABLED: "true",
           },
         },
         {
