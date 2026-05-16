@@ -75,9 +75,19 @@ spec:
             matchLabels:
               app.kubernetes.io/name: traefik
 ---
-# Egress: DNS + scrape targets across the three workload namespaces +
-# kube-apiserver (Prometheus kube-state-metrics, kubelet metrics) + external
-# (Alertmanager → Discord webhook).
+# Egress for the monitoring ns. Allow:
+#   - DNS (CoreDNS)
+#   - Same-namespace egress (Prom → AM, Grafana → Prom, deadmans-switch → AM).
+#     Pods inside the same ns are NOT auto-allowed; selecting `podSelector: {}`
+#     on the deny rule covers them, so a same-ns allow is required.
+#   - Cross-ns scrape egress to the workload namespaces (lolday, lolday-jobs,
+#     kube-system, trivy-system, gpu-operator). namespaceSelector matches
+#     pod-network targets only.
+#   - Host-network egress to kubelet on TCP 10250. Kubelet runs on the K3s
+#     node's host network and has no pod label, so namespaceSelector(kube-system)
+#     can NOT match it. Use an ipBlock with the K3s pod+service CIDR carve-out.
+#   - External egress to 0.0.0.0/0 on 443 (Alertmanager → Discord webhook) and
+#     6443 (kube-apiserver reachable via the node IP after kube-proxy DNAT).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -99,6 +109,12 @@ spec:
       ports:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
+    # Same-namespace egress (Prom → AM, Grafana → Prom, deadmans-switch → AM,
+    # AM → AM cluster gossip on :9094 if HA, etc.).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.monitoring.namespace }}
     # Cross-ns scrape targets in lolday infra ns (backend :8000, postgres
     # exporter :9187, mlflow :5000, harbor exporter :8001 etc.). We allow
     # the ns broadly because Prometheus discovers targets at runtime; the
@@ -114,8 +130,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace }}
-    # kube-system: kubelet metrics (:10250), kube-apiserver via Service IP,
-    # CoreDNS metrics (:9153), Traefik metrics (:9100).
+    # kube-system: kube-state-metrics + kube-apiserver via Service IP +
+    # CoreDNS metrics + Traefik metrics. Pod-network targets only (kubelet
+    # is host-network and is covered by the ipBlock rule below).
     - to:
         - namespaceSelector:
             matchLabels:
@@ -130,6 +147,23 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: gpu-operator
+    # Kubelet metrics on the K3s node's host network. The kube-system
+    # namespaceSelector above cannot match host-network targets (kubelet has
+    # no pod label), so we open TCP 10250 via ipBlock with the pod+service
+    # CIDR carve-out. Mainstream kube-prometheus-stack pattern; see
+    # https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
+    # `prometheus.networkPolicy.egress` for the upstream equivalent.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.42.0.0/16  # K3s pod CIDR
+              - 10.43.0.0/16  # K3s service CIDR
+              - 192.168.0.0/16
+              - 172.16.0.0/12
+              - 169.254.0.0/16
+      ports:
+        - { protocol: TCP, port: 10250 }
     # External egress for Alertmanager Discord webhook. Discord IPs aren't
     # stable; the carve-out matches the pattern in build-networkpolicy.yaml
     # and netpol-cloudflared.yaml. TLS + receiver auth gate the receiver
@@ -146,4 +180,34 @@ spec:
       ports:
         - { protocol: TCP, port: 443 }
         - { protocol: TCP, port: 6443 } # kube-apiserver via host LB
+---
+# Cross-ns ingress: allow backend pods in `lolday` ns to query Prometheus
+# (kps-prometheus.monitoring.svc:9090). The 2026-05-11 host-aware GPU
+# signal design (docs/superpowers/specs/2026-05-10-host-aware-gpu-signal-design.md
+# §7) made this a fail-closed runtime path — without ingress the scheduler
+# pages GpuSignalFailSafeStuck. Backend does NOT need Alertmanager API
+# access, so port 9090 only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-from-lolday-backend
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.global.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+      ports:
+        - { protocol: TCP, port: 9090 }
 {{- end }}

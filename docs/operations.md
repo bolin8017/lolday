@@ -16,27 +16,27 @@ Lolday uses four Discord group channels. Channel IDs come from
 `~/.claude/channels/discord/access.json` `groups` key. Webhook URLs are
 filled by the operator into `~/.lolday-secrets.env` and consumed via Helm.
 
-| Channel name          | Channel ID            | Source                                                                                | Behaviour                                                                 |
-| --------------------- | --------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Captain Hook          | `1495778266907279410` | Alertmanager `severity=critical` (alerting redesign 2026-05-10)                       | `@here` ping; messages always require immediate action                    |
-| Spidey Warnings       | `1502975656252670173` | Alertmanager `severity=warning` (added in alerting redesign 2026-05-10)               | No `@here`; FYI-only                                                      |
-| Spidey Heartbeat      | `1495780321239502919` | `deadmans-switch` CronJob (`charts/lolday/templates/monitoring/deadmans-switch.yaml`) | Messages mean healthy; absence is the anomaly                             |
-| Spidey Service Alerts | `1495967957992603788` | backend Discord notify (`backend/app/services/discord.py` + `notify.py`)              | Events targeted at specific users (`@bolin8017` / `@service-<id>.access`) |
+| Channel name          | Channel ID            | Source                                                                                                  | Behaviour                                                                 |
+| --------------------- | --------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Captain Hook          | `1495778266907279410` | Alertmanager `severity=critical` (alerting redesign 2026-05-10) + `deadmans-switch` Watchdog-fail pings | `@here` ping; messages always require immediate action                    |
+| Spidey Warnings       | `1502975656252670173` | Alertmanager `severity=warning` (added in alerting redesign 2026-05-10)                                 | No `@here`; FYI-only                                                      |
+| Spidey Heartbeat      | `1495780321239502919` | _Currently unused._ Reserved for the future positive-heartbeat follow-up (`docs/architecture.md` §10)   | Silent today; positive heartbeat to be wired by an operator follow-up     |
+| Spidey Service Alerts | `1495967957992603788` | backend Discord notify (`backend/app/services/discord.py` + `notify.py`)                                | Events targeted at specific users (`@bolin8017` / `@service-<id>.access`) |
 
 Webhook env mapping (`~/.lolday-secrets.env`):
 
-| Env var                        | Channel               |
-| ------------------------------ | --------------------- |
-| `DISCORD_WEBHOOK_URL_CRITICAL` | Captain Hook          |
-| `DISCORD_WEBHOOK_URL_WARNING`  | Spidey Warnings       |
-| `DISCORD_WEBHOOK_URL_EVENTS`   | Spidey Service Alerts |
-| `DISCORD_URL` (CronJob only)   | Spidey Heartbeat      |
+| Env var                        | Channel               | Current consumer                                                                        |
+| ------------------------------ | --------------------- | --------------------------------------------------------------------------------------- |
+| `DISCORD_WEBHOOK_URL_CRITICAL` | Captain Hook          | Alertmanager `severity=critical` + `deadmans-switch` failure POST                       |
+| `DISCORD_WEBHOOK_URL_WARNING`  | Spidey Warnings       | Alertmanager `severity=warning`                                                         |
+| `DISCORD_WEBHOOK_URL_EVENTS`   | Spidey Service Alerts | backend `services/discord.py`                                                           |
+| `DISCORD_URL` (CronJob only)   | Captain Hook _today_  | `deadmans-switch` on Watchdog-fail (originally intended for Spidey Heartbeat — see §10) |
 
 Debug entry points:
 
-- Captain Hook `@here` surge → `kubectl -n monitoring port-forward svc/kps-prometheus 9090`, then `curl 'http://localhost:9090/api/v1/query?query=count by (alertname,severity) (count_over_time(ALERTS{alertstate="firing"}[7d]))'`
+- Captain Hook `@here` surge → `kubectl -n monitoring port-forward svc/kps-prometheus 9090`, then `curl 'http://localhost:9090/api/v1/query?query=count by (alertname,severity) (count_over_time(ALERTS{alertstate="firing"}[7d]))'`. Also check `kubectl -n monitoring logs job/$(kubectl -n monitoring get jobs -l app.kubernetes.io/name=deadmans-switch -o name | tail -1)` for `Alertmanager unreachable` — recurrent on monitoring-ns NetworkPolicy regressions (precedent: 2026-05-16 hotfix, `docs/superpowers/plans/2026-05-16-monitoring-np-and-alerts-recovery.md`).
 - Spidey Warnings spamming many similar alerts → inhibit rule failed; `amtool config show` and compare against the 5 `inhibitRules` in spec `2026-05-10-alerting-redesign-design.md` §6.2
-- Spidey Heartbeat drops out → `kubectl -n lolday get cronjob deadmans-switch` (suspended? last successful?) + verify the `DISCORD_URL` env is still valid
+- Spidey Heartbeat empty → expected today. The current `deadmans-switch` is the SRE dead-man-switch pattern (POST on monitoring-chain failure only, never on success). The channel exists so an operator can wire a positive-heartbeat follow-up; tracked in `docs/architecture.md` §10.
 - Service alert embed content unclear → grep `backend/app/services/discord.py` for the matching embed builder
 
 History notes:

@@ -1,0 +1,31 @@
+{{- if and .Values.postgresql.enabled .Values.monitoring.enabled .Values.monitoring.postgresExporter.enabled }}
+{{/* Allow kps-prometheus to scrape postgres-exporter at :9187.
+     Lives outside the postgresql-ingress-allow NP because that one
+     targets postgresql (the DB pod), not postgres-exporter.
+
+     Mirrors the `backend-metrics-from-monitoring-only` pattern
+     (network-policy.yaml). */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-exporter-metrics-from-monitoring-only
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "lolday.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-exporter
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.monitoring.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - { protocol: TCP, port: 9187 }
+{{- end }}
