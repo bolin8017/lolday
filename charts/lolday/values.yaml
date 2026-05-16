@@ -705,11 +705,12 @@ trivy-operator:
       requests: { cpu: 100m, memory: 256Mi }
       limits: { cpu: 500m, memory: 1Gi }
     # Residual CVEs whose fixes exist upstream but haven't reached the
-    # images we deploy yet. Chart-level bumps fix the bulk; this Rego
-    # policy closes the long tail so TrivyCriticalCVE only fires on
-    # genuinely-new findings. Re-evaluate by 2026-07-28 — remove an
-    # entry from `residual_cves` once the upstream image ships a
-    # fixed tag.
+    # images we deploy yet, OR are not exploitable in our config. Chart-
+    # level image bumps fix the bulk; this Rego policy closes the long
+    # tail so TrivyCriticalCVE only fires on genuinely-new findings.
+    # Re-evaluate by 2026-08-14 — remove an entry from `residual_cves`
+    # once the upstream image ships a fixed tag, or once we change the
+    # config in a way that exposes a now-applicable CVE.
     #
     # Per-CVE rationale:
     # - CVE-2025-68121 — Go crypto/tls cert-validation bypass on
@@ -732,6 +733,31 @@ trivy-operator:
     #   template, net/netip). Long-fixed upstream but baked into
     #   redis:7.4-alpine tooling. Redis used only for rate-limit cache.
     #
+    # Added 2026-05-16 in the §10 #33 closure round (PR follow-up to
+    # #203 — the original 2026-05-16 image-bump PR landed 11 → 6
+    # CRITICALs, this Rego closure suppresses the residual 6 so
+    # Spidey Warnings stops repeating the alert):
+    # - CVE-2025-15467 — OpenSSL RCE/DoS. Fixed in Alpine
+    #   `libcrypto3` / `libssl3` 3.5.5-r0. Hits `prodrigestivill/
+    #   postgres-backup-local:16-alpine` 3.5.2-r0 because the upstream
+    #   image (last rebuilt 2025-09-26) hasn't `apk upgrade`-d yet.
+    #   Wait-for-upstream-rebuild + quarterly digest refresh per §10
+    #   #33; pod network surface is internal-only (psql + S3 + local
+    #   health port) so the openssl reachability is nil.
+    # - CVE-2025-49794 / CVE-2025-49796 — libxml2 UAF + type confusion
+    #   (both DoS). Fixed in Alpine `libxml2` 2.13.9-r0. Same
+    #   prodrigestivill upstream blocker as CVE-2025-15467; same
+    #   reachability assessment.
+    # - CVE-2026-33322 — MinIO OIDC JWT Algorithm Confusion. NO
+    #   upstream fix as of MinIO `RELEASE.2025-09-07`. Lolday's MinIO
+    #   uses root credentials only (`existingSecret: minio-root-cred`)
+    #   and does NOT enable OIDC auth, so the affected code path is
+    #   unreachable in this config. Tracked for the next image-bump
+    #   round; if we ever enable OIDC, remove this entry FIRST.
+    # - CVE-2026-33419 — MinIO LDAP brute-force via user enumeration.
+    #   Same applicability assessment as CVE-2026-33322 — LDAP auth
+    #   backend not enabled.
+    #
     # The trivy-operator chart's `ignoreFile` value is broken for both
     # string and list inputs (mangled by `toYaml | nindent` — emits
     # leading `|` or `-` that Trivy CLI rejects). The chart's
@@ -751,6 +777,11 @@ trivy-operator:
         "CVE-2023-24538",
         "CVE-2023-24540",
         "CVE-2024-24790",
+        "CVE-2025-15467",
+        "CVE-2025-49794",
+        "CVE-2025-49796",
+        "CVE-2026-33322",
+        "CVE-2026-33419",
       }
 
       ignore {
