@@ -53,3 +53,22 @@ export async function loginAs(page: Page, role: DevPersona): Promise<void> {
     await page.reload();
   }
 }
+
+/**
+ * D3.4 — worker-aware persona for `fullyParallel: true` runs.
+ *
+ * Mod-3 cycle through admin / developer / user. Tests that need a
+ * specific persona still call `loginAs(page, "admin")` directly; this
+ * helper picks the default for the worker so each test gets a
+ * deterministic identity without leaking state across workers.
+ */
+const PERSONAS_ROTATION: readonly DevPersona[] = ["admin", "developer", "user"];
+
+export function personaForWorker(workerIndex: number): DevPersona {
+  if (workerIndex < 0 || !Number.isInteger(workerIndex)) {
+    throw new Error(
+      `personaForWorker expects a non-negative integer worker index; got ${workerIndex}`,
+    );
+  }
+  return PERSONAS_ROTATION[workerIndex % PERSONAS_ROTATION.length];
+}
