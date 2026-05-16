@@ -55,7 +55,7 @@ Both checks run inside the FastAPI lifespan. A misconfigured deploy crashes the 
 - `services/notify.py` does the HTTP via httpx with a 5s timeout. It swallows all exceptions and increments `BACKEND_ERRORS{stage="discord_notify"}`.
 - Callers wrap in `asyncio.create_task(notify_*(...))` for fire-and-forget. Do not `await` from a request handler. Do not add try/except around `notify_*` — exceptions are already handled.
 - service-token-driven jobs skip notify (Phase 12). Do not "fix" this.
-- The `deadmans-switch` CronJob uses an independent webhook (`DISCORD_URL` env, fail-fast on missing). Do not conflate the two.
+- The `deadmans-switch` CronJob uses two independent webhooks of its own: `DISCORD_URL` (failure → Captain Hook, fail-fast on missing) and `DISCORD_HEARTBEAT_URL` (positive heartbeat → Spidey Heartbeat, optional, swallow-on-flake). Both are distinct from the backend's `DISCORD_WEBHOOK_URL_EVENTS`. Do not conflate the three.
 - Per-pod concurrent webhook posts are capped at 20 via module-level `_NOTIFY_SEM = asyncio.Semaphore(20)` (security-hardening P6 M-notify-semaphore). Non-blocking acquire — saturation drops the notify and increments `BACKEND_ERRORS{stage="discord_notify_dropped"}` (sibling stage on the same Counter; see §`BACKEND_ERRORS` failure-bus convention).
 
 ## `BACKEND_ERRORS` failure-bus convention
