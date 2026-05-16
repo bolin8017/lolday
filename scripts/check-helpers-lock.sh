@@ -15,7 +15,14 @@ if [ "${LOLDAY_SKIP_HELPERS_LOCK_CHECK:-0}" = "1" ]; then
   exit 0
 fi
 
-REPO_ROOT="${LOLDAY_REPO_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# SCRIPT_HOME — always the real repo containing scripts/lib/ (where the
+# helpers_lock module lives). REPO_ROOT — the tree whose helpers.lock and
+# git HEAD are being checked (overridable for tests via
+# LOLDAY_REPO_ROOT_OVERRIDE). These differ when bats runs against a
+# fixture repo at $TMP while the helpers_lock module stays in the real
+# repo.
+SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="${LOLDAY_REPO_ROOT_OVERRIDE:-$SCRIPT_HOME}"
 LOCK_FILE="$REPO_ROOT/charts/lolday/helpers.lock"
 
 if [ ! -f "$LOCK_FILE" ]; then
@@ -23,5 +30,5 @@ if [ ! -f "$LOCK_FILE" ]; then
   exit 1
 fi
 
-PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.helpers_lock check-drift \
+PYTHONPATH="$SCRIPT_HOME" python3 -m scripts.lib.helpers_lock check-drift \
   "$LOCK_FILE" --repo "$REPO_ROOT"
