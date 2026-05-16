@@ -1,0 +1,3 @@
+# Transient SQLite cache used by the aggregator (committed dashboard is the SoT).
+data.sqlite
+data.sqlite-journal

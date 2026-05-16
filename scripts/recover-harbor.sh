@@ -58,15 +58,7 @@ done
 echo
 echo "robot account upsert…"
 LIST_JSON=$(curl -sf -u "$adm" "$api/robots?q=name%3Dbuild-pusher")
-EXISTING_ID=$(echo "$LIST_JSON" | python3 -c '
-import sys, json
-try:
-    rows = json.loads(sys.stdin.read())
-    ids = [r["id"] for r in rows if r.get("name") in ("robot$build-pusher", "build-pusher")]
-    print(ids[0] if ids else "")
-except Exception:
-    print("")
-')
+EXISTING_ID=$(PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api parse-robot-list <<<"$LIST_JSON")
 
 if [ -n "$EXISTING_ID" ]; then
   echo "  robot$build-pusher already exists (id=$EXISTING_ID), rotating secret…"
@@ -116,20 +108,8 @@ if [ -n "$EXISTING_ID" ]; then
   # proceed unless the response carries a non-empty permissions array
   # that already includes lolday + detectors. A bare `[]` is treated as
   # "Harbor is not ready yet" and the deploy should retry later.
-  ROBOT_STATE=$(echo "$CURRENT" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-perms = d.get("permissions", [])
-namespaces = {p.get("namespace") for p in perms if isinstance(p, dict)}
-if not perms:
-    print("empty")
-elif not {"lolday", "detectors"}.issubset(namespaces):
-    print("missing-core")
-elif "detectors-cache" in namespaces:
-    print("already-has-cache")
-else:
-    print("needs-cache")
-')
+  # Classification logic lives in scripts/lib/harbor_api.py::robot_state.
+  ROBOT_STATE=$(PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api robot-state <<<"$CURRENT")
   case "$ROBOT_STATE" in
     empty)
       echo "  ERROR: robot $EXISTING_ID has empty permissions array — refusing to PUT (would wipe existing grants)" >&2
@@ -144,32 +124,20 @@ else:
       ;;
     needs-cache)
       echo "  granting detectors-cache perms to existing robot (id=$EXISTING_ID)…"
-      NEW_BODY=$(echo "$CURRENT" | python3 -c '
-import sys, json
-d = json.load(sys.stdin)
-d["permissions"].append({
-    "kind": "project",
-    "namespace": "detectors-cache",
-    "access": [
-        {"resource": "repository", "action": "push"},
-        {"resource": "repository", "action": "pull"},
-    ],
-})
-print(json.dumps({k: d[k] for k in ["name","level","duration","description","disable","editable","expires_at","permissions"] if k in d}))
-')
+      # Body assembly lives in scripts/lib/harbor_api.py::add_cache_perm —
+      # preserves the immutable name/level/duration/description/disable/
+      # editable/expires_at fields and appends the detectors-cache
+      # repository:push+pull permission.
+      NEW_BODY=$(PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api add-cache-perm <<<"$CURRENT")
       curl -sf -u "$adm" -X PUT -H "Content-Type: application/json" \
         "$api/robots/$EXISTING_ID" -d "$NEW_BODY" >/dev/null
       # Verify the PUT actually landed. Harbor has been known to return 200
-      # on bodies it partially accepts; re-GET and assert the three namespaces
-      # are all present.
-      POST_STATE=$(curl -sf -u "$adm" "$api/robots/$EXISTING_ID" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-ns = {p.get("namespace") for p in d.get("permissions", []) if isinstance(p, dict)}
-print("ok" if {"lolday","detectors","detectors-cache"}.issubset(ns) else "partial")
-')
-      if [ "$POST_STATE" != "ok" ]; then
-        echo "  ERROR: PUT /robots/$EXISTING_ID returned 200 but permissions did NOT include all of lolday, detectors, detectors-cache — investigate Harbor logs" >&2
+      # on bodies it partially accepts; re-GET and assert the state has
+      # transitioned to already-has-cache via the same classifier.
+      POST_STATE_BODY=$(curl -sf -u "$adm" "$api/robots/$EXISTING_ID")
+      POST_NS_STATE=$(PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api robot-state <<<"$POST_STATE_BODY")
+      if [ "$POST_NS_STATE" != "already-has-cache" ]; then
+        echo "  ERROR: PUT /robots/$EXISTING_ID returned 200 but state=$POST_NS_STATE — investigate Harbor logs" >&2
         exit 1
       fi
       echo "  perms updated (verified: lolday + detectors + detectors-cache present)."
@@ -181,31 +149,23 @@ print("ok" if {"lolday","detectors","detectors-cache"}.issubset(ns) else "partia
   esac
 fi
 
-# Redacted log — never print the secret. Only show shape of response.
-echo "$ROBOT_JSON" | python3 -c '
-import sys, json
-try:
-    d = json.loads(sys.stdin.read())
-    redacted = {k: ("<redacted>" if k == "secret" else v) for k, v in d.items()}
-    print("  response:", json.dumps(redacted))
-except Exception as e:
-    print("  unparseable response:", repr(e), file=sys.stderr)
-    sys.exit(2)
-' >&2
+# Redacted log — never print the secret. scripts/lib/harbor_api.py's
+# redact-robot-response replaces the secret field with "<redacted>".
+PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api redact-robot-response <<<"$ROBOT_JSON" \
+  | sed 's/^/  response: /' >&2
 
-ROBOT_NAME=$(echo "$ROBOT_JSON" | python3 -c '
+# PATCH response only carries {name, secret}; POST carries same + id. If
+# name missing (e.g. PATCH does not echo it on older Harbor), assume the
+# canonical form. These two python lines stay inline — the cost of a
+# wrapper for a single key lookup outweighs the readability win.
+ROBOT_NAME=$(python3 -c '
 import sys, json
-d = json.loads(sys.stdin.read())
-# PATCH response only carries {name, secret}; POST carries same + id.
-# If name missing (e.g. PATCH does not echo it on older Harbor), assume
-# the canonical form.
-print(d.get("name") or "robot$build-pusher")
-')
-ROBOT_SECRET=$(echo "$ROBOT_JSON" | python3 -c '
+print(json.loads(sys.stdin.read()).get("name") or "robot$build-pusher")
+' <<<"$ROBOT_JSON")
+ROBOT_SECRET=$(python3 -c '
 import sys, json
-d = json.loads(sys.stdin.read())
-print(d.get("secret", ""))
-')
+print(json.loads(sys.stdin.read()).get("secret", ""))
+' <<<"$ROBOT_JSON")
 
 if [ -z "$ROBOT_SECRET" ]; then
   echo "ERROR: robot response had no secret field — see redacted shape above" >&2
@@ -228,22 +188,11 @@ echo "$ROBOT_SECRET" | docker login "$HARBOR_HOST" -u "$ROBOT_NAME" --password-s
 # users via /proc/<pid>/cmdline.
 echo
 echo "upserting kubernetes secret harbor-push-cred…"
-DOCKER_CFG_B64=$(
-  ROBOT_NAME="$ROBOT_NAME" ROBOT_SECRET="$ROBOT_SECRET" HARBOR_HOST="$HARBOR_HOST" \
-  python3 - <<'EOF'
-import os, json, base64
-auth = base64.b64encode(
-    f"{os.environ['ROBOT_NAME']}:{os.environ['ROBOT_SECRET']}".encode()
-).decode()
-# Register both hostnames — K3s containerd pulls via harbor.lolday.svc:80
-# (Service DNS) while host docker uses .cluster.local.
-cfg = {"auths": {
-    "harbor.lolday.svc:80": {"auth": auth},
-    os.environ["HARBOR_HOST"]: {"auth": auth},
-}}
-print(base64.b64encode(json.dumps(cfg).encode()).decode())
-EOF
-)
+# dockerconfigjson assembly lives in scripts/lib/harbor_api.py::build_dockerconfig —
+# registers both harbor.lolday.svc:80 (K3s containerd service DNS) and
+# the .cluster.local host alias used by host docker.
+DOCKER_CFG_B64=$(PYTHONPATH="$REPO_ROOT" python3 -m scripts.lib.harbor_api \
+  build-dockerconfig "$ROBOT_NAME" "$ROBOT_SECRET" "$HARBOR_HOST")
 
 # Upsert: check existence, then PATCH or CREATE.
 # Secret is replicated into BOTH namespaces:

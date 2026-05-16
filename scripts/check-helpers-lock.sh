@@ -6,13 +6,23 @@
 #
 # Set LOLDAY_SKIP_HELPERS_LOCK_CHECK=1 to bypass (e.g. on a disconnected
 # dev machine). The README tells operators when this is acceptable.
+#
+# Phase 4 D4.2 R6: drift logic lives in scripts/lib/helpers_lock.py;
+# this shell file is now pure orchestration.
 set -euo pipefail
 
 if [ "${LOLDAY_SKIP_HELPERS_LOCK_CHECK:-0}" = "1" ]; then
   exit 0
 fi
 
-REPO_ROOT="${LOLDAY_REPO_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# SCRIPT_HOME — always the real repo containing scripts/lib/ (where the
+# helpers_lock module lives). REPO_ROOT — the tree whose helpers.lock and
+# git HEAD are being checked (overridable for tests via
+# LOLDAY_REPO_ROOT_OVERRIDE). These differ when bats runs against a
+# fixture repo at $TMP while the helpers_lock module stays in the real
+# repo.
+SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="${LOLDAY_REPO_ROOT_OVERRIDE:-$SCRIPT_HOME}"
 LOCK_FILE="$REPO_ROOT/charts/lolday/helpers.lock"
 
 if [ ! -f "$LOCK_FILE" ]; then
@@ -20,40 +30,5 @@ if [ ! -f "$LOCK_FILE" ]; then
   exit 1
 fi
 
-drift="$(cd "$REPO_ROOT" && python3 - "$LOCK_FILE" <<'PY'
-import json, re, subprocess, sys
-lock = json.load(open(sys.argv[1]))
-# H-21-img: every lock entry must end in @sha256:<64-hex> after the
-# subtree-SHA tag. build-helpers.sh::harbor_get_digest captures it
-# post-push.
-DIGEST_RE = re.compile(r"@sha256:[0-9a-f]{64}$")
-out = []
-for key, ref in lock.items():
-    helper = key.replace("_", "-")
-    sha = subprocess.check_output(
-        ["git", "rev-parse", "--short=12", f"HEAD:charts/lolday/helpers/{helper}"],
-        text=True,
-    ).strip()
-    # Strip the @sha256:<digest> suffix (if present) before the tag-SHA
-    # check so the existing endswith(":<sha>") invariant still holds.
-    ref_no_digest = DIGEST_RE.sub("", ref)
-    if not ref_no_digest.endswith(f":{sha}"):
-        out.append(f"  {helper}: lock={ref} HEAD=...:{sha}")
-    if not DIGEST_RE.search(ref):
-        out.append(
-            f"  {helper}: missing @sha256:<64-hex> digest pin: {ref}"
-        )
-print("\n".join(out))
-PY
-)"
-
-if [ -n "$drift" ]; then
-  {
-    echo "ERROR: helpers.lock drift detected:"
-    echo "$drift"
-    echo "Run 'bash scripts/build-helpers.sh' and commit the updated lock."
-  } >&2
-  exit 1
-fi
-
-exit 0
+PYTHONPATH="$SCRIPT_HOME" python3 -m scripts.lib.helpers_lock check-drift \
+  "$LOCK_FILE" --repo "$REPO_ROOT"

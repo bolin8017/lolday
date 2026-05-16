@@ -114,3 +114,21 @@ pre-commit install                    # re-activate the git hook (idempotent)
 ## CI
 
 Engineering-hygiene scripts (pre-commit, install-tools.sh) are mirrored on every PR by `.github/workflows/lint.yml`. Discipline rules in `.claude/rules/github-actions.md`.
+
+## R6 — Touched script must add lib + test
+
+Phase 4 D4.5. When a PR modifies any script under `scripts/`:
+
+- **Pure shell changes** (renaming, refactoring shell control flow, fixing a flag-parse bug): add or extend a `tests/bats/<script>_smoke.bats` case that covers the changed path. The bats workflow (`.github/workflows/bats.yml`) runs every `.bats` file in CI.
+- **Embedded `python3 -<<'PY' ... PY` heredoc changes**: do NOT modify in place. Extract the heredoc into a `scripts/lib/<topic>.py` module (named by the area it serves — `harbor_api`, `helpers_lock`, etc.), invoke from bash via `python3 -m scripts.lib.<topic> <verb>`, and add a pytest unit at `scripts/tests/lib/test_<topic>.py`. `backend-fast.yml` runs `uv run pytest ../scripts/tests/lib/` as part of its existing pytest invocation.
+- **New scripts**: ship with both a bats smoke and (if the script does non-trivial Python or HTTP work) a pytest unit from day 1.
+
+The rationale (R6 in `docs/superpowers/specs/2026-05-15-test-architecture-redesign-design.md` §9): PR #184 (Python heredoc bug in `build-helpers.sh`) and PR #155 (apostrophe escape in `recover-harbor.sh`) both shipped without a test gate — bats + pytest would have caught them. The cost of the test is linear in the change size; the cost of a regression is unbounded.
+
+Existing `scripts/lib/` modules (the extraction precedents):
+
+- `scripts/lib/flaky_aggregate.py` (Phase 1 D1.13) — JUnit XML → flaky-issue opener.
+- `scripts/lib/harbor_api.py` (Phase 4 D4.2) — Harbor v2 REST helpers used by `build-helpers.sh` + `recover-harbor.sh`.
+- `scripts/lib/helpers_lock.py` (Phase 4 D4.2) — `charts/lolday/helpers.lock` read/write/drift-check.
+- `scripts/lib/mutation_report.py` (Phase 4 D4.3) — mutmut state → Markdown report.
+- `scripts/lib/test_telemetry.py` (Phase 4 D4.4) — JUnit XML → dashboard + Discord summary.
