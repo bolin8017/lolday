@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { test as baseTest, type Page } from "@playwright/test";
 
 export interface SeedCreds {
   email: string;
@@ -44,8 +44,12 @@ export async function login(page: Page, _creds: SeedCreds = seedCreds()) {
  */
 export type DevPersona = "admin" | "developer" | "user";
 
-export async function loginAs(page: Page, role: DevPersona): Promise<void> {
-  await page.context().setExtraHTTPHeaders({ "X-Dev-Persona": role });
+export async function loginAs(page: Page, role?: DevPersona): Promise<void> {
+  // D3.4 — when `role` is omitted, the worker-index → persona mapping
+  // picks one so parallel workers stay isolated. Explicit persona
+  // callers (Tasks 6/7/10/11/12) keep working unchanged.
+  const resolved = role ?? personaForWorker(baseTest.info().workerIndex);
+  await page.context().setExtraHTTPHeaders({ "X-Dev-Persona": resolved });
   // Reload (if already on a page) so the next render reads /users/me with
   // the new persona; on a fresh page, the next navigation picks it up.
   const url = page.url();
