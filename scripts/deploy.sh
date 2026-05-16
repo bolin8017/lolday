@@ -32,6 +32,13 @@ echo ""
 # Optional: backend treats empty string as "notify disabled". Hard-fail only if
 # present-but-malformed (silent half-config is the worst outcome).
 DISCORD_WEBHOOK_URL_EVENTS="${DISCORD_WEBHOOK_URL_EVENTS:-}"
+# Phase 11 — Spidey Heartbeat positive-heartbeat webhook. Optional:
+# `deadmans-switch` posts a green embed here on every successful Watchdog
+# check (silence then becomes the anomaly, per docs/operations.md). The
+# chart wires it into the `alertmanager-discord` Secret as
+# `webhook-url-heartbeat`; the deadmans-switch CronJob env binding is
+# `optional: true` so absence of the Secret key is tolerated.
+DISCORD_WEBHOOK_URL_HEARTBEAT="${DISCORD_WEBHOOK_URL_HEARTBEAT:-}"
 # Reject obvious typos / wrong-service pastes before kubectl apply. A malformed
 # webhook URL silently creates a Secret that only fails at alert-dispatch time
 # (Discord returns 401), defeating "alerts must reach the human".
@@ -40,10 +47,13 @@ for _var in DISCORD_WEBHOOK_URL_CRITICAL DISCORD_WEBHOOK_URL_WARNING; do
   [[ "$_url" =~ ^https://(discord\.com|discordapp\.com)/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$ ]] \
     || { echo "  ERROR: $_var is not a valid Discord webhook URL shape" >&2; exit 1; }
 done
-if [ -n "$DISCORD_WEBHOOK_URL_EVENTS" ]; then
-  [[ "$DISCORD_WEBHOOK_URL_EVENTS" =~ ^https://(discord\.com|discordapp\.com)/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$ ]] \
-    || { echo "  ERROR: DISCORD_WEBHOOK_URL_EVENTS is not a valid Discord webhook URL shape" >&2; exit 1; }
-fi
+for _var in DISCORD_WEBHOOK_URL_EVENTS DISCORD_WEBHOOK_URL_HEARTBEAT; do
+  _url="${!_var}"
+  if [ -n "$_url" ]; then
+    [[ "$_url" =~ ^https://(discord\.com|discordapp\.com)/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$ ]] \
+      || { echo "  ERROR: $_var is not a valid Discord webhook URL shape" >&2; exit 1; }
+  fi
+done
 unset _var _url
 
 # Backend / frontend image refs are sourced from charts/lolday/values.yaml
@@ -221,11 +231,29 @@ trap 'find "$SECRET_TMP" -type f -exec shred -u {} + 2>/dev/null; rmdir "$SECRET
 printf '%s' "$DISCORD_WEBHOOK_URL_CRITICAL" > "$SECRET_TMP/webhook-url-critical"
 printf '%s' "$DISCORD_WEBHOOK_URL_WARNING"  > "$SECRET_TMP/webhook-url-warning"
 chmod 600 "$SECRET_TMP"/webhook-url-critical "$SECRET_TMP"/webhook-url-warning
+# Phase 11 — positive-heartbeat key (Spidey Heartbeat). Layered into the
+# same Secret so the deadmans-switch CronJob can `secretKeyRef` it via
+# `optional: true`. Absent value → key not written → CronJob env empty
+# → check.py logs "skipped" and continues.
+am_secret_extra=()
+if [ -n "$DISCORD_WEBHOOK_URL_HEARTBEAT" ]; then
+  printf '%s' "$DISCORD_WEBHOOK_URL_HEARTBEAT" > "$SECRET_TMP/webhook-url-heartbeat"
+  chmod 600 "$SECRET_TMP/webhook-url-heartbeat"
+  am_secret_extra+=(--from-file="$SECRET_TMP/webhook-url-heartbeat")
+fi
 kubectl -n monitoring create secret generic alertmanager-discord \
   --from-file="$SECRET_TMP/webhook-url-critical" \
   --from-file="$SECRET_TMP/webhook-url-warning" \
+  "${am_secret_extra[@]}" \
   --dry-run=client -o yaml | kubectl apply -f -
 shred -u "$SECRET_TMP/webhook-url-critical" "$SECRET_TMP/webhook-url-warning"
+if [ -n "$DISCORD_WEBHOOK_URL_HEARTBEAT" ]; then
+  shred -u "$SECRET_TMP/webhook-url-heartbeat"
+  echo "  Spidey Heartbeat webhook key wired into alertmanager-discord Secret"
+else
+  echo "  WARN: DISCORD_WEBHOOK_URL_HEARTBEAT unset — Spidey Heartbeat will remain silent"
+fi
+unset am_secret_extra
 
 # Phase 7.4: backend reads DISCORD_WEBHOOK_URL_EVENTS from this Secret in the
 # release namespace. Create only if a value was supplied — empty value would

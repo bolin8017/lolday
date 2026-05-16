@@ -1,14 +1,24 @@
-"""Verify Watchdog alert freshness in Alertmanager; Discord on failure.
+"""Verify Watchdog alert freshness in Alertmanager; Discord on failure +
+optional positive heartbeat on success.
 
 Exits 0 on both happy-path and after-sending-Discord-alert. A failed
 Job would fire KubeJobFailed via kube-state-metrics and double-page;
 we already delivered the signal via the independent Discord channel.
 
+Two Discord webhooks are supported:
+  - `DISCORD_URL` (required) — failure POST to Captain Hook (critical).
+    Missing this env crashes the pod on the failure path so
+    KubePodCrashLooping / KubeJobFailed surfaces the misconfiguration.
+  - `DISCORD_HEARTBEAT_URL` (optional) — positive ping to Spidey
+    Heartbeat on success. Skipped if unset; POST failures are logged
+    but do NOT change the exit code (no double-page on heartbeat hiccup).
+
 This module is mounted into the deadmans-switch CronJob via helm
 `.Files.Get` and invoked by `python /scripts/check.py`. It is also
-imported directly in `backend/tests/test_deadmans_switch_check.py`
-via `importlib.util.spec_from_file_location` so the parse / retry /
-failure paths have real unit coverage without needing a running k8s.
+imported directly in `backend/tests/integration/services/
+test_deadmans_switch_check.py` via `importlib.util.spec_from_file_location`
+so the parse / retry / failure paths get real unit coverage without
+needing a running k8s.
 """
 
 import json
@@ -26,6 +36,9 @@ USER_AGENT = "lolday-deadmans-switch/1.0 (+https://github.com/louiskyee/lolday)"
 # Max attempts for the Discord POST. Only retries on transient
 # 429 / 5xx / network errors; `Retry-After` is honoured when present.
 DISCORD_MAX_ATTEMPTS = 3
+# Env name for the optional positive-heartbeat webhook. The chart wires
+# it from `alertmanager-discord/webhook-url-heartbeat` (Secret key).
+HEARTBEAT_URL_ENV = "DISCORD_HEARTBEAT_URL"
 
 
 def fetch_alerts():
@@ -37,8 +50,21 @@ def fetch_alerts():
         return json.load(resp)
 
 
-def check(now=None):
-    """Return None if Watchdog is fresh, else a human-readable failure reason."""
+def check(
+    now=None,
+    *,
+    heartbeat_url=None,
+    heartbeat_opener=urllib.request.urlopen,
+    heartbeat_sleep=time.sleep,
+):
+    """Return None if Watchdog is fresh, else a human-readable failure reason.
+
+    On the success path, if `heartbeat_url` is provided, POST a positive
+    heartbeat embed to that URL. POST failures on the heartbeat path are
+    logged to stderr and swallowed — they must NOT escalate to the
+    failure path (a flapping heartbeat sink would otherwise double-page
+    via Captain Hook on top of Spidey Heartbeat silence).
+    """
     if now is None:
         now = datetime.now(UTC)
     try:
@@ -66,6 +92,14 @@ def check(now=None):
     if age > MAX_AGE_SECONDS:
         return f"Watchdog.updatedAt is {int(age)}s old (max {MAX_AGE_SECONDS}s) — Prometheus has stopped sending"
     print(f"OK: Watchdog updated {int(age)}s ago")
+    if heartbeat_url:
+        _post_heartbeat_swallow_errors(
+            heartbeat_url,
+            age,
+            now=now,
+            opener=heartbeat_opener,
+            sleep=heartbeat_sleep,
+        )
     return None
 
 
@@ -99,6 +133,62 @@ def _build_payload(reason, now=None):
             }
         ],
     }
+
+
+def _build_heartbeat_payload(age_seconds, now=None):
+    """Discord embed for the positive heartbeat. Green colour; brief; no @here."""
+    if now is None:
+        now = datetime.now(UTC)
+    return {
+        "embeds": [
+            {
+                "title": "💚 Dead Man's Switch heartbeat — monitoring chain healthy",
+                "color": 3066993,  # Discord "green"
+                "fields": [
+                    {
+                        "name": "Cluster",
+                        "value": os.environ.get("CLUSTER_NAME", "lolday"),
+                        "inline": True,
+                    },
+                    {
+                        "name": "Watchdog age",
+                        "value": f"{int(age_seconds)}s / {MAX_AGE_SECONDS}s max",
+                        "inline": True,
+                    },
+                    {
+                        "name": "Timestamp",
+                        "value": now.isoformat(timespec="seconds"),
+                        "inline": True,
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def _post_heartbeat_swallow_errors(url, age_seconds, *, now, opener, sleep):
+    """POST the positive heartbeat; never raise. Failures are stderr-logged."""
+    try:
+        _discord_post(
+            url,
+            _build_heartbeat_payload(age_seconds, now=now),
+            opener=opener,
+            sleep=sleep,
+        )
+        print("Positive heartbeat posted to Spidey Heartbeat")
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        OSError,
+    ) as exc:
+        # Spidey Heartbeat silence is itself the alarm signal — re-raising
+        # here would double-page via Captain Hook (KubeJobFailed) on a
+        # flake. Log and continue.
+        print(
+            f"Positive heartbeat POST failed (non-fatal): {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
 
 
 def _discord_post(url, payload, *, opener=urllib.request.urlopen, sleep=time.sleep):
@@ -161,7 +251,10 @@ def alert_discord(reason, *, now=None, opener=urllib.request.urlopen, sleep=time
 
 
 def main():
-    reason = check()
+    heartbeat_url = os.environ.get(HEARTBEAT_URL_ENV) or None
+    if heartbeat_url is None:
+        print(f"{HEARTBEAT_URL_ENV} not set — positive heartbeat will be skipped")
+    reason = check(heartbeat_url=heartbeat_url)
     if reason is None:
         return 0
     print(f"ALERT: {reason}", file=sys.stderr)

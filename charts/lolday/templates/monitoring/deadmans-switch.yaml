@@ -71,6 +71,20 @@ spec:
                     secretKeyRef:
                       name: alertmanager-discord
                       key: webhook-url-critical
+                # Optional positive-heartbeat sink. When the operator
+                # wires DISCORD_WEBHOOK_URL_HEARTBEAT into the
+                # `alertmanager-discord` Secret (via scripts/deploy.sh),
+                # check.py POSTs a green embed to Spidey Heartbeat on
+                # every successful Watchdog evaluation. `optional: true`
+                # keeps the pod healthy when the key is absent — the
+                # script logs and skips. Pre-existing failure path to
+                # Captain Hook is unchanged.
+                - name: DISCORD_HEARTBEAT_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: alertmanager-discord
+                      key: webhook-url-heartbeat
+                      optional: true
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
