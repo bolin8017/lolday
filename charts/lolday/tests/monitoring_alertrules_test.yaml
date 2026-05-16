@@ -47,6 +47,15 @@ tests:
           path: spec.groups[0].rules[3].labels.severity
           value: critical
 
+  # 5m for-window covers Harbor / backend rolling restarts (large-image
+  # pulls + readiness probe wait can exceed 2m). Regression guard so a
+  # future "tighten it back to 2m" PR can't slip through review.
+  - it: LoldayCoreServiceDown for-window is 5m (rolling-deploy resilient)
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[3].for
+          value: 5m
+
   # All three PrometheusRule groups must be present (baseline, resource-pressure, trivy).
   - it: PrometheusRule has 3 alert groups
     asserts:

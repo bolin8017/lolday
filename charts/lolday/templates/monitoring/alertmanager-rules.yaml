@@ -45,12 +45,19 @@ spec:
 
         - alert: LoldayCoreServiceDown
           expr: up{job=~"backend|postgres-exporter|harbor"} == 0
-          for: 2m
+          # 5m (was 2m, 2026-05-16): the prior threshold tripped Captain
+          # Hook on every helm upgrade because Harbor v2.15.x rolling
+          # restarts (Photon-base ~500MB images) routinely hit >2m of
+          # scrape unavailability before the new pod becomes ready.
+          # 5m is the kube-prometheus-stack convention for service-down
+          # signals (Google SRE Workbook §"Reducing alerting noise"
+          # likewise recommends min 5m for non-paging-grade availability).
+          for: 5m
           labels:
             severity: critical
           annotations:
             summary: "Core service {{`{{ $labels.job }}`}} is down"
-            description: "Prometheus has not been able to scrape {{`{{ $labels.job }}`}} for 2m."
+            description: "Prometheus has not been able to scrape {{`{{ $labels.job }}`}} for 5m."
 
         - alert: LoldayBackendErrorRateElevated
           expr: rate(lolday_backend_errors_total[5m]) > 0
