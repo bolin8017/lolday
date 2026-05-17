@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.minio import MinioContainer
@@ -40,7 +41,20 @@ def postgres_url(postgres_container: PostgresContainer) -> str:
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def real_pg_engine(postgres_url: str) -> AsyncGenerator[AsyncEngine, None]:
-    engine = create_async_engine(postgres_url, future=True, echo=False)
+    # NullPool: asyncpg Connection objects are bound to the event loop that
+    # opened them. With the default QueuePool, a session-scoped autouse
+    # fixture (e.g. _create_schema_on_real_pg in heavy/postgres/) checks out
+    # a connection on the session-scoped loop, then the per-test
+    # function-scoped real_pg_session below tries to reuse that pooled
+    # connection from a different loop — asyncpg raises "got Future ...
+    # attached to a different loop" or "another operation is in progress".
+    # NullPool opens a fresh connection per connect() call, so each test
+    # session gets one bound to its own loop. Connection-open cost on a
+    # localhost testcontainer is < 1 ms; the heavy tier already pays much
+    # more elsewhere.
+    engine = create_async_engine(
+        postgres_url, future=True, echo=False, poolclass=NullPool
+    )
     yield engine
     await engine.dispose()
 
