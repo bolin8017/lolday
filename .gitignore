@@ -13,6 +13,12 @@ dist/
 node_modules/
 .next/
 
+# npm/yarn lockfiles — lolday uses pnpm; an accidental `npm install` /
+# `yarn install` regenerates one of these and would fork dependency
+# resolution. pnpm-lock.yaml is the source of truth.
+package-lock.json
+yarn.lock
+
 # TypeScript build artefacts
 *.tsbuildinfo
 
