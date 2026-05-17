@@ -49,6 +49,11 @@ export default defineConfig({
             // prod). Off doesn't matter for E2E specs, but on keeps
             // parity with the regen + drift guard.
             DOCS_ENABLED: "true",
+            // Install in-process K8s + MLflow stubs at lifespan start
+            // so this live-stack doesn't reach the operator's cluster
+            // and doesn't crash on CI runners with no kubeconfig.
+            // Spec: docs/superpowers/specs/2026-05-17-frontend-slow-stub-layer-design.md.
+            SPEC_LANE_STUBS: "true",
           },
         },
         {

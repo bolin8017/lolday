@@ -125,6 +125,11 @@ class Settings(BaseSettings):
     CF_ACCESS_JWKS_CACHE_TTL_SECONDS: int = 600
     AUTH_DEV_MODE: bool = False  # bypass Cloudflare JWT for local dev
     AUTH_DEV_EMAIL: str = ""  # synthetic user email when AUTH_DEV_MODE=true
+    # frontend-slow live-stack uses in-process K8s + MLflow stubs to avoid
+    # leaking real Volcano CRs onto the operator's cluster and to make CI
+    # work without a kubeconfig. Refused in production by
+    # validate_sso_config — see app/services/_stubs.py.
+    SPEC_LANE_STUBS: bool = False
     # D2.2 / R4 — multi-persona dev mode. When AUTH_DEV_MODE=true, the backend
     # honours an X-Dev-Persona request header (admin/developer/user) and
     # resolves the persona's synthetic email + role for that request. Falls
@@ -211,6 +216,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AUTH_DEV_MODE=true is forbidden when ENVIRONMENT=production — "
                 "it disables Cloudflare Access JWT verification entirely"
+            )
+        if self.SPEC_LANE_STUBS:
+            raise ValueError(
+                "SPEC_LANE_STUBS=true is forbidden when ENVIRONMENT=production — "
+                "in-process K8s + MLflow stubs would replace real cluster traffic"
             )
         if not self.CF_ACCESS_TEAM_DOMAIN or not self.CF_ACCESS_APP_AUD:
             raise ValueError(

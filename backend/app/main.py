@@ -132,6 +132,51 @@ async def _run_fifo_reconciler_forever(period_s: int) -> None:
     # Unreachable; loop exits only via CancelledError.
 
 
+def _install_spec_lane_stubs(app: FastAPI) -> None:
+    """Replace ``app.services.k8s.{batch_v1,core_v1,volcano_v1alpha1}`` and
+    ``app.state.mlflow`` with in-process stubs.
+
+    Gated on ``settings.SPEC_LANE_STUBS=true``. Idempotent — re-binding a
+    module attribute that already points to a stub is a no-op. Singletons
+    live on ``app.state`` so the reconciler / FIFO scheduler / route
+    handlers share state, mirroring a real K8s API server.
+
+    Production refuses boot when the flag is true (see
+    ``Settings.validate_sso_config``). The leading-underscore module
+    name (``app.services._stubs``) marks the consumers as internal.
+    """
+    import importlib
+
+    from app.services import _stubs
+    from app.services import k8s as _k8s
+
+    _k8s.load_config = _stubs.safe_load_config  # type: ignore[assignment]  # SPEC_LANE_STUBS path; matches load_config signature
+
+    batch = _stubs.StubBatch()
+    core = _stubs.StubCore()
+    volcano = _stubs.StubVolcano()
+    app.state.stub_batch = batch
+    app.state.stub_core = core
+    app.state.stub_volcano = volcano
+
+    _k8s.batch_v1 = lambda: batch
+    _k8s.core_v1 = lambda: core
+    _k8s.volcano_v1alpha1 = lambda: volcano
+
+    name_to_singleton = {
+        "batch_v1": batch,
+        "core_v1": core,
+        "volcano_v1alpha1": volcano,
+    }
+    for module_path, name in _stubs.CALLER_MODULE_REBIND_TARGETS:
+        module = importlib.import_module(module_path)
+        target = name_to_singleton[name]
+        setattr(module, name, (lambda t=target: t))
+
+    app.state.mlflow = _stubs.StubMlflowClient()
+    logger.info("SPEC_LANE_STUBS=true — installed in-process K8s + MLflow stubs")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Phase 7.4: flag misconfigured deploy before a user waits weeks for
@@ -174,8 +219,15 @@ async def lifespan(app: FastAPI):
     # app.state-managed httpx.AsyncClient + MlflowClient — created before the
     # reconciler task so the task receives the live client instance.
     # The legacy module-level _HTTP_CLIENT shim is removed in T13 (this step).
-    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
-    app.state.mlflow = MlflowClient.from_settings(settings, app.state.http)
+    if settings.SPEC_LANE_STUBS:
+        # Stubs replace the real K8s + MLflow clients in-process. Used by
+        # the frontend-slow Playwright live-stack to avoid leaking Volcano
+        # CRs and to make CI work without a kubeconfig. See spec
+        # 2026-05-17-frontend-slow-stub-layer-design.md.
+        _install_spec_lane_stubs(app)
+    else:
+        app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+        app.state.mlflow = MlflowClient.from_settings(settings, app.state.http)
 
     reconciler_task: asyncio.Task | None = None
     if settings.RECONCILER_ENABLED:
@@ -218,7 +270,10 @@ async def lifespan(app: FastAPI):
         from app.services import gpu_signal
 
         gpu_signal.close_http_client()
-        await app.state.http.aclose()
+        # SPEC_LANE_STUBS skips app.state.http construction (the StubMlflowClient
+        # doesn't need it). Guard the aclose() so teardown doesn't AttributeError.
+        if not settings.SPEC_LANE_STUBS:
+            await app.state.http.aclose()
 
 
 app = FastAPI(

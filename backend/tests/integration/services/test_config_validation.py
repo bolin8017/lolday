@@ -31,6 +31,19 @@ def test_settings_rejects_auth_dev_mode_in_production(monkeypatch):
         Settings()
 
 
+def test_settings_rejects_spec_lane_stubs_in_production(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("AUTH_DEV_MODE", "false")
+    monkeypatch.setenv("SPEC_LANE_STUBS", "true")
+    monkeypatch.setenv("CF_ACCESS_TEAM_DOMAIN", "bolin8017.cloudflareaccess.com")
+    monkeypatch.setenv("CF_ACCESS_APP_AUD", "x" * 64)
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError, match="SPEC_LANE_STUBS=true is forbidden"):
+        Settings()
+
+
 def test_settings_rejects_empty_cf_team_domain_in_production(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("AUTH_DEV_MODE", "false")
