@@ -10,7 +10,8 @@ def _read(metric: str, **labels) -> float:
 
 
 async def test_notify_semaphore_drops_on_saturation(monkeypatch):
-    """When all 20 permits are held, post_webhook drops + increments BACKEND_ERRORS{stage=discord_notify_dropped}."""
+    """When all 20 permits are held, post_webhook drops + increments BACKEND_ERRORS{stage=discord_notify_dropped}
+    AND DISCORD_NOTIFY_TOTAL{channel=events, result=dropped} (2026-05-17 audit follow-up #4)."""
     from app.services import notify
 
     sem = notify._NOTIFY_SEM
@@ -21,6 +22,9 @@ async def test_notify_semaphore_drops_on_saturation(monkeypatch):
         await sem.acquire()
 
     before = _read("lolday_backend_errors_total", stage="discord_notify_dropped")
+    before_drop = _read(
+        "lolday_discord_notify_total", channel="events", result="dropped"
+    )
 
     monkeypatch.setattr(
         notify.settings, "DISCORD_WEBHOOK_URL_EVENTS", "https://discord.test/x"
@@ -28,7 +32,13 @@ async def test_notify_semaphore_drops_on_saturation(monkeypatch):
     await notify.post_webhook({"content": "test"})
 
     after = _read("lolday_backend_errors_total", stage="discord_notify_dropped")
+    after_drop = _read(
+        "lolday_discord_notify_total", channel="events", result="dropped"
+    )
     assert after - before == pytest.approx(1.0)
+    # 2026-05-17 audit follow-up #4: outcome Counter also increments under
+    # `result=dropped`. Sibling assertion to the BACKEND_ERRORS check above.
+    assert after_drop - before_drop == pytest.approx(1.0)
 
     for _ in range(20):
         sem.release()
