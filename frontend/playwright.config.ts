@@ -34,7 +34,7 @@ export default defineConfig({
         {
           command:
             "cd ../backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000",
-          url: "http://127.0.0.1:8000/healthz",
+          url: "http://127.0.0.1:8000/api/v1/health",
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,
           env: {
