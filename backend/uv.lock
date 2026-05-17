@@ -1758,7 +1758,7 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.6,<4" },
     { name = "respx", specifier = ">=0.21.0" },
     { name = "schemathesis", specifier = ">=3.36,<4" },
-    { name = "testcontainers", extras = ["postgres", "minio"], specifier = ">=4.7,<5" },
+    { name = "testcontainers", extras = ["postgres", "minio"], specifier = ">=4.14.2,<5" },
 ]
 
 [[package]]
