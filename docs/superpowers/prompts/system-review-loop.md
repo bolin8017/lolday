@@ -100,7 +100,7 @@ area.
 
 ## Stop conditions (any one triggers exit)
 
-- 6 PRs merged this run
+- 15 PRs merged this run
 - 2 consecutive discovery rounds find no non-trivial candidate
 - Hit any item in the "stop and hand back" authorisation list above
 - Same PR CI fails twice for non-flaky reasons
