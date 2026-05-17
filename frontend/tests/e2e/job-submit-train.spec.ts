@@ -67,12 +67,14 @@ test("train: clearing the Test dataset clears the value", async ({ page }) => {
     .click();
   await page.getByRole("option").first().click();
 
-  // Pick a test dataset
-  await page
-    .getByText(/^Test dataset$/, { exact: true })
-    .locator("..")
-    .getByRole("combobox")
-    .click();
+  // Pick a test dataset. Locating via aria-label rather than the
+  // `getByText('Test dataset').locator('..').getByRole('combobox')` chain
+  // the other Selects use because the Test-dataset Label sits inside an
+  // extra `<div class="flex items-center gap-1">` wrapper alongside the
+  // HelpHint — the combobox is a sibling of that wrapper, not a
+  // descendant of the Label's parent. Using the SelectTrigger's
+  // aria-label (added in #226) is the more robust locator anyway.
+  await page.getByRole("combobox", { name: /Test dataset/i }).click();
   await page.getByRole("option").first().click();
 
   // Clear it via the ClearableSelect X button (aria-label="Clear")
