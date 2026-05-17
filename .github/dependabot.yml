@@ -76,6 +76,33 @@ updates:
       interval: weekly
       day: monday
 
+  # build-helper and job-helper have a uv.lock + pyproject.toml that
+  # Dependabot's `uv` ecosystem auto-detects (PRs #188/#189/#235 over
+  # 2026-05-15..17 hit this). Those PRs are STRUCTURALLY unmergeable:
+  # `helpers.lock` records the Harbor image `@sha256:<digest>` that
+  # `scripts/build-helpers.sh` produces — Dependabot cannot push to
+  # Harbor from CI, so the `helpers-lock-fresh` pre-commit hook fails.
+  # Helper Python deps are managed by the operator running
+  # `bash scripts/build-helpers.sh` (which calls `uv lock` inside each
+  # helper subtree, regenerates requirements.txt, builds + signs +
+  # pushes the image, and updates the lock). Setting limit=0 disables
+  # version-update PRs while leaving the Security Updates path intact
+  # so CVE advisories still surface via Dependabot alerts. Same
+  # rationale as the mlflow-server / pytorch-cu12-base exclusion below.
+  - package-ecosystem: uv
+    directory: /charts/lolday/helpers/build-helper
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: uv
+    directory: /charts/lolday/helpers/job-helper
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+
   # mlflow-server and pytorch-cu12-base are intentionally NOT tracked by
   # dependabot. Both are manually pinned helper images per
   # .claude/rules/charts-and-helm.md ("Manually pinned (semantic tags)"):
