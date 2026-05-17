@@ -75,6 +75,36 @@ async def _assert_schema_at_head() -> None:
         )
 
 
+async def _bootstrap_dev_schema_if_empty() -> None:
+    """Self-bootstrap the schema in dev mode when the DB is empty.
+
+    Production deploys run migrations via the `alembic-upgrade` helm hook
+    before the backend pod starts, so the DB is always at head. Test code
+    runs `Base.metadata.create_all` in `conftest.py`. The remaining case is
+    the E2E live-stack fixture (frontend-slow workflow): playwright spawns
+    uvicorn against a fresh `sqlite+aiosqlite:///file::memory:` URL with no
+    migration step, so the reconciler's first tick crashes with
+    `no such table: detector_build`. Settings.validate_sso_config rejects
+    AUTH_DEV_MODE=true in ENVIRONMENT=production so this branch can never
+    fire there.
+    """
+    if not settings.AUTH_DEV_MODE:
+        return
+
+    from sqlalchemy import inspect
+
+    from app.models import Base
+
+    def _has_any_tables(sync_conn) -> bool:
+        return bool(inspect(sync_conn).get_table_names())
+
+    async with engine.begin() as conn:
+        if await conn.run_sync(_has_any_tables):
+            return
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("AUTH_DEV_MODE=true and DB empty — bootstrapped schema via create_all")
+
+
 async def _run_fifo_reconciler_forever(period_s: int) -> None:
     """Periodically invoke reconcile_fifo_queue until cancelled.
 
@@ -121,6 +151,11 @@ async def lifespan(app: FastAPI):
     # Skip gracefully when alembic_version is absent (tests: SQLite create_all;
     # fresh install before stamp).
     await _assert_schema_at_head()
+    # E2E live-stack (frontend-slow workflow) spawns uvicorn against a fresh
+    # sqlite+aiosqlite in-memory DB with no Alembic step — bootstrap the
+    # schema so the reconciler does not crash on its first tick. Gated on
+    # AUTH_DEV_MODE so this never runs in production.
+    await _bootstrap_dev_schema_if_empty()
     # Admin bootstrap happens in the phase10_sso_admin_email migration
     # (renames the seed admin@lolday.dev row to the operator's SSO email);
     # subsequent admins are promoted via `PATCH /admin/users/{id}`.
