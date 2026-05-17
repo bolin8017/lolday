@@ -8,16 +8,21 @@ test("Run Detail deeplink redirects to Job Detail when run has lolday.job_id tag
   await login(page);
 
   // Find any job that has both mlflow_run_id and mlflow_experiment_id.
-  // The /api/v1/jobs endpoint returns a paginated list — filter to first match.
-  const resp = await request.get("/api/v1/jobs?limit=20");
+  // The /api/v1/jobs endpoint accepts page/page_size (not limit) and
+  // returns the JobList envelope { items, total, page, page_size }.
+  const resp = await request.get("/api/v1/jobs?page_size=20");
   expect(resp.ok()).toBe(true);
-  const rows = (await resp.json()) as Array<{
-    id: string;
-    mlflow_run_id: string | null;
-    mlflow_experiment_id: string | null;
-    status: string;
-  }>;
-  const job = rows.find((r) => !!r.mlflow_run_id && !!r.mlflow_experiment_id);
+  const body = (await resp.json()) as {
+    items: Array<{
+      id: string;
+      mlflow_run_id: string | null;
+      mlflow_experiment_id: string | null;
+      status: string;
+    }>;
+  };
+  const job = body.items.find(
+    (r) => !!r.mlflow_run_id && !!r.mlflow_experiment_id,
+  );
   test.skip(
     !job,
     "no job with mlflow ids in /api/v1/jobs?limit=20 — submit a baseline job first",
