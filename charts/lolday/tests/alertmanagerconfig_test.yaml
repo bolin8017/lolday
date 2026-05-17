@@ -75,6 +75,27 @@ tests:
                 value: none
                 matchType: "="
 
+  # 2026-05-17: route severity=info alerts to the `null` receiver —
+  # kps ships 7 default rules with severity=info (CPUThrottlingHigh,
+  # KubeQuotaAlmostFull, KubeQuotaFullyUsed, KubeNodeEviction,
+  # KubeNodePressure, KubeletTooManyPods, NodeCPUHighUsage). All of
+  # them either overlap our explicit severity=critical rules or are
+  # telemetry surfaces visible in Grafana — none are paging-grade.
+  # Without this route they fall through to discord-warning and surface
+  # in Spidey Warnings as `[WARNING] CPUThrottlingHigh` etc. (same
+  # rendering bug PR #206 closed for severity=none). Design:
+  # docs/superpowers/specs/2026-05-17-discord-notification-audit-design.md §5.1.
+  - it: has a route with receiver null for severity=info (kps defaults)
+    asserts:
+      - contains:
+          path: spec.route.routes
+          content:
+            receiver: "null"
+            matchers:
+              - name: severity
+                value: info
+                matchType: "="
+
   # Verify the three required receivers are declared (by name + index).
   # `contains` requires exact object match, so check names by index position
   # (null first, then discord-critical, then discord-warning — matches template order).
