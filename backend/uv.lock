@@ -1746,7 +1746,7 @@ dev = [
     { name = "mlflow", specifier = ">=2.20,<4" },
     { name = "mutmut", specifier = ">=3,<4" },
     { name = "mypy", specifier = ">=1.20.2" },
-    { name = "polyfactory", specifier = ">=2.18,<3" },
+    { name = "polyfactory", specifier = ">=3.3.0,<4" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.25.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
@@ -2505,15 +2505,15 @@ wheels = [
 
 [[package]]
 name = "polyfactory"
-version = "2.22.5"
+version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "faker" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/15/c6/517137955bb3764e813edfa0086e8b3675dc126c49428e8482a70018ec33/polyfactory-2.22.5.tar.gz", hash = "sha256:d641d8c10c7d3e1f0f862ba2733ad1523069af58614bb1c077aeccabb66d26b7", size = 264946, upload-time = "2025-11-15T09:52:39.863Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/68/7717bd9e63ed254617a7d3dc9260904fb736d6ea203e58ffddcb186c64e4/polyfactory-3.3.0.tar.gz", hash = "sha256:237258b6ff43edf362ffd1f68086bb796466f786adfa002b0ac256dbf2246e9a", size = 348668, upload-time = "2026-02-22T09:46:28.01Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/87/6cd69c43e86bc5863f93dba3c9fb42ee4fda36a0fe5aa3cbd25001fb26f8/polyfactory-2.22.5-py3-none-any.whl", hash = "sha256:822d1af463520153200b4b62b06b0dc73a1d5edc8911e2e63ed0757ae21cc2b3", size = 63934, upload-time = "2025-11-15T09:52:37.956Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/34/b6f19941adcdaf415b5e8a8d577499f5b6a76b59cbae37f9b125a9ffe9f2/polyfactory-3.3.0-py3-none-any.whl", hash = "sha256:686abcaa761930d3df87b91e95b26b8d8cb9fdbbbe0b03d5f918acff5c72606e", size = 62707, upload-time = "2026-02-22T09:46:25.985Z" },
 ]
 
 [[package]]
