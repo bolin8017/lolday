@@ -6,7 +6,7 @@ import logging
 import httpx
 import pytest
 import respx
-from app.metrics import BACKEND_ERRORS
+from app.metrics import BACKEND_ERRORS, DISCORD_NOTIFY_TOTAL
 from app.services import notify
 
 WEBHOOK = "https://discord.test/api/webhooks/1/xyz"
@@ -15,6 +15,11 @@ WEBHOOK = "https://discord.test/api/webhooks/1/xyz"
 def _notify_error_count() -> float:
     """Sample of current BACKEND_ERRORS{stage=discord_notify} value."""
     return BACKEND_ERRORS.labels(stage="discord_notify")._value.get()
+
+
+def _discord_notify_count(result: str) -> float:
+    """Sample of current DISCORD_NOTIFY_TOTAL{channel=events, result=...} value."""
+    return DISCORD_NOTIFY_TOTAL.labels(channel="events", result=result)._value.get()
 
 
 @pytest.mark.asyncio
@@ -41,16 +46,38 @@ async def test_post_webhook_posts_json_to_configured_url(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_post_webhook_2xx_increments_ok_counter(monkeypatch):
+    """2026-05-17 audit follow-up #4: DISCORD_NOTIFY_TOTAL{result=ok}
+    increments on successful 2xx. Sibling assertion to the existing
+    error-path tests below; spans the success side so dashboards can
+    plot success rate = ok / sum(result)."""
+    monkeypatch.setattr(
+        "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
+    )
+    before = _discord_notify_count("ok")
+    with respx.mock() as mock:
+        mock.post(WEBHOOK).mock(return_value=httpx.Response(204))
+        await notify.post_webhook({"content": "hi"})
+    after = _discord_notify_count("ok")
+    assert after == before + 1
+
+
+@pytest.mark.asyncio
 async def test_post_webhook_swallows_http_error_and_increments_metric(monkeypatch):
     monkeypatch.setattr(
         "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
     )
-    before = _notify_error_count()
+    before_err = _notify_error_count()
+    before_http = _discord_notify_count("http_error")
     with respx.mock() as mock:
         mock.post(WEBHOOK).mock(return_value=httpx.Response(500))
         await notify.post_webhook({"content": "hi"})  # must not raise
-    after = _notify_error_count()
-    assert after == before + 1
+    after_err = _notify_error_count()
+    after_http = _discord_notify_count("http_error")
+    assert after_err == before_err + 1
+    # 2026-05-17 audit follow-up #4: also increments the outcome Counter
+    # under the http_error label.
+    assert after_http == before_http + 1
 
 
 @pytest.mark.asyncio
@@ -58,12 +85,16 @@ async def test_post_webhook_swallows_network_error(monkeypatch):
     monkeypatch.setattr(
         "app.services.notify.settings.DISCORD_WEBHOOK_URL_EVENTS", WEBHOOK
     )
-    before = _notify_error_count()
+    before_err = _notify_error_count()
+    before_net = _discord_notify_count("network_error")
     with respx.mock() as mock:
         mock.post(WEBHOOK).mock(side_effect=httpx.ConnectError("boom"))
         await notify.post_webhook({"content": "hi"})  # must not raise
-    after = _notify_error_count()
-    assert after == before + 1
+    after_err = _notify_error_count()
+    after_net = _discord_notify_count("network_error")
+    assert after_err == before_err + 1
+    # 2026-05-17 audit follow-up #4: also increments under network_error.
+    assert after_net == before_net + 1
 
 
 @pytest.mark.asyncio

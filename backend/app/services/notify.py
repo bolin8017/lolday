@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.config import settings
-from app.metrics import BACKEND_ERRORS
+from app.metrics import BACKEND_ERRORS, DISCORD_NOTIFY_TOTAL
 from app.services.discord import (
     build_build_completed_embed,
     build_build_failed_embed,
@@ -28,6 +28,12 @@ from app.services.discord import (
     build_job_failed_embed,
     build_trivy_blocked_embed,
 )
+
+# Single channel label for the backend's only webhook path today
+# (Spidey Service Alerts via DISCORD_WEBHOOK_URL_EVENTS). Promoted to a
+# constant so future webhook paths (e.g. backend-driven critical alerts)
+# can be added without scattering the label literal across call sites.
+_NOTIFY_CHANNEL = "events"
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +60,7 @@ async def post_webhook(payload: dict) -> None:
     # CPython internal and not needed here.
     if _NOTIFY_SEM.locked():
         BACKEND_ERRORS.labels(stage="discord_notify_dropped").inc()
+        DISCORD_NOTIFY_TOTAL.labels(channel=_NOTIFY_CHANNEL, result="dropped").inc()
         logger.warning(
             "Discord notify dropped (semaphore saturated): host=%s",
             host,
@@ -67,8 +74,12 @@ async def post_webhook(payload: dict) -> None:
             ) as client:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
+            DISCORD_NOTIFY_TOTAL.labels(channel=_NOTIFY_CHANNEL, result="ok").inc()
         except httpx.HTTPStatusError as exc:
             BACKEND_ERRORS.labels(stage="discord_notify").inc()
+            DISCORD_NOTIFY_TOTAL.labels(
+                channel=_NOTIFY_CHANNEL, result="http_error"
+            ).inc()
             # M-discord-log: webhook URL is itself the secret -- log host + status
             # only. Full path / token is the same value Discord uses to authenticate
             # the POST, so anything that lands in Loki is effectively the credential.
@@ -79,6 +90,9 @@ async def post_webhook(payload: dict) -> None:
             )
         except Exception as exc:
             BACKEND_ERRORS.labels(stage="discord_notify").inc()
+            DISCORD_NOTIFY_TOTAL.labels(
+                channel=_NOTIFY_CHANNEL, result="network_error"
+            ).inc()
             logger.warning(
                 "Discord notify failed: error=%s host=%s",
                 type(exc).__name__,
