@@ -177,7 +177,7 @@ export function InferenceSubForm(p: Props) {
                 value={p.predictDatasetId}
                 onValueChange={p.setPredictDatasetId}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Predict dataset">
                   <SelectValue placeholder="Pick dataset" />
                 </SelectTrigger>
                 <SelectContent>
