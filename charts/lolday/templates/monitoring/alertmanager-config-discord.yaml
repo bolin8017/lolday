@@ -100,6 +100,57 @@ spec:
       targetMatch:
         - { name: alertname, value: DCGMThrottleReasonsPersistent, matchType: "=" }
       equal: []
+    # 2026-05-17 audit follow-up — kps cause/effect suppression. Each
+    # new rule pairs a lolday-baseline source (critical-grade, more
+    # context-aware PromQL) with a kube-prometheus-stack default that
+    # is its mechanical duplicate, so the operator sees ONE @here or
+    # [WARNING] embed per incident instead of two for the same root
+    # cause. Design:
+    # docs/superpowers/specs/2026-05-17-discord-notification-audit-design.md
+    # §10 (item 3: "Inhibition expansion").
+    #
+    # LoldayCoreServiceDown fires on `up{job=~"backend|postgres-exporter|harbor"} == 0`;
+    # kps `TargetDown` fires on the same `up == 0` series when ≥10% of a
+    # job's targets are down. Identical root cause; inhibit kps when ours
+    # fires. `equal: [job]` keeps the inhibition job-scoped — a backend
+    # outage does NOT suppress a TargetDown on (e.g.) kube-state-metrics.
+    - sourceMatch:
+        - { name: alertname, value: LoldayCoreServiceDown, matchType: "=" }
+      targetMatch:
+        - { name: alertname, value: TargetDown, matchType: "=" }
+      equal: [job]
+    # Lolday-level node-pressure alerts (critical) cover the same
+    # condition as the kps node-exporter warnings (which fire on
+    # telemetry thresholds rather than kubelet's eviction-soft signal).
+    # Single-node lolday → `equal: []` is acceptable; a multi-node
+    # future would need `equal: [instance]` once the rule sources
+    # expose `instance`.
+    - sourceMatch:
+        - { name: alertname, value: LoldayNodeMemoryPressure, matchType: "=" }
+      targetMatch:
+        - { name: alertname, value: NodeMemoryHighUtilization, matchType: "=" }
+      equal: []
+    # Disk-fullness consolidation: regex source ∪ regex target compacts
+    # 4 inhibitions into 1.
+    #   source ∈ {NodeDiskAlmostFull, LoldayNodeDiskPressure} (both critical)
+    #   target ∈ {NodeFilesystemSpaceFillingUp, NodeFilesystemAlmostOutOfSpace}
+    # When either lolday source fires, both kps filesystem warnings are
+    # suppressed (the kubelet DiskPressure trigger and 85% fill cover
+    # essentially the same observation as the kps thresholds).
+    - sourceMatch:
+        - { name: alertname, value: "NodeDiskAlmostFull|LoldayNodeDiskPressure", matchType: "=~" }
+      targetMatch:
+        - { name: alertname, value: "NodeFilesystemSpaceFillingUp|NodeFilesystemAlmostOutOfSpace", matchType: "=~" }
+      equal: []
+    # Lolday-level node-pressure inhibits kps generic
+    # `KubePodCrashLooping` (the kps-name twin of the existing rules 3+4
+    # which inhibit our `PodCrashLoopBackOff`). Same condition, two
+    # alertnames; both should suppress under node pressure.
+    - sourceMatch:
+        - { name: alertname, value: "LoldayNodeMemoryPressure|LoldayNodeDiskPressure", matchType: "=~" }
+      targetMatch:
+        - { name: alertname, value: KubePodCrashLooping, matchType: "=" }
+      equal: []
   receivers:
     # Black-hole receiver — see the `severity=none` route block above.
     # Declared with no integrations (no discordConfigs / webhookConfigs)
