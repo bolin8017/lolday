@@ -43,7 +43,7 @@ dev = [
     "schemathesis>=3.36,<4",
     "testcontainers[postgres,minio]>=4.7,<5",
     "mlflow>=2.20,<4",  # for testcontainers real-MLflow tier; <4 to match mlflow-skinny 3.x resolution (cachetools<6 in mlflow 2.x conflicts with project cachetools>=7)
-    "polyfactory>=2.18,<3",
+    "polyfactory>=2.18,<4",
     "mutmut>=3,<4",
 ]
 
