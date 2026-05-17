@@ -42,6 +42,25 @@ spec:
           - name: severity
             value: none
             matchType: "="
+      # severity=info — kps default rules with this label (7 currently
+      # loaded: CPUThrottlingHigh, KubeQuotaAlmostFull, KubeQuotaFullyUsed,
+      # KubeNodeEviction, KubeNodePressure, KubeletTooManyPods,
+      # NodeCPUHighUsage) are non-actionable in lolday's context.
+      # KubeNodePressure / KubeNodeEviction overlap our explicit
+      # severity=critical rules LoldayNodeMemoryPressure / LoldayNodeDiskPressure;
+      # KubeQuotaAlmostFull / KubeQuotaFullyUsed overlap our
+      # LoldayJobsQuotaMemoryNearLimit / LoldayJobsQuotaCPUNearLimit
+      # (both warning at 85%); CPUThrottlingHigh / NodeCPUHighUsage are
+      # telemetry visible in Grafana, not paging-grade. Without this
+      # null route they fall through to discord-warning and surface in
+      # Spidey Warnings as `[WARNING] CPUThrottlingHigh` etc. — same
+      # rendering bug PR #206 closed for severity=none. Design:
+      # docs/superpowers/specs/2026-05-17-discord-notification-audit-design.md §5.1.
+      - receiver: 'null'
+        matchers:
+          - name: severity
+            value: info
+            matchType: "="
       - receiver: discord-critical
         matchers:
           - name: severity
