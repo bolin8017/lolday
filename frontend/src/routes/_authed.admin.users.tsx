@@ -32,7 +32,7 @@ function RoleCell({ user, selfId }: { user: User; selfId: string | null }) {
       disabled={mut.isPending}
       onValueChange={(v) => mut.mutate({ userId: user.id, role: v as Role })}
     >
-      <SelectTrigger className="w-36">
+      <SelectTrigger className="w-36" aria-label={`Role for ${user.email}`}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
