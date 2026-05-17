@@ -74,6 +74,7 @@ Runbooks for specific operations:
 - [Adding an SSD](docs/runbooks/add-ssd.md) (invalidated; see warning at top)
 - [Adding a new NFS-backed sample bank](docs/runbooks/add-nfs-dataset.md)
 - [Cloudflare Access backups](docs/runbooks/cf-access-backups.md)
+- [Discord webhook rotation](docs/runbooks/discord-webhook-rotation.md)
 - [Fernet key rotation](docs/runbooks/p3-fernet-rotation.md)
 - [K3s API audit log + secrets encryption](docs/runbooks/k3s-audit-and-secrets-encryption.md)
 - [Kyverno Harbor image signing](docs/runbooks/kyverno-harbor-signing.md)

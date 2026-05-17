@@ -34,6 +34,8 @@ Webhook env mapping (repo-root `.lolday-secrets.env`, fallback `~/.lolday-secret
 
 The chart wires the critical + heartbeat webhooks into the same `monitoring/alertmanager-discord` Secret under keys `webhook-url-critical` and `webhook-url-heartbeat`; the deadmans-switch CronJob env binding for the heartbeat key is `optional: true` so an empty/unset `DISCORD_WEBHOOK_URL_HEARTBEAT` gracefully degrades to "failure-only" (Captain Hook keeps working). The warning channel is consumed by Alertmanager via its own `webhook-url-warning` Secret key.
 
+**Webhook rotation.** Webhook URLs are credentials (anyone with the URL can POST as the channel). Rotate quarterly as preventive hygiene, or immediately on suspected leak — operator procedure in [`docs/runbooks/discord-webhook-rotation.md`](runbooks/discord-webhook-rotation.md).
+
 Debug entry points:
 
 - Captain Hook `@here` surge → `kubectl -n monitoring port-forward svc/kps-prometheus 9090`, then `curl 'http://localhost:9090/api/v1/query?query=count by (alertname,severity) (count_over_time(ALERTS{alertstate="firing"}[7d]))'`. Also check `kubectl -n monitoring logs job/$(kubectl -n monitoring get jobs -l app.kubernetes.io/name=deadmans-switch -o name | tail -1)` for `Alertmanager unreachable` — recurrent on monitoring-ns NetworkPolicy regressions (precedent: 2026-05-16 hotfix, `docs/superpowers/plans/2026-05-16-monitoring-np-and-alerts-recovery.md`).
