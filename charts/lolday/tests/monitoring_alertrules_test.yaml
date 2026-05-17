@@ -62,3 +62,21 @@ tests:
       - lengthEqual:
           path: spec.groups
           count: 3
+
+  # 2026-05-17 audit: LoldayDiscordNotifyDropped is the sibling alert
+  # to LoldayDiscordNotifyFailing — it fires when notify.py's
+  # _NOTIFY_SEM=20 saturates and a notify is silently dropped before
+  # the HTTP attempt (stage="discord_notify_dropped"). Distinct from
+  # discord_notify (which catches httpx exceptions / non-2xx). Pinned
+  # at index 8 immediately after LoldayDiscordNotifyFailing (index 7).
+  - it: group 0 (lolday-baseline.rules) contains LoldayDiscordNotifyDropped at rule index 8
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[8].alert
+          value: LoldayDiscordNotifyDropped
+      - equal:
+          path: spec.groups[0].rules[8].labels.severity
+          value: warning
+      - equal:
+          path: spec.groups[0].rules[8].for
+          value: 10m
