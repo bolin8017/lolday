@@ -188,7 +188,12 @@ export default function JobsListPage() {
               value={type}
               onValueChange={(v) => setType(v as typeof type)}
             >
-              <SelectTrigger className="w-36">
+              {/* aria-label required: SelectValue renders the selected text
+                  inside a visually-styled span the axe `button-name` rule
+                  (WCAG 2.1 AA) doesn't credit as the button's accessible
+                  name. Naming the trigger keeps the filter usable from
+                  screen readers and clears the violation on /jobs. */}
+              <SelectTrigger className="w-36" aria-label="Filter by job type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
