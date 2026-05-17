@@ -116,6 +116,16 @@ class StubCore:
 
         return _R()
 
+    def list_namespaced_secret(self, namespace, **kw):
+        # reconciler/orphans._sweep_orphan_token_secrets_in_namespace calls
+        # this on every iteration; without the stub the live-stack reconciler
+        # raises AttributeError each tick and BACKEND_ERRORS{stage=
+        # "reconcile_orphan_token_secrets"} climbs unbounded.
+        class _R:
+            items: list = []  # noqa: RUF012  # stub inner class, ClassVar not needed
+
+        return _R()
+
     def read_namespaced_pod_log(self, **kw):
         return ""
 

@@ -37,6 +37,16 @@ def test_stub_core_secret_patches_recorded():
     assert core.secret_patches == [("sec-1", "ns", body)]
 
 
+def test_stub_core_list_namespaced_secret_returns_empty_items():
+    # Contract used by reconciler/orphans._sweep_orphan_token_secrets_in_namespace:
+    # the call must return an object with an ``items`` iterable so the
+    # ``for sec in secrets.items`` loop is a no-op when no fixtures inject
+    # secrets.
+    core = StubCore()
+    result = core.list_namespaced_secret("lolday-jobs")
+    assert list(result.items) == []
+
+
 def test_stub_volcano_create_then_list():
     volcano = StubVolcano()
     volcano.create_namespaced_custom_object(
