@@ -20,15 +20,15 @@ echo ""
 : "${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
 : "${PG_EXPORTER_PASSWORD:?PG_EXPORTER_PASSWORD must be set — generate with: openssl rand -base64 32 | tr -d '=+/'}"
-: "${DISCORD_WEBHOOK_URL_CRITICAL:?DISCORD_WEBHOOK_URL_CRITICAL must be set — webhook URL for #lolday-alerts-critical}"
-: "${DISCORD_WEBHOOK_URL_WARNING:?DISCORD_WEBHOOK_URL_WARNING must be set — webhook URL for #lolday-alerts-warning}"
+: "${DISCORD_WEBHOOK_URL_CRITICAL:?DISCORD_WEBHOOK_URL_CRITICAL must be set — webhook URL for Captain Hook (Alertmanager severity=critical + deadmans-switch fail; @here)}"
+: "${DISCORD_WEBHOOK_URL_WARNING:?DISCORD_WEBHOOK_URL_WARNING must be set — webhook URL for Spidey Warnings (Alertmanager severity=warning; no @here)}"
 # Phase 10 — SSO admin email. Used by the one-time phase10_sso_admin_email
 # Alembic migration to rename the seeded admin row onto the operator's IdP
 # identity. Kept out of values.yaml so the public chart does not embed
 # operator-personal info. Hard-fail here so a fresh deploy can never seed
 # admin@example.com (the placeholder in values.yaml) into a real cluster.
 : "${SSO_ADMIN_EMAIL:?SSO_ADMIN_EMAIL must be set — operator CF Access IdP email; was hardcoded in values.yaml until 5ae224e}"
-# Phase 7.4 — user-event Discord webhook (#lolday-alerts-events).
+# Phase 7.4 — user-event Discord webhook for Spidey Service Alerts channel.
 # Optional: backend treats empty string as "notify disabled". Hard-fail only if
 # present-but-malformed (silent half-config is the worst outcome).
 DISCORD_WEBHOOK_URL_EVENTS="${DISCORD_WEBHOOK_URL_EVENTS:-}"
