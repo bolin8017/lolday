@@ -41,7 +41,7 @@ jobs:
         env:
           E2E_BASE_URL: http://127.0.0.1:5173
           DOCS_ENABLED: "true"
-        run: pnpm --dir frontend playwright test
+        run: pnpm --dir frontend exec playwright test
 
       - name: Upload trace + screenshots on failure
         if: failure()
