@@ -60,7 +60,10 @@ test.describe("mobile sidebar drawer", () => {
     await trigger.click();
 
     const drawer = page.getByRole("dialog");
-    const adminLink = drawer.getByRole("link", { name: /admin|管理/i });
+    // Anchor to the exact nav label so we don't also match the profile link
+    // ("admin@dev.local"); see role-based-visibility.spec.ts for the
+    // strict-mode failure that motivated this pattern.
+    const adminLink = drawer.getByRole("link", { name: /^(admin|管理)$/i });
     await expect(adminLink).toBeVisible();
   });
 });
