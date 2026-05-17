@@ -95,9 +95,22 @@ async def seed_fixtures(
             image_digest=(
                 "sha256:1111111111111111111111111111111111111111111111111111111111111111"
             ),
+            # maldet's DetectorManifest.stages is `dict[stage_name, StageSpec]`,
+            # not a list; LifecycleConfig.stages (a list) is the lookalike
+            # field one level deeper. The previous shape was the lookalike
+            # and crashed `resolve_detector_defaults` with
+            # `AttributeError: 'list' object has no attribute 'get'` the
+            # moment any E2E spec rendered the seeded job. Empty stage dicts
+            # are enough: the fixture isn't exercising per-stage params, just
+            # the read path. `framework` lives under `detector` in the
+            # real schema — keep this fixture minimal but well-shaped.
             manifest={
-                "framework": "lightning",
-                "stages": ["train", "evaluate", "predict"],
+                "detector": {"framework": "lightning"},
+                "stages": {
+                    "train": {},
+                    "evaluate": {},
+                    "predict": {},
+                },
             },
             status=DetectorVersionStatus.ACTIVE,
         )

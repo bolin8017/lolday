@@ -76,3 +76,31 @@ async def test_seed_fixtures_inserts_rows_we_can_read_back(
     assert test_ds is not None
     job = await db_session.get(Job, uuid.UUID(body["queued_job_id"]))
     assert job is not None
+
+
+async def test_seed_fixtures_manifest_shape_compatible_with_resolve_detector_defaults(
+    auth_client_admin: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: the seeded DetectorVersion.manifest must satisfy the
+    `resolve_detector_defaults` read path. A previous fixture shape used a
+    list at `manifest.stages` (the LifecycleConfig lookalike) and crashed
+    every E2E spec that rendered the seeded job with
+    `AttributeError: 'list' object has no attribute 'get'`. Lock the dict
+    shape so the next drift fails this test, not the playwright suite.
+    """
+    from app.models.job import JobType
+    from app.services.jobs_params_validate import resolve_detector_defaults
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", True)
+    resp = await auth_client_admin.post("/api/v1/dev/seed-fixtures")
+    assert resp.status_code == 200
+    version = await db_session.get(
+        DetectorVersion, uuid.UUID(resp.json()["detector_version_id"])
+    )
+    assert version is not None
+    for job_type in (JobType.TRAIN, JobType.EVALUATE, JobType.PREDICT):
+        # Must not raise. Empty stage dicts mean None defaults; the contract
+        # is "no crash", not "non-empty defaults".
+        assert resolve_detector_defaults(version.manifest, job_type) is None
