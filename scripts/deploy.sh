@@ -141,10 +141,12 @@ echo ""
 echo "[3/4] Ensuring namespaces..."
 kubectl create namespace lolday --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 # H-14 follow-up (#174, 2026-05-15): label lolday ns with PSS audit/warn at
-# restricted before enforcing. The 3-day observation window lets the operator
-# confirm `kubectl get events --field-selector reason=PodSecurity` shows zero
-# violations before promoting to enforce:restricted via the runbook (see
-# docs/runbooks/pss-label-promotion.md).
+# restricted. enforce stays unset (defaults to "privileged" in absence) until
+# the in-ns sub-chart pods (Loki, Kyverno, Alloy, MinIO, node-exporter) are
+# patched to meet restricted via chart values overrides — tracked as the
+# follow-up to issue #186 (only lolday-jobs was promoted to enforce=restricted
+# on 2026-05-18; lolday ns deferred pending sub-chart hardening).
+# Runbook: docs/runbooks/pss-label-promotion.md.
 kubectl label ns lolday \
   pod-security.kubernetes.io/audit=restricted \
   pod-security.kubernetes.io/warn=restricted \

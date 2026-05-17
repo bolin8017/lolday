@@ -3,14 +3,12 @@
      ResourceQuota / LimitRange can cap workload pods without
      constraining infra. See spec §6.2.
 
-     H-14 (P2): Pod Security Standards labels start in 'audit + warn'
-     mode so misbehaving pods are reported but not blocked. After 7
-     days of clean audit logs, promote to 'enforce' via:
-       kubectl label ns lolday-jobs pod-security.kubernetes.io/enforce=restricted --overwrite
-     (See docs/runbooks/p2-pss-labels.md.)
-     BuildKit is a known exception — it requires `seccompProfile: Unconfined`
-     (or the custom profile from P2 T12), so enforce stays at 'baseline'
-     until BuildKit moves to its own ns. */}}
+     PSS Standards: audit + warn + enforce all at 'restricted'. BuildKit
+     has its own namespace (`lolday-builds`, `enforce=baseline`) since
+     chart 0.24.0, so this ns no longer hosts the seccomp installer and
+     can run at the highest PSS tier. Promoted from baseline → restricted
+     on 2026-05-18 after a 3-day observation window with zero audit
+     violations; see docs/runbooks/pss-label-promotion.md. */}}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -21,7 +19,7 @@ metadata:
     # explicit duplicate of K8s' auto-injected label, for older K3s + tooling
     # that don't reliably honour the projected `kubernetes.io/metadata.name`.
     kubernetes.io/metadata.name: {{ .Values.global.jobsNamespace }}
-    # H-14 — PSS audit + warn at restricted; enforce at baseline (BuildKit).
+    # H-14 — PSS at restricted across audit + warn + enforce.
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: restricted

@@ -39,12 +39,14 @@ tests:
           path: metadata.labels["pod-security.kubernetes.io/warn"]
           value: restricted
 
-  # lolday-jobs: enforce=baseline per chart default (H-14). The operator
-  # promotes to `restricted` post-deploy via:
-  #   kubectl label ns lolday-jobs pod-security.kubernetes.io/enforce=restricted --overwrite
-  # after verifying 7 days of clean audit logs. Test pins the chart default
-  # to catch an accidental premature promotion or regression.
-  - it: lolday-jobs namespace enforces baseline PSS (promoted to restricted out-of-band post-deploy)
+  # lolday-jobs: enforce=restricted since 2026-05-18 promotion (issue #186).
+  # Pre-promotion the chart shipped enforce=baseline so BuildKit (in the
+  # same ns) could keep elevated caps; BuildKit moved to `lolday-builds` in
+  # chart 0.24.0 (2026-05-15) and the 3-day audit window after that move
+  # showed zero PodSecurity violations across lolday + lolday-jobs, clearing
+  # the ramp for full restricted enforcement. Runbook:
+  # docs/runbooks/pss-label-promotion.md.
+  - it: lolday-jobs namespace enforces restricted PSS (post 2026-05-18 promotion)
     template: templates/jobs-namespace.yaml
     documentIndex: 0
     asserts:
@@ -55,7 +57,7 @@ tests:
           value: lolday-jobs
       - equal:
           path: metadata.labels["pod-security.kubernetes.io/enforce"]
-          value: baseline
+          value: restricted
       - equal:
           path: metadata.labels["pod-security.kubernetes.io/audit"]
           value: restricted
