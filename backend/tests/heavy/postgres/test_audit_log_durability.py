@@ -46,8 +46,16 @@ async def _create_schema_on_real_pg(real_pg_engine):
 
 
 @pytest_asyncio.fixture
-async def _seed_user(real_pg_session: AsyncSession):
-    """Insert a User row that audit_log.actor_id can reference (FK ON DELETE RESTRICT)."""
+async def _seed_user(real_pg_engine):
+    """Insert a User row that audit_log.actor_id can reference.
+
+    Commits via a fresh session so the FK target is visible to OTHER
+    connections opened later in the same test (e.g.
+    test_audit_log_concurrent_writes_both_persist creates its own sessions
+    bypassing real_pg_session's transactional wrapper). Per-test UUIDs
+    prevent collisions across tests; the testcontainer teardown wipes the
+    DB at session end so no cleanup is required.
+    """
     from app.models.user import Role, User
 
     handle = f"u-{uuid.uuid4().hex[:8]}"
@@ -57,8 +65,10 @@ async def _seed_user(real_pg_session: AsyncSession):
         handle=handle,
         role=Role.USER,
     )
-    real_pg_session.add(u)
-    await real_pg_session.flush()
+    SessionFactory = async_sessionmaker(real_pg_engine, expire_on_commit=False)
+    async with SessionFactory() as s:
+        s.add(u)
+        await s.commit()
     return u
 
 
