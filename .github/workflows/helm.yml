@@ -71,6 +71,52 @@ jobs:
           cd charts/lolday
           helm unittest -f 'tests/*_test.yaml' .
 
+      # 2026-05-17 audit follow-up #1 — promtool catches PromQL syntax
+      # errors, unbalanced label matchers, invalid `for:` durations, and
+      # other rule-file mistakes that helm-unittest cannot see
+      # (helm-unittest only checks rendered YAML shape, not PromQL
+      # semantics). Future PR that introduces a typo into a
+      # `alertmanager-rules.yaml` PromQL block would have surfaced as
+      # `PrometheusRuleFailures` at runtime — minutes-to-hours feedback
+      # latency vs CI's seconds.
+      #
+      # Uses --show-only to render exactly the rules template (avoids
+      # YAML parser confusion on tab characters in other templates) and
+      # the upstream Prometheus container's `promtool` binary (pure Go,
+      # no toolchain setup needed). Pinned-tag image since this is CI-
+      # only test infra; container registry verification is delegated to
+      # Docker Hub TLS.
+      - name: promtool check rules (PromQL syntax + rule semantics)
+        run: |
+          helm template lolday charts/lolday --namespace lolday \
+            --show-only templates/monitoring/alertmanager-rules.yaml \
+            --set harbor.harborAdminPassword=fake \
+            --set backend.harborAdminPassword=fake \
+            --set backend.fernetKeys=fake \
+            --set redis.auth.password=fake \
+            --set postgresql.auth.password=fake \
+            --set mlflow.db.password=fake \
+            --set monitoring.grafana.adminPassword=fake \
+            --set monitoring.postgresExporter.password=fake \
+            --set cloudflare.tunnelToken=fake \
+            > /tmp/rules-doc.yaml
+          python3 - <<'PY'
+          import sys
+          import yaml
+
+          doc = yaml.safe_load(open("/tmp/rules-doc.yaml"))
+          if doc is None or doc.get("kind") != "PrometheusRule":
+              sys.exit("alertmanager-rules.yaml did not render a PrometheusRule")
+          if doc.get("metadata", {}).get("name") != "lolday-baseline":
+              sys.exit(f"expected PrometheusRule name 'lolday-baseline', got {doc.get('metadata', {}).get('name')!r}")
+          # promtool expects a top-level `groups:` key, NOT the K8s
+          # CRD-style `spec.groups`. Extract and re-emit.
+          with open("/tmp/rules.yaml", "w") as f:
+              yaml.dump({"groups": doc["spec"]["groups"]}, f)
+          PY
+          docker run --rm --entrypoint=promtool -v /tmp:/work \
+            prom/prometheus:v3.5.0 check rules /work/rules.yaml
+
       - name: Upload rendered manifests
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

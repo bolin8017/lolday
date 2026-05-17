@@ -510,27 +510,50 @@ Each PR is independently revertable:
 
 ## 10. Open questions / future work
 
-1. **Promtool + amtool tests in CI** — listed §3.2 OOS. Recommend a
-   follow-up under the test-architecture programme: new CI job
-   `monitoring-rules.yml` that runs `promtool test rules` on
-   `tests/<spec>-promtool.yaml` fixtures + `amtool config routes
-test` for the documented severity values.
+1. ~~**Promtool tests in CI**~~ — **CLOSED 2026-05-17 (PR #214)**.
+   Added `promtool check rules` step to `.github/workflows/helm.yml::
+lint-template`. Renders `alertmanager-rules.yaml` via
+   `helm template --show-only`, extracts `spec.groups`, runs
+   `prom/prometheus:v3.5.0` container's `promtool check rules`.
+   Verified locally — `SUCCESS: 20 rules found`. Full amtool routing
+   gate deferred (requires AlertmanagerConfig CRD → standalone
+   alertmanager.yml translation; helm-unittest assertions in PR #212
+   cover route shape + default receiver).
 2. **Suppress noisy kps default warnings** — `KubeDeploymentRolloutStuck`,
    `KubeDaemonSetRolloutStuck`, `KubeContainerWaiting` fired transiently
-   during recent deploys. After 30 d of post-PR-A baseline,
-   revisit whether to disable specific kps rules via
-   `kps.defaultRules.disabled[]`.
-3. **Inhibition expansion** — once severity=info → null and
-   ServiceMonitor cleanup land, see whether residual cascade noise
-   warrants kps cause/effect inhibitions (e.g.,
-   `LoldayCoreServiceDown` inhibits `KubePodCrashLooping` for
-   `equal: [namespace, pod]`).
-4. **Backend Prometheus metric for notify success rate** — currently
-   no `lolday_discord_notify_total{result=...}` Counter. Helpful for
-   SLO tracking, not required for current alerting.
+   during recent deploys. **DEFERRED** — without 30 d of post-PR-A/B
+   baseline, disabling rules risks masking real incidents. The PR #212
+   inhibitions already suppress the dominant cascade-noise cases
+   (`KubePodCrashLooping`, `TargetDown`); residual deploy-time
+   transients are kept on the Prometheus side for Grafana visibility
+   but contained from Discord delivery. Operator can revisit after a
+   month of observation.
+3. ~~**Inhibition expansion**~~ — **CLOSED 2026-05-17 (PR #212)**.
+   Added 4 new `inhibitRules` (5 → 9 total): `LoldayCoreServiceDown` →
+   `TargetDown` (`equal: [job]`); `LoldayNodeMemoryPressure` →
+   `NodeMemoryHighUtilization`; consolidated regex on
+   `(NodeDiskAlmostFull | LoldayNodeDiskPressure) →
+(NodeFilesystemSpaceFillingUp | NodeFilesystemAlmostOutOfSpace)`;
+   `(LoldayNodeMemoryPressure | LoldayNodeDiskPressure) →
+KubePodCrashLooping`. helm-unittest pinned at count 9 + new
+   explicit default-receiver assertion (regression guard against
+   silent-drop drift).
+4. ~~**Backend Prometheus metric for notify success rate**~~ —
+   **CLOSED 2026-05-17 (PR #213)**. Added
+   `lolday_discord_notify_total{channel, result}` Counter to
+   `backend/app/metrics.py`. `services/notify.py:post_webhook`
+   increments under {ok, http_error, network_error, dropped}.
+   Cardinality bounded (1 channel x 4 results = 4 series). 12/12
+   tests pass; the metric activates on the next backend image
+   release (operator-driven). Grafana panel for success-rate +
+   eventual SLO threshold deferred until baseline data accumulates.
 5. **Per-channel rate-limit metric** — `notify.py` could expose a
    per-host rate counter; would let us add a `LoldayDiscordWebhookRateLimit`
    alert. Low ROI today, defer.
+6. **Full amtool routing gate in CI** — see #1 above; deferred to
+   a deeper hardening pass that translates AlertmanagerConfig CRD
+   into the merged `alertmanager.yml` shape `amtool config routes
+test` requires.
 
 ## 11. References
 
