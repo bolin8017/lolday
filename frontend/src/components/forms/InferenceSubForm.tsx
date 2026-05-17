@@ -109,7 +109,7 @@ export function InferenceSubForm(p: Props) {
                 p.setDerivedDetectorVersionTag("");
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Source model">
                 <SelectValue placeholder="Pick model" />
               </SelectTrigger>
               <SelectContent>
@@ -131,7 +131,7 @@ export function InferenceSubForm(p: Props) {
               onValueChange={p.setSourceModelVersionId}
               disabled={!p.sourceModelName}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Model version">
                 <SelectValue placeholder="Pick version" />
               </SelectTrigger>
               <SelectContent>
@@ -158,7 +158,7 @@ export function InferenceSubForm(p: Props) {
                 value={p.testDatasetId}
                 onValueChange={p.setTestDatasetId}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Test dataset">
                   <SelectValue placeholder="Pick dataset" />
                 </SelectTrigger>
                 <SelectContent>

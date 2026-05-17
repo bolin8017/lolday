@@ -78,7 +78,7 @@ export function TrainSubForm(p: Props) {
                 p.setVersionTag("");
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Detector">
                 <SelectValue placeholder="Pick detector" />
               </SelectTrigger>
               <SelectContent>
@@ -97,7 +97,7 @@ export function TrainSubForm(p: Props) {
               onValueChange={p.setVersionTag}
               disabled={!p.detectorId}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Version">
                 <SelectValue placeholder="Pick version" />
               </SelectTrigger>
               <SelectContent>
@@ -125,7 +125,7 @@ export function TrainSubForm(p: Props) {
               value={p.trainDatasetId}
               onValueChange={p.setTrainDatasetId}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Train dataset">
                 <SelectValue placeholder="Pick dataset" />
               </SelectTrigger>
               <SelectContent>
@@ -147,7 +147,7 @@ export function TrainSubForm(p: Props) {
               onValueChange={p.setTestDatasetId}
               clearable
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Test dataset (optional)">
                 <SelectValue placeholder="Pick dataset (optional)" />
               </SelectTrigger>
               <SelectContent>
