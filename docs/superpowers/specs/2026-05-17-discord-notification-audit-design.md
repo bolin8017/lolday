@@ -41,14 +41,7 @@ cluster + Discord channel evidence; the most consequential findings:
    any of the 4 channels), and `services/notify.py:73-79` correctly
    treats it as such, but there is no documented rotation cadence /
    procedure for the operator.
-5. **`docs/operations.md` debug command is broken** — the rendered
-   command for the "Captain Hook @here surge" entry uses
-   `-l app.kubernetes.io/name=deadmans-switch` on the `Job` selector,
-   but `lolday.labels` helper sets `app.kubernetes.io/name: lolday`
-   on Jobs (the pod template gets the `deadmans-switch` label). So
-   the documented command returns nothing, silently misdirecting an
-   on-call operator chasing a real outage.
-6. **Smaller drifts** — `.claude/rules/charts-and-helm.md` says "16
+5. **Smaller drifts** — `.claude/rules/charts-and-helm.md` says "16
    alert rules" (actual count: 19, post security-hardening P5/P6);
    `docs/architecture.md` §5.2 missing `DISCORD_WEBHOOK_URL_HEARTBEAT`
    from the canonical env-var list; `scripts/deploy.sh` operator
@@ -90,7 +83,6 @@ User (engagement brief, 2026-05-17):
    the backend, not rotate a webhook URL).
 4. **Docs sync** — `docs/architecture.md` §5.2 +
    `.claude/rules/charts-and-helm.md` alert count +
-   `docs/operations.md` deadmans-switch debug command +
    `scripts/deploy.sh` channel name strings. One PR.
 5. **New runbook: `docs/runbooks/discord-webhook-rotation.md`** —
    per-channel rotation, emergency rotation, cadence
@@ -263,24 +255,34 @@ or 90-day default), plus emergency rotation steps for "URL leaked"
 incidents. Modelled directly on the Cloudflare Access service-token
 runbook (`docs/runbooks/p3-fernet-rotation.md`).
 
-### 5.5 Why `docs/operations.md` debug command must use a different selector
+### 5.5 docs/operations.md debug command — empirically verified, no change needed
 
-The deadmans-switch CronJob template applies `lolday.labels` to:
+The initial draft of this spec claimed the debug command
+`kubectl -n monitoring get jobs -l app.kubernetes.io/name=deadmans-switch`
+returns nothing because `lolday.labels` sets `app.kubernetes.io/name: lolday`
+on the Job. Live verification on server30 (K3s `v1.34.6+k3s1`, kubectl
+`v1.35.3`) refutes that:
 
-- `ConfigMap` (`deadmans-switch-script`) — gets `app.kubernetes.io/name: lolday`
-- `CronJob` itself — gets `app.kubernetes.io/name: lolday`
-- `Job` (auto-created by CronJob controller, inherits CronJob labels) — gets `app.kubernetes.io/name: lolday`
-- **Pod** (`spec.jobTemplate.spec.template.metadata.labels`) — overridden to `app.kubernetes.io/name: deadmans-switch`
+```
+$ kubectl -n monitoring get jobs -l app.kubernetes.io/name=deadmans-switch -o name
+job.batch/deadmans-switch-29649880
+$ kubectl -n monitoring get jobs deadmans-switch-29649880 -o jsonpath='{.metadata.labels}'
+{"app.kubernetes.io/name":"deadmans-switch", ...}
+```
 
-So `kubectl -n monitoring get jobs -l app.kubernetes.io/name=deadmans-switch`
-returns nothing. The correct query is either:
+The Job inherits `app.kubernetes.io/name: deadmans-switch` from the
+pod template (`spec.jobTemplate.spec.template.metadata.labels`) — the
+Job controller propagates pod-template labels into the Job's own
+`metadata.labels` as part of the auto-selector synthesis. Because the
+deadmans-switch pod template explicitly overrides the chart-wide
+`lolday.labels` value, the Job ends up with the more specific label,
+and the operations.md command works as documented.
 
-- `kubectl -n monitoring get jobs --selector=batch.kubernetes.io/cronjob=deadmans-switch -o name | tail -1`
-  (uses the upstream auto-label; works for `batch/v1` CronJob in K8s >=1.27)
-- or `kubectl -n monitoring get pods -l app.kubernetes.io/name=deadmans-switch`
-  then map back via owner reference. More verbose.
-
-Fix uses the upstream auto-label — it is the canonical / stable selector.
+The candidate replacement `batch.kubernetes.io/cronjob=deadmans-switch`
+was not added by the K3s 1.34 CronJob controller for this Job (verified
+via `kubectl get jobs ... -o jsonpath='{.metadata.labels}'`); using it
+would in fact break the command. The current operations.md text is
+correct and stays unchanged. Dropping the planned PR-D edit for this.
 
 ## 6. Detailed design
 
@@ -399,21 +401,18 @@ underlying httpx exception is more transient than a semaphore drop).
 (or whatever the suite idioms are; final form determined in
 implementation.)
 
-### 6.4 PR D — docs sync (single PR, 4 files)
+### 6.4 PR D — docs sync (single PR, 3 files)
 
-1. **`docs/architecture.md` §5.2** — add row for
-   `DISCORD_WEBHOOK_URL_HEARTBEAT` to the canonical env-var table.
+1. **`docs/architecture.md` §5.2** — add `DISCORD_WEBHOOK_URL_HEARTBEAT`
+   to both the prose bullet (`§Discord` env-var list) and the
+   `.lolday-secrets.env` required-key string in the secrets table.
    Wired 2026-05-16 by PR #202; missed in the docs PR.
-2. **`docs/operations.md` §Discord channels** — fix the two debug
-   commands referencing `app.kubernetes.io/name=deadmans-switch` on
-   the Job selector. Replace with the CronJob auto-label form
-   `batch.kubernetes.io/cronjob=deadmans-switch`.
-3. **`.claude/rules/charts-and-helm.md`** — "16 alert rules total"
+2. **`.claude/rules/charts-and-helm.md`** — "16 alert rules total"
    → "20 alert rules total" (post-PR C; was 19 pre-PR C since
    `LoldayAuthFailureSpike` + `LoldayRateLimitSpike` +
    `LoldayDiscordNotifyFailing` landed in security-hardening P5/P6
    but the line was not bumped).
-4. **`scripts/deploy.sh`** — operator-facing messages that mention
+3. **`scripts/deploy.sh`** — operator-facing messages that mention
    `#lolday-alerts-critical / #lolday-alerts-warning / #lolday-events`
    → Captain Hook / Spidey Warnings / Spidey Service Alerts. Cosmetic
    only; no behavioural change.

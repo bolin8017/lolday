@@ -15,13 +15,13 @@
 
 ## PR pipeline (sequential)
 
-| #   | PR title                                                                                             | Scope                                                | Files touched                                                                                                               | Status |
-| --- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------ |
-| A   | `fix(charts): route severity=info alerts to null receiver — sister to #206`                          | alertmanager-config-discord template + helm-unittest | `charts/lolday/templates/monitoring/alertmanager-config-discord.yaml` + `charts/lolday/tests/alertmanagerconfig_test.yaml`  | ⬜     |
-| B   | `fix(charts): drop unused volcano-scheduler ServiceMonitor — root-cause TargetDown noise`            | template removal                                     | `charts/lolday/templates/monitoring/servicemonitor-volcano.yaml` (delete) + `.claude/rules/charts-and-helm.md` (table edit) | ⬜     |
-| C   | `feat(monitoring): LoldayDiscordNotifyDropped alert — closes M-notify-semaphore observability gap`   | alertmanager-rules template + helm-unittest          | `charts/lolday/templates/monitoring/alertmanager-rules.yaml` + `charts/lolday/tests/monitoring_alertrules_test.yaml`        | ⬜     |
-| D   | `docs: sync Discord docs — HEARTBEAT env, debug command label, alert count, deploy.sh channel names` | docs only                                            | `docs/architecture.md` + `docs/operations.md` + `.claude/rules/charts-and-helm.md` + `scripts/deploy.sh` (message strings)  | ⬜     |
-| E   | `docs(runbooks): add Discord webhook rotation runbook`                                               | new doc                                              | `docs/runbooks/discord-webhook-rotation.md` (new) + README + `docs/operations.md` (cross-link)                              | ⬜     |
+| #   | PR title                                                                                           | Scope                                                | Files touched                                                                                                               | Status |
+| --- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------ |
+| A   | `fix(charts): route severity=info alerts to null receiver — sister to #206`                        | alertmanager-config-discord template + helm-unittest | `charts/lolday/templates/monitoring/alertmanager-config-discord.yaml` + `charts/lolday/tests/alertmanagerconfig_test.yaml`  | ⬜     |
+| B   | `fix(charts): drop unused volcano-scheduler ServiceMonitor — root-cause TargetDown noise`          | template removal                                     | `charts/lolday/templates/monitoring/servicemonitor-volcano.yaml` (delete) + `.claude/rules/charts-and-helm.md` (table edit) | ⬜     |
+| C   | `feat(monitoring): LoldayDiscordNotifyDropped alert — closes M-notify-semaphore observability gap` | alertmanager-rules template + helm-unittest          | `charts/lolday/templates/monitoring/alertmanager-rules.yaml` + `charts/lolday/tests/monitoring_alertrules_test.yaml`        | ⬜     |
+| D   | `docs: sync Discord docs — HEARTBEAT env, alert count, deploy.sh channel names`                    | docs only                                            | `docs/architecture.md` + `.claude/rules/charts-and-helm.md` + `scripts/deploy.sh` (message strings)                         | ⬜     |
+| E   | `docs(runbooks): add Discord webhook rotation runbook`                                             | new doc                                              | `docs/runbooks/discord-webhook-rotation.md` (new) + README + `docs/operations.md` (cross-link)                              | ⬜     |
 
 ⏭ Deferred (spec §10): promtool/amtool CI tests, kps default-rule
 disablement, kps cause/effect inhibition expansion, notify success
@@ -153,41 +153,41 @@ kill $PID
 # Expected: loaded: True, threshold > 0.05, for: 10m, severity: warning
 ```
 
-### PR D — docs sync (4 files)
+### PR D — docs sync (3 files)
 
 **Branch:** `docs/discord-pipeline-sync`
 
 **Tasks:**
 
-- [ ] `docs/architecture.md` §5.2 — add
-      `DISCORD_WEBHOOK_URL_HEARTBEAT` to the canonical `.lolday-secrets.env`
-      required-key table; note `optional: true` semantics (Spidey Heartbeat
-      degrades to failure-only when unset). Reference PR #202 in the row's
-      origin column if the table has one.
-- [ ] `docs/operations.md` §Discord channels — update the two
-      `kubectl -n monitoring logs job/$(...)` debug commands. Replace
-      `-l app.kubernetes.io/name=deadmans-switch` with
-      `--selector batch.kubernetes.io/cronjob=deadmans-switch -o name | tail -1`.
+- [ ] `docs/architecture.md` — add `DISCORD_WEBHOOK_URL_HEARTBEAT`
+      to the §Discord env-var list (line 247) AND to the
+      `.lolday-secrets.env` required-key list in §5.2 secrets table
+      (line 255). Note `optional: true` semantics (Spidey Heartbeat
+      degrades to failure-only when unset).
 - [ ] `.claude/rules/charts-and-helm.md` — find the "16 alert rules
       total (alerting redesign 2026-05-10)" line; update to "20 alert
       rules total (alerting redesign 2026-05-10 + security-hardening
       P5/P6 + 2026-05-17 audit)". Verify the count by `grep -c '^        - alert:'
 charts/lolday/templates/monitoring/alertmanager-rules.yaml` after
       PR C lands.
-- [ ] `scripts/deploy.sh` — search for `lolday-alerts-critical /
-lolday-alerts-warning / lolday-events` strings; replace with
-      `Captain Hook / Spidey Warnings / Spidey Service Alerts`. Cosmetic
-      only; do not alter logic.
+- [ ] `scripts/deploy.sh` — search for `#lolday-alerts-critical /
+#lolday-alerts-warning / #lolday-alerts-events` strings (lines 23,
+      24, 31); replace with `Captain Hook / Spidey Warnings /
+      Spidey Service Alerts`. Cosmetic only; do not alter logic.
 - [ ] `pre-commit run --all-files`
 - [ ] Commit + push + open PR; CI green; squash merge.
 
 **Live verification:**
 
-- Render-only PR. After merge:
-  - Re-read the updated `docs/operations.md` debug commands and confirm
-    they execute against the live cluster with expected output.
-  - `bash scripts/deploy.sh` to verify the channel-name messages match
-    `docs/operations.md` §Discord channels.
+- Render-only PR. After merge: `bash scripts/deploy.sh` to verify
+  the channel-name messages match `docs/operations.md` §Discord
+  channels.
+
+**Note:** the initial draft of this plan included a
+`docs/operations.md` debug-command fix. Live verification on K3s
+1.34 showed the current command (`-l app.kubernetes.io/name=deadmans-switch`)
+works as documented (Job inherits pod-template labels). Spec §5.5
+amended; that line item dropped from this PR.
 
 ### PR E — `docs/runbooks/discord-webhook-rotation.md`
 
