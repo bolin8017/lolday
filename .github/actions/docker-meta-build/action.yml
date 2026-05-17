@@ -49,6 +49,22 @@ runs:
         load: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+        # #170 (SLSA L3 attestation): buildx defaults to
+        # `provenance=mode=min`, which pushes an OCI manifest list (image
+        # manifest + attestation manifest) and reports the LIST digest as
+        # `outputs.digest`. Combined with `load: true`, the local daemon
+        # only sees the image manifest, so the daemon-side digest reported
+        # for the Trivy step differs from the registry-side list digest —
+        # and the GHA actions/attest-build-provenance step below (added in
+        # #176) feeds that mismatched digest to GHCR, hitting 404 on every
+        # main push since 2026-05-15. Setting `provenance: false` disables
+        # buildx's own min-mode provenance so the registry receives a
+        # single image manifest, daemon and registry digests align, and
+        # the richer SLSA v1 statement from attest-build-provenance becomes
+        # the single source of truth for build provenance. Mainstream
+        # docker/build-push-action SLSA recipe explicitly recommends
+        # `provenance: false` when pairing with actions/attest-build-provenance.
+        provenance: false
         # M-cache-poison: per-image + per-ref scope. A PR that poisons its
         # own cache namespace cannot bleed into main's cache. Cache hit rate
         # drops marginally for cross-ref builds; integrity is the priority.
