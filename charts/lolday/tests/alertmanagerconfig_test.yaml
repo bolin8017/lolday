@@ -50,14 +50,28 @@ tests:
                 matchType: "="
             repeatInterval: 24h
 
-  # 2026-05-10 spec §6.2 mandates exactly 5 inhibit rules.
-  # Fewer = missing suppression (noise); more = unexpected new rule
-  # that needs design review.
-  - it: has exactly 5 inhibit rules per 2026-05-10 alerting redesign spec
+  # 2026-05-10 spec §6.2 + 2026-05-17 audit §10 follow-up: 5 original
+  # lolday-internal inhibitions + 4 kps cause/effect cascade inhibitions
+  # (LoldayCoreServiceDown → TargetDown / LoldayNodeMemoryPressure →
+  # NodeMemoryHighUtilization / disk-fullness consolidation / KubePodCrashLooping).
+  # Fewer = missing suppression (noise); more = unexpected new rule that
+  # needs design review.
+  - it: has exactly 9 inhibit rules (5 lolday-internal + 4 kps cascades)
     asserts:
       - lengthEqual:
           path: spec.inhibitRules
-          count: 5
+          count: 9
+
+  # 2026-05-17 audit §10 follow-up: explicit assertion that the default
+  # route receiver is `discord-warning` — the fail-loud fallthrough
+  # design. Any future PR that changes this to `null` (silent drop) or
+  # adds a new catch-all receiver would mask brand-new alerts; this
+  # assertion is the regression guard against that drift.
+  - it: default route receiver is discord-warning (fail-loud fallthrough for unknown severity)
+    asserts:
+      - equal:
+          path: spec.route.receiver
+          value: discord-warning
 
   # 2026-05-16: route severity=none alerts (Watchdog, InfoInhibitor) to
   # the `null` receiver — they're informational kps internals, not for
