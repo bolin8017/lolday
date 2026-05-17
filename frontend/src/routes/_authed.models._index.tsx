@@ -191,7 +191,10 @@ export default function ModelsListPage() {
                 value={visibility}
                 onValueChange={(v) => setVisibility(v as typeof visibility)}
               >
-                <SelectTrigger className="w-32">
+                <SelectTrigger
+                  className="w-32"
+                  aria-label="Filter by visibility"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

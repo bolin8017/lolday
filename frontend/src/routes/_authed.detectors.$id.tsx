@@ -291,7 +291,7 @@ export default function DetectorDetailPage() {
                     Pick a git tag from the repository:
                   </p>
                   <Select value={pickedTag ?? ""} onValueChange={setPickedTag}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label="Git tag">
                       <SelectValue placeholder="Select tag" />
                     </SelectTrigger>
                     <SelectContent>

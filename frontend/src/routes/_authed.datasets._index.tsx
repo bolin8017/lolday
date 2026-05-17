@@ -65,7 +65,7 @@ export default function DatasetsListPage() {
               value={visibility}
               onValueChange={(v) => setVisibility(v as typeof visibility)}
             >
-              <SelectTrigger className="w-36">
+              <SelectTrigger className="w-36" aria-label="Filter by visibility">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
