@@ -72,7 +72,7 @@ export function ModelTransitionDialog({
               value={target}
               onValueChange={(v) => setTarget(v as Exclude<Stage, "None">)}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Target stage">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

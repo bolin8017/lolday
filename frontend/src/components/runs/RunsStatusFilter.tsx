@@ -34,7 +34,7 @@ export function RunsStatusFilter({ value, onChange }: Props) {
         if (isRunsStatus(v)) onChange(v);
       }}
     >
-      <SelectTrigger className="w-36">
+      <SelectTrigger className="w-36" aria-label="Filter by run status">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
