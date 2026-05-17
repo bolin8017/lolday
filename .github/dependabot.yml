@@ -13,7 +13,14 @@ updates:
           - minor
           - patch
 
-  - package-ecosystem: pip
+  # /backend is a uv-managed project (pyproject.toml + uv.lock). Using the
+  # `pip` ecosystem only updates pyproject.toml, leaving uv.lock stale —
+  # the pre-commit `mypy` hook then runs `uv run --project backend ...`
+  # which re-syncs the lock and "files were modified by this hook" fails
+  # the PR (observed across #240/#242/#243/#244 on 2026-05-17). The `uv`
+  # ecosystem updates both files atomically. Same `groups` semantics
+  # apply (per Dependabot core dependabot/dependabot-core/uv/README.md).
+  - package-ecosystem: uv
     directory: /backend
     schedule:
       interval: weekly
