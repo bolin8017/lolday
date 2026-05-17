@@ -43,7 +43,7 @@ paths:
 - `netpol-default-deny.yaml` + 3 supplemental NPs (chart 0.24.0) — monitoring-ns default-deny ingress + scoped allows for Prom / Grafana / Alertmanager. Sister NPs under `trivy-system/netpol-default-deny.yaml` + 2 more.
 - `pg-backup-cronjob.yaml` (chart 0.24.0) + ServiceAccount + Secret + NetPol — daily `pg_dumpall` to MinIO `pg-backups` bucket at 03:00. Restore runbook: `docs/runbooks/db-restore.md`. Image: `prodrigestivill/postgres-backup-local`.
 - `postgres-exporter-initjob.yaml` + `postgres-exporter.yaml` — Postgres metrics exporter.
-- `servicemonitor-{backend,dcgm,postgres,traefik,trivy,volcano}.yaml` — six ServiceMonitor resources.
+- `servicemonitor-{backend,dcgm,postgres,traefik,trivy}.yaml` — five ServiceMonitor resources. `servicemonitor-volcano.yaml` was removed 2026-05-17 (sister PR after #207): the Volcano sub-chart 1.14.1 ships the scheduler `Deployment` without a `containerPort: 8080`, so the scrape endpoint stayed permanently `connection refused` and fired kps default `TargetDown` into Spidey Warnings. We had no consumer for Volcano scheduler metrics (`VolcanoJobsStuckPending` reads the backend-side `lolday_volcano_pending_stale` gauge). Re-introduce only after the upstream chart exposes the port or a sidecar surfaces it.
 
 ## Helper images (`charts/lolday/helpers/`)
 
