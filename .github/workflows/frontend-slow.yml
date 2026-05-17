@@ -46,6 +46,11 @@ jobs:
         env:
           E2E_BASE_URL: http://127.0.0.1:5173
           DOCS_ENABLED: "true"
+          # Belt-and-braces: playwright.config.ts already passes this
+          # into the spawned uvicorn via webServer.env. Setting it at
+          # the step level guards a future warm-up step that boots
+          # uvicorn outside playwright.config.ts.
+          SPEC_LANE_STUBS: "true"
         run: pnpm --dir frontend exec playwright test
 
       - name: Upload trace + screenshots on failure

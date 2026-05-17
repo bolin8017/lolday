@@ -110,3 +110,28 @@ in D1.12) enforce this in CI:
 | `frontend/src/api/schema.gen.ts`        | contract/schema_gen_drift                 |
 | `charts/lolday/templates/<resource>/**` | helm-unittest suite for `<resource>`      |
 | `scripts/*.sh`                          | bats unit (after Phase 4)                 |
+
+## 13. Shared K8s + MLflow stubs
+
+`backend/app/services/_stubs.py` is the single source of truth for the
+in-memory K8s + MLflow stubs used by:
+
+- the pytest integration tier — `backend/tests/integration/conftest.py`
+  autouse fixtures (per-test instances, isolation via `monkeypatch`)
+- the Playwright live-stack — `SPEC_LANE_STUBS=true` lifespan install
+  in `backend/app/main.py::_install_spec_lane_stubs` (process-scoped
+  singletons on `app.state`)
+
+If you add a new caller module that does
+`from app.services.k8s import {batch_v1, core_v1, volcano_v1alpha1}`,
+add the matching entry to `_stubs.CALLER_MODULE_REBIND_TARGETS`. Both
+consumers pick up the new entry automatically. Tests that don't
+rebind the new module will reach the real K8s API and either crash
+in CI or leak resources locally — flag the missing entry in PR
+review.
+
+The `SPEC_LANE_STUBS` flag is refused in production
+(`Settings.validate_sso_config`). Do not invoke
+`_install_spec_lane_stubs(app)` outside the lifespan path.
+
+Spec: `docs/superpowers/specs/2026-05-17-frontend-slow-stub-layer-design.md`.
