@@ -1,4 +1,5 @@
-import { NavLink } from "react-router";
+import { useEffect } from "react";
+import { NavLink, useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import {
   Boxes,
@@ -20,6 +21,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -34,6 +36,17 @@ const NAV_ITEMS = [
 export function AppSidebar() {
   const { t } = useTranslation();
   const { currentUser, logout } = useAuth();
+  // Auto-close the mobile drawer on navigation. The Sheet primitive doesn't
+  // listen to route changes by itself, so a user tapping a NavLink would
+  // navigate but leave the drawer covering the page (and the mobile
+  // sidebar-drawer playwright spec asserts `not.toBeVisible()` after the
+  // tap). Mainstream shadcn pattern; gated on `isMobile` so the desktop
+  // sidebar — which is a different rendering path entirely — is untouched.
+  const { isMobile, setOpenMobile } = useSidebar();
+  const location = useLocation();
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false);
+  }, [location.pathname, isMobile, setOpenMobile]);
 
   return (
     <Sidebar collapsible="icon">
