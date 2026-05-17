@@ -111,6 +111,28 @@ spec:
             summary: "Discord notify dropping ({{`{{ $value | humanize }}`}}/s for 10m)"
             description: "Discord notify failures sustained > 0.1/s for 10m. User-targeted Spidey Service Alerts may be missing. Check Discord webhook status (rotate via /credentials if compromised) and notify.py log lines (`kubectl -n lolday logs deploy/backend | grep discord_notify`). Webhook env var: DISCORD_WEBHOOK_URL_EVENTS in `.lolday-secrets.env`."
 
+        # M-notify-semaphore drop alert (security-hardening P6 closure,
+        # 2026-05-17 audit). notify.py's _NOTIFY_SEM=20 (per pod)
+        # saturates → notify is silently dropped → BACKEND_ERRORS{
+        # stage="discord_notify_dropped"} increments. Sibling stage to
+        # discord_notify, distinct symptom: HTTP attempt was never made,
+        # so rotating the webhook does not help — operator response is
+        # to investigate burstiness (which detector is firing N notifies
+        # in a tight window?) and / or raise the semaphore size + scale
+        # the backend.
+        # Threshold > 0.05/s ≈ 30 drops in 10m, looser than the
+        # 0.1/s on discord_notify because a semaphore drop is more
+        # persistent than a transient httpx 5xx (which retries via
+        # the next reconciler iteration).
+        - alert: LoldayDiscordNotifyDropped
+          expr: rate(lolday_backend_errors_total{stage="discord_notify_dropped"}[10m]) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Discord notify dropped at semaphore ({{`{{ $value | humanize }}`}}/s for 10m)"
+            description: "_NOTIFY_SEM (20 permits per pod, 2 backend replicas = 40 cluster-wide) saturated; user-targeted Spidey Service Alerts going missing without an HTTP attempt. Check `kubectl -n lolday top pods -l app=backend` for burst load; identify the source via `kubectl -n lolday logs deploy/backend | grep 'discord_notify_dropped'`. Mitigation: raise the semaphore size (`backend/app/services/notify.py:_NOTIFY_SEM`, currently 20) or scale backend replicas. Distinct from LoldayDiscordNotifyFailing (httpx exceptions) — this rule means the request never left the pod."
+
         # Phase 9.2 — Alloy's loki.write has a disk-backed WAL, but if Loki
         # is unavailable long enough for the WAL's bounded segments to age
         # out, samples get dropped silently. Scrape target is the alloy
