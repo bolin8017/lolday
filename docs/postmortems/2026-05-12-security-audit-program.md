@@ -60,7 +60,7 @@ backend Dockerfile gains a non-root `USER 1000`.
 and `/internal/*` cross-ns trust depended entirely on every route correctly
 attaching `require_job_token`.
 
-**Closed by P2 (H-8, H-9, H-11, H-13, H-14, H-15, H-16, H-21, M-cloudflared-np,
+**Closed by P2 (H-8, H-9, H-11, H-13, H-14, H-15, H-16[^h16-impl-loc], H-21, M-cloudflared-np,
 M-alembic-hardening, M-mlflow-init-hardening):** Postgres + Redis pods gain
 restricted securityContext; Redis password enforced; BuildKit's
 `Unconfined` replaced with a custom seccomp profile (BuildKit upstream's
@@ -344,6 +344,8 @@ Concrete follow-ups (none blocking program completion):
 5. **Phase-7 (if ever):** the next audit-driven program should produce its
    own spec under `docs/superpowers/specs/YYYY-MM-DD-*-design.md` with the
    same theme-first decomposition and per-task spec compliance discipline.
+
+[^h16-impl-loc]: H-16 shipped as a backend ForwardAuth check inside `backend/app/routers/mlflow_authz.py:240,253-257` reading `X-Forwarded-Method` from Traefik, not as a Traefik headers middleware as the spec text described. Behaviour is equivalent — `POST/PATCH/DELETE` are admin-only — but the enforcement layer differs. The spec ([`2026-05-12-security-hardening-design.md`](../superpowers/specs/2026-05-12-security-hardening-design.md) footnote `[^h16-shipped]`) and the [2026-05-15 post-program review](../phase-history/2026-05-15-security-post-program-review.md) §2 D-7 carry the same note. INFO-level divergence; logged for traceability.
 
 ## Related artifacts
 
