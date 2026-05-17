@@ -100,3 +100,30 @@ GPU_SIGNAL_FAIL_SAFE_ACTIVE = Gauge(
     "lolday_gpu_signal_fail_safe_active",
     "1 when gpu_signal cannot reach Prom (fail-safe path active), else 0.",
 )
+
+# 2026-05-17 discord audit follow-up #4 — outcome of every notify_*
+# webhook POST attempt. Sibling to BACKEND_ERRORS{stage="discord_notify"
+# | "discord_notify_dropped"} (which counts the failure-side); this
+# Counter counts ALL outcomes and lets dashboards plot success rate
+# (= ok / total) over time. Labels are bounded:
+#   channel ∈ {events}: currently only the backend-driven Spidey
+#     Service Alerts webhook (services/notify.py:post_webhook).
+#     Future-proofed for additional backend webhook paths.
+#   result ∈ {ok, http_error, network_error, dropped}: ok = 2xx;
+#     http_error = non-2xx Discord response; network_error = httpx
+#     network exception (timeout / DNS / connection); dropped =
+#     _NOTIFY_SEM saturated, no HTTP attempt made.
+# Cardinality: 1 channel x 4 results = 4 series. Bounded by enumeration;
+# never derived from user input.
+DISCORD_NOTIFY_TOTAL = Counter(
+    "lolday_discord_notify_total",
+    "Outcome of every Discord webhook POST attempt. result=ok counts "
+    "2xx; http_error counts non-2xx Discord responses; network_error "
+    "counts httpx network exceptions; dropped counts _NOTIFY_SEM "
+    "saturation drops (no HTTP attempt). Sibling to BACKEND_ERRORS{"
+    'stage~="discord_notify.*"}; this Counter spans success+failure so '
+    "operators can plot success-rate = ok / sum(result) over time. "
+    "See docs/superpowers/specs/2026-05-17-discord-notification-audit-"
+    "design.md §10 follow-up #4.",
+    ["channel", "result"],
+)
