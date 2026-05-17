@@ -12,13 +12,19 @@ import { loginAs } from "../helpers";
  *   - developer persona does NOT see the nav link
  *   - user persona does NOT see the nav link, AND a direct GET on
  *     /admin/users returns 403 from the backend
+ *
+ * Name matcher is anchored (`/^(admin|管理員)$/i`) because the sidebar also
+ * renders the signed-in user's profile link whose text is the email
+ * (`admin@dev.local` in the admin AUTH_DEV_MODE persona). A substring
+ * regex matches both the nav link and the profile link, tripping
+ * playwright's strict-mode "resolved to 2 elements" assertion.
  */
 test.describe("admin nav visibility per role", () => {
   test("admin persona sees /admin/users nav link", async ({ page }) => {
     await loginAs(page, "admin");
     await page.goto("/");
     await expect(
-      page.getByRole("link", { name: /admin|管理員/i }),
+      page.getByRole("link", { name: /^(admin|管理員)$/i }),
     ).toBeVisible();
   });
 
@@ -27,17 +33,17 @@ test.describe("admin nav visibility per role", () => {
   }) => {
     await loginAs(page, "developer");
     await page.goto("/");
-    await expect(page.getByRole("link", { name: /admin|管理員/i })).toHaveCount(
-      0,
-    );
+    await expect(
+      page.getByRole("link", { name: /^(admin|管理員)$/i }),
+    ).toHaveCount(0);
   });
 
   test("user persona does NOT see /admin/users nav link", async ({ page }) => {
     await loginAs(page, "user");
     await page.goto("/");
-    await expect(page.getByRole("link", { name: /admin|管理員/i })).toHaveCount(
-      0,
-    );
+    await expect(
+      page.getByRole("link", { name: /^(admin|管理員)$/i }),
+    ).toHaveCount(0);
   });
 
   test("user persona hitting /admin/users directly receives a 403", async ({
