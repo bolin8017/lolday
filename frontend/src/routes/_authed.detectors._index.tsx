@@ -41,7 +41,14 @@ function DetectorRowActions({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm">
+          {/* aria-label required: the trigger is icon-only (MoreHorizontal),
+              so without a name the axe `button-name` rule (WCAG 2.1 AA)
+              flags it on the /detectors page. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Row actions for detector ${detector.display_name}`}
+          >
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
