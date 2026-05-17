@@ -15,17 +15,28 @@
 
 ## PR pipeline (sequential)
 
-| #   | PR title                                                                                           | Scope                                                | Files touched                                                                                                               | Status |
-| --- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------ |
-| A   | `fix(charts): route severity=info alerts to null receiver — sister to #206`                        | alertmanager-config-discord template + helm-unittest | `charts/lolday/templates/monitoring/alertmanager-config-discord.yaml` + `charts/lolday/tests/alertmanagerconfig_test.yaml`  | ⬜     |
-| B   | `fix(charts): drop unused volcano-scheduler ServiceMonitor — root-cause TargetDown noise`          | template removal                                     | `charts/lolday/templates/monitoring/servicemonitor-volcano.yaml` (delete) + `.claude/rules/charts-and-helm.md` (table edit) | ⬜     |
-| C   | `feat(monitoring): LoldayDiscordNotifyDropped alert — closes M-notify-semaphore observability gap` | alertmanager-rules template + helm-unittest          | `charts/lolday/templates/monitoring/alertmanager-rules.yaml` + `charts/lolday/tests/monitoring_alertrules_test.yaml`        | ⬜     |
-| D   | `docs: sync Discord docs — HEARTBEAT env, alert count, deploy.sh channel names`                    | docs only                                            | `docs/architecture.md` + `.claude/rules/charts-and-helm.md` + `scripts/deploy.sh` (message strings)                         | ⬜     |
-| E   | `docs(runbooks): add Discord webhook rotation runbook`                                             | new doc                                              | `docs/runbooks/discord-webhook-rotation.md` (new) + README + `docs/operations.md` (cross-link)                              | ⬜     |
+### Initial 5-PR audit (shipped 2026-05-17)
 
-⏭ Deferred (spec §10): promtool/amtool CI tests, kps default-rule
-disablement, kps cause/effect inhibition expansion, notify success
-metric.
+| #   | PR title                                                                                           | PR # | Files touched                                                                                                                            | Status |
+| --- | -------------------------------------------------------------------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| A   | `fix(charts): route severity=info alerts to null receiver — sister to #206`                        | #207 | `charts/lolday/templates/monitoring/alertmanager-config-discord.yaml` + `charts/lolday/tests/alertmanagerconfig_test.yaml` + spec + plan | ✅     |
+| B   | `fix(charts): drop unused volcano-scheduler ServiceMonitor — root-cause TargetDown noise`          | #208 | `charts/lolday/templates/monitoring/servicemonitor-volcano.yaml` (delete) + `.claude/rules/charts-and-helm.md` (table edit)              | ✅     |
+| C   | `feat(monitoring): LoldayDiscordNotifyDropped alert — closes M-notify-semaphore observability gap` | #209 | `charts/lolday/templates/monitoring/alertmanager-rules.yaml` + `charts/lolday/tests/monitoring_alertrules_test.yaml`                     | ✅     |
+| D   | `docs: sync Discord docs — HEARTBEAT env, alert count, deploy.sh channel names`                    | #210 | `docs/architecture.md` + `.claude/rules/charts-and-helm.md` + `scripts/deploy.sh` (message strings)                                      | ✅     |
+| E   | `docs(runbooks): add Discord webhook rotation runbook`                                             | #211 | `docs/runbooks/discord-webhook-rotation.md` (new) + README + `docs/operations.md` (cross-link)                                           | ✅     |
+
+### Follow-up PRs (shipped 2026-05-17, same day)
+
+| #   | PR title                                             | PR # | Closes spec §10 item       | Status |
+| --- | ---------------------------------------------------- | ---- | -------------------------- | ------ |
+| F   | `fix(charts): kps cause/effect inhibitions`          | #212 | #3 (inhibition expansion)  | ✅     |
+| G   | `feat(backend): lolday_discord_notify_total Counter` | #213 | #4 (notify success metric) | ✅     |
+| H   | `ci(helm): promtool check rules in helm.yml`         | #214 | #1 (promtool tests)        | ✅     |
+
+⏭ Still deferred: spec §10 items 2 (suppress noisy kps defaults — needs
+30d baseline) + #5 (per-channel rate-limit metric — low ROI) + #6
+(full amtool routing gate — requires AlertmanagerConfig → standalone
+alertmanager.yml translation helper).
 
 ## Per-PR detail
 
