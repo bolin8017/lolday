@@ -27,7 +27,18 @@ _redis: Redis | None = None
 def get_redis() -> Redis:
     global _redis
     if _redis is None:
-        _redis = from_url(settings.REDIS_URL, decode_responses=True)
+        if settings.AUTH_DEV_MODE:
+            # E2E live-stack and local dev runs (AUTH_DEV_MODE=true) don't
+            # ship a Redis sidecar. fakeredis is a dev dep, present because
+            # uv sync includes the dev group in dev environments. Production
+            # rejects AUTH_DEV_MODE=true at boot via validate_sso_config, so
+            # this branch can never fire there — and fakeredis stays out of
+            # the prod image (uv sync --no-dev in the Dockerfile).
+            from fakeredis.aioredis import FakeRedis
+
+            _redis = FakeRedis(decode_responses=True)
+        else:
+            _redis = from_url(settings.REDIS_URL, decode_responses=True)
     return _redis
 
 
