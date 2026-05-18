@@ -25,29 +25,44 @@ export class JobSubmitPage {
       .click();
   }
 
-  private async pickByLabel(label: string): Promise<void> {
+  /**
+   * Open the labelled combobox and pick an option. Without `optionName`,
+   * clicks the first option (matches existing `job-train` /
+   * `full-lifecycle` specs that don't care which option lands). Pass
+   * `optionName` to pin the choice — required when parallel specs can
+   * leak entries that sort before the seeded fixture (e.g.
+   * `dataset-upload.spec.ts` creates `e2e-<timestamp>` datasets that
+   * sort before `fixture-train` in the combobox).
+   */
+  private async pickByLabel(label: string, optionName?: string): Promise<void> {
     await this.page
       .getByText(new RegExp(`^${label}$`, "i"), { exact: true })
       .locator("..")
       .getByRole("combobox")
       .click();
-    await this.page.getByRole("option").first().click();
+    if (optionName) {
+      await this.page
+        .getByRole("option", { name: new RegExp(optionName, "i") })
+        .click();
+    } else {
+      await this.page.getByRole("option").first().click();
+    }
   }
 
-  async pickDetector(): Promise<void> {
-    await this.pickByLabel("Detector");
+  async pickDetector(optionName?: string): Promise<void> {
+    await this.pickByLabel("Detector", optionName);
   }
 
-  async pickVersion(): Promise<void> {
-    await this.pickByLabel("Version");
+  async pickVersion(optionName?: string): Promise<void> {
+    await this.pickByLabel("Version", optionName);
   }
 
-  async pickTrainDataset(): Promise<void> {
-    await this.pickByLabel("Train dataset");
+  async pickTrainDataset(optionName?: string): Promise<void> {
+    await this.pickByLabel("Train dataset", optionName);
   }
 
-  async pickTestDataset(): Promise<void> {
-    await this.pickByLabel("Test dataset");
+  async pickTestDataset(optionName?: string): Promise<void> {
+    await this.pickByLabel("Test dataset", optionName);
   }
 
   submitButton() {

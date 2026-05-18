@@ -15,9 +15,14 @@ test("mobile: train job submit flow", async ({ page }) => {
   const submit = new JobSubmitPage(page);
   await submit.goto();
   await submit.selectJobType("Train");
-  await submit.pickDetector();
-  await submit.pickVersion();
-  await submit.pickTrainDataset();
+  // Pin to the seeded fixture so a parallel `dataset-upload.spec.ts`
+  // run (which creates `e2e-<timestamp>` datasets that sort before
+  // `fixture-train` in the combobox) can't poison the form choice and
+  // 422 the POST — that was the failure mode that left the URL stuck
+  // at `/jobs/new`.
+  await submit.pickDetector("ELF RF Detector");
+  await submit.pickVersion("v1.0.0-fixture");
+  await submit.pickTrainDataset("fixture-train");
 
   const button = submit.submitButton();
   await expect(button).toBeEnabled();
