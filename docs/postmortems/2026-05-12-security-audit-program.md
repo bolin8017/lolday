@@ -334,12 +334,12 @@ Concrete follow-ups (none blocking program completion):
    retention. Deferred from P5 (acceptance was "row exists", retention
    policy is a separate concern).
 
-3. **Kyverno bootstrap runbook** — capture the 3 edge cases from the P4
+3. ~~**Kyverno bootstrap runbook** — capture the 3 edge cases from the P4
    ship under `docs/runbooks/` so future Kyverno upgrades don't re-discover
-   them.
+   them.~~ **Done.** Lives at [`docs/runbooks/kyverno-bootstrap.md`](../runbooks/kyverno-bootstrap.md); covers the `crds.install: false`, `excludeKyvernoNamespace`, and SBOM cataloger workaround edge cases per the P4 retrospective.
 
-4. **Promote `BACKEND_ERRORS{stage=...}` to a documented convention.** Add
-   a section to `.claude/rules/backend.md` next time the file is touched.
+4. ~~**Promote `BACKEND_ERRORS{stage=...}` to a documented convention.** Add
+   a section to `.claude/rules/backend.md` next time the file is touched.~~ **Done.** [`.claude/rules/backend.md`](../../.claude/rules/backend.md) §`BACKEND_ERRORS` failure-bus convention codifies the label-cardinality bound, the "new stage vs new Counter" decision rule, the alerting hook, and the single-Counter-per-finding discipline. Existing `stage` values + the 4 sibling Counters from P5/P6 are enumerated.
 
 5. **Phase-7 (if ever):** the next audit-driven program should produce its
    own spec under `docs/superpowers/specs/YYYY-MM-DD-*-design.md` with the
