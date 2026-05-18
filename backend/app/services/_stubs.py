@@ -272,3 +272,40 @@ class StubMlflowClient:
 
     async def search_runs(self, experiment_ids, filter_string=None, max_results=100):
         return []
+
+
+# ---------------------------------------------------------------------------
+# GitHub REST stubs (`app.services.git`)
+# ---------------------------------------------------------------------------
+#
+# `routers/detectors.available_tags` calls `services.git.list_remote_tags`,
+# which hits the GitHub API. Under SPEC_LANE_STUBS we need a deterministic
+# response so the trigger-build E2E flow (`detectors/build-and-list.spec.ts`)
+# can pick a tag without a network call (CI may rate-limit anonymous
+# GitHub requests; egress may be blocked entirely on some runners).
+#
+# The fixture seeded by `routers/dev_seed.py` registers a `DetectorVersion`
+# with `git_tag="v1.0.0-fixture"`; returning the same tag here keeps the
+# E2E end-to-end consistent.
+
+STUB_REMOTE_TAGS: list[dict[str, str]] = [
+    {"name": "v1.0.0-fixture", "commit_sha": "0" * 40},
+    {"name": "v0.1.0", "commit_sha": "a" * 40},
+]
+
+
+async def stub_list_remote_tags(
+    owner: str, repo: str, pat: str | None = None
+) -> list[dict[str, str]]:
+    return list(STUB_REMOTE_TAGS)
+
+
+async def stub_get_user_pat(session, user_id) -> str:
+    """Returns a non-None placeholder so `create_build` clears the
+    `credential_missing` 400 guard. The real PAT is encrypted at rest
+    via Fernet — under SPEC_LANE_STUBS we skip the credentials table
+    entirely (no FERNET_KEYS in the playwright env), and the downstream
+    K8s call that consumes the PAT is itself routed through `StubBatch`
+    / `StubCore`.
+    """
+    return "stub-pat-token"  # SPEC_LANE_STUBS placeholder, never used by real K8s/GitHub clients

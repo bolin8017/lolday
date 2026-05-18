@@ -27,14 +27,18 @@ test("detector list + detail + trigger build", async ({ page }) => {
   await det.openVersionsTab();
   await expect(det.versionRow("v1.0.0-fixture")).toBeVisible();
 
-  // The "+ Trigger build" button lives inside the Builds tab.
+  // The "+ Trigger build" button lives inside the Builds tab. The
+  // backend POST URL is `/api/v1/detectors/{id}/builds` (not
+  // `/api/v1/builds` — that flat alias is a GET-only convenience for
+  // polling scripts, see `routers/builds.py`).
   await det.openBuildsTab();
   const buildResp = page.waitForResponse(
     (resp) =>
-      resp.url().includes("/api/v1/builds") &&
+      /\/api\/v1\/detectors\/[^/]+\/builds$/.test(resp.url()) &&
       resp.request().method() === "POST",
   );
   await det.triggerBuild();
+  await det.confirmBuildDialog("v1.0.0-fixture");
   const resp = await buildResp;
-  expect([200, 202]).toContain(resp.status());
+  expect([200, 201, 202]).toContain(resp.status());
 });
