@@ -80,6 +80,19 @@ export default defineConfig({
       testDir: "./tests/e2e/mobile",
       use: {
         ...devices["iPhone 13 Mini"],
+        // `devices["iPhone 13 Mini"]` defaults to `defaultBrowserType:
+        // "webkit"` (Mobile Safari emulation). WebKit requires 191
+        // GTK / GStreamer / fontconfig system packages that need root
+        // to apt-install, while Chromium ships as a self-contained
+        // headless shell that Playwright installs into
+        // `~/.cache/ms-playwright/` without sudo. Override to chromium
+        // here so the project runs in any user-level dev env. CI runners
+        // have the WebKit deps pre-installed and `frontend-slow.yml`
+        // can pin the project back to webkit if Safari-specific bug
+        // coverage is ever needed; today none of the 10 mobile specs
+        // in issue #245 exercise WebKit-specific rendering — failures
+        // are all locator-timeout, viewport-math, or POM-flow bugs.
+        defaultBrowserType: "chromium",
         launchOptions: { args: deployedHostArgs },
       },
     },
