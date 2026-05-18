@@ -268,7 +268,21 @@ class StubMlflowClient:
         return []
 
     async def search_experiments(self, max_results=100):
-        return []
+        # The mobile / a11y / layout E2E specs hit `GET /runs` which
+        # surfaces the ExperimentCard grid. Returning [] leaves the page
+        # bare — no card, no Open-in-MLflow link, no tappable target to
+        # assert on. Seed a single deterministic experiment that mirrors
+        # the seeded fixture's MLflow name (`<owner>/<detector.name>`)
+        # so future specs can recognise it.
+        return [
+            {
+                "experiment_id": "exp-fixture",
+                "name": "admin/elfrfdet-fixture",
+                "artifact_location": "s3://mlflow/exp-fixture",
+                "lifecycle_stage": "active",
+                "tags": {},
+            }
+        ]
 
     async def search_runs(self, experiment_ids, filter_string=None, max_results=100):
         return []
