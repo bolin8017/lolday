@@ -852,6 +852,36 @@ volcano:
     # provides the real KSM + Prometheus + Grafana for the cluster. The
     # master `metrics_enable` flag gates those three extra templates only.
     metrics_enable: false
+    # PSS-restricted hardening (§10 #36 — Volcano sub-row). The upstream
+    # `custom.default_csc` adds `DAC_OVERRIDE` blanket-style to every
+    # container in the sub-chart, which is the load-bearing blocker for
+    # the `lolday`-ns `enforce=restricted` promotion (PSS restricted
+    # allows only `NET_BIND_SERVICE` in `capabilities.add`). Live audit
+    # on the running cluster (2026-05-18, recorded in PR #277) confirmed:
+    #   - the three main containers (admission webhook, controllers,
+    #     scheduler) only talk to the K8s API; none open paths needing
+    #     `DAC_OVERRIDE` at runtime
+    #   - they have no init containers — cert generation runs in the
+    #     separate `admission-init` Job which keeps `admission_init_csc`
+    #     defaulting to `default_csc` (so DAC_OVERRIDE is preserved
+    #     there; the Job still admits under PSS `baseline` today, and a
+    #     follow-up will revisit it when the ns flips to `restricted`)
+    # Per-controller `*_main_csc` keys fully replace `default_csc` (the
+    # sub-chart uses `or .Values.custom.foo_main_csc .Values.custom.default_csc`),
+    # so each override is a copy of `default_csc` minus the
+    # `capabilities.add` line. `seccompProfile.type: RuntimeDefault` is
+    # set at container level explicitly for defense-in-depth, even though
+    # `default_sc.seccompProfile.type` already covers pod level.
+    admission_main_csc: &volcano_main_csc_restricted
+      runAsNonRoot: true
+      runAsUser: 1000
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
+    scheduler_main_csc: *volcano_main_csc_restricted
+    controller_main_csc: *volcano_main_csc_restricted
 
 # =============================================================================
 # MinIO Object Storage
