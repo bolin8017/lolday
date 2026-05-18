@@ -22,8 +22,13 @@ test("detector list + detail + trigger build", async ({ page }) => {
   const seedResp = await page.request.post("/api/v1/dev/seed-fixtures");
   const seed = await seedResp.json();
   await det.gotoDetail(seed.detector_id);
+  // The detail page opens on the Overview tab; the version table renders
+  // inside the Versions tab. Switch tabs before asserting on the row.
+  await det.openVersionsTab();
   await expect(det.versionRow("v1.0.0-fixture")).toBeVisible();
 
+  // The "+ Trigger build" button lives inside the Builds tab.
+  await det.openBuildsTab();
   const buildResp = page.waitForResponse(
     (resp) =>
       resp.url().includes("/api/v1/builds") &&
