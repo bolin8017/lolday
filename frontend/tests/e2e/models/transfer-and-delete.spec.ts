@@ -13,11 +13,37 @@ import { ModelPage } from "../helpers/model.po";
  * `{owner}/{name}` Link in `_authed.models._index.tsx`, which renders
  * the detector name — not a "fixture-model" literal.
  *
- * Re-seed at the top keeps the spec replay-safe (the seed endpoint is
- * idempotent — re-POSTing returns the same IDs; if the previous run
- * deleted the row, this re-creates it owned by admin).
+ * This spec is destructive against the shared seeded fixture
+ * (delete cascades both `RegisteredModel` and its `ModelVersion`).
+ * `mobile/model-list` and other parallel specs expect the model to
+ * exist, so we both:
+ *   - re-seed at the top (in case a prior run left no row), and
+ *   - re-seed via `test.afterEach` at the end (so subsequent parallel
+ *     specs see the model again immediately).
+ * The seed endpoint is idempotent (UUID5-keyed `session.get` + early
+ * return), so re-POSTing is cheap.
+ *
+ * There is still a race window between the delete and the afterEach
+ * re-seed where a parallel spec could see no model. A proper fix
+ * needs either per-test fixture isolation (separate model name per
+ * worker) or worker-scoped serial execution for destructive specs —
+ * that's a worker-storage / test.serial refactor tracked separately.
  */
 const DETECTOR_NAME = "elfrfdet-fixture";
+
+async function reseedAsAdmin(browser: import("@playwright/test").Browser) {
+  const ctx = await browser.newContext({
+    extraHTTPHeaders: { "X-Dev-Persona": "admin" },
+  });
+  await ctx.request.post("/api/v1/dev/seed-fixtures");
+  await ctx.close();
+}
+
+test.afterEach(async ({ browser }) => {
+  // Restore the shared seed for parallel specs (mobile/model-list,
+  // mobile/job-submit, etc.) that depend on the fixture rows existing.
+  await reseedAsAdmin(browser);
+});
 
 test("transfer model from admin to developer, then delete", async ({
   browser,

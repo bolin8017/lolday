@@ -54,6 +54,13 @@ export default defineConfig({
             // and doesn't crash on CI runners with no kubeconfig.
             // Spec: docs/superpowers/specs/2026-05-17-frontend-slow-stub-layer-design.md.
             SPEC_LANE_STUBS: "true",
+            // The fixture seeds one QUEUED_BACKEND job per persona; with
+            // `JOB_PER_USER_CONCURRENCY=2` (default), admin's first parallel
+            // submit (job-train / full-lifecycle) hits the cap, and a third
+            // submit (mobile/job-submit) 429s with `concurrency_limit`
+            // before navigating. Raise the cap for the live-stack so
+            // parallel specs can co-exist; production keeps the 2 default.
+            JOB_PER_USER_CONCURRENCY: "50",
           },
         },
         {
