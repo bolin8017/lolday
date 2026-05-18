@@ -1,5 +1,3 @@
-import json
-
 import httpx
 import pytest
 import respx
@@ -15,13 +13,17 @@ async def test_write_config_writes_all_files(tmp_path, monkeypatch):
     config_dir.mkdir()
     monkeypatch.setenv("CONFIG_DIR", str(config_dir))
 
+    # Phase 11b switched JobInternalConfig from `{"config": <json>, ...}` to
+    # `{"yaml": "<hydra-yaml>", ...}`. The write_config.py runtime was updated
+    # at the same time but these fixtures lagged — they sent the old `config`
+    # key and hit `sys.exit(4)` at write_config.py:54 (the empty-yaml guard).
     respx.get(
         "http://backend/api/v1/internal/jobs/aabbccdd-0000-0000-0000-000000000000/config"
     ).mock(
         return_value=httpx.Response(
             200,
             json={
-                "config": {"data": {"train": "/mnt/config/train.csv"}},
+                "yaml": "data:\n  train: /mnt/config/train.csv\n",
                 "train_csv": "file_name,label\naaa,Malware\n",
                 "test_csv": "file_name,label\nbbb,Benign\n",
                 "predict_csv": None,
@@ -33,8 +35,8 @@ async def test_write_config_writes_all_files(tmp_path, monkeypatch):
 
     await write_config.main()
 
-    cfg = json.loads((config_dir / "config.json").read_text())
-    assert cfg["data"]["train"] == "/mnt/config/train.csv"
+    cfg_yaml = (config_dir / "config.yaml").read_text()
+    assert "/mnt/config/train.csv" in cfg_yaml
 
     train = (config_dir / "train.csv").read_text()
     assert "aaa,Malware" in train
@@ -62,10 +64,13 @@ async def test_write_config_retries_on_500(tmp_path, monkeypatch):
         call_count += 1
         if call_count < 3:
             return httpx.Response(500)
+        # Phase 11b shape — minimal valid yaml satisfies the empty-yaml
+        # guard at write_config.py:48 while keeping the retry semantics
+        # the only thing under test here.
         return httpx.Response(
             200,
             json={
-                "config": {"x": 1},
+                "yaml": "x: 1\n",
                 "train_csv": None,
                 "test_csv": None,
                 "predict_csv": None,
@@ -80,7 +85,7 @@ async def test_write_config_retries_on_500(tmp_path, monkeypatch):
 
     await write_config.main()
     assert call_count == 3
-    assert (config_dir / "config.json").read_text()
+    assert (config_dir / "config.yaml").read_text()
 
 
 def test_fetch_model_downloads_artifacts(tmp_path, monkeypatch):
@@ -107,5 +112,10 @@ def test_fetch_model_downloads_artifacts(tmp_path, monkeypatch):
 
         fetch_model.main()
 
-    assert (target / "model" / "model.pkl").exists()
-    assert (target / "model" / "label_encoder.pkl").exists()
+    # fetch_model.main() flattens `target/<artifact_path>/*` into `target/*`
+    # so the detector loader (which expects model.pkl at the root) finds it.
+    # The mock writes to target/model/model.pkl first, then main() moves
+    # the contents one directory up and rmdirs the now-empty `target/model/`.
+    assert (target / "model.pkl").exists()
+    assert (target / "label_encoder.pkl").exists()
+    assert not (target / "model").exists()
