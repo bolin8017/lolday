@@ -26,8 +26,25 @@ export class DetectorPage {
   }
 
   /**
-   * Trigger a build on the detail page. Caller must already be at
-   * /detectors/{id}.
+   * Click the "Versions" tab on the detail page. The detail page opens
+   * on the "Overview" tab by default, so callers that want to assert on
+   * the version table must switch tabs first.
+   */
+  async openVersionsTab(): Promise<void> {
+    await this.page.getByRole("tab", { name: /versions/i }).click();
+  }
+
+  /**
+   * Click the "Builds" tab on the detail page. Caller must already be
+   * at /detectors/{id}.
+   */
+  async openBuildsTab(): Promise<void> {
+    await this.page.getByRole("tab", { name: /builds/i }).click();
+  }
+
+  /**
+   * Trigger a build on the detail page. Caller must already be on the
+   * "Builds" tab (the dialog trigger only renders there).
    */
   async triggerBuild(): Promise<void> {
     await this.page.getByRole("button", { name: /trigger build/i }).click();
@@ -36,6 +53,7 @@ export class DetectorPage {
   /**
    * Row in the version table on the detail page. Pass the version's
    * `git_tag` to scope; tests can chain `.click()` / `.getByRole(...)`.
+   * Caller must have already opened the Versions tab.
    */
   versionRow(gitTag: string): Locator {
     return this.page.getByRole("row", { name: new RegExp(gitTag, "i") });
