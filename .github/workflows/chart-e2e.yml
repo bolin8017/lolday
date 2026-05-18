@@ -85,10 +85,17 @@ jobs:
       - name: Smoke probes
         run: |
           kubectl -n lolday get all -o wide
-          # Verify expected top-level resources were created (Deployment, Service, Secret)
+          # Verify expected top-level resources were created (Deployment, Service, Secret).
+          # The fernet Secret resource name is `backend-fernet-key` (singular,
+          # matches the contained data key), NOT `backend-fernet-secret` —
+          # see `templates/backend-fernet-secret.yaml:5`. The earlier probe
+          # name was a typo that masked the smoke from ever asserting the
+          # Secret rendered (helm install would have failed earlier on the
+          # IngressRoute CRD anyway, so the typo never surfaced until that
+          # fix landed in this PR).
           kubectl -n lolday get deploy backend
           kubectl -n lolday get svc backend
-          kubectl -n lolday get secret backend-fernet-secret
+          kubectl -n lolday get secret backend-fernet-key
 
       - name: helm upgrade to same chart (idempotency)
         # --no-hooks for the same reason as install: alembic pre-upgrade
