@@ -229,8 +229,18 @@ async def lifespan(app: FastAPI):
         app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
         app.state.mlflow = MlflowClient.from_settings(settings, app.state.http)
 
+    # Skip both background reconcilers when running in the spec-lane stubs
+    # lifespan. They have nothing meaningful to do against the in-memory
+    # `StubVolcano` / `StubMlflowClient` (no real CRs to sync, no real
+    # cluster GPU state to check), and their per-tick DB reads/writes
+    # collide with HTTP request writes on the shared-cache aiosqlite
+    # backend — every multi-write spec (e.g.
+    # `tests/e2e/models/transfer-and-delete.spec.ts`) flapped on
+    # `OperationalError: database is locked`. The `busy_timeout` PRAGMA in
+    # `app/db.py` softens transient contention; dropping the perpetual
+    # reconciler loop eliminates the structural source of contention.
     reconciler_task: asyncio.Task | None = None
-    if settings.RECONCILER_ENABLED:
+    if settings.RECONCILER_ENABLED and not settings.SPEC_LANE_STUBS:
         stop_event = asyncio.Event()
         reconciler_task = asyncio.create_task(
             reconciler_loop(stop_event, app.state.mlflow)
@@ -242,8 +252,9 @@ async def lifespan(app: FastAPI):
     # disabled together in tests via RECONCILER_ENABLED=false + not starting
     # this task.  Controlled by FIFO_RECONCILER_ENABLED (default True) so ops
     # can disable just this scheduler without touching the existing reconciler.
+    # Same `SPEC_LANE_STUBS` skip applies — see comment above.
     fifo_task: asyncio.Task | None = None
-    if settings.FIFO_RECONCILER_ENABLED:
+    if settings.FIFO_RECONCILER_ENABLED and not settings.SPEC_LANE_STUBS:
         fifo_task = asyncio.create_task(
             _run_fifo_reconciler_forever(settings.FIFO_RECONCILER_PERIOD_SECONDS)
         )
