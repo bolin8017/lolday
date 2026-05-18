@@ -142,13 +142,22 @@ export function JobSubmitForm() {
       const job = await mut.mutateAsync({
         type,
         detector_version_id: versionId,
-        train_dataset_id: type === "train" ? trainDatasetId : null,
+        // Cast empty-string state to null: Pydantic's UUID parser rejects ""
+        // with `uuid_parsing` (422), but the schema accepts `None` for these
+        // optional refs. Wrap each "is this field applicable to this stage"
+        // gate with `|| null` so an unset combobox doesn't poison the POST.
+        // (Bug: Train was always passing `test_dataset_id: ""` to the
+        // backend because the gate uses `["train", "evaluate"].includes`
+        // and `testDatasetId` defaults to "". Mobile job-submit.spec.ts:12
+        // failure mode was a 422 on `body.test_dataset_id`.)
+        train_dataset_id: type === "train" ? trainDatasetId || null : null,
         test_dataset_id: ["train", "evaluate"].includes(type)
-          ? testDatasetId
+          ? testDatasetId || null
           : null,
-        predict_dataset_id: type === "predict" ? predictDatasetId : null,
+        predict_dataset_id:
+          type === "predict" ? predictDatasetId || null : null,
         source_model_version_id: ["evaluate", "predict"].includes(type)
-          ? sourceModelVersionId
+          ? sourceModelVersionId || null
           : null,
         params: config,
         ...(isAdmin && priority !== 0 ? { priority } : {}),

@@ -95,21 +95,61 @@ async def seed_fixtures(
             image_digest=(
                 "sha256:1111111111111111111111111111111111111111111111111111111111111111"
             ),
-            # maldet's DetectorManifest.stages is `dict[stage_name, StageSpec]`,
-            # not a list; LifecycleConfig.stages (a list) is the lookalike
-            # field one level deeper. The previous shape was the lookalike
-            # and crashed `resolve_detector_defaults` with
-            # `AttributeError: 'list' object has no attribute 'get'` the
-            # moment any E2E spec rendered the seeded job. Empty stage dicts
-            # are enough: the fixture isn't exercising per-stage params, just
-            # the read path. `framework` lives under `detector` in the
-            # real schema — keep this fixture minimal but well-shaped.
+            # Minimum fully-shaped `maldet.DetectorManifest` payload that
+            # the backend's `DetectorManifest.model_validate` accepts. Held
+            # to the maldet-1.1 schema:
+            #   - `detector`: `{name, version, framework}` (all required)
+            #   - `input.binary_format` required
+            #   - `output.task` required; `binary_classification` also
+            #     requires `classes` (non-empty) and `positive_class` (must
+            #     appear in `classes`)
+            #   - `artifacts.model.{path, type}` required, type ∈ {file, dir}
+            #   - `stages.<name>.{config_class, params_schema}` required for
+            #     each stage we declare
+            #   - `resources` and `lifecycle` accept `{}`
+            #
+            # Each stage's `params_schema` is a minimal JSON Schema with one
+            # optional integer (no `required` marker), so submit-path E2E
+            # specs — most importantly `tests/e2e/mobile/job-submit.spec.ts`
+            # — get past both the frontend "no params schema" guard in
+            # `Train/Inference SubForm.tsx` and the backend's
+            # `validate_user_params` predicate in
+            # `services/jobs_params_validate.py`. `resolve_detector_defaults`
+            # returns `{"batch_size": 32}` for every stage.
             manifest={
-                "detector": {"framework": "lightning"},
+                "detector": {
+                    "name": "elfrfdet-fixture",
+                    "version": "v1.0.0",
+                    "framework": "lightning",
+                },
+                "input": {"binary_format": "elf"},
+                "output": {
+                    "task": "binary_classification",
+                    "classes": ["benign", "malware"],
+                    "positive_class": "malware",
+                },
+                "resources": {},
+                "lifecycle": {},
+                "artifacts": {"model": {"path": "artifacts/model.pt", "type": "file"}},
                 "stages": {
-                    "train": {},
-                    "evaluate": {},
-                    "predict": {},
+                    stage: {
+                        "config_class": config_class,
+                        "params_schema": {
+                            "type": "object",
+                            "properties": {
+                                "batch_size": {
+                                    "type": "integer",
+                                    "default": 32,
+                                    "description": "Fixture-only batch size.",
+                                }
+                            },
+                        },
+                    }
+                    for stage, config_class in (
+                        ("train", "TrainConfig"),
+                        ("evaluate", "EvaluateConfig"),
+                        ("predict", "PredictConfig"),
+                    )
                 },
             },
             status=DetectorVersionStatus.ACTIVE,
@@ -127,10 +167,10 @@ async def seed_fixtures(
                 name=name,
                 owner_id=user.id,
                 visibility=DatasetVisibility.PRIVATE,
-                csv_content="sha256,label\n" + ("0" * 64) + ",benign\n",
+                csv_content="file_name,label\n" + ("0" * 64) + ",Benign\n",
                 csv_checksum="0" * 64,
                 sample_count=1,
-                label_distribution={"benign": 1},
+                label_distribution={"Benign": 1},
                 size_bytes=80,
             )
             session.add(ds)
