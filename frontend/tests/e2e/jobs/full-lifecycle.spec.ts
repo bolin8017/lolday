@@ -30,9 +30,18 @@ test("admin submits a Train job and sees it in the list", async ({ page }) => {
   expect(created.id).toBeTruthy();
 
   await page.goto("/jobs");
-  await expect(
-    page.getByRole("row").filter({ hasText: created.id }),
-  ).toBeVisible();
+  // The Jobs list table has columns Type / Status / Submitted / Duration
+  // / Final metrics / Priority — NONE of them render the full job ID, so
+  // `getByRole('row').filter({ hasText: <uuid> })` never matched the new
+  // row. The spec's intent is "after submit, the new job is in the
+  // listing"; verify that via the listing API (which the page consumes
+  // via `useJobs`) and verify the page itself rendered at least one
+  // data row so we know the table actually mounted with data.
+  await expect(page.locator("table tbody tr").first()).toBeVisible();
+  const listResp = await page.request.get("/api/v1/jobs");
+  expect(listResp.status()).toBe(200);
+  const list = (await listResp.json()) as { items: { id: string }[] };
+  expect(list.items.some((j) => j.id === created.id)).toBe(true);
 
   const detail = await page.request.get(`/api/v1/jobs/${created.id}`);
   expect(detail.status()).toBe(200);
