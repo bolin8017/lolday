@@ -5122,6 +5122,21 @@
             "type": "string",
             "format": "uuid",
             "title": "Model Version Id"
+          },
+          "throwaway_detector_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Throwaway Detector Id"
+          },
+          "throwaway_registered_model_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Throwaway Registered Model Id"
+          },
+          "throwaway_model_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Throwaway Model Version Id"
           }
         },
         "type": "object",
@@ -5132,7 +5147,10 @@
           "test_dataset_id",
           "queued_job_id",
           "registered_model_id",
-          "model_version_id"
+          "model_version_id",
+          "throwaway_detector_id",
+          "throwaway_registered_model_id",
+          "throwaway_model_version_id"
         ],
         "title": "SeededFixturesResponse",
         "description": "Stable IDs for the dev-mode fixture set seeded by POST /dev/seed-fixtures."
