@@ -52,6 +52,19 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
 
+      - name: Install Traefik v3 CRDs
+        # The bundled Traefik was disabled above (v2 vs the chart's v3
+        # `traefik.io/v1alpha1` API). The chart's `templates/ingress.yaml`
+        # + `templates/mlflow-forward-auth-middleware.yaml` reference
+        # `IngressRoute` / `Middleware` — without the v3 CRDs the apply
+        # step fails with `no matches for kind "IngressRoute"`. Install
+        # the upstream v3 CRDs out-of-band so the smoke test exercises
+        # the IngressRoute manifest. No Traefik controller runs — the
+        # smoke only validates "API server accepts the manifest", not
+        # "Traefik routes traffic".
+        run: |
+          kubectl apply --server-side -f https://raw.githubusercontent.com/traefik/traefik/v3.2/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
+
       - name: helm dep update
         run: helm dep update charts/lolday
 
@@ -72,10 +85,17 @@ jobs:
       - name: Smoke probes
         run: |
           kubectl -n lolday get all -o wide
-          # Verify expected top-level resources were created (Deployment, Service, Secret)
+          # Verify expected top-level resources were created (Deployment, Service, Secret).
+          # The fernet Secret resource name is `backend-fernet-key` (singular,
+          # matches the contained data key), NOT `backend-fernet-secret` —
+          # see `templates/backend-fernet-secret.yaml:5`. The earlier probe
+          # name was a typo that masked the smoke from ever asserting the
+          # Secret rendered (helm install would have failed earlier on the
+          # IngressRoute CRD anyway, so the typo never surfaced until that
+          # fix landed in this PR).
           kubectl -n lolday get deploy backend
           kubectl -n lolday get svc backend
-          kubectl -n lolday get secret backend-fernet-secret
+          kubectl -n lolday get secret backend-fernet-key
 
       - name: helm upgrade to same chart (idempotency)
         # --no-hooks for the same reason as install: alembic pre-upgrade
