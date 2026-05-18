@@ -57,18 +57,40 @@ jobs:
             echo "has_critical=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Upload full trivy report
+        if: steps.gate.outputs.has_critical == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trivy-${{ matrix.image.name }}
+          path: trivy-${{ matrix.image.name }}.txt
+
       - name: Open issue on CRITICAL
         if: steps.gate.outputs.has_critical == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');
-            const body = fs.readFileSync('trivy-${{ matrix.image.name }}.txt', 'utf8');
+            const full = fs.readFileSync('trivy-${{ matrix.image.name }}.txt', 'utf8');
+            // GitHub issue bodies cap at 65536 characters; a full trivy
+            // report on a python-heavy base image (mlflow-server-base
+            // ships ~100+ dist-info METADATA rows) routinely blows past
+            // that and 422s the create call. Keep the top of the report
+            // (CVE table header + first ~25k chars of findings) and
+            // point to the full text in the workflow artifact. 25k chars
+            // is ~400 lines of trivy table output — enough to triage the
+            // worst CVEs from the issue body alone.
+            const HEAD_BUDGET = 25000;
+            const truncated = full.length > HEAD_BUDGET;
+            const head = truncated ? full.slice(0, HEAD_BUDGET) : full;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const footer = truncated
+              ? `\n\n_Report truncated (${full.length} → ${HEAD_BUDGET} chars). Full text in workflow artifacts: ${runUrl} → artifact \`trivy-${{ matrix.image.name }}\`._\n`
+              : '';
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `[trivy-cron] CRITICAL findings on ${{ matrix.image.ref }}`,
-              body: '```\n' + body + '\n```\n\n' +
+              body: '```\n' + head + '\n```' + footer + '\n\n' +
                     'Manual action: bump the FROM digest in ' +
                     '`charts/lolday/helpers/<helper>/Dockerfile`, rebuild, repush, ' +
                     'update values.yaml @sha256 pin (plan T1/T2/T3 process), open PR.',
