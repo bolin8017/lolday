@@ -65,6 +65,31 @@ async def seed_fixtures(
             status_code=status.HTTP_404_NOT_FOUND, detail="dev surface disabled"
         )
 
+    # Pre-create every AUTH_DEV_PERSONAS user so the first `loginAs(page,
+    # "developer")` / "user" doesn't race admin-side writes via the
+    # auto-create path in `cf_access.get_or_create_user_by_email`. The
+    # shared-cache aiosqlite backend (used by the Playwright live-stack)
+    # deadlocks with "database table is locked: user" when two contexts
+    # try to insert into `user` simultaneously — easy to trip when one
+    # spec submits as admin while another switches to dev. With the rows
+    # pre-existing, login takes the fast `existing is not None` branch
+    # and no insert lock is acquired. Idempotent: `User.email` is unique
+    # so a re-call just no-ops.
+    from app.auth.cf_access import get_or_create_user_by_email
+
+    for persona_name, persona in settings.AUTH_DEV_PERSONAS.items():
+        if persona_name == "admin":
+            # The caller IS admin (X-Dev-Persona=admin), already created
+            # by `cf_access.cf_access_user`. Skip to avoid hitting the
+            # same user row twice in this transaction.
+            continue
+        seeded_user = await get_or_create_user_by_email(session, persona["email"])
+        from app.models.user import Role as _Role
+
+        target_role = _Role(persona["role"])
+        if seeded_user.role != target_role:
+            seeded_user.role = target_role
+
     detector_id = _id("detector-elfrfdet")
     version_id = _id("detector-version-elfrfdet-1")
     train_ds_id = _id("dataset-train-fixture")
@@ -166,7 +191,13 @@ async def seed_fixtures(
                 id=ds_id,
                 name=name,
                 owner_id=user.id,
-                visibility=DatasetVisibility.PRIVATE,
+                # PUBLIC visibility lets every dev persona (admin /
+                # developer / user) see + pick the dataset on /jobs/new.
+                # Required so multi-persona specs (e.g. `job-train.spec.ts`
+                # under developer persona) can complete the dataset pick;
+                # the form's dataset picker calls `useDatasets("all")`
+                # which respects per-row visibility.
+                visibility=DatasetVisibility.PUBLIC,
                 csv_content="file_name,label\n" + ("0" * 64) + ",Benign\n",
                 csv_checksum="0" * 64,
                 sample_count=1,
