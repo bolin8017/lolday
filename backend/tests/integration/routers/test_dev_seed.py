@@ -10,7 +10,14 @@ import uuid
 
 import pytest
 from app.config import settings
-from app.models import DatasetConfig, Detector, DetectorVersion, Job
+from app.models import (
+    DatasetConfig,
+    Detector,
+    DetectorVersion,
+    Job,
+    ModelVersion,
+    ModelVersionVisibility,
+)
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -108,3 +115,32 @@ async def test_seed_fixtures_manifest_shape_compatible_with_resolve_detector_def
         assert resolve_detector_defaults(version.manifest, job_type) == {
             "batch_size": 32
         }
+
+
+async def test_seed_fixtures_model_version_is_public(
+    auth_client_admin: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The seeded ModelVersion must be PUBLIC.
+
+    The `GET /api/v1/models` LIST query inner-joins on ModelVersion with
+    a visibility filter — for non-admin personas, only PUBLIC versions
+    (or versions the caller owns) make the model row visible. The seed
+    is shared across all personas, so PUBLIC is the only setting that
+    lets the post-transfer `developer` see the model in their list view.
+
+    Regression guard for PR #288: PRIVATE breaks
+    `frontend/tests/e2e/models/transfer-and-delete.spec.ts` (the dev
+    list assertion times out at `toBeVisible`). The playwright suite
+    catches the same break in ~7s, but pytest catches it in <1s and
+    points at the exact line.
+    """
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", True)
+    resp = await auth_client_admin.post("/api/v1/dev/seed-fixtures")
+    assert resp.status_code == 200, resp.text
+    mv = await db_session.get(ModelVersion, uuid.UUID(resp.json()["model_version_id"]))
+    assert mv is not None
+    assert mv.visibility == ModelVersionVisibility.PUBLIC, (
+        f"expected PUBLIC for cross-persona visibility, got {mv.visibility}"
+    )
