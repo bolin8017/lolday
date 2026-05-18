@@ -6,7 +6,7 @@
  *   - Task 29 visual/sidebar_snapshots.spec.ts (navigation entry point)
  *
  * Selectors mirror frontend/src/routes/_authed.detectors.* and the
- * detector detail view's "Trigger build" button.
+ * detector detail view's "Trigger build" Dialog.
  */
 import type { Locator, Page } from "@playwright/test";
 
@@ -43,11 +43,26 @@ export class DetectorPage {
   }
 
   /**
-   * Trigger a build on the detail page. Caller must already be on the
-   * "Builds" tab (the dialog trigger only renders there).
+   * Open the build Dialog by clicking "+ Trigger build" on the Builds
+   * tab. Does NOT submit — call `confirmBuildDialog(tag)` afterwards
+   * to pick a tag and POST `/api/v1/detectors/{id}/builds`.
    */
   async triggerBuild(): Promise<void> {
     await this.page.getByRole("button", { name: /trigger build/i }).click();
+  }
+
+  /**
+   * Inside the open trigger-build Dialog: select `tag` from the
+   * "Git tag" Select and click "Build" to fire the POST. The Build
+   * button is disabled until a tag is picked
+   * (`_authed.detectors.$id.tsx:308`), so this is the only path that
+   * actually creates a build.
+   */
+  async confirmBuildDialog(tag: string): Promise<void> {
+    const dialog = this.page.getByRole("dialog", { name: /trigger build/i });
+    await dialog.getByRole("combobox", { name: /git tag/i }).click();
+    await this.page.getByRole("option", { name: new RegExp(tag) }).click();
+    await dialog.getByRole("button", { name: /^build$/i }).click();
   }
 
   /**

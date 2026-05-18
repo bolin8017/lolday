@@ -173,6 +173,30 @@ def _install_spec_lane_stubs(app: FastAPI) -> None:
         target = name_to_singleton[name]
         setattr(module, name, (lambda t=target: t))
 
+    # `app.services.git.list_remote_tags` hits the public GitHub REST API.
+    # The trigger-build E2E flow needs a deterministic, network-free response
+    # so the Select inside the build dialog renders at least one tag and the
+    # Build button enables. Rebind both the canonical module and the routers
+    # that imported the symbol via `from app.services.git import ...`.
+    from app.services import git as _git
+
+    _git.list_remote_tags = (
+        _stubs.stub_list_remote_tags
+    )  # SPEC_LANE_STUBS path; matches signature
+    for module_path in ("app.routers.detectors",):
+        module = importlib.import_module(module_path)
+        if hasattr(module, "list_remote_tags"):
+            module.list_remote_tags = _stubs.stub_list_remote_tags  # type: ignore[attr-defined]
+
+    # `_get_user_pat` is module-private in `routers/detectors.py`. Real
+    # PAT lookup decrypts a `UserGitCredential` row with `TokenCipher`,
+    # which requires FERNET_KEYS — not set in the Playwright env. Stub
+    # to a non-None placeholder so the `create_build` `credential_missing`
+    # 400 guard clears; the K8s side of the build call is itself stubbed.
+    from app.routers import detectors as _detectors
+
+    _detectors._get_user_pat = _stubs.stub_get_user_pat  # SPEC_LANE_STUBS path
+
     app.state.mlflow = _stubs.StubMlflowClient()
     logger.info("SPEC_LANE_STUBS=true — installed in-process K8s + MLflow stubs")
 
