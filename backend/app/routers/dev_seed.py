@@ -242,7 +242,16 @@ async def seed_fixtures(
             mlflow_version=1,
             mlflow_run_id="fixture-run-1",
             current_stage=ModelVersionStage.NONE,
-            visibility=ModelVersionVisibility.PRIVATE,
+            # PUBLIC so every persona's `GET /api/v1/models` (which
+            # inner-joins on a version visible to the caller) renders
+            # the row. Without this, post-transfer specs that flip the
+            # `RegisteredModel.owner_id` to a non-admin persona can't
+            # see the model in `/models` — only `RegisteredModel`
+            # ownership moves, `ModelVersion.owner_id` stays with the
+            # original seeder. PRIVATE versioning is unit-tested via
+            # the `tests/integration/services/test_models_list.py`
+            # fixtures; the seed fixture exists to be shareable.
+            visibility=ModelVersionVisibility.PUBLIC,
             detector_version_id=version_id,
             source_job_id=queued_job_id,
             owner_id=user.id,
