@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # commit the report back to main
+  contents: write # branch creation for the PR
+  pull-requests: write # open the weekly report PR
   issues: write # open a tracking issue when any module is below the gate
 
 concurrency:
@@ -47,12 +48,27 @@ jobs:
           echo "report=docs/test-telemetry/mutation-${DATE}.md" >> "$GITHUB_OUTPUT"
           echo "date=$DATE" >> "$GITHUB_OUTPUT"
 
-      - name: Commit report to main
-        uses: stefanzweifel/git-auto-commit-action@04702edda442b2e678b25b537cec683a1493fcb9 # v7.1.0
+      - name: Open mutation-report PR
+        # Branch protection on `main` (9 required check contexts) blocks
+        # direct pushes — auto-commit-action returns "remote rejected".
+        # The weekly report belongs in git history for trending, so the
+        # workflow opens a PR instead and lets the operator merge it
+        # after the required checks pass. The downstream "Open tracking
+        # issue" step doesn't depend on the commit landing — it reads
+        # the locally-rendered file via $REPORT_PATH.
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          commit_message: "docs(test-telemetry): mutation report ${{ steps.render.outputs.date }}"
-          file_pattern: docs/test-telemetry/mutation-*.md
-          branch: main
+          commit-message: "docs(test-telemetry): mutation report ${{ steps.render.outputs.date }}"
+          title: "docs(test-telemetry): mutation report ${{ steps.render.outputs.date }}"
+          body: |
+            Automated weekly run of `.github/workflows/mutation.yml`.
+            Adds `${{ steps.render.outputs.report }}`. Merge after the
+            required checks pass; the tracking issue (if any) is
+            opened independently and links back to the report path.
+          branch: chore/mutation-report-${{ steps.render.outputs.date }}
+          delete-branch: true
+          add-paths: docs/test-telemetry/mutation-*.md
+          labels: documentation
 
       - name: Open tracking issue on below-gate modules
         if: success()

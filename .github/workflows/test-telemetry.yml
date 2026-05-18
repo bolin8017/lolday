@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # commit dashboard back to main
+  contents: write # branch creation for the PR
+  pull-requests: write # open the dashboard-refresh PR
   actions: read # download artifacts
 
 concurrency:
@@ -62,12 +63,28 @@ jobs:
             --dashboard-out docs/test-telemetry/dashboard.md \
             --summary-out /tmp/discord-summary.txt
 
-      - name: Commit dashboard
-        uses: stefanzweifel/git-auto-commit-action@04702edda442b2e678b25b537cec683a1493fcb9 # v7.1.0
+      - name: Open dashboard-refresh PR
+        # Branch protection on `main` (9 required check contexts) blocks
+        # direct pushes — auto-commit-action returns "remote rejected".
+        # The dashboard belongs in git history for trending, so the
+        # workflow opens a PR instead and lets the operator merge it
+        # after the required checks pass. peter-evans/create-pull-request
+        # detects "no changes" and exits cleanly on weeks when the
+        # dashboard rendered identically to the previous run.
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          commit_message: "docs(test-telemetry): weekly dashboard refresh"
-          file_pattern: docs/test-telemetry/dashboard.md
-          branch: main
+          commit-message: "docs(test-telemetry): weekly dashboard refresh"
+          title: "docs(test-telemetry): weekly dashboard refresh"
+          body: |
+            Automated weekly run of `.github/workflows/test-telemetry.yml`.
+            Refreshes `docs/test-telemetry/dashboard.md` from the last 7
+            days of JUnit artifacts. Merge after the required checks
+            pass; nothing else in the workflow depends on this commit
+            landing on main.
+          branch: chore/test-telemetry-dashboard-refresh
+          delete-branch: true
+          add-paths: docs/test-telemetry/dashboard.md
+          labels: documentation
 
       - name: Post summary to Spidey Warnings
         if: env.DISCORD_WEBHOOK_URL_WARNING != ''
