@@ -28,7 +28,7 @@ via the OperationalError catch). It also sets app.state.http and
 app.state.mlflow ahead of time so the lifespan's explicit setup doesn't
 create duplicate clients.
 
-schemathesis.from_pytest_fixture("schema") creates a LazySchema that
+schemathesis.pytest.from_fixture("schema") creates a LazySchema that
 defers loading the actual schemathesis.BaseSchema until the "schema"
 fixture resolves — this is the recommended pattern for referencing a
 conftest-defined fixture at module level.
@@ -53,7 +53,7 @@ _TEST_USER_EMAIL = "contract-jobs@example.dev"
 # ---------------------------------------------------------------------------
 # LazySchema bound to the "schema" conftest fixture.
 #
-# schemathesis.from_pytest_fixture("schema") creates a LazySchema with
+# schemathesis.pytest.from_fixture("schema") creates a LazySchema with
 # fixture_name="schema". At test collection time the schemathesis pytest
 # plugin resolves that fixture name to the BaseSchema loaded in conftest.py
 # (schemathesis.from_asgi("/openapi.json", fastapi_app)).
@@ -62,7 +62,7 @@ _TEST_USER_EMAIL = "contract-jobs@example.dev"
 # operations whose path matches the regex, keeping this file focused on the
 # /api/v1/jobs* surface.
 # ---------------------------------------------------------------------------
-schema = schemathesis.from_pytest_fixture("schema").include(path_regex=r"^/api/v1/jobs")
+schema = schemathesis.pytest.from_fixture("schema").include(path_regex=r"^/api/v1/jobs")
 
 
 # ---------------------------------------------------------------------------

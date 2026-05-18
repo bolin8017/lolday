@@ -15,6 +15,13 @@ def _validate_discord_user_id(v):
     """Allow None, coerce empty string → None, else require 15-20 digits."""
     if v is None or v == "":
         return None
+    if not isinstance(v, str):
+        # `mode="before"` validators run on the raw inbound value. The
+        # next `re.Pattern.match` call raises TypeError on non-str inputs,
+        # which escapes Pydantic's validation wrapper and surfaces as a
+        # 500 instead of the expected 422. Reject non-str inputs cleanly.
+        # Exposed by schemathesis v4 sending `{"discord_user_id": {}}`.
+        raise ValueError("discord_user_id must be a string")
     if not _DISCORD_ID_RE.match(v):
         raise ValueError(
             "discord_user_id must be 15-20 digits (copy from Discord "
