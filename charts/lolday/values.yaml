@@ -486,8 +486,22 @@ loki:
     enabled: false
   test:
     enabled: false
+  # PSS-restricted seccompProfile (the chart leaves it unset by default;
+  # without this the lolday-ns 'enforce=restricted' promotion warns on
+  # loki-0). The chart's own fsGroup / runAsNonRoot / runAsUser defaults
+  # under .Values.loki.podSecurityContext are preserved by helm's
+  # deep-merge, so we only add the missing key here. Sidecar seccomp is
+  # set on the .Values.loki.sidecar block further down (alongside the
+  # CVE-2025-15467 image bump) so the two sub-keys coexist.
+  # Tracked in docs/architecture.md §10 #36 (lolday-ns PSS hardening).
   loki:
     auth_enabled: false
+    podSecurityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      seccompProfile:
+        type: RuntimeDefault
     commonConfig:
       replication_factor: 1
       path_prefix: /tmp/loki # no PVC; compactor working dir uses tmpfs
@@ -553,9 +567,16 @@ loki:
   # that image carries CVE-2025-15467 (OpenSSL RCE/DoS via oversized IV,
   # fixed in libssl 3.5.5-r0). 2.7.1 is the alpine rebuild with the
   # patched OpenSSL.
+  # The seccompProfile is added for defense-in-depth — pod-level
+  # seccompProfile already propagates to this sidecar under K8s PSS rules,
+  # but being explicit matches the rest of the lolday chart and keeps the
+  # security posture self-documenting (see §10 #36).
   sidecar:
     image:
       tag: 2.7.1@sha256:5bc0c5634d4aae468e27e98bf1aae4f45d82fcbfd73baf4a9d3fb0699c62f83d
+    securityContext:
+      seccompProfile:
+        type: RuntimeDefault
 
 # =============================================================================
 # Grafana Alloy — DaemonSet log shipper (replaces Promtail, phase 9.2)
