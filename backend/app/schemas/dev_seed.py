@@ -17,3 +17,10 @@ class SeededFixturesResponse(BaseModel):
     queued_job_id: uuid.UUID
     registered_model_id: uuid.UUID
     model_version_id: uuid.UUID
+    # Throwaway fixture — separate Detector + RegisteredModel +
+    # ModelVersion that destructive Playwright specs
+    # (`models/transfer-and-delete.spec.ts`) target so the primary
+    # shared fixture above stays untouched by parallel runs.
+    throwaway_detector_id: uuid.UUID
+    throwaway_registered_model_id: uuid.UUID
+    throwaway_model_version_id: uuid.UUID

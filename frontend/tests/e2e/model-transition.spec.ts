@@ -1,5 +1,15 @@
 import { test, expect } from "@playwright/test";
-import { login } from "./helpers";
+import { login, reseedAsAdmin } from "./helpers";
+
+// Defensive re-seed: `models/transfer-and-delete.spec.ts` DELETEs the
+// shared seed at the end of its run. Under `fullyParallel`, this spec
+// can land in the destructive window — observed in run 26040409369
+// (2026-05-18 14:40) where `table tbody tr` was empty on
+// `/models/admin/elfrfdet-fixture` because the row had just been
+// cascade-deleted. Re-seeding here is idempotent + cheap (~200 ms).
+test.beforeEach(async ({ browser }) => {
+  await reseedAsAdmin(browser);
+});
 
 test("promote a model version to Production", async ({ page }) => {
   test.setTimeout(60_000);
