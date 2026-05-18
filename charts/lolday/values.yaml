@@ -758,6 +758,22 @@ trivy-operator:
     #   Same applicability assessment as CVE-2026-33322 — LDAP auth
     #   backend not enabled.
     #
+    # Added 2026-05-18 (§10 #33 follow-up; PR after #266):
+    # - BDSA-2026-8695 — gnutls (Photon `ph5`). 4 Harbor v2.15.1 images
+    #   (nginx-photon / harbor-portal / harbor-db / redis-photon). Fix
+    #   `gnutls 3.8.13-1.ph5` lives upstream but Harbor v2.15.1 (latest
+    #   stable as of 2026-05-18 per goharbor/harbor releases) was cut
+    #   before the rebuild rolled. The same Photon-base-rebuild-pending
+    #   pattern as CVE-2026-4438 / CVE-2026-2781 / CVE-2026-33186 (sister
+    #   gnutls / glibc / NSS Harbor entries above). Reachability: gnutls
+    #   in Harbor pods only handles TLS endpoints inside the cluster
+    #   namespace (Harbor's external TLS terminates at Traefik /
+    #   Cloudflare and is not powered by these binaries); the BDSA
+    #   describes a memory-safety primitive that needs an attacker who
+    #   can already feed crafted TLS handshakes to the in-pod listener.
+    #   Re-evaluate when Harbor 2.15.2 (or 2.16.x) ships with the Photon
+    #   gnutls bump.
+    #
     # The trivy-operator chart's `ignoreFile` value is broken for both
     # string and list inputs (mangled by `toYaml | nindent` — emits
     # leading `|` or `-` that Trivy CLI rejects). The chart's
@@ -782,6 +798,7 @@ trivy-operator:
         "CVE-2025-49796",
         "CVE-2026-33322",
         "CVE-2026-33419",
+        "BDSA-2026-8695",
       }
 
       ignore {
