@@ -35,12 +35,17 @@ jobs:
         uses: ./.github/actions/setup-pnpm-node
 
       - name: Install playwright browsers
-        # webkit is required because the `iphone-13-mini` project in
-        # frontend/playwright.config.ts uses `devices["iPhone 13 Mini"]`,
-        # which pins `defaultBrowserType: 'webkit'`. Without it every spec
-        # under tests/e2e/mobile/** errors out with
-        # `browserType.launch: Executable doesn't exist at .../webkit-…/pw_run.sh`.
-        run: pnpm --dir frontend exec playwright install --with-deps chromium webkit
+        # Only chromium needed. `frontend/playwright.config.ts` overrides
+        # the `iphone-13-mini` project's default `defaultBrowserType:
+        # "webkit"` (from `devices["iPhone 13 Mini"]`) to `"chromium"`
+        # so the same headless shell powers both projects. iPhone viewport
+        # / userAgent / isMobile flags still come from
+        # `devices["iPhone 13 Mini"]`. Drops 191 GTK/GStreamer apt deps
+        # from the runner and lets the same env run user-local (no sudo
+        # needed for `pnpm exec playwright install chromium`).
+        # If WebKit-specific bug coverage is ever needed, add a third
+        # explicit `webkit` project that opts back in.
+        run: pnpm --dir frontend exec playwright install --with-deps chromium
 
       - name: Run playwright (webServer launches uvicorn + vite dev)
         env:
