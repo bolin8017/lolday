@@ -63,6 +63,20 @@ jobs:
             --dashboard-out docs/test-telemetry/dashboard.md \
             --summary-out /tmp/discord-summary.txt
 
+      # Post the Discord summary BEFORE attempting the PR, so a PR-create
+      # failure (see next step) never blocks the user-visible signal.
+      - name: Post summary to Spidey Warnings
+        if: env.DISCORD_WEBHOOK_URL_WARNING != ''
+        env:
+          DISCORD_WEBHOOK_URL_WARNING: ${{ secrets.DISCORD_WEBHOOK_URL_WARNING }}
+        run: |
+          SUMMARY=$(cat /tmp/discord-summary.txt)
+          jq -nc \
+            --arg content "$SUMMARY" \
+            '{content: $content}' \
+            | curl -sS -X POST -H 'Content-Type: application/json' \
+                --data @- "$DISCORD_WEBHOOK_URL_WARNING"
+
       - name: Open dashboard-refresh PR
         # Branch protection on `main` (9 required check contexts) blocks
         # direct pushes — auto-commit-action returns "remote rejected".
@@ -71,7 +85,20 @@ jobs:
         # after the required checks pass. peter-evans/create-pull-request
         # detects "no changes" and exits cleanly on weeks when the
         # dashboard rendered identically to the previous run.
+        #
+        # `continue-on-error: true`: the default repo Actions setting
+        # "Allow GitHub Actions to create and approve pull requests" is
+        # OFF, so the PR-create REST call 422s with "GitHub Actions is
+        # not permitted to create or approve pull requests". The branch
+        # push still succeeds — the operator can land the branch via a
+        # one-click manual PR. Making this step best-effort prevents the
+        # whole workflow from going red over a known policy gap and lets
+        # the Discord summary above always fire. Enable the setting (or
+        # provide a dedicated PAT / GitHub App token via the action's
+        # `token:` input) to make the PR-create succeed; the workflow
+        # then automatically goes green end-to-end with no further edit.
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        continue-on-error: true
         with:
           commit-message: "docs(test-telemetry): weekly dashboard refresh"
           title: "docs(test-telemetry): weekly dashboard refresh"
@@ -85,15 +112,3 @@ jobs:
           delete-branch: true
           add-paths: docs/test-telemetry/dashboard.md
           labels: documentation
-
-      - name: Post summary to Spidey Warnings
-        if: env.DISCORD_WEBHOOK_URL_WARNING != ''
-        env:
-          DISCORD_WEBHOOK_URL_WARNING: ${{ secrets.DISCORD_WEBHOOK_URL_WARNING }}
-        run: |
-          SUMMARY=$(cat /tmp/discord-summary.txt)
-          jq -nc \
-            --arg content "$SUMMARY" \
-            '{content: $content}' \
-            | curl -sS -X POST -H 'Content-Type: application/json' \
-                --data @- "$DISCORD_WEBHOOK_URL_WARNING"

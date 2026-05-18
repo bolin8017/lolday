@@ -56,7 +56,21 @@ jobs:
         # after the required checks pass. The downstream "Open tracking
         # issue" step doesn't depend on the commit landing — it reads
         # the locally-rendered file via $REPORT_PATH.
+        #
+        # `continue-on-error: true`: the default repo Actions setting
+        # "Allow GitHub Actions to create and approve pull requests" is
+        # OFF, so the PR-create REST call 422s with "GitHub Actions is
+        # not permitted to create or approve pull requests". The branch
+        # push still succeeds — the operator can land the branch via a
+        # one-click manual PR. Making this step best-effort prevents the
+        # whole workflow from going red over a known policy gap and lets
+        # the downstream "Open tracking issue" step fire on weeks where
+        # any module slips below the kill-rate gate. Enable the setting
+        # (or provide a dedicated PAT / GitHub App token via the action's
+        # `token:` input) to make the PR-create succeed; the workflow
+        # then automatically goes green end-to-end with no further edit.
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        continue-on-error: true
         with:
           commit-message: "docs(test-telemetry): mutation report ${{ steps.render.outputs.date }}"
           title: "docs(test-telemetry): mutation report ${{ steps.render.outputs.date }}"
@@ -71,7 +85,10 @@ jobs:
           labels: documentation
 
       - name: Open tracking issue on below-gate modules
-        if: success()
+        # `if: always()` so a `continue-on-error` PR-create failure
+        # above (see comment) doesn't suppress the kill-rate-gate
+        # signal. The step itself short-circuits when no module slips.
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           REPORT_PATH: ${{ steps.render.outputs.report }}
