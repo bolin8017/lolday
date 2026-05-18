@@ -900,6 +900,28 @@ minio:
   # Override the default console user created by the chart (chart default: console/console123)
   # We manage IAM entirely via the init Job; no chart-managed users.
   users: []
+  # PSS-restricted hardening (§10 #36). The chart's defaults give us
+  # fsGroup / runAsUser / runAsGroup but leave `runAsNonRoot` and
+  # `seccompProfile` unset at pod level, and only set
+  # `readOnlyRootFilesystem: false` at container level — missing
+  # `allowPrivilegeEscalation`, `capabilities.drop`, `runAsNonRoot`, and
+  # `seccompProfile`. Add them so the lolday-ns `enforce=restricted`
+  # admission stops warning. `readOnlyRootFilesystem` stays `false`
+  # because MinIO writes to /tmp + /export at runtime; PSS restricted
+  # does NOT require read-only root.
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    readOnlyRootFilesystem: false
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
 
 # =============================================================================
 # Kyverno — admission-time image verification + PSS background audit (P4)
