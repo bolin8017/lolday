@@ -98,6 +98,22 @@ async def seed_fixtures(
     registered_model_id = _id("registered-model-fixture")
     model_version_id = _id("model-version-fixture")
 
+    # Throwaway fixture (separate detector + model) for destructive
+    # specs. `models/transfer-and-delete.spec.ts` mutates ownership
+    # and deletes this row; the primary shared fixture above stays
+    # untouched so parallel read-only specs
+    # (`model-transition.spec.ts`, `mobile/model-list.spec.ts`, …)
+    # don't race against the destructive window. The `RegisteredModel`
+    # table's `UniqueConstraint("owner_id", "detector_id")` forces the
+    # throwaway model to use a DIFFERENT detector, not just a different
+    # UUID — both rows can coexist owned by admin only because they
+    # point at different detectors.
+    throwaway_detector_id = _id("throwaway-detector")
+    throwaway_version_id = _id("throwaway-detector-version")
+    throwaway_registered_model_id = _id("throwaway-registered-model")
+    throwaway_model_version_id = _id("throwaway-model-version")
+    throwaway_queued_job_id = _id("throwaway-job-queued")
+
     detector = await session.get(Detector, detector_id)
     if detector is None:
         detector = Detector(
@@ -258,6 +274,104 @@ async def seed_fixtures(
         )
         session.add(model_version)
 
+    # ── throwaway fixture (separate detector + model) ────────────
+    throwaway_detector = await session.get(Detector, throwaway_detector_id)
+    if throwaway_detector is None:
+        throwaway_detector = Detector(
+            id=throwaway_detector_id,
+            name="throwaway-fixture",
+            display_name="Throwaway fixture (destructive specs only)",
+            owner_id=user.id,
+            git_url="https://github.com/bolin8017/throwaway-fixture.git",
+        )
+        session.add(throwaway_detector)
+
+    throwaway_version = await session.get(DetectorVersion, throwaway_version_id)
+    if throwaway_version is None:
+        throwaway_version = DetectorVersion(
+            id=throwaway_version_id,
+            detector_id=throwaway_detector_id,
+            git_tag="v1.0.0-throwaway",
+            git_sha="1" * 40,
+            harbor_image="harbor.lolday.svc:80/lolday/throwaway-fixture",
+            image_digest=(
+                "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            ),
+            # Shape-only manifest — destructive specs don't submit jobs
+            # against this version, they just transfer / delete the
+            # RegisteredModel that points at it. The manifest still
+            # needs to satisfy `DetectorManifest.model_validate` because
+            # the column is non-null and the validate hook fires on
+            # ORM insert.
+            manifest={
+                "detector": {
+                    "name": "throwaway-fixture",
+                    "version": "v1.0.0",
+                    "framework": "lightning",
+                },
+                "input": {"binary_format": "elf"},
+                "output": {
+                    "task": "binary_classification",
+                    "classes": ["benign", "malware"],
+                    "positive_class": "malware",
+                },
+                "resources": {},
+                "lifecycle": {},
+                "artifacts": {"model": {"path": "artifacts/model.pt", "type": "file"}},
+                "stages": {
+                    "train": {
+                        "config_class": "TrainConfig",
+                        "params_schema": {"type": "object", "properties": {}},
+                    },
+                },
+            },
+            status=DetectorVersionStatus.ACTIVE,
+        )
+        session.add(throwaway_version)
+
+    throwaway_job = await session.get(Job, throwaway_queued_job_id)
+    if throwaway_job is None:
+        throwaway_job = Job(
+            id=throwaway_queued_job_id,
+            type=JobType.TRAIN,
+            status=JobStatus.QUEUED_BACKEND,
+            owner_id=user.id,
+            detector_version_id=throwaway_version_id,
+            train_dataset_id=train_ds_id,
+            test_dataset_id=test_ds_id,
+            resource_profile=ResourceProfile.GPU1,
+            resolved_config={"train": {"epochs": 1}},
+            idempotency_key=_id("idempotency-throwaway-queued").hex,
+            priority=0,
+            submitted_at=datetime.now(UTC),
+        )
+        session.add(throwaway_job)
+
+    throwaway_rm = await session.get(RegisteredModel, throwaway_registered_model_id)
+    if throwaway_rm is None:
+        throwaway_rm = RegisteredModel(
+            id=throwaway_registered_model_id,
+            owner_id=user.id,
+            detector_id=throwaway_detector_id,
+            tags={"throwaway": "true"},
+        )
+        session.add(throwaway_rm)
+
+    throwaway_mv = await session.get(ModelVersion, throwaway_model_version_id)
+    if throwaway_mv is None:
+        throwaway_mv = ModelVersion(
+            id=throwaway_model_version_id,
+            registered_model_id=throwaway_registered_model_id,
+            mlflow_version=1,
+            mlflow_run_id="throwaway-run-1",
+            current_stage=ModelVersionStage.NONE,
+            visibility=ModelVersionVisibility.PUBLIC,
+            detector_version_id=throwaway_version_id,
+            source_job_id=throwaway_queued_job_id,
+            owner_id=user.id,
+        )
+        session.add(throwaway_mv)
+
     await session.commit()
 
     return SeededFixturesResponse(
@@ -268,4 +382,7 @@ async def seed_fixtures(
         queued_job_id=queued_job_id,
         registered_model_id=registered_model_id,
         model_version_id=model_version_id,
+        throwaway_detector_id=throwaway_detector_id,
+        throwaway_registered_model_id=throwaway_registered_model_id,
+        throwaway_model_version_id=throwaway_model_version_id,
     )

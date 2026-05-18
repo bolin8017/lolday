@@ -14,3 +14,5 @@ export {
   personaForWorker,
   seedCreds,
 } from "./auth";
+
+export { reseedAsAdmin } from "./seed";
