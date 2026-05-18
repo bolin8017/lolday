@@ -52,6 +52,19 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
 
+      - name: Install Traefik v3 CRDs
+        # The bundled Traefik was disabled above (v2 vs the chart's v3
+        # `traefik.io/v1alpha1` API). The chart's `templates/ingress.yaml`
+        # + `templates/mlflow-forward-auth-middleware.yaml` reference
+        # `IngressRoute` / `Middleware` — without the v3 CRDs the apply
+        # step fails with `no matches for kind "IngressRoute"`. Install
+        # the upstream v3 CRDs out-of-band so the smoke test exercises
+        # the IngressRoute manifest. No Traefik controller runs — the
+        # smoke only validates "API server accepts the manifest", not
+        # "Traefik routes traffic".
+        run: |
+          kubectl apply --server-side -f https://raw.githubusercontent.com/traefik/traefik/v3.2/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
+
       - name: helm dep update
         run: helm dep update charts/lolday
 
