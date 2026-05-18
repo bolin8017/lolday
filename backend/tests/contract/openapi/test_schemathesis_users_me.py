@@ -46,7 +46,7 @@ _TEST_USER_EMAIL = "contract-users-me@example.dev"
 # The regex uses a literal match so it does not accidentally pull in
 # /api/v1/users/{id} admin routes registered under the same prefix.
 # ---------------------------------------------------------------------------
-schema = schemathesis.from_pytest_fixture("schema").include(
+schema = schemathesis.pytest.from_fixture("schema").include(
     path_regex=r"^/api/v1/users/me$"
 )
 

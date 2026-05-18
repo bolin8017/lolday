@@ -287,6 +287,21 @@ app = FastAPI(
     # leaks the API surface even with DOCS_ENABLED=false. Gate the schema
     # endpoint on the same flag.
     openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
+    # Document framework-level responses every authenticated route can
+    # emit so the OpenAPI contract is honest. 400 comes from FastAPI's
+    # own body-parser (fastapi/routing.py: `HTTPException(400, "There
+    # was an error parsing the body")` for malformed JSON); 401/403 from
+    # the cf_access auth dependency / role guards; 404 from any handler
+    # that does `session.get(Model, id) → raise 404`; 500 covers any
+    # unexpected server-side crash. Schemathesis 4's broader generation
+    # exposes paths that schemathesis 3 never reached.
+    responses={
+        400: {"description": "Malformed request body or bad input"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Forbidden"},
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
 )
 
 from app.middleware.body_size import BodySizeLimitMiddleware

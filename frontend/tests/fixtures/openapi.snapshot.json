@@ -21,6 +21,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation error (schema-generated query params)"
           }
@@ -50,6 +65,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -106,6 +136,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -158,6 +203,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -186,6 +246,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       },
@@ -214,6 +289,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -233,6 +323,21 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
@@ -262,6 +367,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -364,6 +484,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -404,6 +539,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -454,6 +604,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -485,6 +650,21 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -524,6 +704,21 @@
                 "schema": {}
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -566,6 +761,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -604,6 +814,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -690,6 +915,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -730,6 +970,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -780,6 +1035,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -811,6 +1081,21 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -855,6 +1140,21 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -904,6 +1204,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -946,6 +1261,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -991,6 +1321,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1042,6 +1387,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1105,6 +1465,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1155,6 +1530,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1207,6 +1597,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1248,6 +1653,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1286,6 +1706,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1388,6 +1823,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1428,6 +1878,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1479,6 +1944,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1523,6 +2003,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1562,6 +2057,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1600,6 +2110,21 @@
                 "schema": {}
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1641,6 +2166,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1728,6 +2268,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1769,6 +2324,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1818,6 +2388,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -1882,6 +2467,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1931,6 +2531,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1970,6 +2585,21 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -2028,6 +2658,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2076,6 +2721,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -2135,6 +2795,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2183,6 +2858,21 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -2252,6 +2942,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2320,6 +3025,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2379,6 +3099,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2437,6 +3172,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2487,6 +3237,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2524,6 +3289,21 @@
                 "schema": {}
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           },
           "422": {
             "description": "Validation Error",
@@ -2579,6 +3359,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2626,6 +3421,21 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2656,6 +3466,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
@@ -2677,6 +3502,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
@@ -2697,6 +3537,21 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
@@ -2714,6 +3569,21 @@
                 "schema": {}
               }
             }
+          },
+          "400": {
+            "description": "Malformed request body or bad input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }

@@ -68,7 +68,7 @@ _TEST_USER_EMAIL = "contract-detectors@example.dev"
 # .include(path_regex=...) filters to /api/v1/detectors* operations only,
 # keeping this file focused on the detectors surface.
 # ---------------------------------------------------------------------------
-schema = schemathesis.from_pytest_fixture("schema").include(
+schema = schemathesis.pytest.from_fixture("schema").include(
     path_regex=r"^/api/v1/detectors"
 )
 
