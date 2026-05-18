@@ -44,7 +44,16 @@ test.describe("mobile sidebar drawer", () => {
     const drawer = page.getByRole("dialog");
     await expect(drawer).toBeVisible();
 
-    await page.keyboard.press("Escape");
+    // Press ESC via the drawer locator (not page.keyboard) so Playwright
+    // focuses the dialog before dispatching keydown. `page.keyboard.press`
+    // races the Sheet's 500ms slide-in animation: `toBeVisible` resolves
+    // on DOM-mount + non-`display:none`, not on animation-complete, so
+    // focus can still be on document.body when ESC fires. Radix's
+    // `useEscapeKeydown` is a document-level capture listener, but
+    // running ESC inside the dialog scope (which `locator.press` does
+    // via implicit focus) makes the listener fire reliably across
+    // animation timing.
+    await drawer.press("Escape");
     await expect(drawer).not.toBeVisible();
   });
 
