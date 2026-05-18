@@ -37,7 +37,22 @@ export default function AuthedLayout() {
           </a>
         </div>
       ) : (
-        <SidebarProvider>
+        <SidebarProvider className="h-dvh overflow-hidden">
+          {/*
+            `h-dvh overflow-hidden` overrides shadcn's default `min-h-svh`
+            on the wrapper div so the layout is viewport-locked instead of
+            content-grown. Without this, on long forms (e.g. /jobs/new)
+            the wrapper grew past the viewport, the inner `<main
+            overflow-y-auto>` grew with it, and `sticky bottom-0` inside
+            `<StickyFormFooter>` had no scroll container to stick to —
+            the submit bar rendered at the natural end of the form
+            (~1400 px below viewport) instead of pinned to the visible
+            bottom. `dvh` (dynamic viewport) tracks mobile URL-bar
+            collapse/expand so the sticky bar tracks the real visible
+            area on iOS Safari / Chrome. Tested in /jobs/new (long form,
+            sticky bar visible at scrollY=0); short forms unaffected
+            (sticky-relative naturally sits at flow position).
+          */}
           <AppSidebar />
           <SidebarInset>
             <TopBar />
