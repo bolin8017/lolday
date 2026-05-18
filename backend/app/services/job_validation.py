@@ -220,7 +220,14 @@ async def validate_submission(
     priority_to_persist = requested_priority if requested_priority is not None else 0
 
     samples_root = Path(settings.SAMPLES_LOCAL_ROOT)
-    if samples_root.exists():
+    # SPEC_LANE_STUBS short-circuits the on-disk spot-check. Local dev
+    # machines that share `/data/samples` with a real cluster would
+    # otherwise reject every seed-fixture submission (the fixture's
+    # all-zeros SHA never exists on disk). The guard is safe — the
+    # `SPEC_LANE_STUBS=true` boot is refused in production by
+    # `Settings.validate_sso_config`, so no real workload path can hit
+    # this branch.
+    if samples_root.exists() and not settings.SPEC_LANE_STUBS:
         try:
             for ds in (train_ds, test_ds, predict_ds):
                 if ds is None:

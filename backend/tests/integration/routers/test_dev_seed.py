@@ -101,6 +101,10 @@ async def test_seed_fixtures_manifest_shape_compatible_with_resolve_detector_def
     )
     assert version is not None
     for job_type in (JobType.TRAIN, JobType.EVALUATE, JobType.PREDICT):
-        # Must not raise. Empty stage dicts mean None defaults; the contract
-        # is "no crash", not "non-empty defaults".
-        assert resolve_detector_defaults(version.manifest, job_type) is None
+        # Must not raise. Each stage carries a minimal `params_schema`
+        # (single optional integer with default) so submit-path E2E specs
+        # get past the "no params schema" guard. `resolve_detector_defaults`
+        # extracts the defaults block — `{"batch_size": 32}` for every stage.
+        assert resolve_detector_defaults(version.manifest, job_type) == {
+            "batch_size": 32
+        }
