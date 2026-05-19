@@ -58,6 +58,18 @@ markers = [
     "flaky_tracked: known flaky test; must carry issue=<github-url> kwarg",
 ]
 
+[tool.coverage.run]
+# Enable branch coverage. Without it, coverage.py's line-only tracer
+# under-reports multi-line `await session.execute(select(...).join(...))`
+# statements as fully missed even when the function executes — most
+# visible on router modules with heavy SQLAlchemy chained calls
+# (`app/routers/models_registry.py` reported 39% line-only vs 49% with
+# branch coverage on identical test runs). Branch coverage also tracks
+# branch outcomes, which mainstream Python projects (Django / FastAPI /
+# SQLAlchemy itself) enable by default. See PR description for the
+# coverage diff that motivated this change.
+branch = true
+
 [tool.mutmut]
 # Phase 4 D4.3 — weekly mutation tier. Targets the top-10 high-risk
 # modules per spec §1.2 (ranked by 30-day churn × fan-in × postmortem
