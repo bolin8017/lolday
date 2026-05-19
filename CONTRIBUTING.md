@@ -15,14 +15,15 @@ Branch / commit / PR conventions, spec & plan filenames, CI workflow:
 
 Path-scoped rules (loaded automatically when Claude Code edits files in the area):
 
-| Path                    | Rule file                             |
-| ----------------------- | ------------------------------------- |
-| `backend/**`            | `.claude/rules/backend.md`            |
-| `frontend/**`           | `.claude/rules/frontend.md`           |
-| `charts/**`             | `.claude/rules/charts-and-helm.md`    |
-| `scripts/**`, `*.sh`    | `.claude/rules/scripts-and-ops.md`    |
-| `backend/migrations/**` | `.claude/rules/alembic-migrations.md` |
-| `.github/**`            | `.claude/rules/github-actions.md`     |
+| Path                                     | Rule file                             |
+| ---------------------------------------- | ------------------------------------- |
+| `backend/**`                             | `.claude/rules/backend.md`            |
+| `frontend/**`                            | `.claude/rules/frontend.md`           |
+| `charts/**`                              | `.claude/rules/charts-and-helm.md`    |
+| `scripts/**`, `*.sh`                     | `.claude/rules/scripts-and-ops.md`    |
+| `backend/migrations/**`                  | `.claude/rules/alembic-migrations.md` |
+| `.github/**`                             | `.claude/rules/github-actions.md`     |
+| `**/tests/**`, `*.test.tsx`, `test_*.py` | `.claude/rules/testing.md`            |
 
 Hard rules that apply everywhere (SSH safety, sudo policy, China-origin software,
 lint discipline, open-source-first, deploy-platform stance, MinIO-only storage):
