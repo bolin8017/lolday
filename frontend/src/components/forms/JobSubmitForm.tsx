@@ -130,7 +130,14 @@ export function JobSubmitForm() {
     const tag = type === "train" ? versionTag : derivedDetectorVersionTag;
     const versionId = versionsForSubmit.find((v) => v.git_tag === tag)?.id;
     if (!versionId) {
-      // TODO: integration-test silent submit failure (tag not in versionsForSubmit)
+      // Covered: see `tests/unit/components/JobSubmitForm.test.tsx`
+      // describe "JobSubmitForm — silent submit failure on stale tag"
+      // (this `!versionId` branch) and "JobSubmitForm — race-condition
+      // fallback (§10 #22)" (the catch block at line 167 surfaces the
+      // backend's 422 detail when the race wasn't caught here). The
+      // full file-based react-router 7 integration variant is still
+      // deferred until a reusable createMemoryRouter harness exists —
+      // see the sister docstring on `tests/integration/forms/JobSubmitForm.flow.test.tsx`.
       setSubmitError(
         type === "train"
           ? "Selected detector version is no longer active."

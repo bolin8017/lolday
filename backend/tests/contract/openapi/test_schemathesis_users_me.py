@@ -83,19 +83,19 @@ async def _install_users_me_contract_auth(setup_db):
 # - response status code is in the OpenAPI schema for that operation
 # - response body matches the declared response schema
 #
-# Known schema gaps (inline xfail):
+# Schema-gap history:
 #
-#   GET /api/v1/users/me — schema only documents 200, but the handler can
-#   return 422 when schemathesis generates query parameters (e.g. ?request=null)
-#   that FastAPI's request-parsing layer treats as unknown required fields.
-#   FastAPI auto-generates the 422 entry only for operations that declare
-#   explicit query params or a request body; since read_me() has neither, 422
-#   is absent from the schema. Fix: add `responses={422: ...}` to the route
-#   decorator. Scope: out-of-scope for D1.7 — inline xfail until a dedicated
-#   schema-correctness task addresses it.
+#   GET /api/v1/users/me previously lacked a documented 422 response — the
+#   handler can return 422 when schemathesis generates query parameters
+#   (e.g. ?request=null) that FastAPI's request-parsing layer rejects. The
+#   xfail was lifted in D2.3 Task 8 (architecture.md §10 #28) by adding
+#   `responses={422: ...}` to `read_me()`; the OpenAPI doc now declares
+#   every status code the route actually returns.
 #
-# Inline pytest.xfail() is used instead of @pytest.mark.xfail so that only
-# the failing (GET) subtest is marked, not the passing (PATCH) subtest.
+# If a future schemathesis run surfaces a NEW undocumented status code,
+# add an inline `pytest.xfail()` (not `@pytest.mark.xfail`) so only the
+# failing subtest is marked, not the passing siblings under the same
+# operation.
 # ---------------------------------------------------------------------------
 
 
