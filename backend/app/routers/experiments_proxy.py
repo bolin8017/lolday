@@ -116,6 +116,29 @@ _stats_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
 _MLFLOW_STREAM_SEM: asyncio.Semaphore = asyncio.Semaphore(8)
 
 
+async def _aclose_quiet(stack: AsyncExitStack) -> None:
+    """``AsyncExitStack.aclose()`` that swallows cleanup-time exceptions.
+
+    httpx's ``AsyncClient`` and stream ``__aexit__`` can raise during
+    transport teardown (e.g. dead connection, broken pipe mid-abort). When
+    download_artifact unwinds its stack after a non-2xx upstream or a
+    setup-error, the original signal (HTTPException 502, or whatever
+    raised mid-setup) is more actionable than a cleanup-side transport
+    hiccup. ``AsyncExitStack`` already best-efforts every registered
+    ``__aexit__`` even if one raises, so suppression here only affects
+    which exception ultimately propagates — not whether resources get
+    cleaned up.
+    """
+    try:
+        await stack.aclose()
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "AsyncExitStack.aclose() raised during cleanup; suppressed to "
+            "preserve the original exception",
+            exc_info=True,
+        )
+
+
 def _flatten_run(
     r: dict[str, Any],
     *,
@@ -430,6 +453,12 @@ async def download_artifact(
     # context manager is registered exactly once; stack.aclose() drains them
     # in reverse order with no risk of leaking a permit on a cleanup-path
     # exception (which the manual __aexit__ chain could not guarantee).
+    #
+    # `_aclose_quiet(stack)` swallows cleanup-time exceptions so the original
+    # signal (HTTPException 502 from a non-2xx upstream, or whatever raised
+    # mid-setup) propagates instead of being shadowed by a transport-teardown
+    # error from httpx's AsyncClient/stream `__aexit__` (postmortem
+    # `2026-05-12-security-audit-program.md` §Concrete follow-ups #1).
     stack = AsyncExitStack()
     await stack.__aenter__()
     try:
@@ -441,14 +470,14 @@ async def download_artifact(
 
         if upstream.status_code != 200:
             body = await upstream.aread()
-            await stack.aclose()
+            await _aclose_quiet(stack)
             raise HTTPException(status_code=502, detail=body.decode("utf-8", "replace"))
     except BaseException:
         # Any failure between stack-open and the generator return must unwind
         # everything that was already entered. AsyncExitStack.aclose() is
         # idempotent, so the 502-path explicit close above does not double-
         # close here.
-        await stack.aclose()
+        await _aclose_quiet(stack)
         raise
 
     async def _iter_upstream():
@@ -456,7 +485,7 @@ async def download_artifact(
             async for chunk in upstream.aiter_bytes():
                 yield chunk
         finally:
-            await stack.aclose()
+            await _aclose_quiet(stack)
 
     return StreamingResponse(
         _iter_upstream(),
