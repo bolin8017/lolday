@@ -77,21 +77,9 @@ jobs:
           git diff --exit-code -- frontend/tests/fixtures/openapi.snapshot.json \
             || (echo "::error::OpenAPI snapshot drift — run 'pnpm regen-openapi-snapshot' locally and commit." && exit 1)
 
-  # ---------------------------------------------------------------------------
-  # FUTURE PHASE: Playwright E2E. Spec §4.3 deferred (no Postgres/MLflow/CF
-  # Access mocking infrastructure in CI yet). Spec doc:
-  #   docs/superpowers/specs/2026-04-30-github-actions-cicd-design.md
-  # When activating, this needs at minimum:
-  #   - Postgres + Redis service containers OR aiosqlite-only backend mode
-  #   - MLflow mock or skip-mode
-  #   - CF Access bypass for test JWT
-  # Until then, operator runs `pnpm --dir frontend playwright test` locally
-  # before merging frontend changes.
-  # ---------------------------------------------------------------------------
-  # playwright-e2e:
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@... # pin SHA
-  #     - uses: ./.github/actions/setup-pnpm-node
-  #     - run: pnpm --dir frontend playwright install --with-deps
-  #     - run: pnpm --dir frontend playwright test
+  # Playwright E2E runs in the sibling workflow .github/workflows/frontend-slow.yml
+  # (live since the §10 #34 frontend-slow stub layer landed 2026-05-17 — uvicorn +
+  # vite are launched by playwright's webServer with SPEC_LANE_STUBS=true so the
+  # backend boots without a real K8s cluster / MLflow / Postgres). Do NOT add a
+  # second playwright invocation here; lint.yml + frontend.yml own the fast tier
+  # (typecheck / lint / unit / OpenAPI snapshot), frontend-slow.yml owns E2E.
