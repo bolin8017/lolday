@@ -43,12 +43,14 @@ from fastapi.testclient import TestClient
 # our contract tier. v4 flags every schema-compliant request the server
 # rejects with 422 as a contract bug; FastAPI auto-injects 422 only on
 # operations with a body or query params, so handlers without either
-# regress en masse. The mainstream alternative is `responses={422: ...}`
-# on every operation — tracked separately in docs/architecture.md §10 #37
-# option (i). For now this conftest picks option (ii): drop the check so
-# the migration is mechanical. Importing `schemathesis.specs.openapi.checks`
-# is the side-effect that registers `positive_data_acceptance` into the
-# global `CHECKS` registry; unregister it before any test loads.
+# regress en masse. The migration decision (docs/architecture.md §10 #37,
+# resolved) was between (i) adding `responses={422: ...}` to every
+# operation vs (ii) dropping the check. We chose option (ii) — the lost
+# "server rejects schema-compliant request" safety net was never
+# available in v3, so net coverage is unchanged. Importing
+# `schemathesis.specs.openapi.checks` is the side-effect that registers
+# `positive_data_acceptance` into the global `CHECKS` registry;
+# unregister it before any test loads.
 from schemathesis.specs.openapi.checks import (  # ordering matches above
     positive_data_acceptance as _positive_data_acceptance,
 )
