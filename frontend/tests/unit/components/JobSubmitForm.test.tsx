@@ -300,3 +300,67 @@ describe("JobSubmitForm — silent submit failure on stale tag", () => {
     }
   });
 });
+
+describe("JobSubmitForm — race-condition fallback (§10 #22)", () => {
+  // Guards the catch block at JobSubmitForm.tsx:166-168. Sibling to the
+  // §10 #22 InferenceSubForm dropdown-disable test in iter 4 (PR #319):
+  // if a DV gets retired between page-load (when versionsForSubmit
+  // already contained the tag) and submit, the frontend filter passes
+  // but the backend rejects with 422 + detail = "detector_version_id <X>
+  // is no longer active". The submitError state must surface the
+  // backend's detail string verbatim so the user sees actionable text
+  // rather than a generic "Submit failed" sink.
+  it("surfaces the backend 422 detail when submit races a DV retirement", async () => {
+    // Throw with a Pydantic-shaped detail object (matches how openapi-
+    // fetch surfaces error bodies on `error.detail`).
+    submitMutate.mockClear();
+    submitMutate.mockRejectedValueOnce({
+      detail: "detector_version_id ver-1 is no longer active",
+    });
+
+    renderForm();
+
+    // TrainSubForm stub sets versionTag=v1.0.0; the file-level mock for
+    // useDetectorVersions returns it as active, so submit() reaches the
+    // mutateAsync call. The mock then rejects.
+    await userEvent.click(screen.getByTestId("fill-required"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /submit job/i }),
+      ).not.toBeDisabled();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /submit job/i }));
+
+    // The catch block surfaces e.detail verbatim. The user sees the
+    // backend message, not the generic fallback.
+    await waitFor(() => {
+      expect(
+        screen.getByText(/detector_version_id ver-1 is no longer active/i),
+      ).toBeInTheDocument();
+    });
+    expect(submitMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to 'Submit failed' when the rejection lacks a detail field", async () => {
+    // Network error / non-422 path — `e.detail` is undefined, so the
+    // generic fallback string fires. Guards against a refactor that
+    // silently drops the `??` short-circuit at JobSubmitForm.tsx:167.
+    submitMutate.mockClear();
+    submitMutate.mockRejectedValueOnce(new Error("network down"));
+
+    renderForm();
+    await userEvent.click(screen.getByTestId("fill-required"));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /submit job/i }),
+      ).not.toBeDisabled();
+    });
+    await userEvent.click(screen.getByRole("button", { name: /submit job/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/submit failed/i)).toBeInTheDocument();
+    });
+  });
+});
