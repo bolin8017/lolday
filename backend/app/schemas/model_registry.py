@@ -28,6 +28,14 @@ class ModelVersionRead(BaseModel):
     name: str  # detector.name
     detector_id: uuid.UUID  # detector.id (NEW)
     detector_version_tag: str  # detector_version.git_tag (NEW)
+    # `is_runnable` mirrors DetectorVersion.status == ACTIVE for the training
+    # DV: a model can only be evaluated / predicted with if the training
+    # detector_version still exists in the active set. UI consumers (the
+    # InferenceSubForm model-version dropdown) read this to disable retired
+    # options with a "training version retired — retrain to use this model"
+    # tooltip; backend still rejects the submit with 422 if the value is
+    # stale at request time. Closes architecture.md §10 #22 option (b).
+    is_runnable: bool
 
 
 class ModelVersionList(BaseModel):

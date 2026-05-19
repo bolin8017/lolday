@@ -56,6 +56,7 @@ export function InferenceSubForm(p: Props) {
       current_stage: string;
       detector_id: string;
       detector_version_tag: string;
+      is_runnable: boolean;
     }[]) ?? [];
   const datasetsArr =
     (datasets as { items?: { id: string; name: string }[] })?.items ??
@@ -136,8 +137,25 @@ export function InferenceSubForm(p: Props) {
               </SelectTrigger>
               <SelectContent>
                 {modelVersionsArr.map((mv) => (
-                  <SelectItem key={mv.id} value={mv.id}>
+                  // Backend `is_runnable: false` means the training
+                  // DetectorVersion was retired (RETENTION_PRUNED or
+                  // DELETED) and inference would fail with 422. Disable
+                  // the option in the dropdown so the user sees the
+                  // constraint before they submit (closes §10 #22).
+                  <SelectItem
+                    key={mv.id}
+                    value={mv.id}
+                    disabled={!mv.is_runnable}
+                    title={
+                      mv.is_runnable
+                        ? undefined
+                        : t("jobs.help.model_version_retired")
+                    }
+                  >
                     v{mv.mlflow_version} ({mv.current_stage})
+                    {!mv.is_runnable
+                      ? ` — ${t("jobs.help.model_version_retired_short")}`
+                      : ""}
                   </SelectItem>
                 ))}
               </SelectContent>

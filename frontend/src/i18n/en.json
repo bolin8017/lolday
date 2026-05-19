@@ -117,7 +117,9 @@
     "help": {
       "test_dataset_optional": "Optional. When provided, the run also computes final metrics and the confusion matrix. Skipping it only trains the model.",
       "priority_admin": "Priority jobs run before Normal jobs; among Priority jobs, oldest first. Running jobs are unaffected.",
-      "source_model": "The trained model loaded for inference. Each model is bound to a detector; the Detector card below auto-fills from the chosen model."
+      "source_model": "The trained model loaded for inference. Each model is bound to a detector; the Detector card below auto-fills from the chosen model.",
+      "model_version_retired": "Training detector version has been retired. Retrain this model against a current detector version before running predict / evaluate.",
+      "model_version_retired_short": "training version retired"
     }
   },
   "models": {

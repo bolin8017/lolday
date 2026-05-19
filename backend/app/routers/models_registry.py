@@ -23,6 +23,7 @@ from app.models import (
     Role,
     User,
 )
+from app.models.detector import DetectorVersionStatus
 from app.schemas.model_registry import (
     ModelTransitionRequest,
     ModelVersionList,
@@ -52,12 +53,16 @@ def _model_version_to_read(
     detector_name: str,
     detector_id: uuid.UUID,
     detector_version_tag: str,
+    detector_version_status: DetectorVersionStatus,
 ) -> ModelVersionRead:
     """Construct ModelVersionRead with derived UI-friendly fields populated.
 
-    The four trailing args are derived from joins against User, Detector, and
+    The five trailing args are derived from joins against User, Detector, and
     DetectorVersion. Pass them explicitly so each call site is honest about
-    its query shape (no lazy-load surprises in async sessions).
+    its query shape (no lazy-load surprises in async sessions). The
+    `detector_version_status` arg feeds the `is_runnable` derived field — a
+    model can only be run when its training DV is still ACTIVE (see
+    architecture.md §10 #22).
     """
     return ModelVersionRead(
         id=mv.id,
@@ -74,6 +79,7 @@ def _model_version_to_read(
         name=detector_name,
         detector_id=detector_id,
         detector_version_tag=detector_version_tag,
+        is_runnable=detector_version_status == DetectorVersionStatus.ACTIVE,
     )
 
 
@@ -96,6 +102,7 @@ async def get_model_version_by_id(
                 Detector.name,
                 Detector.id,
                 DetectorVersion.git_tag,
+                DetectorVersion.status,
             )
             .join(
                 RegisteredModel, ModelVersion.registered_model_id == RegisteredModel.id
@@ -110,9 +117,21 @@ async def get_model_version_by_id(
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail="model version not found")
-    mv, owner_handle, detector_name, detector_id, detector_version_tag = row
+    (
+        mv,
+        owner_handle,
+        detector_name,
+        detector_id,
+        detector_version_tag,
+        dv_status,
+    ) = row
     return _model_version_to_read(
-        mv, owner_handle, detector_name, detector_id, detector_version_tag
+        mv,
+        owner_handle,
+        detector_name,
+        detector_id,
+        detector_version_tag,
+        dv_status,
     )
 
 
@@ -143,6 +162,7 @@ async def list_model_versions_by_filter(
                 Detector.name,
                 Detector.id,
                 DetectorVersion.git_tag,
+                DetectorVersion.status,
             )
             .join(
                 RegisteredModel, ModelVersion.registered_model_id == RegisteredModel.id
@@ -157,7 +177,10 @@ async def list_model_versions_by_filter(
             .limit(100)
         )
     ).all()
-    items = [_model_version_to_read(mv, h, n, did, tag) for mv, h, n, did, tag in rows]
+    items = [
+        _model_version_to_read(mv, h, n, did, tag, status)
+        for mv, h, n, did, tag, status in rows
+    ]
     return ModelVersionList(
         items=items,
         total=len(items),
@@ -323,7 +346,7 @@ async def list_versions(
         )
     rows = (
         await session.execute(
-            select(ModelVersion, DetectorVersion.git_tag)
+            select(ModelVersion, DetectorVersion.git_tag, DetectorVersion.status)
             .join(
                 DetectorVersion, DetectorVersion.id == ModelVersion.detector_version_id
             )
@@ -332,7 +355,8 @@ async def list_versions(
         )
     ).all()
     items = [
-        _model_version_to_read(mv, owner, name, rm.detector_id, tag) for mv, tag in rows
+        _model_version_to_read(mv, owner, name, rm.detector_id, tag, status)
+        for mv, tag, status in rows
     ]
     return ModelVersionList(items=items, total=len(items), page=1, page_size=len(items))
 
@@ -348,7 +372,7 @@ async def get_version(
     rm = await resolve_registered_model(owner, name, session, user)
     row = (
         await session.execute(
-            select(ModelVersion, DetectorVersion.git_tag)
+            select(ModelVersion, DetectorVersion.git_tag, DetectorVersion.status)
             .join(
                 DetectorVersion, DetectorVersion.id == ModelVersion.detector_version_id
             )
@@ -360,12 +384,14 @@ async def get_version(
     ).first()
     if row is None:
         raise HTTPException(404, "version not found")
-    mv, detector_version_tag = row
+    mv, detector_version_tag, dv_status = row
     is_owner = mv.owner_id == user.id
     is_admin = user.role.value == "admin"
     if mv.visibility == ModelVersionVisibility.PRIVATE and not (is_owner or is_admin):
         raise HTTPException(404, "version not found")  # hide-existence
-    return _model_version_to_read(mv, owner, name, rm.detector_id, detector_version_tag)
+    return _model_version_to_read(
+        mv, owner, name, rm.detector_id, detector_version_tag, dv_status
+    )
 
 
 @router.post(
@@ -472,15 +498,20 @@ async def transition_model_version(
 
     await session.commit()
     await session.refresh(mv)
-    detector_version_tag = (
+    dv_tag, dv_status = (
         await session.execute(
-            select(DetectorVersion.git_tag).where(
+            select(DetectorVersion.git_tag, DetectorVersion.status).where(
                 DetectorVersion.id == mv.detector_version_id
             )
         )
-    ).scalar_one()
+    ).one()
     return _model_version_to_read(
-        mv, owner_handle, detector_name, rm.detector_id, detector_version_tag
+        mv,
+        owner_handle,
+        detector_name,
+        rm.detector_id,
+        dv_tag,
+        dv_status,
     )
 
 
@@ -499,7 +530,7 @@ async def update_visibility(
     rm = await resolve_registered_model(owner, name, session, user, write=True)
     row = (
         await session.execute(
-            select(ModelVersion, DetectorVersion.git_tag)
+            select(ModelVersion, DetectorVersion.git_tag, DetectorVersion.status)
             .join(
                 DetectorVersion, DetectorVersion.id == ModelVersion.detector_version_id
             )
@@ -511,11 +542,11 @@ async def update_visibility(
     ).first()
     if row is None:
         raise HTTPException(404, "version not found")
-    mv, detector_version_tag = row
+    mv, detector_version_tag, dv_status = row
 
     if mv.visibility == body.visibility:
         return _model_version_to_read(
-            mv, owner, name, rm.detector_id, detector_version_tag
+            mv, owner, name, rm.detector_id, detector_version_tag, dv_status
         )  # no-op, no log
 
     session.add(
@@ -530,7 +561,9 @@ async def update_visibility(
     mv.visibility = body.visibility
     await session.commit()
     await session.refresh(mv)
-    return _model_version_to_read(mv, owner, name, rm.detector_id, detector_version_tag)
+    return _model_version_to_read(
+        mv, owner, name, rm.detector_id, detector_version_tag, dv_status
+    )
 
 
 @router.patch("/{owner}/{name}/owner", response_model=RegisteredModelRead)
