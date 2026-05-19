@@ -15,7 +15,7 @@ RUN pnpm run build
 # ---- serve stage ----
 # nginxinc/nginx-unprivileged is pre-configured for non-root + listen 8080
 # + pid/cache/tmp under /tmp. Works with readOnlyRootFilesystem.
-FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:4c18337659c90a01627f2e152b7c89524521c82dcedb255dc83d3689642b0803
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:f10950a9f4e6f4dd28634c51bdb74ed4b0a76d50f4424516bc715e7b9188dd37
 COPY --from=build /app/dist /usr/share/nginx/html
 # F-sourcemaps: strip *.map from runtime image. The build stage retains
 # them so CI can extract via `docker buildx build --target=build
