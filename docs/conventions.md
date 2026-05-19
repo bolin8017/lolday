@@ -106,16 +106,25 @@ Read the path-scoped rule for the area you're touching:
 
 ### 10.1 Workflow inventory
 
-| Workflow         | Triggers                                                          | What it does                                                                                                                                |
-| ---------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lint.yml`       | every push to `main`, every PR                                    | `pre-commit run --all-files` (single source of truth for ruff / mypy / prettier / eslint)                                                   |
-| `backend.yml`    | path-filtered to `backend/**`                                     | `cd backend && uv run pytest`                                                                                                               |
-| `frontend.yml`   | path-filtered to `frontend/**`                                    | `pnpm typecheck` + `pnpm test` (vitest); playwright deferred                                                                                |
-| `helm.yml`       | path-filtered to `charts/**`                                      | `helm dep update` + `helm lint` + `helm template`                                                                                           |
-| `images.yml`     | `backend/Dockerfile` / `frontend/Dockerfile` paths + tag `v*.*.*` | matrix build backend / frontend → GHCR (PR builds only, no push) + cosign sign + SLSA attest-build-provenance on main / tag pushes          |
-| `helpers.yml`    | path-filtered to `charts/lolday/helpers/{build,job}-helper/**`    | matrix build → GHCR (cosign sign + SLSA attest-build-provenance on main / tag); `mlflow-server` and `pytorch-cu12-base` are operator-manual |
-| `gitleaks.yml`   | every PR                                                          | secret-scan gate via `gitleaks/gitleaks-action` (config: repo-root `.gitleaks.toml`); seeded for the 2026-05-15 public flip                 |
-| `trivy-cron.yml` | scheduled                                                         | scheduled Trivy image scan of the published `ghcr.io/bolin8017/lolday-*` set                                                                |
+| Workflow             | Triggers                                                          | What it does                                                                                                                                |
+| -------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lint.yml`           | every push to `main`, every PR                                    | `pre-commit run --all-files` (single source of truth for ruff / mypy / prettier / eslint)                                                   |
+| `backend-fast.yml`   | path-filtered to `backend/**`                                     | `cd backend && uv run pytest -m "not heavy"` — schemathesis contract tier + unit / integration tier                                         |
+| `backend-slow.yml`   | path-filtered + schedule                                          | `pytest -m heavy` — testcontainers MLflow / Postgres / JWKS reflector (slow, not branch-protection-required)                                |
+| `frontend.yml`       | path-filtered to `frontend/**`                                    | `pnpm typecheck` + `pnpm test` (vitest) + OpenAPI snapshot regen drift guard                                                                |
+| `frontend-slow.yml`  | path-filtered + schedule                                          | Playwright E2E (uvicorn + vite via webServer; `SPEC_LANE_STUBS=true` for K8s / MLflow / Postgres stubs)                                     |
+| `chart-e2e.yml`      | path-filtered to `charts/**` / Kyverno / PSS                      | kind cluster: helm install + Kyverno admission + PSS enforce smoke                                                                          |
+| `helm.yml`           | path-filtered to `charts/**`                                      | `helm dep update` + `helm lint` + `helm template`                                                                                           |
+| `images.yml`         | `backend/Dockerfile` / `frontend/Dockerfile` paths + tag `v*.*.*` | matrix build backend / frontend → GHCR (PR builds only, no push) + cosign sign + SLSA attest-build-provenance on main / tag pushes          |
+| `helpers.yml`        | path-filtered to `charts/lolday/helpers/{build,job}-helper/**`    | matrix build → GHCR (cosign sign + SLSA attest-build-provenance on main / tag); `mlflow-server` and `pytorch-cu12-base` are operator-manual |
+| `bats.yml`           | path-filtered to `scripts/**`                                     | bats unit tests for `scripts/lib/` shell scripts (D4.1)                                                                                     |
+| `gitleaks.yml`       | every PR                                                          | secret-scan gate via `gitleaks/gitleaks-action` (config: repo-root `.gitleaks.toml`)                                                        |
+| `dispatch.yml`       | every PR                                                          | path-filter dispatcher governing the per-area required-check matrix (see §10.6)                                                             |
+| `mutation.yml`       | scheduled (weekly)                                                | mutmut cron on the top-10 backend modules (D4.3)                                                                                            |
+| `test-telemetry.yml` | scheduled (weekly)                                                | JUnit XML ingest → `docs/test-telemetry/dashboard.md` (D4.4)                                                                                |
+| `flaky-tracker.yml`  | scheduled (weekly)                                                | aggregates `flaky_tracked` test failure rate; opens issues at >1 % weekly fail rate (D1.13)                                                 |
+| `trivy-cron.yml`     | scheduled                                                         | scheduled Trivy image scan of the published `ghcr.io/bolin8017/lolday-*` set                                                                |
+| `*-skip.yml` (× 5)   | path-filter skip path                                             | satisfy the required-check contract when path filters skip the real job; raw `check_run.name` matches the real workflow (see §10.6)         |
 
 ### 10.2 Pre-commit is the single source of truth
 

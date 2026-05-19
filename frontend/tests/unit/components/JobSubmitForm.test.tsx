@@ -248,7 +248,11 @@ describe("JobSubmitForm — silent submit failure on stale tag", () => {
   // (e.g. an admin retired the version between page-load and submit), the
   // form must surface the localised "no longer active" message and must
   // NOT POST to /jobs. Partially closes the TODO at JobSubmitForm.tsx:133;
-  // full integration test still waits on Phase 4 createMemoryRouter harness.
+  // the full file-based react-router 7 integration variant is deferred
+  // until a reusable createMemoryRouter harness exists — Phase 4 shipped
+  // (#200, 2026-05-16) but scoped to scripts / mutation / telemetry, not
+  // the router harness. Same situation as the sister docstring on
+  // `tests/integration/forms/JobSubmitForm.flow.test.tsx`.
   it("shows error and skips submit when versionTag is not in versionsForSubmit", async () => {
     submitMutate.mockClear();
     // Override useDetectorVersions so the active list contains a tag that
