@@ -325,10 +325,19 @@ their own theme set.
 
 Concrete follow-ups (none blocking program completion):
 
-1. **AsyncExitStack refactor in `download_artifact`** — code-review minor
+1. ~~**AsyncExitStack refactor in `download_artifact`** — code-review minor
    from the final P6 pass. Defensive: handles the edge case where
    `stream_cm.__aexit__` raises during cleanup. Candidate for a "P6 polish"
-   PR alongside the audit-log retention policy.
+   PR alongside the audit-log retention policy.~~ **Done.** Shipped as
+   `_aclose_quiet(stack)` helper in
+   [`backend/app/routers/experiments_proxy.py`](../../backend/app/routers/experiments_proxy.py)
+   wrapping `stack.aclose()` in a suppressing try/except (debug-log on
+   raise) at all three unwind points: the eager 502-path close, the
+   outer `except BaseException` close, and the `_iter_upstream`
+   generator's `finally`. `AsyncExitStack` already best-efforts each
+   `__aexit__`, so suppression only chooses which exception propagates —
+   preserving the HTTPException(502) or original setup-error instead of
+   letting a transport-side teardown error from httpx shadow it.
 
 2. **Audit-log retention policy** — `pg_partman` monthly partitioning + 365-day
    retention. Deferred from P5 (acceptance was "row exists", retention
