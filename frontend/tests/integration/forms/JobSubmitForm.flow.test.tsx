@@ -1,12 +1,16 @@
 /**
  * §10 #30 (D2.6 #21) — JobSubmitForm full-flow smoke.
  *
- * Phase 2 shipped the MSW handlers + smoke; full createMemoryRouter
- * integration against the file-based react-router 7 routes is deferred
- * to Phase 4 (needs a reusable test harness for the loader stack).
- * This test exercises the MSW handlers for the datasets +
- * detector-version + models endpoints the form depends on, proving
- * the network surface is fully mocked.
+ * Phase 2 shipped the MSW handlers + smoke. Test architecture Phase 4
+ * shipped (#200, 2026-05-16) but scoped to scripts + mutation +
+ * telemetry — it did not introduce a createMemoryRouter test harness
+ * for the file-based react-router 7 loader stack, so the full-flow
+ * integration variant of this smoke is still deferred. The unit-level
+ * submit behaviour (priority payload, silent-fail on stale tag) lives
+ * in `tests/unit/components/JobSubmitForm.test.tsx`; this file
+ * exercises the MSW handlers for the datasets + detector-version +
+ * models endpoints the form depends on, proving the network surface
+ * is fully mocked.
  */
 import { describe, expect, it } from "vitest";
 
