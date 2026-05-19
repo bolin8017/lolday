@@ -104,7 +104,7 @@ Declare a **new dedicated Counter** when:
 
 - Add new deps via `uv add <pkg>`, never edit `pyproject.toml` by hand.
 - Lock-step in production: `uv sync --frozen --no-dev --no-editable` in the Dockerfile.
-- Do not write OIDC / JWT verification yourself — use fastapi-users / cf-access.
+- Do not write OIDC / JWT verification yourself — use the existing `app/auth/cf_access.py` (PyJWT against Cloudflare Access JWKS). The earlier `fastapi-users` dep was removed in §10 #7 (2026-04-29); see "Auth design" above.
 - Do not write retry logic yourself — use `httpx` + `tenacity` (or whatever is already in `pyproject.toml`).
 
 ## Lint / format / type-check discipline
