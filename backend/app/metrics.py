@@ -92,9 +92,9 @@ RECONCILER_SCAN_TRUNCATED_TOTAL = Counter(
     ["kind"],
 )
 
-# 議題 B (alerting redesign) — exposes gpu_signal's fail-safe state as a
-# Gauge so Alertmanager can fire `GpuSignalFailSafeStuck` when Prometheus
-# is unreachable for >30 min.  See
+# Alerting redesign — exposes gpu_signal's fail-safe state as a Gauge so
+# Alertmanager can fire `GpuSignalFailSafeStuck` when Prometheus is
+# unreachable for >30 min.  See
 # docs/superpowers/specs/2026-05-10-alerting-redesign-design.md §6.5.
 GPU_SIGNAL_FAIL_SAFE_ACTIVE = Gauge(
     "lolday_gpu_signal_fail_safe_active",
