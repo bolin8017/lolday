@@ -134,3 +134,156 @@ def test_layer2_blocks_oversize_body_without_content_length(
     big = "y" * 200  # 200 > 64 cap
     r = client.post("/echo", json={"body": big})
     assert r.status_code == 413
+
+
+async def test_malformed_content_length_falls_through_to_layer2(
+    small_cap_app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drive the middleware via the raw ASGI scope so we can plant a
+    Content-Length value that TestClient/httpx would otherwise reject.
+
+    Pins the ``try / except ValueError: pass`` branch (lines 32-33): a
+    non-numeric Content-Length must not crash the middleware. The
+    downstream handler then sees the request normally (Layer 2's byte
+    counter is still defended). Without this branch the middleware would
+    leak a 500 the moment a client (or a buggy proxy) sent a malformed
+    header.
+    """
+    from starlette.types import ASGIApp
+
+    app: ASGIApp = small_cap_app
+    received_messages: list[dict] = []
+
+    async def receive() -> dict:
+        return {"type": "http.request", "body": b'{"body":"x"}', "more_body": False}
+
+    async def send(msg: dict) -> None:
+        received_messages.append(msg)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/echo",
+        "raw_path": b"/echo",
+        "query_string": b"",
+        "root_path": "",
+        "server": ("testserver", 80),
+        "client": ("testclient", 50000),
+        "headers": [
+            (b"host", b"testserver"),
+            (b"content-type", b"application/json"),
+            (b"content-length", b"not-a-number"),  # malformed
+        ],
+    }
+    await app(scope, receive, send)
+    statuses = [
+        m.get("status")
+        for m in received_messages
+        if m.get("type") == "http.response.start"
+    ]
+    # The middleware MUST NOT 500 on a malformed CL. The handler succeeds
+    # (Layer 2's byte counter sees only 12 bytes, well under the 64-byte
+    # cap), so the response is 200.
+    assert statuses == [200], (
+        f"middleware should tolerate malformed CL, got statuses {statuses}"
+    )
+
+
+async def test_counting_receive_raises_when_streamed_body_exceeds_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Drive ``dispatch`` directly so we can observe the inner
+    ``counting_receive`` wrapper that ``dispatch`` installs on the
+    request. Streaming more bytes than the cap allows must raise
+    ``RuntimeError("body too large")`` (line 47).
+
+    Why drive it this way: Starlette's ``BaseHTTPMiddleware.call_next``
+    runs the inner app on its own wrapped receive, bypassing
+    ``request._receive`` — so a true end-to-end Layer-2 test that fires
+    the wrapper from inside the inner app is not reachable without
+    re-architecting the middleware. Calling ``dispatch`` directly with
+    a stub ``call_next`` lets us pin the wrapper's contract: read the
+    body, count bytes, raise when the cap is crossed.
+    """
+    from app import config
+    from starlette.requests import Request as StarletteRequest
+
+    monkeypatch.setattr(config.settings, "BODY_SIZE_MAX_BYTES", 64)
+
+    # Build a Request whose underlying ASGI receive streams chunks
+    # totalling more than 64 bytes.
+    chunks = iter(
+        [
+            {"type": "http.request", "body": b"y" * 50, "more_body": True},
+            {"type": "http.request", "body": b"y" * 50, "more_body": False},
+        ]
+    )
+
+    async def receive() -> dict:
+        return next(chunks)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/echo",
+        "raw_path": b"/echo",
+        "query_string": b"",
+        "headers": [(b"content-type", b"application/json")],
+    }
+    request = StarletteRequest(scope, receive=receive)
+
+    # call_next consumes the body and pretends to be the downstream app.
+    # The first chunk (50 bytes) fits under cap; the second pushes the
+    # tally to 100 > 64 and counting_receive raises.
+    async def call_next(req: StarletteRequest):
+        await req.body()
+        # If we ever get here the wrapper failed to enforce the cap.
+        from starlette.responses import Response
+
+        return Response(content="should not reach", status_code=200)
+
+    middleware = BodySizeLimitMiddleware(app=lambda scope, receive, send: None)
+    response = await middleware.dispatch(request, call_next)
+    assert response.status_code == 413, "dispatch must translate body-too-large to 413"
+    assert b"payload too large" in response.body
+
+
+async def test_dispatch_re_raises_non_body_runtime_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``except RuntimeError as e: ... raise`` branch (line 60): a
+    RuntimeError whose ``str(e)`` is NOT ``"body too large"`` must
+    propagate, not be swallowed as a 413. Without this branch the
+    middleware would silently mask every downstream RuntimeError.
+    """
+    from app import config
+    from starlette.requests import Request as StarletteRequest
+
+    monkeypatch.setattr(config.settings, "BODY_SIZE_MAX_BYTES", 64)
+
+    async def receive() -> dict:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/echo",
+        "raw_path": b"/echo",
+        "query_string": b"",
+        "headers": [],
+    }
+    request = StarletteRequest(scope, receive=receive)
+
+    async def call_next(_req: StarletteRequest):
+        raise RuntimeError("something else entirely")
+
+    middleware = BodySizeLimitMiddleware(app=lambda scope, receive, send: None)
+    with pytest.raises(RuntimeError, match="something else entirely"):
+        await middleware.dispatch(request, call_next)
