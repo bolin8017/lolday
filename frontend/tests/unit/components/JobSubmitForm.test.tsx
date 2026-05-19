@@ -259,7 +259,7 @@ describe("JobSubmitForm — silent submit failure on stale tag", () => {
       data: {
         items: [{ id: "ver-9", git_tag: "v9.9.9", status: "active" }],
       },
-    } as ReturnType<typeof useDetectorVersions>;
+    } as unknown as ReturnType<typeof useDetectorVersions>;
     const defaultPayload = vi
       .mocked(useDetectorVersions)
       .getMockImplementation();
