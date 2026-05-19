@@ -1,5 +1,8 @@
 """Tests for backend/app/scripts/rotate_fernet.py."""
 
+import logging
+from unittest.mock import AsyncMock
+
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
@@ -151,3 +154,89 @@ async def test_rotate_aborts_on_undecryptable_row(db_session, monkeypatch):
 
     with pytest.raises(RuntimeError, match="unrotatable row"):
         await rotate_fernet.rotate_all(k1, k2)
+
+
+# ---------------------------------------------------------------------------
+# Lazy ``async_session_maker`` import — the module-level symbol is None on
+# import (so ``--help`` from a fresh dev shell doesn't trigger Settings
+# validation); rotate_all populates it from ``app.db`` on first call. The
+# rotate_* tests above all monkeypatch the symbol BEFORE calling rotate_all,
+# so they never exercise the lazy-import branch (lines 62-64).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rotate_all_lazily_imports_session_maker(monkeypatch):
+    """Reset the module global to None and verify rotate_all populates it
+    from ``app.db.async_session_maker`` on first call (lines 62-64). Point
+    app.db's session_maker at the test aiosqlite engine so the lazy import
+    resolves to a usable maker rather than the prod asyncpg config."""
+    from app.scripts import rotate_fernet
+
+    from tests.conftest import test_session_maker
+
+    monkeypatch.setattr(rotate_fernet, "async_session_maker", None)
+    monkeypatch.setattr("app.db.async_session_maker", test_session_maker)
+
+    k1 = Fernet.generate_key().decode()
+    k2 = Fernet.generate_key().decode()
+    # Empty DB — rotate_all returns (0, 0); the side effect we care about is
+    # the module global being non-None afterwards.
+    rotated, skipped = await rotate_fernet.rotate_all(k1, k2)
+    assert (rotated, skipped) == (0, 0)
+    assert rotate_fernet.async_session_maker is test_session_maker
+
+
+# ---------------------------------------------------------------------------
+# main() CLI entrypoint — operator-driven, used in the Fernet key rotation
+# runbook (docs/runbooks/p3-fernet-rotation.md). Bugs here surface only at
+# operator-runtime; pin the exit-code contract.
+# ---------------------------------------------------------------------------
+
+
+def test_main_returns_0_on_successful_rotation(monkeypatch):
+    """Happy path: rotate_all completes; main() returns 0 and logs the
+    rotated/skipped tallies."""
+    from app.scripts import rotate_fernet
+
+    k1 = Fernet.generate_key().decode()
+    k2 = Fernet.generate_key().decode()
+    monkeypatch.setattr("sys.argv", ["rotate_fernet", "--old", k1, "--new", k2])
+    monkeypatch.setattr(rotate_fernet, "rotate_all", AsyncMock(return_value=(3, 1)))
+    assert rotate_fernet.main() == 0
+
+
+def test_main_returns_2_on_unrotatable_row(monkeypatch, caplog):
+    """rotate_all raising RuntimeError must surface as exit 2 + an error log
+    line — distinct from exit 0 so the operator's bash || branch can act."""
+    from app.scripts import rotate_fernet
+
+    k1 = Fernet.generate_key().decode()
+    k2 = Fernet.generate_key().decode()
+    monkeypatch.setattr("sys.argv", ["rotate_fernet", "--old", k1, "--new", k2])
+    monkeypatch.setattr(
+        rotate_fernet,
+        "rotate_all",
+        AsyncMock(side_effect=RuntimeError("unrotatable row: user_id=abc")),
+    )
+    # rotate_fernet.main() configures its own root logger; install a handler
+    # on the module logger so caplog picks the message up. Re-use the
+    # save/restore .disabled pattern from project_caplog_alembic_logger_disabled.
+    rotate_fernet.logger.disabled = False
+    with caplog.at_level(logging.ERROR, logger="app.scripts.rotate_fernet"):
+        rc = rotate_fernet.main()
+    assert rc == 2
+    assert any("aborted" in r.message for r in caplog.records)
+
+
+def test_main_requires_old_and_new(monkeypatch):
+    """Argparse must reject a call missing --new / --old with SystemExit
+    (argparse's standard behaviour). Pin so a future refactor that changes
+    the flag names doesn't silently regress the operator UX."""
+    from app.scripts import rotate_fernet
+
+    monkeypatch.setattr("sys.argv", ["rotate_fernet", "--old", "x"])  # missing --new
+    with pytest.raises(SystemExit) as exc:
+        rotate_fernet.main()
+    # argparse exits with status 2 on missing-required-arg.
+    assert exc.value.code == 2
