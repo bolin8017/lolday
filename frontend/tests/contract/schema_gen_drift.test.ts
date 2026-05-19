@@ -1,13 +1,24 @@
 /**
  * D3.8 / R5 — schema.gen.ts drift contract.
  *
- * Phase 2 D2.8 shipped the snapshot side: the two handstitched fields
- * must appear in the checked-in /openapi.json snapshot. Phase 3 D3.8
- * adds the structural side: the two extensions live in
- * schema.handstitched.ts (NOT in schema.gen.ts) and the merged
- * schema.ts re-applies them.
+ * Phase 2 D2.8 shipped the snapshot side: the two formerly-handstitched
+ * fields must appear in the checked-in `/openapi.json` snapshot. Phase
+ * 3 D3.8 added the structural side: the two extensions live in
+ * `schema.handstitched.ts` (NOT in `schema.gen.ts`) and the merged
+ * `schema.ts` re-applies them.
  *
- * Closes architecture.md §10 #14 fully.
+ * Retirement (2026-05-19) — the backend now declares both fields
+ * natively in `/openapi.json`, so:
+ *   - `schema.gen.ts` carries them on regen (assert presence).
+ *   - `schema.handstitched.ts` is an empty-type identity passthrough
+ *     (`Record<string, never>` and `never`) — see that file's docstring
+ *     for the historical rationale.
+ *   - Snapshot-side checks below still assert both fields are present
+ *     in the backend OpenAPI doc, so a backend regression that removes
+ *     them fails the PR loud.
+ *
+ * Closes architecture.md §10 #14 fully (Phase 2 D2.8 + Phase 3 D3.8 +
+ * the 2026-05-19 retirement).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -54,28 +65,25 @@ describe("schema.gen.ts contract drift (snapshot side)", () => {
   });
 });
 
-describe("schema.gen.ts contract drift (structural side)", () => {
-  it("schema.handstitched.ts declares JobReadHandstitchedExtensions with detector_defaults", () => {
+describe("schema.gen.ts contract drift (structural side, post-retirement)", () => {
+  it("schema.handstitched.ts is an empty-type identity passthrough (no live extensions)", () => {
     const text = readFile(SCHEMA_HANDSTITCHED_PATH);
-    expect(text).toMatch(/JobReadHandstitchedExtensions/);
-    expect(text).toMatch(/detector_defaults/);
+    // `unknown` is the identity for `&` (X & unknown ≡ X).
+    expect(text).toMatch(/JobReadHandstitchedExtensions\s*=\s*unknown/);
+    // `never` is the identity for `|` (X | never ≡ X).
+    expect(text).toMatch(/ResourceProfileHandstitched\s*=\s*never/);
   });
 
-  it("schema.handstitched.ts declares ResourceProfileHandstitched with 'gpu1'", () => {
-    const text = readFile(SCHEMA_HANDSTITCHED_PATH);
-    expect(text).toMatch(/ResourceProfileHandstitched/);
-    expect(text).toMatch(/"gpu1"/);
-  });
-
-  it("schema.gen.ts does NOT carry the handstitched extensions (they belong in schema.handstitched.ts)", () => {
+  it("schema.gen.ts carries the formerly-handstitched fields natively (backend caught up)", () => {
     const text = readFile(SCHEMA_GEN_PATH);
     expect(
       text,
-      "schema.gen.ts must be 100% openapi-typescript output",
-    ).not.toMatch(/detector_defaults/);
+      "schema.gen.ts should now expose detector_defaults via openapi-typescript output",
+    ).toMatch(/detector_defaults/);
+    // ResourceProfile enum line should include 'gpu1'.
     const profileLine = text
       .split("\n")
       .find((line) => line.includes("ResourceProfile:"));
-    expect(profileLine ?? "").not.toMatch(/"gpu1"/);
+    expect(profileLine ?? "").toMatch(/"gpu1"/);
   });
 });

@@ -1,33 +1,46 @@
 /**
- * D3.8 / R5 — handstitched OpenAPI extensions.
+ * D3.8 / R5 — handstitched OpenAPI extensions (retired 2026-05-19).
  *
- * Backend's /openapi.json does NOT yet declare these two fields; they
- * exist in the application's domain model and are validated server-side
- * but not surfaced via the FastAPI OpenAPI doc (PR #69 + the 2026-04
- * `gpu1` audit-trail).
+ * Historical context (kept for the audit trail): when this module was
+ * added, the FastAPI backend did NOT surface two domain-model fields
+ * via its `/openapi.json`:
+ *   - `JobRead.detector_defaults` — backend-computed from manifest
+ *   - `ResourceProfile` enum member `gpu1`
+ * Both were validated server-side but absent from the codegen input,
+ * so `schema.handstitched.ts` carried them as TypeScript intersections
+ * merged in `schema.ts`.
  *
- * This module is the SINGLE SOURCE OF TRUTH for the override list. Once
- * the backend ships either field natively, delete the corresponding
- * declaration here — the contract test in
- * `frontend/tests/contract/schema_gen_drift.test.ts` will catch a
- * mismatch.
+ * As of 2026-05-19, the backend `/openapi.json` declares both fields
+ * natively (verified via `pnpm regen-openapi-snapshot` → snapshot
+ * includes both; `pnpm gen-api-types` → `schema.gen.ts` includes both).
+ * The handstitched override list is now empty; the module remains as
+ * an empty-type identity passthrough so `schema.ts`'s merge stays a
+ * no-op (`X & unknown ≡ X`, `X | never ≡ X`).
  *
- * Closes architecture.md §10 #14 fully (Phase 2 D2.8 closed it
- * partially via the snapshot; Phase 3 D3.8 closes the structural side).
+ * Future natively-shipped extensions (if any) can re-populate
+ * `JobReadHandstitchedExtensions` / `ResourceProfileHandstitched`
+ * without disturbing the `schema.ts` barrel. If we never need this
+ * pattern again, follow-up work can drop the module + the merger in
+ * `schema.ts` and have call sites import `@/api/schema.gen` directly.
+ *
+ * Closes architecture.md §10 #14 — retirement step described in that
+ * entry's "To retire either extension once the backend ships it
+ * natively" sub-clause.
  */
 
 /**
- * Extra fields stitched onto JobRead. Merged into the codegen JobRead
- * via TypeScript intersection in `schema.ts`.
+ * Extra fields stitched onto JobRead. Empty after the 2026-05-19
+ * retirement — see module docstring. Aliased to `unknown` so the
+ * intersection `JobRead & JobReadHandstitchedExtensions` in
+ * `schema.ts` is identity (`Record<string, never>` is NOT identity —
+ * its index signature constrains all keys to `never` and breaks
+ * `Partial<JobRead>` call sites).
  */
-export interface JobReadHandstitchedExtensions {
-  /** Detector Defaults — backend computes from manifest, not in OpenAPI. */
-  detector_defaults?: { [key: string]: unknown } | null;
-}
+export type JobReadHandstitchedExtensions = unknown;
 
 /**
- * Extra ResourceProfile enum members. Merged via TypeScript union in
- * `schema.ts`. The runtime backend accepts these; the OpenAPI doc
- * doesn't list them yet.
+ * Extra ResourceProfile enum members. Empty after the 2026-05-19
+ * retirement — see module docstring. Aliased to `never` so the union
+ * `X | never` in `schema.ts` collapses to `X`.
  */
-export type ResourceProfileHandstitched = "gpu1";
+export type ResourceProfileHandstitched = never;
