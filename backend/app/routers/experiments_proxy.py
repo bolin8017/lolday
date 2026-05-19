@@ -132,7 +132,7 @@ async def _aclose_quiet(stack: AsyncExitStack) -> None:
     try:
         await stack.aclose()
     except Exception:
-        logging.getLogger(__name__).debug(
+        logger.debug(
             "AsyncExitStack.aclose() raised during cleanup; suppressed to "
             "preserve the original exception",
             exc_info=True,
