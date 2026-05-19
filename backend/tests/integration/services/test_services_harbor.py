@@ -334,3 +334,251 @@ async def test_ensure_robot_account_uses_90d_duration_in_days_unit():
 
     body = _json.loads(sent.content.decode())
     assert body["duration"] == 90  # 90 days (Harbor duration unit is days)
+
+
+# ---------------------------------------------------------------------------
+# get_artifact_digest — resolves a tag to its content-addressable digest.
+# 404 must return None (caller treats as "not yet pushed"); 5xx must raise.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_artifact_digest_returns_digest_on_200():
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/projects/detectors/repositories/foo/artifacts/v1.0.0").mock(
+            return_value=httpx.Response(
+                200, json={"digest": "sha256:abc123", "tags": [{"name": "v1.0.0"}]}
+            )
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        assert (
+            await client.get_artifact_digest("detectors", "foo", "v1.0.0")
+            == "sha256:abc123"
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_artifact_digest_returns_none_on_404():
+    """Build reconciler poll path: 404 means 'not pushed yet', NOT a hard error.
+    Silent return is what stops the poll loop spamming the reconciler error log."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/projects/detectors/repositories/foo/artifacts/v1.0.0").mock(
+            return_value=httpx.Response(404)
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        assert await client.get_artifact_digest("detectors", "foo", "v1.0.0") is None
+
+
+@pytest.mark.asyncio
+async def test_get_artifact_digest_raises_on_5xx():
+    """A genuine Harbor outage must propagate so the reconciler logs + counts it
+    via BACKEND_ERRORS; swallowing 5xx would mask cluster-wide unhealthy state."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/projects/detectors/repositories/foo/artifacts/v1.0.0").mock(
+            return_value=httpx.Response(503)
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.get_artifact_digest("detectors", "foo", "v1.0.0")
+
+
+# ---------------------------------------------------------------------------
+# get_scan empty-overview branch — Harbor returns 200 with an empty
+# scan_overview when an artifact has never been scanned.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_scan_empty_overview_returns_not_scanned():
+    """A freshly-pushed artifact has no scan_overview yet; the helper must
+    return ScanStatus.NOT_SCANNED with all-zero counts so the reconciler
+    knows to call trigger_scan."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:x"
+        ).mock(
+            return_value=httpx.Response(
+                200, json={"digest": "sha256:x", "scan_overview": {}}
+            )
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        result = await client.get_scan("detectors", "foo", "sha256:x")
+        assert result.status == ScanStatus.NOT_SCANNED
+        assert (result.critical, result.high, result.medium, result.low) == (0, 0, 0, 0)
+
+
+# ---------------------------------------------------------------------------
+# delete_tag_or_artifact — the non-404 4xx branch hits line 236
+# (resp.raise_for_status when status NOT in {200, 404}).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_tag_or_artifact_raises_on_403_after_head_succeeds():
+    """The HEAD GET succeeds; the DELETE returns 403 (auth-misconfigured).
+    Must propagate via raise_for_status so the caller doesn't silently keep
+    the orphaned tag/artifact in Harbor."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc",
+            params={"with_tag": "true"},
+        ).mock(
+            return_value=httpx.Response(
+                200, json={"digest": "sha256:abc", "tags": [{"name": "v1.0.0"}]}
+            )
+        )
+        mock.delete(
+            "/api/v2.0/projects/detectors/repositories/foo/artifacts/sha256:abc"
+        ).mock(return_value=httpx.Response(403))
+        client = HarborClient("http://harbor", "admin", "pw")
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.delete_tag_or_artifact(
+                "detectors", "foo", "v1.0.0", "sha256:abc"
+            )
+
+
+# ---------------------------------------------------------------------------
+# get_robot — L-harbor-robot-rotate helper. Harbor returns multiple robots
+# matching the prefix query; the helper must return the exact ``robot$<name>``
+# match (or None) and never disclose the ``secret`` field (Harbor doesn't
+# return it on read).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_robot_returns_exact_prefix_match():
+    """Multiple robots share the prefix; helper picks the canonical
+    ``robot$<name>`` entry, not e.g. ``robot$other-project+name``."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/robots", params={"q": "name=build-pusher"}).mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "name": "robot$other-project+build-pusher",
+                        "id": 1,
+                        "duration": 90,
+                    },
+                    {"name": "robot$build-pusher", "id": 42, "duration": 90},
+                ],
+            )
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        robot = await client.get_robot("build-pusher")
+        assert robot is not None
+        assert robot["id"] == 42
+        assert robot["name"] == "robot$build-pusher"
+
+
+@pytest.mark.asyncio
+async def test_get_robot_returns_none_when_no_exact_match():
+    """Prefix-matched robots exist but none have the exact name; helper must
+    return None so the caller can call ``ensure_robot_account`` to create
+    the missing canonical robot."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/robots", params={"q": "name=build-pusher"}).mock(
+            return_value=httpx.Response(
+                200, json=[{"name": "robot$other+build-pusher", "id": 1}]
+            )
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        assert await client.get_robot("build-pusher") is None
+
+
+@pytest.mark.asyncio
+async def test_get_robot_empty_list_returns_none():
+    """Harbor returns 200 with [] when no robot matches the prefix at all."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/robots", params={"q": "name=build-pusher"}).mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        assert await client.get_robot("build-pusher") is None
+
+
+# ---------------------------------------------------------------------------
+# rotate_robot_secret — Harbor's RefreshSec contract: PATCH /robots/{id} with
+# {"secret": ""} returns a freshly-generated secret in the response body.
+# Pin the request shape so a regression in the call (using PUT, or sending a
+# non-empty secret) fails loud rather than silently producing two robots
+# rotating to each other's secrets.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rotate_robot_secret_uses_patch_with_empty_secret():
+    with respx.mock(base_url="http://harbor") as mock:
+        route = mock.patch("/api/v2.0/robots/42").mock(
+            return_value=httpx.Response(200, json={"secret": "fresh-shh"})
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        secret = await client.rotate_robot_secret(42)
+        assert secret == "fresh-shh"
+
+        import json as _json
+
+        body = _json.loads(route.calls.last.request.content.decode())
+        assert body == {"secret": ""}
+
+
+# ---------------------------------------------------------------------------
+# update_robot_duration — Harbor requires the full robot body on PUT; the
+# helper must (a) fetch the current state, (b) strip read-only fields
+# ``editable`` and ``expires_at``, (c) substitute ``duration``, (d) PUT
+# the result. A regression that forgets to strip ``editable`` (read-only)
+# would cause Harbor to 400 the PUT.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_robot_duration_strips_readonly_fields():
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/robots/42").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": 42,
+                    "name": "robot$build-pusher",
+                    "duration": 30,
+                    "expires_at": 1700000000,
+                    "editable": True,
+                    "permissions": [],
+                },
+            )
+        )
+        put_route = mock.put("/api/v2.0/robots/42").mock(
+            return_value=httpx.Response(200)
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.update_robot_duration(42, duration_days=90)
+
+        import json as _json
+
+        sent = _json.loads(put_route.calls.last.request.content.decode())
+        assert sent["duration"] == 90
+        assert sent["id"] == 42
+        assert "editable" not in sent
+        assert "expires_at" not in sent
+
+
+@pytest.mark.asyncio
+async def test_update_robot_duration_handles_minus_one_never_expire():
+    """Harbor's ``-1`` sentinel means 'never expire'; the helper must pass it
+    through verbatim (legacy robots still use this value before T14
+    migration)."""
+    with respx.mock(base_url="http://harbor") as mock:
+        mock.get("/api/v2.0/robots/42").mock(
+            return_value=httpx.Response(
+                200, json={"id": 42, "name": "robot$x", "duration": -1}
+            )
+        )
+        put_route = mock.put("/api/v2.0/robots/42").mock(
+            return_value=httpx.Response(200)
+        )
+        client = HarborClient("http://harbor", "admin", "pw")
+        await client.update_robot_duration(42, duration_days=-1)
+
+        import json as _json
+
+        sent = _json.loads(put_route.calls.last.request.content.decode())
+        assert sent["duration"] == -1
