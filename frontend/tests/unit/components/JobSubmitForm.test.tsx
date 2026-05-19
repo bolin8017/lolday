@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, vi } from "vitest";
 import { requiredFieldsForType } from "@/components/forms/JobSubmitForm.logic";
 import { JobSubmitForm } from "@/components/forms/JobSubmitForm";
+import { useDetectorVersions } from "@/api/queries/detectors";
 
 // ─── mocks for JobSubmitForm rendering tests ──────────────────────────────────
 const { submitMutate } = vi.hoisted(() => ({
@@ -238,5 +239,60 @@ describe("JobSubmitForm — priority integration (submit payload)", () => {
       const call = submitMutate.mock.calls[0][0] as Record<string, unknown>;
       expect(call.priority).toBeUndefined();
     });
+  });
+});
+
+describe("JobSubmitForm — silent submit failure on stale tag", () => {
+  // Guards the `if (!versionId)` branch in JobSubmitForm.submit(): if the
+  // selected git_tag is not present in the active versionsForSubmit list
+  // (e.g. an admin retired the version between page-load and submit), the
+  // form must surface the localised "no longer active" message and must
+  // NOT POST to /jobs. Partially closes the TODO at JobSubmitForm.tsx:133;
+  // full integration test still waits on Phase 4 createMemoryRouter harness.
+  it("shows error and skips submit when versionTag is not in versionsForSubmit", async () => {
+    submitMutate.mockClear();
+    // Override useDetectorVersions so the active list contains a tag that
+    // does NOT match the one the TrainSubForm stub sets (`v1.0.0`).
+    // Use mockReturnValue (not Once) — the form re-calls the hook on every
+    // render, so the override must persist for the whole test.
+    const stalePayload = {
+      data: {
+        items: [{ id: "ver-9", git_tag: "v9.9.9", status: "active" }],
+      },
+    } as ReturnType<typeof useDetectorVersions>;
+    const defaultPayload = vi
+      .mocked(useDetectorVersions)
+      .getMockImplementation();
+    vi.mocked(useDetectorVersions).mockReturnValue(stalePayload);
+
+    renderForm();
+
+    // TrainSubForm stub sets versionTag="v1.0.0"; versionsForSubmit
+    // contains only "v9.9.9", so submit() finds no matching versionId.
+    await userEvent.click(screen.getByTestId("fill-required"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /submit job/i }),
+      ).not.toBeDisabled();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /submit job/i }));
+
+    // Train-stage error string is the localised one from
+    // JobSubmitForm.tsx:135 — "Selected detector version is no longer active."
+    await waitFor(() => {
+      expect(
+        screen.getByText(/selected detector version is no longer active/i),
+      ).toBeInTheDocument();
+    });
+
+    // submit() must short-circuit BEFORE the POST.
+    expect(submitMutate).not.toHaveBeenCalled();
+
+    // Restore the file-level default mock so later tests aren't poisoned.
+    if (defaultPayload) {
+      vi.mocked(useDetectorVersions).mockImplementation(defaultPayload);
+    }
   });
 });
