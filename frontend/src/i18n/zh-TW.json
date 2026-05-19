@@ -117,7 +117,9 @@
     "help": {
       "test_dataset_optional": "可選。提供時會多算最終 metrics 與混淆矩陣；不選則只訓練模型，不算指標。",
       "priority_admin": "Priority 排在 Normal 工作前面；多個 Priority 工作之間照送出時間排（先送先跑）。Running 工作不受影響。",
-      "source_model": "已訓練好的模型；推論時會載入它的 weights。模型已綁定一個 detector，下方 Detector 區塊會自動帶入。"
+      "source_model": "已訓練好的模型；推論時會載入它的 weights。模型已綁定一個 detector，下方 Detector 區塊會自動帶入。",
+      "model_version_retired": "此模型訓練用的 detector 版本已退役，無法直接 predict / evaluate。請先在現行 detector 版本上重新訓練再使用。",
+      "model_version_retired_short": "訓練版本已退役"
     }
   },
   "models": {

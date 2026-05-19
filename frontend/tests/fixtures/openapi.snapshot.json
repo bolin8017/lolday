@@ -4818,6 +4818,10 @@
           "detector_version_tag": {
             "type": "string",
             "title": "Detector Version Tag"
+          },
+          "is_runnable": {
+            "type": "boolean",
+            "title": "Is Runnable"
           }
         },
         "type": "object",
@@ -4835,7 +4839,8 @@
           "owner",
           "name",
           "detector_id",
-          "detector_version_tag"
+          "detector_version_tag",
+          "is_runnable"
         ],
         "title": "ModelVersionRead"
       },

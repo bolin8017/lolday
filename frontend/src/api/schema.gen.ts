@@ -1327,6 +1327,8 @@ export interface components {
             detector_id: string;
             /** Detector Version Tag */
             detector_version_tag: string;
+            /** Is Runnable */
+            is_runnable: boolean;
         };
         /**
          * ModelVersionStage
