@@ -77,6 +77,7 @@ Runbooks for specific operations:
 - [Discord webhook rotation](docs/runbooks/discord-webhook-rotation.md)
 - [Fernet key rotation](docs/runbooks/p3-fernet-rotation.md)
 - [K3s API audit log + secrets encryption](docs/runbooks/k3s-audit-and-secrets-encryption.md)
+- [Kyverno bootstrap (install / upgrade edge cases)](docs/runbooks/kyverno-bootstrap.md)
 - [Kyverno Harbor image signing](docs/runbooks/kyverno-harbor-signing.md)
 - [Operator workstation backup](docs/runbooks/operator-workstation-backup.md)
 - [Orphan job-token Secrets cleanup](docs/runbooks/orphan-job-tokens-cleanup.md)
