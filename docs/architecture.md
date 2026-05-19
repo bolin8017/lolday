@@ -423,6 +423,7 @@ cd backend && uv run pytest
 - pytest-asyncio `asyncio_mode = "auto"`
 - MLflow autouse-mocked; opt out with `@pytest.mark.no_mock_mlflow`
 - Test DB is aiosqlite
+- Tests are organised into `backend/tests/{unit,integration,contract,heavy}` per the 2026-05-15 test architecture redesign. The 12 anti-flaky rules, pytest markers (`heavy`, `contract`, `flaky_tracked`), and quarantine workflow live in [`.claude/rules/testing.md`](../.claude/rules/testing.md). Spec: `docs/superpowers/specs/2026-05-15-test-architecture-redesign-design.md`.
 
 ### Frontend tests
 
