@@ -386,14 +386,26 @@ The `lolday-controllers` Deployment doesn't honor vcjob `ttlSecondsAfterFinished
 
 ### CI/CD overview
 
-Six GitHub Actions workflows under `.github/workflows/` enforce hygiene + tests on every PR and publish container images to GHCR on `main` / tag pushes:
+Sixteen GitHub Actions workflows under `.github/workflows/` enforce hygiene + tests on every PR, publish container images to GHCR on `main` / tag pushes, and run scheduled crons. The PR-required tier is held by the fast workflows + secret-scan gate; slow + cron tiers run alongside without blocking branch-protection. Full per-workflow inventory + branch-protection mapping: `docs/conventions.md` §10.
 
-- `lint.yml` — `pre-commit run --all-files` (single source of truth).
-- `backend.yml` — `cd backend && uv run pytest`.
-- `frontend.yml` — `pnpm typecheck` + `pnpm test` (vitest). Playwright deferred (commented-out hook).
+- `lint.yml` — `pre-commit run --all-files` (single source of truth for ruff / mypy / prettier / eslint).
+- `backend-fast.yml` — `cd backend && uv run pytest -m "not heavy"` — schemathesis contract tier + unit / integration tier.
+- `backend-slow.yml` — testcontainers heavy tier (`-m heavy`) — real MLflow / Postgres / JWKS reflector. Daily + on-demand.
+- `frontend.yml` — `pnpm typecheck` + `pnpm test` (vitest) + OpenAPI snapshot regen drift guard.
+- `frontend-slow.yml` — Playwright E2E (uvicorn + vite via webServer; `SPEC_LANE_STUBS=true` boots backend without K8s / MLflow / Postgres).
+- `chart-e2e.yml` — kind cluster: helm install + Kyverno admission + PSS enforce smoke tests.
 - `helm.yml` — `helm dependency update` + `helm lint` + `helm template`.
-- `images.yml` — backend / frontend Dockerfile build → GHCR.
-- `helpers.yml` — build-helper / job-helper Dockerfile build → GHCR (mlflow-server / pytorch-cu12-base out of scope).
+- `images.yml` — backend / frontend Dockerfile build → GHCR (PR builds verify; `main` / tag push + cosign sign + SLSA `attest-build-provenance`).
+- `helpers.yml` — build-helper / job-helper Dockerfile build → GHCR (`mlflow-server` and `pytorch-cu12-base` are operator-manual).
+- `bats.yml` — bats unit tests for shell scripts under `scripts/lib/` (D4.1).
+- `gitleaks.yml` — secret-scan gate via `gitleaks/gitleaks-action` (config: repo-root `.gitleaks.toml`).
+- `dispatch.yml` — path-filtered required-check companion (governs the per-area-touched required check matrix per `docs/conventions.md` §10.6).
+- `mutation.yml` — weekly mutmut cron on the top-10 backend modules (D4.3).
+- `test-telemetry.yml` — weekly JUnit XML ingest → `docs/test-telemetry/dashboard.md` (D4.4).
+- `flaky-tracker.yml` — weekly aggregation of `flaky_tracked` test failure rate; opens issues at >1 % weekly fail rate (D1.13).
+- `trivy-cron.yml` — scheduled Trivy scan of the published `ghcr.io/bolin8017/lolday-*` set.
+
+Plus five skip-companion workflows (`frontend-skip.yml`, `helm-skip.yml`, `images-skip.yml`, `helpers-skip.yml`, `backend-fast-skip.yml`) that satisfy the required-check contract when path filters skip the real job (see `project_lolday_branch_protection` auto-memory + `docs/conventions.md` §10.6 ruleset).
 
 CI is **verification + GHCR artefact only**. Production registry (`harbor.lolday.svc:80/lolday/*`) and `bash scripts/deploy.sh` remain operator-driven on server30. See `docs/conventions.md` §10 and `.claude/rules/github-actions.md`.
 
