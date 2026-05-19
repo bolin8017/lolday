@@ -128,13 +128,14 @@ Detailed flow → `docs/runbooks/deploy.md` and `docs/architecture.md` §6.
 
 ## Project layout
 
-| Path                                                                  | What                                 | Detailed rules                        |
-| --------------------------------------------------------------------- | ------------------------------------ | ------------------------------------- |
-| `backend/`                                                            | FastAPI + uv                         | `.claude/rules/backend.md`            |
-| `frontend/`                                                           | Vite + React + TS                    | `.claude/rules/frontend.md`           |
-| `charts/lolday/`                                                      | Helm umbrella + sub-charts + helpers | `.claude/rules/charts-and-helm.md`    |
-| `scripts/`                                                            | install / deploy / diag / recover    | `.claude/rules/scripts-and-ops.md`    |
-| `backend/migrations/`                                                 | Alembic                              | `.claude/rules/alembic-migrations.md` |
-| `tests/phase7/`                                                       | shell-based smoke tests              | —                                     |
-| `docs/superpowers/{specs,plans}/`                                     | Phase planning artefacts             | `docs/conventions.md`                 |
-| `docs/{architecture,conventions,runbooks,phase-history,postmortems}/` | platform docs                        | this file                             |
+| Path                                                                  | What                                  | Detailed rules                        |
+| --------------------------------------------------------------------- | ------------------------------------- | ------------------------------------- |
+| `backend/`                                                            | FastAPI + uv                          | `.claude/rules/backend.md`            |
+| `frontend/`                                                           | Vite + React + TS                     | `.claude/rules/frontend.md`           |
+| `charts/lolday/`                                                      | Helm umbrella + sub-charts + helpers  | `.claude/rules/charts-and-helm.md`    |
+| `scripts/`                                                            | install / deploy / diag / recover     | `.claude/rules/scripts-and-ops.md`    |
+| `backend/migrations/`                                                 | Alembic                               | `.claude/rules/alembic-migrations.md` |
+| `**/tests/`, `*.test.tsx`, `test_*.py`                                | test discipline (12 anti-flaky rules) | `.claude/rules/testing.md`            |
+| `tests/phase7/`                                                       | shell-based smoke tests               | —                                     |
+| `docs/superpowers/{specs,plans}/`                                     | Phase planning artefacts              | `docs/conventions.md`                 |
+| `docs/{architecture,conventions,runbooks,phase-history,postmortems}/` | platform docs                         | this file                             |
