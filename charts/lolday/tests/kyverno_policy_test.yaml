@@ -30,11 +30,12 @@ tests:
           path: spec.validationFailureAction
           value: Enforce
 
-  # Harbor policy ships in Audit mode (spec 2026-05-12 §4, chart 0.24.0):
-  # operator promotes to Enforce via kubectl patch after the 7d audit window.
-  # This test pins the shipped default so a stray PR cannot silently promote
-  # it to Enforce (which would block all Harbor image pulls before the key
-  # is distributed to every node).
+  # Harbor policy ships in Audit mode by default (spec 2026-05-12 §4,
+  # chart 0.24.0): operator promotes to Enforce via the chart values flag
+  # `kyverno.harborImageSignatureEnforce: true` after the 7d audit window.
+  # This test pins the shipped default so a stray PR cannot silently
+  # promote it to Enforce (which would block all Harbor image pulls before
+  # the cosign public-key Secret is distributed to every node).
   - it: Harbor ClusterPolicy (verify-lolday-harbor-image-signatures) ships in Audit mode
     template: templates/policies/verify-images-harbor.yaml
     asserts:
@@ -46,6 +47,26 @@ tests:
       - equal:
           path: spec.validationFailureAction
           value: Audit
+
+  # Sister check: when the chart values flag flips to true, the same
+  # template renders Enforce. Guards both the Sprig conditional in
+  # `templates/policies/verify-images-harbor.yaml` and the absence of
+  # any stray `Audit`-pinning override elsewhere in the chart.
+  # Reason: helm-unittest `set:` here narrowly targets the flag without
+  # disturbing the file-level `kyverno.enabled: true` value.
+  - it: Harbor ClusterPolicy promotes to Enforce when harborImageSignatureEnforce is true
+    template: templates/policies/verify-images-harbor.yaml
+    set:
+      kyverno.harborImageSignatureEnforce: true
+    asserts:
+      - isKind:
+          of: ClusterPolicy
+      - equal:
+          path: metadata.name
+          value: verify-lolday-harbor-image-signatures
+      - equal:
+          path: spec.validationFailureAction
+          value: Enforce
 
   # PSS baseline audit policy must also remain in Audit — the enforcement
   # is done by the built-in Pod Security Admission labels on each namespace.

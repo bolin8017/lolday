@@ -975,6 +975,16 @@ minio:
 kyverno:
   enabled: true
   fullnameOverride: kyverno
+  # Lolday-specific flag (not passed through to the Kyverno sub-chart;
+  # consumed only by templates/policies/verify-images-harbor.yaml). When
+  # false (default), the Harbor key-based verifyImages ClusterPolicy ships
+  # at validationFailureAction: Audit — the 7-day observation mode per
+  # docs/runbooks/kyverno-harbor-signing.md. Flip to true to promote
+  # admission to Enforce in git instead of `kubectl patch`. Tracked as
+  # `docs/architecture.md` §10 item 25(b); operator gate issue #187 fires
+  # 2026-05-22. Helm-unittest covers both modes in
+  # `charts/lolday/tests/kyverno_policy_test.yaml`.
+  harborImageSignatureEnforce: false
   # Kyverno is installed as a sub-chart into the same release namespace as
   # lolday (= `lolday`). The chart's default `config.excludeKyvernoNamespace:
   # true` auto-appends the install ns to the webhook's namespaceSelector

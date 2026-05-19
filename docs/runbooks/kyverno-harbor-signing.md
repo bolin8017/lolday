@@ -124,9 +124,12 @@ kubectl get policyreports.wgpolicyk8s.io -A \
                             failed: [.results[]? | select(.result == "fail") | .resources[]?.name]}'
 #    Expected after a clean week: empty failed[] for every report.
 
-# 2. Patch the ClusterPolicy to Enforce.
-kubectl patch clusterpolicy verify-lolday-harbor-image-signatures \
-  --type=merge -p '{"spec":{"validationFailureAction":"Enforce"}}'
+# 2. Promote in git via the chart values flag (plumbed 2026-05-19,
+#    §10 #25(b)). Edit charts/lolday/values.yaml:
+#      kyverno:
+#        harborImageSignatureEnforce: true   # was false
+#    Then redeploy:
+bash scripts/deploy.sh
 
 # 3. Smoke-test: an unsigned pod must be rejected.
 kubectl run sig-test --rm -i --restart=Never \
@@ -136,12 +139,21 @@ kubectl run sig-test --rm -i --restart=Never \
 #    `verify-lolday-harbor-image-signatures`.
 ```
 
-For permanent promotion, after the smoke test passes, flip the chart
-value (not yet plumbed — currently a runtime `kubectl patch`).
-Follow-up: add a chart values key
-`kyverno.harborImageSignatureEnforce: true` defaulting to `false`, with
-the policy reading it via `validationFailureAction: {{ if ... }}`.
-Tracked in the §10 tech-debt list.
+Rollback path: revert the values flag to `false` and `bash scripts/deploy.sh`
+again — the template re-renders `validationFailureAction: Audit` and
+admissions revert to "record-only".
+
+If you need to flip in an emergency without a redeploy round-trip
+(rare), the runtime equivalent is still available:
+
+```bash
+kubectl patch clusterpolicy verify-lolday-harbor-image-signatures \
+  --type=merge -p '{"spec":{"validationFailureAction":"Enforce"}}'
+```
+
+The next `helm upgrade` will reconcile back to whatever the chart value
+says — so update `values.yaml` to match BEFORE the next deploy, or the
+flip silently reverts.
 
 ## Key rotation
 
@@ -200,8 +212,6 @@ kubectl run sig-test-negative --rm -i --restart=Never \
 
 ## Out of scope (tracked)
 
-- **Chart-managed Enforce flag.** Today operator runs `kubectl patch` to
-  flip Audit → Enforce. Should be a chart values key. Tech-debt §10.
 - **Detector BuildKit signing.** vcjob-built detector artefacts pushed
   to Harbor are unsigned. Tech-debt §10.
 - **External KMS for the private key.** Today the private key lives on

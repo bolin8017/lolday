@@ -20,13 +20,14 @@ metadata:
       held in cluster as Secret kyverno/cosign-harbor-pubkey, key
       cosign.pub. Issue #171 option 2.
 spec:
-  # Start in Audit for 7d. Operator promotes to Enforce by flipping
-  # this value (chart values: `harborImageSignatureEnforce: true` once
-  # plumbed). Mainstream rollout pattern — every workload pod gets the
-  # admission decision recorded as a PolicyReport without blocking
-  # admission, so an unsigned push surfaces in `kubectl get
-  # policyreports.wgpolicyk8s.io -A -l ...` before it blocks a deploy.
-  validationFailureAction: Audit
+  # Default Audit for 7d observation. Promote to Enforce in git by
+  # setting `kyverno.harborImageSignatureEnforce: true` in values.yaml.
+  # Mainstream rollout pattern — every workload pod gets the admission
+  # decision recorded as a PolicyReport without blocking admission, so
+  # an unsigned push surfaces in `kubectl get policyreports.wgpolicyk8s.io
+  # -A -l ...` before it blocks a deploy. Operator gate issue #187
+  # tracks the 2026-05-22 Audit→Enforce decision.
+  validationFailureAction: {{ if .Values.kyverno.harborImageSignatureEnforce }}Enforce{{ else }}Audit{{ end }}
   # failurePolicy: Fail — same as the GHCR sister policy. If Kyverno is
   # down, lolday + lolday-jobs + lolday-builds admissions block. Matches
   # prod-grade installs (Kyverno 3.x default).
