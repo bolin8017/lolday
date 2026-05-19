@@ -186,7 +186,7 @@ def _install_spec_lane_stubs(app: FastAPI) -> None:
     for module_path in ("app.routers.detectors",):
         module = importlib.import_module(module_path)
         if hasattr(module, "list_remote_tags"):
-            module.list_remote_tags = _stubs.stub_list_remote_tags  # type: ignore[attr-defined]
+            module.list_remote_tags = _stubs.stub_list_remote_tags  # type: ignore[attr-defined]  # SPEC_LANE_STUBS path; dynamic rebind of module-level function
 
     # `_get_user_pat` is module-private in `routers/detectors.py`. Real
     # PAT lookup decrypts a `UserGitCredential` row with `TokenCipher`,
