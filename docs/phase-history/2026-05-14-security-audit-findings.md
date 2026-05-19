@@ -53,7 +53,7 @@ fix-up commit.
 | ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | H-1  | P1 #136    | MLflow proxy 5 endpoints gain per-user ACL via `lolday.user_id` run tag; admin sees all, others see own or `visibility=PUBLIC`  |
 | H-2  | P1 #136    | `download_artifact` `_validate_artifact_path` rejects traversal / absolute paths; percent-encodes before forwarding             |
-| H-3  | P1 #136    | `routers/builds.py` flat alias applies `require_detector_access(write=False)` semantics                                         |
+| H-3  | P1 #136    | `routers/builds.py` flat alias applies `require_detector_access(write=False)` semantics[^h3-impl]                               |
 | H-4  | P1 #136    | `clone_dataset` inherits `visibility` from source (default PRIVATE)                                                             |
 | H-5  | P1 #136    | `services/job_config.py::_deep_merge` rejects user-supplied keys in `{mlflow, paths, data, defaults, lolday, stage}` namespaces |
 | H-6  | P1 #136    | Pydantic regex on `DatasetConfigCreate.name`; Content-Disposition via RFC 6266 helper                                           |
@@ -275,3 +275,5 @@ another phase. Future audits should produce their own theme set under
 `docs/superpowers/specs/YYYY-MM-DD-*-design.md`.
 
 [^h16-impl]: H-16 implementation footnote (added 2026-05-15 per post-program review D-7): the spec text described enforcement via a Traefik headers middleware. The shipped implementation enforces the method allowlist inside `backend/app/routers/mlflow_authz.py:240,253-257` instead, reading `X-Forwarded-Method` from the Traefik ForwardAuth handshake and rejecting non-admin mutating methods with 403. Behaviour is equivalent — both paths gate `POST/PATCH/DELETE` to admins only — but the enforcement layer differs.
+
+[^h3-impl]: H-3 implementation footnote (closes post-program review §3.3 "Cross-tenant build read"): the P1 #136 flat alias on `routers/builds.py` applied `require_detector_access(write=False)` semantics but did not include an explicit `owner_id != user.id` check on the build resource itself, leaving a cross-tenant build-read window where a non-owner with detector-read access could enumerate someone else's builds. Closed 2026-05-15 in PR #180 (`fix(backend): security hardening — 10 findings post-program review`) which adds the owner-vs-user guard at `routers/builds.py:44` (`if detector.owner_id != user.id and user.role != Role.ADMIN: raise 404`). The 2026-05-15 post-program review filed this gap as §3.3; the §7 doc-update line "Add footnote to `H-3` row noting 'ACL intent verified, but `routers/builds.py:29` lacks `owner_id` check — see post-program review §3.3'" is now closed by this footnote with the post-ship pointer.
