@@ -260,3 +260,113 @@ def test_main_dry_run_filters_below_min_runs(
     assert rc == 0
     out = capsys.readouterr().out
     assert "0 flagged as flaky" in out
+
+
+# ---------------------------------------------------------------------------
+# open_issue — the gh subprocess wrapper. The earlier "thin wrapper, skip"
+# rationale held until the non-dry-run branch (line 104) became the only
+# remaining uncovered live path. Mocking subprocess.run gives us:
+#   - argument-shape pinning (gh issue create -R <repo> -t ... -l flaky -b ...)
+#   - the title/body template (rate %, fail/total ratio, the
+#     ``flaky_tracked(issue=...)`` hint)
+#   - check=True propagation (a gh failure surfaces as CalledProcessError,
+#     not a silent skip)
+# without ever firing a real `gh` invocation in CI.
+# ---------------------------------------------------------------------------
+
+
+def _gh_capture(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Replace subprocess.run with a recorder and return the call log."""
+    import subprocess
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], *, check: bool = False, **_: object) -> object:
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
+
+    monkeypatch.setattr(flaky_aggregate.subprocess, "run", fake_run)
+    return calls
+
+
+def test_open_issue_passes_repo_and_label_to_gh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI shape is fixed by the test infra contract — flaky-tracker.yml
+    parses the issue list by the ``flaky`` label, so a refactor that drops
+    ``-l flaky`` would silently break the 14d / 21d SLO bookkeeping."""
+    calls = _gh_capture(monkeypatch)
+    flaky_aggregate.open_issue("bolin8017/lolday", "m.x::t", 2, 10, 0.2)
+    assert len(calls) == 1
+    cmd = calls[0]
+    assert cmd[:5] == ["gh", "issue", "create", "-R", "bolin8017/lolday"]
+    assert "-l" in cmd and cmd[cmd.index("-l") + 1] == "flaky"
+
+
+def test_open_issue_title_carries_rate_and_run_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The title is parsed by humans on the issue board; pin the shape
+    (``Flaky test: <name> (<pct> over <N> runs)``) so a percent-format
+    drift doesn't break searchability."""
+    calls = _gh_capture(monkeypatch)
+    flaky_aggregate.open_issue("r", "pkg.mod::test_foo", 3, 12, 0.25)
+    cmd = calls[0]
+    title = cmd[cmd.index("-t") + 1]
+    assert title == "Flaky test: pkg.mod::test_foo (25.0% over 12 runs)"
+
+
+def test_open_issue_body_includes_sla_and_flaky_tracked_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The body must reference both the testing-rules SLO and the
+    `@pytest.mark.flaky_tracked` acknowledge step — operators rely on the
+    text to find the next action without re-reading the rule file."""
+    calls = _gh_capture(monkeypatch)
+    flaky_aggregate.open_issue("r", "m::t", 1, 100, 0.01)
+    body = calls[0][calls[0].index("-b") + 1]
+    assert "14d fix SLO" in body
+    assert "21d delete SLO" in body
+    assert "@pytest.mark.flaky_tracked" in body
+
+
+def test_open_issue_propagates_subprocess_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`subprocess.run(..., check=True)` raises CalledProcessError on
+    non-zero exit. The wrapper does NOT swallow that — a failed gh call
+    must surface so the cron's exit-code propagation works.
+    """
+    import subprocess
+
+    def fake_run(cmd: list[str], *, check: bool = False, **_: object) -> object:
+        if check:
+            raise subprocess.CalledProcessError(returncode=1, cmd=cmd, stderr="auth")
+        return subprocess.CompletedProcess(args=cmd, returncode=0)
+
+    monkeypatch.setattr(flaky_aggregate.subprocess, "run", fake_run)
+    with pytest.raises(subprocess.CalledProcessError):
+        flaky_aggregate.open_issue("r", "m::t", 1, 10, 0.1)
+
+
+def test_main_non_dry_run_calls_open_issue_for_each_flake(
+    two_run_artifact_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Exercise the non-dry-run branch (line 104) — for each flagged test
+    the tool calls `open_issue` exactly once. Mock subprocess so no real
+    gh shell-out fires."""
+    calls = _gh_capture(monkeypatch)
+    monkeypatch.setattr(flaky_aggregate, "MIN_RUNS", 2)
+    monkeypatch.delenv("FLAKY_DRY_RUN", raising=False)
+    rc = flaky_aggregate.main(["flaky_aggregate.py", str(two_run_artifact_dir)])
+    assert rc == 0
+    # Two flagged tests (flake_b, error_c) → exactly two gh-issue-create calls.
+    assert len(calls) == 2
+    # Both titles must reference one of the flagged tests.
+    titles = [cmd[cmd.index("-t") + 1] for cmd in calls]
+    assert any("flake_b" in t for t in titles)
+    assert any("error_c" in t for t in titles)
+    # No dry-run banner this time.
+    assert "(dry run; no issue created)" not in capsys.readouterr().out
