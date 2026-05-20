@@ -1,3 +1,12 @@
 test.db
 test_*.db
+# pytest-cov: .coverage is the combined report; `.coverage.<host>.<pid>.<rand>`
+# parallel-data files are written by xdist workers when `-n auto` is in
+# addopts. Both must be ignored or `git status` is noisy after every local
+# test run.
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+junit*.xml
