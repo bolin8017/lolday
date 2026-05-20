@@ -80,3 +80,112 @@ tests:
       - equal:
           path: spec.validationFailureAction
           value: Audit
+
+  # ---- deeper GHCR ClusterPolicy invariants (security regression guards) ----
+  - it: GHCR ClusterPolicy ships failurePolicy=Fail and webhook timeout 30s
+    # Reason: failurePolicy=Fail is the load-bearing security gate — if the
+    # Kyverno webhook is unreachable, K8s admission DENIES the pod. Flipping
+    # to Ignore would silently let unsigned images through whenever Kyverno
+    # itself is unhealthy. webhookTimeoutSeconds=30 gives keyless verify
+    # (network round-trips to Fulcio + Rekor) time to complete; a shorter
+    # timeout would convert slow-but-valid signatures into admission denials.
+    template: templates/policies/verify-images.yaml
+    asserts:
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+      - equal:
+          path: spec.webhookTimeoutSeconds
+          value: 30
+
+  - it: GHCR ClusterPolicy disables background scan and matches lolday + lolday-jobs
+    # Reason: background=false because keyless verify needs egress to
+    # Fulcio + Rekor on every pass; running it as a 1h background scan on
+    # every Pod is expensive and pointless (admission-time gate is the
+    # mainstream choice). The Pod-kind match must cover both lolday and
+    # lolday-jobs — dropping lolday-jobs would let unsigned detector
+    # vcjobs bypass the gate.
+    template: templates/policies/verify-images.yaml
+    asserts:
+      - equal:
+          path: spec.background
+          value: false
+      - contains:
+          path: spec.rules[0].match.any[0].resources.namespaces
+          content: lolday
+      - contains:
+          path: spec.rules[0].match.any[0].resources.namespaces
+          content: lolday-jobs
+      - equal:
+          path: spec.rules[0].match.any[0].resources.kinds
+          value: [Pod]
+
+  - it: GHCR ClusterPolicy verifies every ghcr.io/bolin8017/lolday-* image with required=true
+    # Reason: imageReferences glob `ghcr.io/bolin8017/lolday-*` covers
+    # every lolday GHCR image (backend, frontend, plus the two helpers
+    # build-helper / job-helper). required=true means the signature MUST
+    # be present — flipping to false would silently accept unsigned
+    # images whose cosign verify check happens to error out (network
+    # blip, Rekor timeout).
+    template: templates/policies/verify-images.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].verifyImages[0].imageReferences
+          value: ["ghcr.io/bolin8017/lolday-*"]
+      - equal:
+          path: spec.rules[0].verifyImages[0].required
+          value: true
+
+  - it: GHCR ClusterPolicy pins mutateDigest=false and verifyDigest=true
+    # Reason: mutateDigest=false is the "fail loud, never silently fix"
+    # contract: when someone forgets to pin an image by digest, Kyverno
+    # REJECTS it instead of silently rewriting the ref to the latest
+    # digest (which would defeat H-21-img's @sha256 pinning policy).
+    # verifyDigest=true ensures the in-cluster manifest digest matches
+    # what cosign signed — end-to-end content integrity. A regression
+    # that flips either field to the opposite value breaks the supply
+    # chain invariant and would not be caught by a casual reviewer.
+    template: templates/policies/verify-images.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].verifyImages[0].mutateDigest
+          value: false
+      - equal:
+          path: spec.rules[0].verifyImages[0].verifyDigest
+          value: true
+
+  - it: GHCR ClusterPolicy attestors require count=1 across 4 GHA-OIDC entries (images + helpers, main + tag)
+    # Reason: Four keyless entries under one attestors[0] with count: 1 form
+    # a logical OR — any one matching is sufficient. They cover the four
+    # GHA workflow identities that publish lolday-* images:
+    #   1. images.yml @ refs/heads/main
+    #   2. images.yml @ refs/tags/v*
+    #   3. helpers.yml @ refs/heads/main
+    #   4. helpers.yml @ refs/tags/v*
+    # A regression that drops one entry (or splits them across multiple
+    # attestors stanzas with `count: <N>` constraints) would block legit
+    # publishes from that workflow. Pin all four issuer/subject pairs.
+    template: templates/policies/verify-images.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].verifyImages[0].attestors[0].count
+          value: 1
+      - lengthEqual:
+          path: spec.rules[0].verifyImages[0].attestors[0].entries
+          count: 4
+      - contains:
+          path: spec.rules[0].verifyImages[0].attestors[0].entries
+          content:
+            keyless:
+              subject: "https://github.com/bolin8017/lolday/.github/workflows/images.yml@refs/heads/main"
+              issuer: "https://token.actions.githubusercontent.com"
+              rekor:
+                url: "https://rekor.sigstore.dev"
+      - contains:
+          path: spec.rules[0].verifyImages[0].attestors[0].entries
+          content:
+            keyless:
+              subject: "https://github.com/bolin8017/lolday/.github/workflows/helpers.yml@refs/heads/main"
+              issuer: "https://token.actions.githubusercontent.com"
+              rekor:
+                url: "https://rekor.sigstore.dev"
