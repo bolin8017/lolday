@@ -1,0 +1,167 @@
+suite: mlflow-db-init Helm post-install Job
+templates:
+  - templates/mlflow-db-init-job.yaml
+values:
+  - ../values-test.yaml
+set:
+  mlflow.enabled: true
+  mlflow.db.password: "fake-mlflow-pw"
+release:
+  name: lolday
+  namespace: lolday
+  revision: 7
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a single post-install/post-upgrade Job with revision-suffixed name
+    # Reason: the post-install hook re-runs on every upgrade. Including
+    # .Release.Revision in the name keeps successive runs from colliding
+    # with each other (the hook-delete-policy clears before-hook-creation,
+    # but the suffix gives us a unique pod label for debugging).
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Job
+      - equal:
+          path: metadata.name
+          value: mlflow-db-init-7
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "5"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: hook-succeeded,before-hook-creation
+
+  - it: is gated off when mlflow.enabled=false
+    set:
+      mlflow.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: bounds retries and pod restartPolicy
+    asserts:
+      - equal:
+          path: spec.backoffLimit
+          value: 3
+      - equal:
+          path: spec.template.spec.restartPolicy
+          value: OnFailure
+
+  - it: pod-level securityContext is PSS-restricted compliant (postgres UID 999)
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 999
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: container-level securityContext drops ALL with read-only rootfs
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  - it: disables ServiceAccount token auto-mount
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: mounts /tmp emptyDir under the read-only rootfs
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
+
+  - it: idempotently creates the mlflow DB (DB_EXISTS guard, not a hard CREATE)
+    # Reason: the post-upgrade hook re-runs; a hard CREATE DATABASE would
+    # fail on the second deploy and leave the release stuck. The script
+    # must keep the `SELECT 1 FROM pg_database` guard.
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: SELECT 1 FROM pg_database WHERE datname='\$MLFLOW_DB'
+
+  - it: idempotently creates the mlflow role (IF NOT EXISTS guard)
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: IF NOT EXISTS \(SELECT FROM pg_roles WHERE rolname
+
+  - it: grants the mlflow role full DB privileges
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: GRANT ALL PRIVILEGES ON DATABASE
+
+  - it: connects via in-cluster postgresql DNS (matches mlflow.yaml backend-store-uri)
+    # Reason: if the host string drifts from `postgresql.<ns>.svc`, the
+    # main mlflow Deployment hits a different DB than the init job
+    # prepared.
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: postgresql\.lolday\.svc
+
+  - it: wires admin creds from the postgresql Secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PG_ADMIN_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgresql
+                key: POSTGRES_USER
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PG_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgresql
+                key: POSTGRES_PASSWORD
+
+  - it: wires mlflow creds from the mlflow-db Secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MLFLOW_USER
+            valueFrom:
+              secretKeyRef: { name: mlflow-db, key: username }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MLFLOW_PASSWORD
+            valueFrom:
+              secretKeyRef: { name: mlflow-db, key: password }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MLFLOW_DB
+            valueFrom:
+              secretKeyRef: { name: mlflow-db, key: database }
