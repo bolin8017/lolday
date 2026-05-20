@@ -128,6 +128,43 @@ async def test_handle_job_failed_calls_notify_failed(
 
 
 @pytest.mark.asyncio
+async def test_handle_job_failed_dataset_lookup_skipped_when_all_ids_null(
+    db_session, seed_user, seed_detector_version
+):
+    """A failed Job row with all three dataset IDs NULL (corrupted row, or a
+    future no-dataset job type) must still fire the failure notify with
+    `dataset_name=None`. Covers the `if ds_id:` falsy branch in
+    `_fire_job_failed_notify`."""
+    dv_id = uuid.UUID(await seed_detector_version())
+    job = Job(
+        type=JobType.PREDICT,
+        status=JobStatus.RUNNING,
+        detector_version_id=dv_id,
+        train_dataset_id=None,
+        test_dataset_id=None,
+        predict_dataset_id=None,
+        owner_id=seed_user.id,
+        resolved_config={},
+        mlflow_experiment_id="42",
+        mlflow_run_id="run-nods",
+        idempotency_key="no-ds",
+        started_at=datetime.now(UTC),
+        k8s_job_name="predict-nods",
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+
+    with _patch_notify() as notify:
+        await _handle_job_failed(db_session, job)
+        await asyncio.sleep(0)
+    assert notify.job_failed.await_count == 1
+    # The dataset lookup short-circuits — notify still fires with None.
+    kwargs = notify.job_failed.await_args.kwargs
+    assert kwargs["dataset_name"] is None
+
+
+@pytest.mark.asyncio
 async def test_handle_build_succeeded_fires_completed_on_clean_scan(
     db_session, seed_user
 ):
