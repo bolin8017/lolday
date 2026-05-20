@@ -5,6 +5,10 @@ from uuid import uuid4
 
 import pytest
 from app.reconciler import _capture_pod_logs
+from app.reconciler.log_capture import (
+    _capture_job_log_tail,
+    _container_from_failure_reason,
+)
 from kubernetes.client import ApiException
 
 
@@ -194,6 +198,78 @@ async def test_capture_pod_logs_list_api_error_returns_empty():
             tail_bytes=1024,
         )
     assert result == ""
+
+
+def test_container_from_failure_reason_extracts_known_suffix():
+    """`<step>_failed: …` → `<step>`. Pinned for the three call sites that
+    feed `_capture_pod_logs` a `failure_reason` from DB."""
+    assert _container_from_failure_reason("clone_failed: exit=1") == "clone"
+    assert _container_from_failure_reason("validate_failed") == "validate"
+
+
+def test_container_from_failure_reason_returns_none_for_unrecognised_string():
+    """A free-text failure_reason without the documented `_failed` suffix
+    must return None so the caller falls back to the main_container — not
+    a string that would map to a non-existent container."""
+    assert _container_from_failure_reason("oom_killed") is None
+    assert _container_from_failure_reason("unscheduled: no GPU") is None
+
+
+def test_container_from_failure_reason_returns_none_for_empty():
+    """Empty / None input is the common "no fault detail recorded" case."""
+    assert _container_from_failure_reason(None) is None
+    assert _container_from_failure_reason("") is None
+
+
+@pytest.mark.asyncio
+async def test_capture_pod_logs_hint_matches_main_container_no_duplicate(
+    mock_k8s_pod,
+):
+    """If failure_reason hints at the main container, the same container
+    must NOT be appended twice to the query order — covers the `if
+    main_container not in order:` skip branch."""
+    v1 = _make_v1(mock_k8s_pod, {"buildkit": "main-output"})
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
+        result = await _capture_pod_logs(
+            namespace="test-ns",
+            label_selector="lolday.io/build-id=xyz",
+            main_container="buildkit",
+            init_containers=("clone", "validate"),
+            failure_reason="buildkit_failed: exit=1",
+            tail_bytes=1024,
+        )
+    # Only one [buildkit] header — no duplicate read.
+    assert result.count("[buildkit]") == 1
+    assert "main-output" in result
+    # Pod log read called exactly once for buildkit (no second pass).
+    buildkit_calls = [
+        c
+        for c in v1.read_namespaced_pod_log.call_args_list
+        if c.kwargs.get("container") == "buildkit"
+    ]
+    assert len(buildkit_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_capture_job_log_tail_dispatches_to_pod_logs(mock_k8s_pod):
+    """`_capture_job_log_tail` wraps `_capture_pod_logs` with the
+    job-namespace label and container set. Pin the wiring so a future
+    edit doesn't silently drop the JOB_NAMESPACE binding."""
+    from app.models import Job
+
+    job = MagicMock(spec=Job)
+    job.id = uuid4()
+    job.failure_reason = None
+    v1 = _make_v1(mock_k8s_pod, {"detector": "PREDICT OUTPUT"})
+    with patch("app.reconciler.log_capture.core_v1", return_value=v1):
+        result = await _capture_job_log_tail(job)
+    assert "[detector]" in result
+    assert "PREDICT OUTPUT" in result
+    # Correct label selector reached k8s.
+    v1.list_namespaced_pod.assert_called_once()
+    assert v1.list_namespaced_pod.call_args.kwargs["label_selector"] == (
+        f"lolday.job-id={job.id}"
+    )
 
 
 def test_both_build_handlers_capture_log_tail():
