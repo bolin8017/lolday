@@ -374,6 +374,92 @@ async def test_resolve_user_dev_mode_with_empty_email_raises(db_session, monkeyp
         )
 
 
+async def test_resolve_user_rejects_jwt_without_email_or_common_name(
+    db_session, monkeypatch, rsa_keypair
+):
+    """A JWT that passes signature verification but lacks BOTH `email` AND
+    `common_name` must be rejected. SSO JWTs carry `email`; service-token
+    JWTs carry `common_name`. A token with neither has no stable principal
+    to materialise a User row against and must surface as
+    `AUTH_FAILURE_TOTAL{reason="missing_principal_claim"}`.
+
+    Covers lines 306-314 in `resolve_user_from_jwt`. Distinct from
+    `invalid_signature` (signature mismatch, claims never inspected) and
+    `missing_header` (no token at all)."""
+    from app.auth import cf_access
+    from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", False)
+    monkeypatch.setattr(settings, "CF_ACCESS_TEAM_DOMAIN", "test.cloudflareaccess.com")
+    monkeypatch.setattr(settings, "CF_ACCESS_APP_AUD", "test-app-uid")
+
+    # JWKS client returns the real public key so signature verification
+    # passes; the claims-shape failure happens AFTER verify_cf_token returns.
+    class _RealJwksClient:
+        def get_signing_key_from_jwt(self, _token):
+            class _K:
+                key = rsa_keypair.public_key()
+
+            return _K()
+
+    monkeypatch.setattr(cf_access, "_get_jwks_client", lambda: _RealJwksClient())
+
+    # Valid claims minus email + common_name (sub alone is not enough —
+    # the lolday code path needs one of the two named principal claims).
+    claims = _valid_claims()
+    del claims["email"]
+    token = _sign(rsa_keypair, claims)
+
+    before = _read_counter(
+        "lolday_auth_failure_total", reason="missing_principal_claim"
+    )
+
+    with pytest.raises(CfAccessAuthError, match="neither email nor common_name"):
+        await resolve_user_from_jwt(
+            session=db_session, token=token, log_context="missing-principal"
+        )
+
+    after = _read_counter("lolday_auth_failure_total", reason="missing_principal_claim")
+    assert after - before == pytest.approx(1.0)
+
+
+async def test_resolve_user_accepts_service_token_jwt_with_common_name(
+    db_session, monkeypatch, rsa_keypair
+):
+    """A service-token JWT has no `email` but carries `common_name`. The
+    code synthesizes `service-<common_name>@cf-access.local` and proceeds
+    with normal user provisioning. Pins the happy-path branch sibling of
+    the missing-principal test."""
+    from app.auth import cf_access
+    from app.auth.cf_access import resolve_user_from_jwt
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", False)
+    monkeypatch.setattr(settings, "CF_ACCESS_TEAM_DOMAIN", "test.cloudflareaccess.com")
+    monkeypatch.setattr(settings, "CF_ACCESS_APP_AUD", "test-app-uid")
+
+    class _RealJwksClient:
+        def get_signing_key_from_jwt(self, _token):
+            class _K:
+                key = rsa_keypair.public_key()
+
+            return _K()
+
+    monkeypatch.setattr(cf_access, "_get_jwks_client", lambda: _RealJwksClient())
+
+    # Service-token shape: no email, common_name set.
+    claims = _valid_claims()
+    del claims["email"]
+    claims["common_name"] = "ci-bot"
+    token = _sign(rsa_keypair, claims)
+
+    user = await resolve_user_from_jwt(
+        session=db_session, token=token, log_context="service-token-path"
+    )
+    assert user.email == "service-ci-bot@cf-access.local"
+
+
 async def test_first_login_derives_handle(db_session):
     """New user gets a handle derived from their email prefix."""
     from app.auth.cf_access import get_or_create_user_by_email
