@@ -154,6 +154,94 @@ tests:
           path: spec.rules[0].verifyImages[0].verifyDigest
           value: true
 
+  # ---- deeper Harbor ClusterPolicy invariants ----
+  - it: Harbor ClusterPolicy ships failurePolicy=Fail + webhookTimeoutSeconds=30 + background=false
+    # Reason: Same admission-time-only + fail-closed contract as the GHCR
+    # sister policy. failurePolicy=Fail blocks admission when Kyverno is
+    # unreachable (mainstream prod default); background=false avoids
+    # 1h-scan cost since cosign verify needs a registry round-trip for
+    # the signature manifest. A regression that flips either silently
+    # downgrades the gate.
+    template: templates/policies/verify-images-harbor.yaml
+    asserts:
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+      - equal:
+          path: spec.webhookTimeoutSeconds
+          value: 30
+      - equal:
+          path: spec.background
+          value: false
+
+  - it: Harbor ClusterPolicy matches Pod kind across lolday + lolday-jobs + lolday-builds
+    # Reason: Three target namespaces cover the full Harbor consumer
+    # surface — chart pods (lolday), detector vcjobs (lolday-jobs), and
+    # future BuildKit pods (lolday-builds). Dropping any one ns would
+    # let an unsigned Harbor image deploy into that ns by mistake.
+    # lolday-builds is currently future-state but the policy is a no-op
+    # there until pods exist, so pinning it now prevents a coverage
+    # regression when BuildKit pods land.
+    template: templates/policies/verify-images-harbor.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].match.any[0].resources.kinds
+          value: [Pod]
+      - contains:
+          path: spec.rules[0].match.any[0].resources.namespaces
+          content: lolday
+      - contains:
+          path: spec.rules[0].match.any[0].resources.namespaces
+          content: lolday-jobs
+      - contains:
+          path: spec.rules[0].match.any[0].resources.namespaces
+          content: lolday-builds
+
+  - it: Harbor ClusterPolicy uses key-based attestor with k8s:// URI + Rekor tlog ignored
+    # Reason: Harbor is the in-cluster operator-private registry, so we
+    # use key-based verification (the cosign public key held as
+    # Secret kyverno/cosign-harbor-pubkey, key cosign.pub). The
+    # `k8s://<ns>/<secret_name>` URI is the canonical Kyverno reference
+    # form — this enables rotation by just re-applying the Secret.
+    # rekor.ignoreTlog=true is intentional: Harbor pushes are private,
+    # entering signatures into the public Rekor transparency log would
+    # leak internal image names. A regression that flips ignoreTlog to
+    # false would either (a) break signature verification for offline /
+    # air-gapped Harbor pushes, or (b) leak the lolday image catalogue
+    # into Rekor's public ledger.
+    template: templates/policies/verify-images-harbor.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].verifyImages[0].imageReferences
+          value: ["harbor.lolday.svc:80/lolday/*"]
+      - equal:
+          path: spec.rules[0].verifyImages[0].attestors[0].count
+          value: 1
+      - equal:
+          path: spec.rules[0].verifyImages[0].attestors[0].entries[0].keys.publicKeys
+          value: "k8s://kyverno/cosign-harbor-pubkey"
+      - equal:
+          path: spec.rules[0].verifyImages[0].attestors[0].entries[0].keys.rekor.ignoreTlog
+          value: true
+
+  - it: Harbor ClusterPolicy pins mutateDigest=false + verifyDigest=true + required=true
+    # Reason: Same fail-loud-on-unpinned + end-to-end-integrity contract
+    # as the GHCR sister policy. helpers.lock + chart digest pins
+    # already give us digest-by-default; mutateDigest=true would silently
+    # rewrite unpinned refs and defeat the pinning hygiene. required=true
+    # closes the "signature missing? proceed anyway" loophole.
+    template: templates/policies/verify-images-harbor.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].verifyImages[0].mutateDigest
+          value: false
+      - equal:
+          path: spec.rules[0].verifyImages[0].verifyDigest
+          value: true
+      - equal:
+          path: spec.rules[0].verifyImages[0].required
+          value: true
+
   - it: GHCR ClusterPolicy attestors require count=1 across 4 GHA-OIDC entries (images + helpers, main + tag)
     # Reason: Four keyless entries under one attestors[0] with count: 1 form
     # a logical OR — any one matching is sufficient. They cover the four
