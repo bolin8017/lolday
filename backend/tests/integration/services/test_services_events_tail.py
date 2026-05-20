@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 from app.models import Detector, DetectorVersion, Job, JobEvent, User
-from app.services.events_tail import EventBroker, persist_event
+from app.services.events_tail import EventBroker, _parse_ts, persist_event
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,3 +134,46 @@ async def test_publish_reaches_all_concurrent_subscribers() -> None:
     e2 = await asyncio.wait_for(q2.get(), timeout=1.0)
     assert e1["name"] == "loss"
     assert e2["name"] == "loss"
+
+
+def test_parse_ts_invalid_string_returns_none() -> None:
+    """A malformed timestamp string must surface as None so persist_event
+    falls back to `datetime.now(UTC)` — covers the `except ValueError`
+    arm of `_parse_ts`. The maldet-side serialiser is the source of
+    truth, but historical replay can hand the broker arbitrary strings.
+    """
+    assert _parse_ts("not-an-isoformat") is None
+
+
+def test_unsubscribe_noop_when_subscriber_already_gone() -> None:
+    """Unsubscribing for a job_id with no recorded subscribers (or a queue
+    that was already removed) must not raise — covers the `queues=None`
+    falsy-branch in `EventBroker.unsubscribe`.
+
+    Trigger via a fresh job_id that was never subscribed to, plus a second
+    unsubscribe of an already-removed queue from a different job_id.
+    """
+    broker = EventBroker()
+    # Never-subscribed job_id → `self._subscribers.get(jid)` returns None.
+    broker.unsubscribe(uuid.uuid4(), asyncio.Queue())
+
+    # Subscribed-then-unsubscribed → second call sees empty `queues` list
+    # but the `queues and q in queues` short-circuit kicks in first.
+    jid = uuid.uuid4()
+    q = broker.subscribe(jid)
+    broker.unsubscribe(jid, q)
+    broker.unsubscribe(jid, q)  # idempotent, must not raise
+
+
+def test_unsubscribe_leaves_other_subscribers_alive() -> None:
+    """Two subscribers on the same job_id, drop one — the remaining queue
+    must still receive events. Covers the `queues is not None and not queues`
+    branch (the partial-empty arm of the pop guard)."""
+    broker = EventBroker()
+    jid = uuid.uuid4()
+    q1 = broker.subscribe(jid)
+    q2 = broker.subscribe(jid)
+    broker.unsubscribe(jid, q1)
+    # The job_id entry must NOT be popped (q2 still subscribed).
+    assert jid in broker._subscribers
+    assert q2 in broker._subscribers[jid]
