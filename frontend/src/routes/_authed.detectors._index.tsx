@@ -23,7 +23,7 @@ import { MoreHorizontal, Plus } from "lucide-react";
 
 export const handle = { breadcrumb: "Detectors" };
 
-function DetectorRowActions({
+export function DetectorRowActions({
   detector,
 }: {
   // Phase 13a fix (PR review I1): confirmText must be the slug `name` so
