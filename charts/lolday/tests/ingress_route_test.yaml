@@ -1,0 +1,134 @@
+suite: Traefik IngressRoute (backend + mlflow + frontend)
+templates:
+  - templates/ingress.yaml
+values:
+  - ../values-test.yaml
+set:
+  frontend.host: test.lolday.svc
+  mlflow.service.port: 5000
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a single Traefik IngressRoute on the web entry point
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: IngressRoute
+      - equal:
+          path: apiVersion
+          value: traefik.io/v1alpha1
+      - equal:
+          path: metadata.name
+          value: lolday
+      - equal:
+          path: spec.entryPoints
+          value: [web]
+
+  - it: ships three Host-matching routes in priority order (backend > mlflow > frontend)
+    # Reason: PathPrefix(/api/v1) at priority 10 must out-rank the
+    # catch-all at priority 1, otherwise the frontend SPA serves
+    # 404 for every backend request. /mlflow at priority 6 needs to
+    # out-rank the catch-all too — the same logic.
+    asserts:
+      - lengthEqual:
+          path: spec.routes
+          count: 3
+      - equal:
+          path: spec.routes[0].priority
+          value: 10
+      - equal:
+          path: spec.routes[1].priority
+          value: 6
+      - equal:
+          path: spec.routes[2].priority
+          value: 1
+
+  - it: backend route points /api/v1 at the backend Service on port 8000
+    asserts:
+      - equal:
+          path: spec.routes[0].match
+          value: "Host(`test.lolday.svc`) && PathPrefix(`/api/v1`)"
+      - contains:
+          path: spec.routes[0].services
+          content:
+            kind: Service
+            name: backend
+            port: 8000
+
+  - it: mlflow route applies the forward-auth middleware
+    # Reason: H-15 — every /mlflow request must go through the
+    # mlflow-forward-auth middleware which calls backend
+    # POST /api/v1/mlflow-authz to authorise via CF Access JWT
+    # (browser) or job bearer token (sidecar). Removing this
+    # middleware bypasses authz entirely.
+    asserts:
+      - equal:
+          path: spec.routes[1].match
+          value: "Host(`test.lolday.svc`) && PathPrefix(`/mlflow`)"
+      - contains:
+          path: spec.routes[1].middlewares
+          content:
+            name: mlflow-forward-auth
+      - contains:
+          path: spec.routes[1].services
+          content:
+            kind: Service
+            name: mlflow
+            port: 5000
+
+  - it: mlflow route does NOT stripPrefix (auto-memory project_mlflow_static_prefix)
+    # Reason: MLflow's --static-prefix=/mlflow makes it serve the UI
+    # at /mlflow/ and ajax-api at /mlflow/ajax-api/, so Traefik must
+    # forward the path unchanged. Adding a stripPrefix middleware
+    # lands at MLflow's `/`, which 404s under static-prefix.
+    asserts:
+      - notContains:
+          path: spec.routes[1].middlewares
+          content:
+            name: strip-mlflow-prefix
+      - notContains:
+          path: spec.routes[1].middlewares
+          content:
+            name: stripPrefix
+
+  - it: catch-all routes to the frontend Service on port 80
+    asserts:
+      - equal:
+          path: spec.routes[2].match
+          value: "Host(`test.lolday.svc`)"
+      - contains:
+          path: spec.routes[2].services
+          content:
+            kind: Service
+            name: frontend
+            port: 80
+
+  - it: honours frontend.host override across all three routes
+    set:
+      frontend.host: prod.example.com
+    asserts:
+      - matchRegex:
+          path: spec.routes[0].match
+          pattern: prod\.example\.com
+      - matchRegex:
+          path: spec.routes[1].match
+          pattern: prod\.example\.com
+      - matchRegex:
+          path: spec.routes[2].match
+          pattern: prod\.example\.com
+
+  - it: honours mlflow.service.port override on the mlflow route
+    set:
+      mlflow.service.port: 5500
+    asserts:
+      - contains:
+          path: spec.routes[1].services
+          content:
+            kind: Service
+            name: mlflow
+            port: 5500
