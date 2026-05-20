@@ -201,7 +201,11 @@ def test_main_returns_0_on_successful_rotation(monkeypatch):
 
     k1 = Fernet.generate_key().decode()
     k2 = Fernet.generate_key().decode()
-    monkeypatch.setattr("sys.argv", ["rotate_fernet", "--old", k1, "--new", k2])
+    # `--flag=value` form forces argparse to bind the value even when it
+    # starts with a `-` — Fernet.generate_key() is base64-urlsafe so a
+    # ~1/64 fraction of keys begin with `-`, which the bare `--flag value`
+    # form misparses as another flag (argparse `expected one argument`).
+    monkeypatch.setattr("sys.argv", ["rotate_fernet", f"--old={k1}", f"--new={k2}"])
     monkeypatch.setattr(rotate_fernet, "rotate_all", AsyncMock(return_value=(3, 1)))
     assert rotate_fernet.main() == 0
 
@@ -213,7 +217,9 @@ def test_main_returns_2_on_unrotatable_row(monkeypatch, caplog):
 
     k1 = Fernet.generate_key().decode()
     k2 = Fernet.generate_key().decode()
-    monkeypatch.setattr("sys.argv", ["rotate_fernet", "--old", k1, "--new", k2])
+    # See `test_main_returns_0_on_successful_rotation` — `--flag=value`
+    # to defuse the dash-leading-Fernet-key argparse flake.
+    monkeypatch.setattr("sys.argv", ["rotate_fernet", f"--old={k1}", f"--new={k2}"])
     monkeypatch.setattr(
         rotate_fernet,
         "rotate_all",
