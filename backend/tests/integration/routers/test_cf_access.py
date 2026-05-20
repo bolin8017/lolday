@@ -526,6 +526,85 @@ async def test_resolve_user_accepts_service_token_jwt_with_common_name(
     assert user.email == "service-ci-bot@cf-access.local"
 
 
+async def test_get_or_create_user_rewrites_legacy_service_token_display_name(
+    db_session,
+):
+    """A service-token row created by older code carries the raw
+    email-local-part as display_name (a 64-char hex stamp). The auth path
+    rewrites it to the friendly `SERVICE_TOKEN_DISPLAY_NAME` on the next
+    visit. Pins the happy-path side of the rename guard."""
+    from app.auth.cf_access import get_or_create_user_by_email
+    from app.models import Role, User
+    from app.models.user import (
+        SERVICE_TOKEN_DISPLAY_NAME,
+        SERVICE_TOKEN_EMAIL_DOMAIN,
+    )
+
+    legacy_email = f"abc123{SERVICE_TOKEN_EMAIL_DOMAIN}"
+    db_session.add(
+        User(
+            email=legacy_email,
+            handle="abc123",
+            display_name="abc123",  # legacy auto-derived form
+            role=Role.SERVICE_TOKEN,
+        )
+    )
+    await db_session.commit()
+
+    user = await get_or_create_user_by_email(db_session, legacy_email)
+
+    assert user.display_name == SERVICE_TOKEN_DISPLAY_NAME
+
+
+async def test_get_or_create_user_swallows_display_name_rename_sql_error(
+    db_session, monkeypatch
+):
+    """A transient DB error during the cosmetic display_name rename must
+    NOT break the auth path. Covers lines 123-130 in
+    `app/auth/cf_access.py`: SQLAlchemyError on the rename commit →
+    rollback + warning + BACKEND_ERRORS{stage="display_name_rename"} +
+    return the (un-renamed) existing row.
+    """
+    import sqlalchemy.exc
+    from app.auth.cf_access import get_or_create_user_by_email
+    from app.metrics import BACKEND_ERRORS
+    from app.models import Role, User
+    from app.models.user import SERVICE_TOKEN_EMAIL_DOMAIN
+
+    legacy_email = f"def456{SERVICE_TOKEN_EMAIL_DOMAIN}"
+    db_session.add(
+        User(
+            email=legacy_email,
+            handle="def456",
+            display_name="def456",  # legacy auto-derived form
+            role=Role.SERVICE_TOKEN,
+        )
+    )
+    await db_session.commit()
+
+    async def failing_commit():
+        raise sqlalchemy.exc.SQLAlchemyError("simulated rename commit failure")
+
+    async def noop_rollback():
+        # The simulated commit didn't touch the connection, so a real
+        # rollback would crash with `MissingGreenlet`. The production
+        # scenario rolls back a real connection cleanly; we only need
+        # the except-branch code path covered, not the side-effect.
+        return None
+
+    monkeypatch.setattr(db_session, "commit", failing_commit)
+    monkeypatch.setattr(db_session, "rollback", noop_rollback)
+
+    before = BACKEND_ERRORS.labels(stage="display_name_rename")._value.get()
+    user = await get_or_create_user_by_email(db_session, legacy_email)
+    after = BACKEND_ERRORS.labels(stage="display_name_rename")._value.get()
+
+    # The auth path must still return the user — rename failure is cosmetic.
+    assert user.email == legacy_email
+    # BACKEND_ERRORS{stage="display_name_rename"} ticked.
+    assert after - before == pytest.approx(1.0)
+
+
 async def test_first_login_derives_handle(db_session):
     """New user gets a handle derived from their email prefix."""
     from app.auth.cf_access import get_or_create_user_by_email
