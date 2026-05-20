@@ -1,48 +1,111 @@
-import { render, act } from "@testing-library/react";
-import { describe, it, expect, afterEach } from "vitest";
+import { act, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { JsonTreeView } from "@/components/common/JsonTreeView";
 
-// react-json-view applies inline colour styles derived from the active theme.
-// In jsdom the `style={{ background: "transparent" }}` override causes the
-// outer div's backgroundColor to be "transparent" for both themes, so we
-// cannot use it to distinguish them.
-//
-// Instead we check a brace/bracket colour that is unique to each theme:
-//   - rjv-default:  brace colour = rgb(0, 43, 54)  (dark blue-green)
-//   - monokai:      brace colour = rgb(249, 248, 245)  (near-white)
+// react-json-view-lite ships two built-in StyleProps; we forward the active
+// theme as a data-attribute on the wrapper for cheap visual-mode assertions.
+// The library applies CSS-module class names that differ per theme, but those
+// hashes are not stable enough to assert against directly.
 
 describe("JsonTreeView", () => {
   afterEach(() => {
     document.documentElement.classList.remove("light", "dark");
+    vi.restoreAllMocks();
   });
 
-  it("uses monokai brace colour when <html> is dark", async () => {
+  it("renders the JSON content with the root key visible at level 0", async () => {
+    await act(async () => {
+      render(<JsonTreeView value={{ alpha: 1, beta: { nested: 2 } }} />);
+    });
+    const tree = screen.getByTestId("json-tree-view");
+    // Library renders keys as "alpha:" (key + colon) in one span, so we use
+    // a regex matcher rather than an exact string match.
+    expect(within(tree).getByText(/^alpha:?$/)).toBeInTheDocument();
+    expect(within(tree).getByText(/^beta:?$/)).toBeInTheDocument();
+  });
+
+  it("collapses nested objects when collapsed=1 (default)", async () => {
+    await act(async () => {
+      render(<JsonTreeView value={{ alpha: { hidden: 42 } }} />);
+    });
+    const tree = screen.getByTestId("json-tree-view");
+    // Root-level key is visible; nested key is collapsed away.
+    expect(within(tree).getByText(/^alpha:?$/)).toBeInTheDocument();
+    expect(within(tree).queryByText(/^hidden:?$/)).not.toBeInTheDocument();
+  });
+
+  it("expands every level when collapsed=false", async () => {
+    await act(async () => {
+      render(
+        <JsonTreeView value={{ alpha: { hidden: 42 } }} collapsed={false} />,
+      );
+    });
+    const tree = screen.getByTestId("json-tree-view");
+    expect(within(tree).getByText(/^hidden:?$/)).toBeInTheDocument();
+  });
+
+  it("collapses every level when collapsed=true", async () => {
+    await act(async () => {
+      render(
+        <JsonTreeView value={{ alpha: { hidden: 42 } }} collapsed={true} />,
+      );
+    });
+    const tree = screen.getByTestId("json-tree-view");
+    // Even root level is collapsed; the only visible content is the ellipsis.
+    expect(within(tree).queryByText(/^alpha:?$/)).not.toBeInTheDocument();
+    expect(within(tree).queryByText(/^hidden:?$/)).not.toBeInTheDocument();
+  });
+
+  it("reports the resolved theme as a data attribute when dark", async () => {
     document.documentElement.classList.add("dark");
-    let container!: HTMLElement;
     await act(async () => {
-      ({ container } = render(<JsonTreeView value={{ a: 1 }} />));
+      render(<JsonTreeView value={{ a: 1 }} />);
     });
-    // The opening brace span has a fontWeight:bold inline style with theme colour.
-    const brace = container.querySelector(
-      "[class*=react-json-view] span[style*='font-weight: bold']",
-    ) as HTMLElement;
-    expect(brace).toBeTruthy();
-    // monokai uses near-white for braces; rjv-default uses dark blue-green.
-    const colour = (brace.style.color || "").toLowerCase();
-    expect(colour).toBe("rgb(249, 248, 245)");
+    expect(screen.getByTestId("json-tree-view").dataset.theme).toBe("dark");
   });
 
-  it("uses rjv-default brace colour when <html> is light", async () => {
+  it("reports the resolved theme as a data attribute when light", async () => {
     document.documentElement.classList.add("light");
-    let container!: HTMLElement;
     await act(async () => {
-      ({ container } = render(<JsonTreeView value={{ a: 1 }} />));
+      render(<JsonTreeView value={{ a: 1 }} />);
     });
-    const brace = container.querySelector(
-      "[class*=react-json-view] span[style*='font-weight: bold']",
-    ) as HTMLElement;
-    expect(brace).toBeTruthy();
-    const colour = (brace.style.color || "").toLowerCase();
-    expect(colour).toBe("rgb(0, 43, 54)");
+    expect(screen.getByTestId("json-tree-view").dataset.theme).toBe("light");
+  });
+
+  it("renders the copy button by default and writes JSON to the clipboard", async () => {
+    // userEvent.setup() installs its own emulated navigator.clipboard, so we
+    // spy on it AFTER setup to capture the writeText call from our handler.
+    const user = userEvent.setup();
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
+    await act(async () => {
+      render(<JsonTreeView value={{ a: 1 }} />);
+    });
+    const button = screen.getByRole("button", {
+      name: /Copy JSON to clipboard/,
+    });
+    await act(async () => {
+      await user.click(button);
+    });
+    expect(writeText).toHaveBeenCalledWith(JSON.stringify({ a: 1 }, null, 2));
+    expect(screen.getByRole("button", { name: /Copied/ })).toBeInTheDocument();
+  });
+
+  it("hides the copy button when copyable=false", async () => {
+    await act(async () => {
+      render(<JsonTreeView value={{ a: 1 }} copyable={false} />);
+    });
+    expect(
+      screen.queryByRole("button", { name: /Copy JSON to clipboard/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("falls back to an empty object when value is null", async () => {
+    await act(async () => {
+      render(<JsonTreeView value={null} />);
+    });
+    expect(screen.getByTestId("json-tree-view")).toBeInTheDocument();
   });
 });
