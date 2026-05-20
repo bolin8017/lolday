@@ -1,0 +1,211 @@
+suite: MLflow Deployment + Service
+templates:
+  - templates/mlflow.yaml
+values:
+  - ../values-test.yaml
+set:
+  mlflow.enabled: true
+  mlflow.image: "harbor.lolday.svc:80/lolday/mlflow-server:vtest@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  mlflow.service.port: 5000
+  mlflow.db.username: mlflow
+  mlflow.db.database: mlflow
+  mlflow.db.password: "fake-pw"
+  mlflow.resources.requests.cpu: 200m
+  mlflow.resources.requests.memory: 512Mi
+  mlflow.resources.limits.cpu: 2
+  mlflow.resources.limits.memory: 4Gi
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders Deployment + Service in document order
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentIndex: 0
+        isKind:
+          of: Deployment
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: mlflow
+      - documentIndex: 1
+        isKind:
+          of: Service
+      - documentIndex: 1
+        equal:
+          path: metadata.name
+          value: mlflow
+
+  - it: is gated off when mlflow.enabled=false
+    set:
+      mlflow.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: Recreate strategy with replicas=1
+    # Reason: MLflow's local SQLite-style state on disk plus the
+    # single-server semantics make rolling upgrades unsafe; Recreate is
+    # the mainstream MLflow guidance. Flipping to RollingUpdate breaks
+    # /tmp/ and S3 multipart state during a deploy.
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: serves artefacts via S3 (--default-artifact-root + --serve-artifacts)
+    # Reason: spec 2026-05-11-storage-architecture-redesign moved MLflow
+    # artefacts off PVC onto MinIO. The args list must keep
+    # --default-artifact-root=s3://... AND --serve-artifacts. Reverting
+    # to a filesystem PVC mount violates the storage-layer invariant
+    # in CLAUDE.md.
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --default-artifact-root=s3://mlflow-artifacts/
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --artifacts-destination=s3://mlflow-artifacts/
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --serve-artifacts
+
+  - it: keeps --static-prefix=/mlflow so UI lives under /mlflow/
+    # Reason: auto-memory project_mlflow_static_prefix.md — MLflow's
+    # --static-prefix moves UI to /mlflow/ but the plain REST API stays at
+    # root, so the Traefik reverse proxy must pass /mlflow/ through
+    # unchanged. Changing this arg silently breaks the UI behind the
+    # ingress.
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --static-prefix=/mlflow
+
+  - it: binds backend-store-uri to postgresql via secret env interpolation
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --backend-store-uri=postgresql+psycopg2://$(PG_USER):$(PG_PASSWORD)@postgresql.lolday.svc:5432/$(PG_DB)
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PG_USER
+            valueFrom: { secretKeyRef: { name: mlflow-db, key: username } }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PG_PASSWORD
+            valueFrom: { secretKeyRef: { name: mlflow-db, key: password } }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PG_DB
+            valueFrom: { secretKeyRef: { name: mlflow-db, key: database } }
+
+  - it: points S3 at the in-cluster MinIO endpoint
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MLFLOW_S3_ENDPOINT_URL
+            value: http://lolday-minio.lolday.svc:9000
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              { secretKeyRef: { name: mlflow-s3-cred, key: access-key } }
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              { secretKeyRef: { name: mlflow-s3-cred, key: secret-key } }
+
+  - it: pod-level securityContext is PSS-restricted compliant
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: container-level securityContext drops ALL with read-only rootfs
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: mounts a memory-backed emptyDir at /tmp for the read-only rootfs
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir:
+              sizeLimit: 512Mi
+              medium: Memory
+
+  - it: wires readiness + liveness probes to /health on the http port
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: http
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: http
+
+  - it: Service exposes the configured port on the named http target
+    documentIndex: 1
+    set:
+      mlflow.service.port: 5500
+    asserts:
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: mlflow
+      - contains:
+          path: spec.ports
+          content:
+            port: 5500
+            targetPort: http
+            name: http
