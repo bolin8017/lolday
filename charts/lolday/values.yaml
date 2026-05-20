@@ -757,6 +757,29 @@ alloy:
 # routes CRITICAL CVEs to Discord critical via the Phase 7.1 AC CR pipeline.
 trivy-operator:
   enabled: true
+  # Defense-in-depth for the trivy-operator Deployment (trivy-system ns).
+  # The upstream chart leaves `podSecurityContext: {}` and ships the
+  # container-level `securityContext` with allowPrivilegeEscalation /
+  # capabilities.drop / readOnlyRootFilesystem set but NO `seccompProfile`.
+  # The operator only talks to the K8s API and writes /tmp, so adding the
+  # seccomp filter at both pod and container level is safe and narrows
+  # the blast radius if a future trivy-operator CVE drops a sandbox
+  # escape.  `runAsNonRoot`/`runAsUser` are intentionally left to upstream
+  # defaults — flipping them here without verifying the image's UID
+  # contract is risky (the operator writes to /tmp via emptyDir, but
+  # other code paths could touch user-owned state).
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    # Preserve upstream defaults so helm deep-merge doesn't drop them.
+    privileged: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
   # Skip system-churn namespaces (kube-system, gpu-operator manage lots of
   # short-lived pods) + trivy-system itself (don't scan the scanner) + default
   # (never hosts workloads here). Scans still cover lolday, monitoring, harbor.
