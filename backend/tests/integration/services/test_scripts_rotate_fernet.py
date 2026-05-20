@@ -220,9 +220,13 @@ def test_main_returns_2_on_unrotatable_row(monkeypatch, caplog):
         AsyncMock(side_effect=RuntimeError("unrotatable row: user_id=abc")),
     )
     # rotate_fernet.main() configures its own root logger; install a handler
-    # on the module logger so caplog picks the message up. Re-use the
-    # save/restore .disabled pattern from project_caplog_alembic_logger_disabled.
-    rotate_fernet.logger.disabled = False
+    # on the module logger so caplog picks the message up. Use monkeypatch
+    # so the .disabled flip is auto-restored on teardown — direct assignment
+    # leaks across the run when an alembic-based test ran earlier in the
+    # session and left the logger disabled via logging.config.fileConfig
+    # with disable_existing_loggers=True (see auto-memory
+    # [[project_caplog_alembic_logger_disabled]]).
+    monkeypatch.setattr(rotate_fernet.logger, "disabled", False)
     with caplog.at_level(logging.ERROR, logger="app.scripts.rotate_fernet"):
         rc = rotate_fernet.main()
     assert rc == 2
