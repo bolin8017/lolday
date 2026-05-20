@@ -1,0 +1,161 @@
+suite: minio-console Service prune (D-3 P2 audit cleanup)
+templates:
+  - templates/minio-console-service-prune.yaml
+values:
+  - ../values-test.yaml
+set:
+  minio.enabled: true
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders SA + Role + RoleBinding + Job (4 docs)
+    asserts:
+      - hasDocuments:
+          count: 4
+      - documentIndex: 0
+        isKind:
+          of: ServiceAccount
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: minio-console-prune
+      - documentIndex: 1
+        isKind:
+          of: Role
+      - documentIndex: 2
+        isKind:
+          of: RoleBinding
+      - documentIndex: 3
+        isKind:
+          of: Job
+
+  - it: all four documents are gated off when minio.enabled=false
+    set:
+      minio.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: SA + RBAC + Job all carry the helm post-install/post-upgrade hook annotations
+    # Reason: All four hook objects must run together — the Job depends on
+    # the SA + Role + RoleBinding for its impersonation. Mismatched hook
+    # annotations would let the Job run before its RBAC exists and fail
+    # the kubectl delete with `Forbidden`.
+    asserts:
+      - documentIndex: 0
+        equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+      - documentIndex: 1
+        equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+      - documentIndex: 2
+        equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+      - documentIndex: 3
+        equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+
+  - it: Role grants narrow get+delete on the exact <release>-minio-console resourceName
+    # Reason: This is least-privilege RBAC — the Role can ONLY touch the
+    # one Service named "<release>-minio-console" (the residual surface
+    # being pruned), nothing else in the ns. A regression that drops
+    # resourceNames or adds `list`/`watch` widens the blast radius. The
+    # resourceNames pinning is the load-bearing security invariant.
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: rules[0].apiGroups
+          value: [""]
+      - equal:
+          path: rules[0].resources
+          value: ["services"]
+      - equal:
+          path: rules[0].resourceNames
+          value: ["lolday-minio-console"]
+      - equal:
+          path: rules[0].verbs
+          value: ["get", "delete"]
+
+  - it: RoleBinding wires the prune SA to the prune Role
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: roleRef.kind
+          value: Role
+      - equal:
+          path: roleRef.name
+          value: minio-console-prune
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: minio-console-prune
+            namespace: lolday
+
+  - it: Job pod is PSS-restricted compliant (runAsNonRoot + drop caps + RuntimeDefault seccomp)
+    # Reason: This Job lives in the `lolday` ns. Even though lolday is
+    # currently `enforce=baseline` (§10 #36 deferred restricted promotion),
+    # the prune Job is ALREADY PSS-restricted compliant so it does not
+    # block the eventual ns promotion to restricted. A regression that
+    # drops any of these PSS fields would re-introduce a §10 #36 offender
+    # exactly where one was just removed.
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: Job uses backoffLimit=1 + ttlSecondsAfterFinished=3600 + the matching SA
+    # Reason: backoffLimit=1 prevents an infinite retry loop if the Service
+    # exists but RBAC was misapplied. ttl 3600s prunes finished Jobs after
+    # 1h so `kubectl get jobs` stays clean. serviceAccountName must match
+    # the SA created above; an empty SA name would default to `default`
+    # which lacks the narrow Role, breaking the prune.
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: spec.backoffLimit
+          value: 1
+      - equal:
+          path: spec.ttlSecondsAfterFinished
+          value: 3600
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: minio-console-prune
+
+  - it: container kubectl command targets the exact <release>-minio-console Service with --ignore-not-found
+    # Reason: --ignore-not-found makes the prune idempotent — re-runs on
+    # an already-pruned cluster (or a fresh install before the sub-chart
+    # rendered the Service yet) exit 0 instead of failing. Dropping this
+    # flag would make the Job flake on the very first install.
+    documentIndex: 3
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "kubectl -n lolday delete svc"
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "lolday-minio-console --ignore-not-found"
