@@ -312,6 +312,31 @@ async def test_cf_access_user_dev_mode_bypasses_jwt(db_session, monkeypatch):
     assert user.role.value == "user"
 
 
+async def test_resolve_user_dev_mode_with_empty_email_raises(db_session, monkeypatch):
+    """`AUTH_DEV_MODE=true` + empty `AUTH_DEV_EMAIL` is a misconfiguration —
+    must raise `CfAccessAuthError` rather than silently fall through to a
+    JWT-validation path that would never succeed.
+
+    Covers the defensive guard at `resolve_user_from_jwt` for the
+    config-error case. The production boot-time `validate_sso_config`
+    catches `AUTH_DEV_MODE=true` in production environments, but this
+    path defends against a partially-broken dev override (`AUTH_DEV_MODE`
+    flipped without `AUTH_DEV_EMAIL`)."""
+    from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", True)
+    monkeypatch.setattr(settings, "AUTH_DEV_EMAIL", "")
+    # AUTH_DEV_PERSONAS empty → bypass the persona-routing branch and hit
+    # the AUTH_DEV_EMAIL check that has no persona to fall back to.
+    monkeypatch.setattr(settings, "AUTH_DEV_PERSONAS", {})
+
+    with pytest.raises(CfAccessAuthError, match="AUTH_DEV_EMAIL"):
+        await resolve_user_from_jwt(
+            session=db_session, token=None, log_context="dev-mode-misconfig"
+        )
+
+
 async def test_first_login_derives_handle(db_session):
     """New user gets a handle derived from their email prefix."""
     from app.auth.cf_access import get_or_create_user_by_email
@@ -413,6 +438,9 @@ async def test_auth_failure_total_increments_on_missing_header(monkeypatch):
         # malformed inputs degrade safely, never raise
         ("no-at-sign", "<redacted-malformed>"),
         ("", "<redacted-malformed>"),
+        # Empty local-part (`@domain`) — distinct from "no @ sign":
+        # the partition succeeds but `first` is empty.
+        ("@example.com", "<redacted-malformed>"),
         (None, "<redacted-none>"),
     ],
 )
