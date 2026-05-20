@@ -1,0 +1,129 @@
+suite: frontend Deployment + Service
+templates:
+  - templates/frontend.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders Deployment + Service in document order
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentIndex: 0
+        isKind:
+          of: Deployment
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: frontend
+      - documentIndex: 1
+        isKind:
+          of: Service
+      - documentIndex: 1
+        equal:
+          path: metadata.name
+          value: frontend
+
+  - it: respects frontend.replicas
+    documentIndex: 0
+    set:
+      frontend.replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: uses the frontend image from values
+    documentIndex: 0
+    set:
+      frontend.image: ghcr.io/bolin8017/lolday-frontend:vtest@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ".*lolday-frontend:vtest"
+
+  - it: imagePullPolicy=Always (safe under digest pin, defends against re-point)
+    # Reason: L-frontend-pull-policy — with the H-21-img digest pin, Always
+    # is safe because the digest is content-addressed and kubelet skips the
+    # pull when the layer is cached; if Harbor were compromised to re-point
+    # a tag, the digest check on pull would refuse the swap.
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+
+  - it: nginx listens on the unprivileged 8080 port
+    # Reason: production frontend image is nginx-unprivileged which binds
+    # 8080 (not 80). The Service maps 80 -> 8080.
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8080
+
+  - it: securityContext is PSS-restricted compliant
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: mounts emptyDir at /tmp under the read-only rootfs
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
+
+  - it: wires readiness + liveness probes to /healthz on 8080
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 8080
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 8080
+
+  - it: Service maps :80 -> targetPort 8080 (nginx-unprivileged)
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.selector.app
+          value: frontend
+      - contains:
+          path: spec.ports
+          content:
+            port: 80
+            targetPort: 8080
