@@ -220,6 +220,43 @@ def test_parse_iso8601_returns_none_on_bad_input():
     assert parsed.year == 2026
 
 
+def test_get_queue_depth_swallows_stale_gauge_set_exception(monkeypatch, caplog):
+    """If `VOLCANO_PENDING_STALE.set(...)` itself raises (e.g. the
+    Prom client backend explodes during a metrics-handler upgrade), the
+    queue-depth return value must still be correct AND the
+    BACKEND_ERRORS{stage="queue_stale_gauge"} counter must increment.
+
+    The gauge-refresh side-effect is documented as best-effort —
+    propagating the exception would freeze the gauge at its last value,
+    making a real scheduler outage invisible to the alert rule.
+    """
+    import logging
+
+    from app.metrics import BACKEND_ERRORS, VOLCANO_PENDING_STALE
+
+    items = [_vjob("p1", "lolday-training", "Pending", "2026-04-21T01:00:00Z")]
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("simulated metrics-client failure")
+
+    monkeypatch.setattr(VOLCANO_PENDING_STALE, "set", _raise)
+
+    before = BACKEND_ERRORS.labels(stage="queue_stale_gauge")._value.get()
+    with (
+        _patched_volcano(items),
+        caplog.at_level(logging.ERROR, logger="app.services.cluster_status"),
+    ):
+        depth = cluster_status.get_queue_depth()
+
+    # Queue depth still returns correctly — the exception was contained
+    # to the gauge-refresh side effect.
+    assert depth == 1
+    # BACKEND_ERRORS{stage="queue_stale_gauge"} ticked.
+    after = BACKEND_ERRORS.labels(stage="queue_stale_gauge")._value.get()
+    assert after == before + 1
+    assert any("stale-gauge refresh failed" in r.message for r in caplog.records)
+
+
 # --- Queue position ---
 
 
