@@ -164,6 +164,61 @@ async def test_dispatch_threads_source_model_run_id_into_manifest(
 
 
 @pytest.mark.asyncio
+async def test_dispatch_handles_deleted_source_model_version_gracefully(
+    db_session, seed_user, seed_detector_version
+):
+    """A predict-style job whose source_model_version_id was deleted between
+    submission and dispatch (operator force-delete via admin UI, or a
+    cascade race) must still dispatch with `source_artifact_path=None` —
+    NOT crash with NoneType.mlflow_run_id.
+
+    Covers branch 98->101 in `dispatch_job_to_volcano`: `mv is None` after
+    the FK lookup.
+    """
+    from app.models.job import Job, JobStatus, JobType
+    from app.services.job_dispatch import dispatch_job_to_volcano
+
+    dv_id = await seed_detector_version()
+    job = Job(
+        type=JobType.PREDICT,
+        status=JobStatus.QUEUED_BACKEND,
+        detector_version_id=UUID(dv_id),
+        # Random UUID — no matching ModelVersion row exists.
+        source_model_version_id=uuid4(),
+        owner_id=seed_user.id,
+        resolved_config={},
+        idempotency_key=uuid4().hex,
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await db_session.refresh(job)
+
+    seen: dict = {}
+
+    def fake_build(**kwargs):
+        seen.update(kwargs)
+        return {"metadata": {"name": f"job-{job.id.hex}"}, "spec": {}}
+
+    with (
+        patch(
+            "app.services.job_dispatch.volcano_v1alpha1",
+            return_value=_make_volcano_stub(),
+        ),
+        patch("app.services.job_dispatch.core_v1", return_value=_make_core_stub()),
+        patch("app.services.job_dispatch.ensure_user_queue", _fake_queue),
+        patch(
+            "app.services.job_dispatch.build_volcano_job_manifest",
+            side_effect=fake_build,
+        ),
+    ):
+        await dispatch_job_to_volcano(db_session, job)
+
+    # The deleted-row case must not propagate as source_run_id / artifact_path.
+    assert seen["source_run_id"] is None
+    assert seen["source_artifact_path"] is None
+
+
+@pytest.mark.asyncio
 async def test_dispatch_rolls_back_token_secret_on_vcjob_create_failure(
     db_session, seed_user, seed_detector_version
 ):
