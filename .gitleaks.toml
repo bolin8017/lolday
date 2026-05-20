@@ -16,6 +16,9 @@ paths = [
   # Backend tests use synthetic emails / handles / tokens; gitleaks
   # default rules sometimes match these as low-confidence secrets.
   '''backend/tests/.*''',
+  # Frontend tests use synthetic Discord User IDs / PATs / handles;
+  # the default `discord-client-id` rule flags any 17-19-digit sequence.
+  '''frontend/tests/.*''',
 ]
 regexes = [
   # Well-known fake PAT used in documentation examples.
