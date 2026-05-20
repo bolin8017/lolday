@@ -241,6 +241,113 @@ async def test_chunked_body_streamed_over_cap_returns_413(
     assert b"payload too large" in body
 
 
+async def test_counting_receive_passes_through_non_http_request_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`counting_receive` only inspects messages typed `http.request`.
+    Anything else (`http.disconnect`, ASGI extensions) must pass through
+    unchanged so the inner app can decide how to react. Covers the falsy
+    branch of the `if message["type"] == "http.request":` guard."""
+    from app import config
+
+    monkeypatch.setattr(config.settings, "BODY_SIZE_MAX_BYTES", 64)
+
+    received_messages: list[dict] = []
+
+    async def inner(scope: dict, receive: Any, send: Any) -> None:
+        # Pull two messages from receive: one disconnect, one
+        # regular http.request — middleware must passthrough the
+        # disconnect verbatim (covers `counting_receive` non-request
+        # branch).
+        received_messages.append(await receive())
+        received_messages.append(await receive())
+        # Then emit a 200 so guarded_send's response.start branch fires too.
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    middleware = BodySizeLimitMiddleware(inner)
+
+    queued: list[dict] = [
+        {"type": "http.disconnect"},
+        {"type": "http.request", "body": b"x" * 5, "more_body": False},
+    ]
+
+    async def receive() -> dict:
+        return queued.pop(0)
+
+    sent: list[dict] = []
+
+    async def send(msg: dict) -> None:
+        sent.append(msg)
+
+    scope = _build_scope(headers=[(b"content-type", b"application/octet-stream")])
+    await middleware(scope, receive, send)
+
+    # First message landed unmodified at the inner app.
+    assert received_messages[0] == {"type": "http.disconnect"}
+    # Second message reached the inner app intact (small enough body).
+    assert received_messages[1]["type"] == "http.request"
+    assert received_messages[1]["body"] == b"x" * 5
+    # Response landed on the wire.
+    assert [m["type"] for m in sent] == [
+        "http.response.start",
+        "http.response.body",
+    ]
+
+
+async def test_guarded_send_passes_through_unknown_asgi_message_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`guarded_send` short-circuits only `http.response.start` and
+    `http.response.body`. Other ASGI message types (extensions, lifespan
+    hooks emitted mid-request) must passthrough verbatim — otherwise a
+    future ASGI feature would be silently swallowed by the middleware.
+    Covers the final fall-through `await send(message)` arm."""
+    from app import config
+
+    monkeypatch.setattr(config.settings, "BODY_SIZE_MAX_BYTES", 64)
+
+    async def inner(scope: dict, receive: Any, send: Any) -> None:
+        # Consume the body so we don't trigger the receive-side path.
+        await receive()
+        # Emit an "exotic" ASGI message before the response — must
+        # passthrough to send. Then a normal 200.
+        await send({"type": "http.response.trailers", "trailers": True})
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    middleware = BodySizeLimitMiddleware(inner)
+
+    async def receive() -> dict:
+        return {"type": "http.request", "body": b"hi", "more_body": False}
+
+    sent: list[dict] = []
+
+    async def send(msg: dict) -> None:
+        sent.append(msg)
+
+    scope = _build_scope(headers=[(b"content-type", b"application/octet-stream")])
+    await middleware(scope, receive, send)
+
+    # The trailers message passed through unchanged.
+    assert sent[0] == {"type": "http.response.trailers", "trailers": True}
+    # Then the regular response.
+    assert sent[1]["type"] == "http.response.start"
+    assert sent[2]["type"] == "http.response.body"
+
+
 async def test_non_http_scope_passes_through(monkeypatch: pytest.MonkeyPatch) -> None:
     """``scope["type"] in {"lifespan", "websocket"}`` must delegate to
     the inner app unchanged. The old ``BaseHTTPMiddleware`` got this for
