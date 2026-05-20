@@ -1,0 +1,225 @@
+suite: minio-init-buckets post-install Job (SA + Role + RB + Job)
+templates:
+  - templates/minio-init-buckets-job.yaml
+values:
+  - ../values-test.yaml
+set:
+  minio.enabled: true
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders ServiceAccount + Role + RoleBinding + Job in order
+    asserts:
+      - hasDocuments:
+          count: 4
+      - documentIndex: 0
+        isKind:
+          of: ServiceAccount
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: minio-init-buckets
+      - documentIndex: 1
+        isKind:
+          of: Role
+      - documentIndex: 2
+        isKind:
+          of: RoleBinding
+      - documentIndex: 3
+        isKind:
+          of: Job
+
+  - it: is gated off when minio.enabled=false
+    set:
+      minio.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: all four resources land in global.namespace + carry the post-install hook annotations
+    asserts:
+      - documentIndex: 0
+        equal:
+          path: metadata.namespace
+          value: lolday
+      - documentIndex: 0
+        equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+      - documentIndex: 0
+        equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "-1"
+      - documentIndex: 3
+        equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+      - documentIndex: 3
+        equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "0"
+
+  - it: Role restricts to get/list/create on Secrets (no update/patch/delete)
+    # Reason: L-minio-key-rotate — the init Job is bootstrap-only. After
+    # first install, key rotation is an explicit operator action via
+    # scripts/rotate-minio-keys.sh; the Role intentionally omits
+    # update/patch/delete so the init Job NEVER overwrites an existing
+    # secret on subsequent helm upgrades. Re-adding those verbs is a
+    # security regression.
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: rules[0].apiGroups
+          value: [""]
+      - equal:
+          path: rules[0].resources
+          value: ["secrets"]
+      - equal:
+          path: rules[0].verbs
+          value: ["get", "list", "create"]
+      - notContains:
+          path: rules[0].verbs
+          content: update
+      - notContains:
+          path: rules[0].verbs
+          content: patch
+      - notContains:
+          path: rules[0].verbs
+          content: delete
+
+  - it: RoleBinding wires the minio-init-buckets SA to the matching Role
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: roleRef.kind
+          value: Role
+      - equal:
+          path: roleRef.name
+          value: minio-init-buckets
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: minio-init-buckets
+            namespace: lolday
+
+  - it: Job runs under the minio-init-buckets SA, restartPolicy=OnFailure
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: minio-init-buckets
+      - equal:
+          path: spec.template.spec.restartPolicy
+          value: OnFailure
+      - equal:
+          path: spec.backoffLimit
+          value: 3
+      - equal:
+          path: spec.ttlSecondsAfterFinished
+          value: 3600
+
+  - it: Job pod securityContext is PSS-restricted compliant
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: Job ships the three-container split (kubectl-probe + mc-setup initContainers; kubectl-secret-writer main)
+    # Reason: mc and kubectl images don't overlap, so the design uses
+    # one initContainer per role + an emptyDir /creds shared across
+    # them. Collapsing back to one container or reordering breaks the
+    # idempotence model documented at the top of the template.
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: kubectl-probe
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: mc-setup
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: kubectl-secret-writer
+
+  - it: mc-setup creates the four MinIO buckets idempotently (--ignore-existing)
+    # Reason: mc-setup re-runs on every helm upgrade; without
+    # --ignore-existing a bucket-already-exists error would fail the
+    # whole post-upgrade hook and the release goes stuck.
+    documentIndex: 3
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[1].command[2]
+          pattern: mc mb --ignore-existing local/mlflow-artifacts
+      - matchRegex:
+          path: spec.template.spec.initContainers[1].command[2]
+          pattern: mc mb --ignore-existing local/harbor-blobs
+      - matchRegex:
+          path: spec.template.spec.initContainers[1].command[2]
+          pattern: mc mb --ignore-existing local/loki-chunks
+      - matchRegex:
+          path: spec.template.spec.initContainers[1].command[2]
+          pattern: mc mb --ignore-existing local/pg-backups
+
+  - it: redirects mc client config to /tmp (avoids ro rootfs write under UID 65534)
+    # Reason: mc writes its config to MC_CONFIG_DIR. The default ~/.mc
+    # resolves to /.mc under UID 65534 (nobody) — no write permission.
+    documentIndex: 3
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[1].env
+          content:
+            name: MC_CONFIG_DIR
+            value: /tmp/mc
+
+  - it: mc-setup pulls root creds from the minio-root-cred Secret
+    documentIndex: 3
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[1].env
+          content:
+            name: MINIO_ROOT_USER
+            valueFrom:
+              { secretKeyRef: { name: minio-root-cred, key: rootUser } }
+      - contains:
+          path: spec.template.spec.initContainers[1].env
+          content:
+            name: MINIO_ROOT_PASSWORD
+            valueFrom:
+              { secretKeyRef: { name: minio-root-cred, key: rootPassword } }
+
+  - it: shares an emptyDir /creds volume across all three containers
+    documentIndex: 3
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: creds
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          content:
+            name: creds
+            mountPath: /creds
+      - contains:
+          path: spec.template.spec.initContainers[1].volumeMounts
+          content:
+            name: creds
+            mountPath: /creds
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: creds
+            mountPath: /creds
+            readOnly: true
