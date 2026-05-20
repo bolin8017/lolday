@@ -1,0 +1,239 @@
+suite: backend RBAC (lolday + lolday-jobs + cluster-reader)
+templates:
+  - templates/backend-rbac.yaml
+  - templates/jobs-rbac.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # ---- backend-rbac.yaml ----
+  - it: renders SA + Role + RoleBinding + ClusterRole + ClusterRoleBinding
+    template: templates/backend-rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 5
+      - documentIndex: 0
+        isKind:
+          of: ServiceAccount
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: backend
+      - documentIndex: 1
+        isKind:
+          of: Role
+      - documentIndex: 2
+        isKind:
+          of: RoleBinding
+      - documentIndex: 3
+        isKind:
+          of: ClusterRole
+      - documentIndex: 4
+        isKind:
+          of: ClusterRoleBinding
+
+  - it: is gated off when backend.enabled=false
+    template: templates/backend-rbac.yaml
+    set:
+      backend.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: in-ns Role grants PVC read-only — NO secrets/configmaps access
+    # Reason: P1 [C-1] 2026-05-12 removed the Phase 1 same-ns secret/
+    # configmap grant. The backend reads its DB credential / Fernet key
+    # / Harbor pwd via env mounts (Pod Spec — not runtime API).
+    # Per-job Secret creation lives in lolday-jobs (templates/jobs-rbac.yaml).
+    # Re-adding secrets/configmaps verbs here is a security regression.
+    template: templates/backend-rbac.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: rules[0].apiGroups
+          value: [""]
+      - equal:
+          path: rules[0].resources
+          value: [persistentvolumeclaims]
+      - equal:
+          path: rules[0].verbs
+          value: [get, list, watch]
+      - notContains:
+          path: rules[0].resources
+          content: secrets
+      - notContains:
+          path: rules[0].resources
+          content: configmaps
+
+  - it: ClusterRole grants Node + Volcano Queue access only — no Pods cluster-wide
+    # Reason: Phase 7.4 over-grant: pods at cluster scope exposed
+    # all-namespace topology. Phase 7.5 narrowed to nodes (cluster-scoped
+    # by design) + Volcano queues (cluster-scoped Queue CRD, lazily
+    # created on first POST /jobs). Pods are read via the namespaced
+    # Role only. Re-adding pods here regresses Phase 7.5.
+    template: templates/backend-rbac.yaml
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: lolday-backend-cluster-reader
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [nodes]
+            verbs: [get, list, watch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [scheduling.volcano.sh]
+            resources: [queues]
+            verbs: [get, list, create]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [pods]
+            verbs: [get, list, watch]
+
+  - it: ClusterRoleBinding wires the backend SA to the cluster-reader CR
+    template: templates/backend-rbac.yaml
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: roleRef.name
+          value: lolday-backend-cluster-reader
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: backend
+            namespace: lolday
+
+  - it: in-ns RoleBinding wires the backend SA to the in-ns Role
+    template: templates/backend-rbac.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: roleRef.kind
+          value: Role
+      - equal:
+          path: roleRef.name
+          value: backend
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: backend
+            namespace: lolday
+
+  # ---- jobs-rbac.yaml ----
+  - it: jobs-rbac renders a cross-ns Role + RoleBinding in lolday-jobs
+    template: templates/jobs-rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentIndex: 0
+        isKind:
+          of: Role
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: backend-jobs
+      - documentIndex: 0
+        equal:
+          path: metadata.namespace
+          value: lolday-jobs
+      - documentIndex: 1
+        isKind:
+          of: RoleBinding
+
+  - it: jobs-rbac is gated off when backend.enabled=false
+    template: templates/jobs-rbac.yaml
+    set:
+      backend.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: lolday-jobs Role narrows pod access to read-only (no exec / no delete)
+    # Reason: Phase 7.5 narrow-scope pattern — backend never needs to
+    # mutate pods directly; it creates the parent vcjob / Job which
+    # owns the pods. Re-adding `delete pods` here would let a backend
+    # bug or a service-token caller kill a running training pod via
+    # the K8s API.
+    template: templates/jobs-rbac.yaml
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [pods, pods/log]
+            verbs: [get, list, watch]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [pods]
+            verbs: [delete]
+
+  - it: lolday-jobs Role grants Secret + ConfigMap CRUD (per-job token lifecycle)
+    template: templates/jobs-rbac.yaml
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [secrets, configmaps]
+            verbs: [get, list, create, update, delete]
+
+  - it: lolday-jobs Role grants Job + Volcano Job CRUD (no exec)
+    template: templates/jobs-rbac.yaml
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [batch]
+            resources: [jobs]
+            verbs: [get, list, create, delete, watch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [batch.volcano.sh]
+            resources: [jobs]
+            verbs: [get, list, create, delete, watch]
+
+  - it: lolday-jobs RoleBinding ties the lolday-ns SA to the lolday-jobs Role
+    # Reason: Phase 7.5 narrow-scope — Roles live in the workload namespace
+    # (lolday-jobs); the SA lives in lolday. A regression that widens this
+    # into a ClusterRoleBinding or relocates the Role into lolday breaks
+    # the Phase 7.5 invariant.
+    template: templates/jobs-rbac.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: lolday-jobs
+      - equal:
+          path: roleRef.kind
+          value: Role
+      - equal:
+          path: roleRef.name
+          value: backend-jobs
+      - contains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: backend
+            namespace: lolday
