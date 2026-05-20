@@ -132,3 +132,4 @@ Existing `scripts/lib/` modules (the extraction precedents):
 - `scripts/lib/helpers_lock.py` (Phase 4 D4.2) — `charts/lolday/helpers.lock` read/write/drift-check.
 - `scripts/lib/mutation_report.py` (Phase 4 D4.3) — mutmut state → Markdown report.
 - `scripts/lib/test_telemetry.py` (Phase 4 D4.4) — JUnit XML → dashboard + Discord summary.
+- `scripts/lib/np_check.py` (Phase 4 D4.5) — `helm template` NetworkPolicy YAML → user-facing pods have `kube-system+traefik` ingress allow on POD-side port.
