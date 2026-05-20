@@ -39,8 +39,25 @@ jobs:
       - name: Typecheck
         run: pnpm --dir frontend typecheck
 
-      - name: Vitest
-        run: pnpm --dir frontend test
+      - name: Vitest with coverage
+        # D2.10 part 2 — invoke the coverage-enabled script (added in
+        # PR #405). Threshold floors live in `frontend/vitest.config.ts`;
+        # this step fails the job if `pnpm test:coverage` exits non-zero
+        # (e.g., coverage regresses below the configured floors).
+        run: pnpm --dir frontend test:coverage
+
+      # Codecov upload — gate to non-fork PRs and push events. The action
+      # no-ops with a warning when CODECOV_TOKEN is unset on a private
+      # repo, so this step is safe before the operator wires the secret.
+      # Mirrors the backend-fast.yml pattern; `flags: frontend` partitions
+      # the report from the backend lcov.
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        with:
+          files: frontend/coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: false
 
       # D3.8 / R5 part 4 — regen the OpenAPI snapshot from a live backend
       # and assert no drift. Backend OpenAPI drift fails the PR loud;
