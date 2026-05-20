@@ -84,14 +84,11 @@ def _unflatten(params: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for raw_key, val in params.items():
         if "." not in raw_key:
-            if (
-                raw_key in out
-                and isinstance(out[raw_key], dict)
-                and isinstance(val, dict)
-            ):
-                out[raw_key] = _deep_merge(out[raw_key], val)
-            else:
-                out[raw_key] = val
+            # `params` is a dict so `raw_key` is unique; `out[raw_key]` can
+            # only be set here. The collide-with-dotted-prefix case is
+            # already rejected above, so a defensive deep-merge here is
+            # dead code.
+            out[raw_key] = val
             continue
         parts = raw_key.split(".")
         cursor = out
