@@ -44,7 +44,7 @@ const TERMINAL_OR_RUNNING_STATUSES = [
 ] as const satisfies readonly JobStatus[];
 
 /** Badge + Popover priority cell — only rendered for admin users. */
-function PriorityCell({ job }: { job: JobSummary }) {
+export function PriorityCell({ job }: { job: JobSummary }) {
   const { t } = useTranslation();
   const patch = usePatchJob();
   const canEdit = job.status === "queued_backend";
