@@ -1,0 +1,81 @@
+suite: backend ExternalName alias in lolday-jobs
+templates:
+  - templates/backend-externalname-jobs.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a single ExternalName Service in lolday-jobs
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: backend
+      - equal:
+          path: metadata.namespace
+          value: lolday-jobs
+      - equal:
+          path: spec.type
+          value: ExternalName
+
+  - it: is gated off when backend.enabled=false
+    set:
+      backend.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: externalName CNAMEs to the backend Service in the release namespace
+    # Reason: Phase 1 (2026-05-05) — vcjobs in lolday-jobs inject
+    # INTERNAL_EVENTS_BASE_URL=http://backend:8001. Without this alias
+    # the short hostname "backend" doesn't resolve in lolday-jobs, every
+    # event-tailer drops its events on the floor and the operator only
+    # finds out via missing audit-log entries.
+    asserts:
+      - equal:
+          path: spec.externalName
+          value: backend.lolday.svc.cluster.local
+
+  - it: honours .Release.Namespace in the CNAME target
+    release:
+      name: lolday
+      namespace: alt-infra
+    asserts:
+      - equal:
+          path: spec.externalName
+          value: backend.alt-infra.svc.cluster.local
+
+  - it: honours global.jobsNamespace for where the alias lives
+    set:
+      global.jobsNamespace: alt-jobs
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: alt-jobs
+
+  - it: declares both api (8000) and internal (8001) ports
+    # Reason: M-internal-split — ExternalName ports are advisory but
+    # we surface both so the helm-template diff makes the split visible.
+    # Removing the internal:8001 entry hides that vcjobs need the sub-app
+    # port specifically — the kind that would mislead a future maintainer.
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: api
+            port: 8000
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: internal
+            port: 8001
+            protocol: TCP
