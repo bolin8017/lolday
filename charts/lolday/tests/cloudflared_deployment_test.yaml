@@ -1,0 +1,139 @@
+suite: cloudflared tunnel Deployment
+templates:
+  - templates/cloudflared.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a single Deployment in the infra ns
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: cloudflared
+      - equal:
+          path: metadata.namespace
+          value: lolday
+
+  - it: is gated off when cloudflare.enabled=false
+    set:
+      cloudflare.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: respects cloudflare.replicas
+    set:
+      cloudflare.replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: pins metrics server to :2000 (defends against random-port probe failure)
+    # Reason: cloudflared without `--metrics 0.0.0.0:2000` picks an
+    # ephemeral free port, observed at :20241, and the /ready probes
+    # below hit it -> persistent probe failures and pod restarts. The
+    # explicit pin is the documented fix.
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: 0.0.0.0:2000
+
+  - it: keeps --no-autoupdate (image tags are the operator's job, not the binary's)
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --no-autoupdate
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: tunnel
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: run
+
+  - it: sources the tunnel token from the cloudflared-tunnel-token Secret
+    # Reason: cloudflared tokens are credentials; bundling them in chart
+    # values would land them in the helm release Secret, which is fine in
+    # principle but a separate Secret keeps the lifecycle decoupled from
+    # release upgrades (rotate without re-deploy).
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TUNNEL_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: cloudflared-tunnel-token
+                key: tunnel-token
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: $(TUNNEL_TOKEN)
+
+  - it: pod-level securityContext pins runAsUser=65532 (distroless nobody)
+    # Reason: L-cloudflared-runas — upstream image USER is 65532 today;
+    # the explicit pin guards against a silent change in an upstream tag
+    # bump.
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65532
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: container-level securityContext drops ALL with read-only rootfs
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  - it: probes /ready on the pinned metrics port
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /ready
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 2000
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /ready
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 2000
+
+  - it: caps resources at small infra-pod numbers
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 50m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 64Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 200m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 128Mi
