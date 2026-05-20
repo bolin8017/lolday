@@ -1,0 +1,90 @@
+suite: Grafana dashboards ConfigMap (kps sidecar pickup)
+templates:
+  - templates/monitoring/grafana-dashboards.yaml
+values:
+  - ../values-test.yaml
+set:
+  monitoring.enabled: true
+  monitoring.namespace: monitoring
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a ConfigMap in the monitoring ns
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: grafana-dashboards-phase6
+      - equal:
+          path: metadata.namespace
+          value: monitoring
+
+  - it: is gated off when monitoring.enabled=false (default in values-test)
+    set:
+      monitoring.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: carries the grafana_dashboard="1" label that triggers kps sidecar pickup
+    # Reason: kube-prometheus-stack's Grafana sidecar discovers dashboard
+    # ConfigMaps by watching for `grafana_dashboard: "1"` (string, not
+    # int — kps's matcher is label-equality, not jsonpath). Without this
+    # label the ConfigMap is invisible to the sidecar and the five
+    # dashboards silently fail to import. A regression that switches the
+    # value to `"true"` or `1` (int) breaks pickup without raising an
+    # error. This is the most failure-prone single field in the file.
+    asserts:
+      - equal:
+          path: metadata.labels.grafana_dashboard
+          value: "1"
+
+  - it: ships all five dashboards as ConfigMap keys
+    # Reason: Five `data` keys correspond to one dashboard JSON each.
+    # Renaming the data key breaks the sidecar import (it derives the
+    # dashboard UID from the key name). Dropping one removes the matching
+    # dashboard from Grafana with no warning — the operator only notices
+    # weeks later when something they need to investigate isn't there.
+    # Pin the exact key list.
+    asserts:
+      - exists:
+          path: data["dcgm.json"]
+      - exists:
+          path: data["traefik.json"]
+      - exists:
+          path: data["postgresql.json"]
+      - exists:
+          path: data["reconciler-errors.json"]
+      - exists:
+          path: data["trivy-security.json"]
+
+  - it: each dashboard data value is non-empty (.Files.Get resolved)
+    # Reason: `.Files.Get` silently returns an empty string when the path
+    # doesn't exist (it does NOT raise). Pinning non-empty data here
+    # catches a regression where someone renames the file under
+    # charts/lolday/dashboards/ without updating the template — the
+    # ConfigMap would render with empty data values, the sidecar would
+    # import an empty dashboard, and the operator would lose the view.
+    asserts:
+      - notEqual:
+          path: data["dcgm.json"]
+          value: ""
+      - notEqual:
+          path: data["traefik.json"]
+          value: ""
+      - notEqual:
+          path: data["postgresql.json"]
+          value: ""
+      - notEqual:
+          path: data["reconciler-errors.json"]
+          value: ""
+      - notEqual:
+          path: data["trivy-security.json"]
+          value: ""
