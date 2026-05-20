@@ -1,0 +1,84 @@
+suite: lolday infra ResourceQuota + LimitRange
+templates:
+  - templates/lolday-quota.yaml
+  - templates/lolday-limitrange.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # ---- lolday-quota.yaml ----
+  - it: renders a single ResourceQuota in the lolday infra ns
+    template: templates/lolday-quota.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ResourceQuota
+      - equal:
+          path: metadata.name
+          value: lolday-infra-quota
+      - equal:
+          path: metadata.namespace
+          value: lolday
+
+  - it: honours global.namespace override
+    template: templates/lolday-quota.yaml
+    set:
+      global.namespace: alt-infra
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: alt-infra
+
+  - it: caps memory only (CPU intentionally uncapped — sub-chart pods need slack)
+    # Reason: lolday-quota.yaml comment + spec §6.2 — CPU contention on the
+    # infra ns is handled by CFS, not ResourceQuota. Re-adding a CPU cap
+    # here will surface as random rejections of sub-chart pods that don't
+    # declare CPU requests (Harbor's registryctl etc.).
+    template: templates/lolday-quota.yaml
+    asserts:
+      - equal:
+          path: spec.hard["requests.memory"]
+          value: 20Gi
+      - equal:
+          path: spec.hard["limits.memory"]
+          value: 40Gi
+      - notExists:
+          path: spec.hard["requests.cpu"]
+      - notExists:
+          path: spec.hard["limits.cpu"]
+
+  # ---- lolday-limitrange.yaml ----
+  - it: renders a single LimitRange in the lolday infra ns
+    template: templates/lolday-limitrange.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: LimitRange
+      - equal:
+          path: metadata.name
+          value: lolday-infra-defaults
+
+  - it: injects memory defaults for sub-chart pods that omit them
+    # Reason: K8s admission requires every container to specify memory
+    # request + limit once a memory ResourceQuota is in place. Sub-chart
+    # pods (Harbor's registry / registryctl / admission / jobservice /
+    # core) don't, so this LimitRange supplies the defaults. Without
+    # these defaults the admission webhook rejects the pods outright.
+    template: templates/lolday-limitrange.yaml
+    asserts:
+      - equal:
+          path: spec.limits[0].type
+          value: Container
+      - equal:
+          path: spec.limits[0].default.memory
+          value: 1Gi
+      - equal:
+          path: spec.limits[0].defaultRequest.memory
+          value: 128Mi

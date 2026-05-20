@@ -1,0 +1,121 @@
+suite: lolday-jobs ResourceQuota + LimitRange
+templates:
+  - templates/jobs-quota.yaml
+  - templates/jobs-limitrange.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # ---- jobs-quota.yaml ----
+  - it: renders a single ResourceQuota in the lolday-jobs ns
+    template: templates/jobs-quota.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ResourceQuota
+      - equal:
+          path: metadata.name
+          value: lolday-jobs-quota
+      - equal:
+          path: metadata.namespace
+          value: lolday-jobs
+
+  - it: honours global.jobsNamespace override
+    template: templates/jobs-quota.yaml
+    set:
+      global.jobsNamespace: alt-jobs
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: alt-jobs
+
+  - it: caps CPU + memory at the Phase 1 spec numbers
+    template: templates/jobs-quota.yaml
+    asserts:
+      - equal:
+          path: spec.hard["requests.cpu"]
+          value: "8"
+      - equal:
+          path: spec.hard["requests.memory"]
+          value: 30Gi
+      - equal:
+          path: spec.hard["limits.cpu"]
+          value: "24"
+      - equal:
+          path: spec.hard["limits.memory"]
+          value: 50Gi
+
+  - it: caps total pod + Job objects
+    template: templates/jobs-quota.yaml
+    asserts:
+      - equal:
+          path: spec.hard["count/pods"]
+          value: "16"
+      - equal:
+          path: spec.hard["count/jobs.batch"]
+          value: "10"
+      - equal:
+          path: spec.hard["count/jobs.batch.volcano.sh"]
+          value: "20"
+
+  - it: does NOT cap nvidia.com/gpu (Volcano queue is the GPU gatekeeper)
+    # Reason: spec 2026-05-05-gpu-fifo-anti-starvation-design §6.1 — GPU
+    # admission is governed by per-user Volcano Queue.capability, not
+    # ResourceQuota. Re-adding GPU here would double-cap and silently
+    # block scheduling.
+    template: templates/jobs-quota.yaml
+    asserts:
+      - notExists:
+          path: spec.hard["requests.nvidia.com/gpu"]
+      - notExists:
+          path: spec.hard["limits.nvidia.com/gpu"]
+
+  # ---- jobs-limitrange.yaml ----
+  - it: renders a single LimitRange in the lolday-jobs ns
+    template: templates/jobs-limitrange.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: LimitRange
+      - equal:
+          path: metadata.name
+          value: lolday-jobs-limits
+      - equal:
+          path: metadata.namespace
+          value: lolday-jobs
+
+  - it: sets per-container max at the Phase 1 ceiling
+    template: templates/jobs-limitrange.yaml
+    asserts:
+      - equal:
+          path: spec.limits[0].type
+          value: Container
+      - equal:
+          path: spec.limits[0].max.cpu
+          value: "4"
+      - equal:
+          path: spec.limits[0].max.memory
+          value: 16Gi
+
+  - it: sets per-container defaults + defaultRequests
+    template: templates/jobs-limitrange.yaml
+    asserts:
+      - equal:
+          path: spec.limits[0].default.cpu
+          value: "2"
+      - equal:
+          path: spec.limits[0].default.memory
+          value: 4Gi
+      - equal:
+          path: spec.limits[0].defaultRequest.cpu
+          value: 500m
+      - equal:
+          path: spec.limits[0].defaultRequest.memory
+          value: 1Gi
