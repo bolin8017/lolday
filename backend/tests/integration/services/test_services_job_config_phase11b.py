@@ -69,6 +69,15 @@ def test_render_csv_files_includes_all_non_null() -> None:
     assert set(files.keys()) == {"train.csv", "test.csv", "predict.csv"}
 
 
+def test_render_csv_files_skips_null_train() -> None:
+    """A predict-style job has no train CSV; the train.csv key must not appear
+    in the returned dict (covers the falsy-branch on the `train_csv is not None`
+    guard)."""
+    renderer = _make_renderer()
+    files = renderer.render_csv_files(train_csv=None, test_csv=None, predict_csv="p")
+    assert files == {"predict.csv": "p"}
+
+
 def test_overrides_flatten_nested_params() -> None:
     renderer = _make_renderer()
     cfg = renderer.render_config_yaml(

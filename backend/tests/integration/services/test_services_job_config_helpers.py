@@ -8,7 +8,12 @@ but were uncovered after the Phase 11b test split. Both have subtle invariants
 from __future__ import annotations
 
 import pytest
-from app.services.job_config import compute_idempotency_key, resolve_source_model_path
+from app.services.job_config import (
+    _deep_merge,
+    _unflatten,
+    compute_idempotency_key,
+    resolve_source_model_path,
+)
 
 
 def test_idempotency_key_order_stable() -> None:
@@ -87,6 +92,54 @@ def test_resolve_source_model_runs_uri_nested_path() -> None:
     assert resolve_source_model_path("runs:/abc123/model/sub/path") == "model/sub/path"
 
 
+def test_resolve_source_model_runs_uri_no_subpath() -> None:
+    """`runs:/<run_id>` with no trailing artifact path returns the empty string
+    — operator may store the run id alone and the renderer must handle it
+    without an IndexError."""
+    assert resolve_source_model_path("runs:/abc123") == ""
+
+
 def test_resolve_source_model_rejects_non_runs_uri() -> None:
     with pytest.raises(ValueError, match="runs:/"):
         resolve_source_model_path("s3://bucket/path")
+
+
+# ---------------------------------------------------------------------------
+# Direct exercises of the module-internal helpers. `JobConfigRenderer` never
+# routes user_params through `_deep_merge`'s recursive arm (RESERVED_TOP_LEVEL_KEYS
+# blocks all overlap with `base`), but the helpers are pure and worth pinning
+# directly so a future refactor that introduces a new caller picks them up
+# in a correct shape.
+# ---------------------------------------------------------------------------
+
+
+def test_deep_merge_recurses_on_nested_dict_overlap() -> None:
+    """Both keys hold dicts → values are merged recursively, not overwritten."""
+    dst = {"a": {"b": 1, "c": 2}}
+    src = {"a": {"c": 99, "d": 3}}
+    result = _deep_merge(dst, src)
+    # `c` from src wins; `b` from dst preserved; `d` from src added.
+    assert result == {"a": {"b": 1, "c": 99, "d": 3}}
+
+
+def test_deep_merge_non_dict_value_overwrites():
+    """Type mismatch (dict vs non-dict) falls to the override branch — no
+    silent coercion."""
+    dst = {"a": {"b": 1}}
+    src = {"a": "scalar"}
+    assert _deep_merge(dst, src) == {"a": "scalar"}
+
+
+def test_unflatten_descends_into_existing_dict_on_shared_prefix() -> None:
+    """Two dotted keys sharing a prefix (`a.b`, `a.c`) reuse the same nested
+    dict — covers the `cursor` descent branch in `_unflatten` when `p`
+    already exists in the cursor as a dict."""
+    result = _unflatten({"a.b": 1, "a.c": 2})
+    assert result == {"a": {"b": 1, "c": 2}}
+
+
+def test_unflatten_preserves_flat_dict_when_no_dotted_overlap() -> None:
+    """Flat dict-valued key with no dotted-key collision passes through
+    unchanged. Pins the `out[raw_key] = val` arm of the flat-key branch."""
+    result = _unflatten({"model": {"n_estimators": 100, "max_depth": 5}})
+    assert result == {"model": {"n_estimators": 100, "max_depth": 5}}
