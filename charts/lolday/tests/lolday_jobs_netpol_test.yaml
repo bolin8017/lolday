@@ -1,0 +1,205 @@
+suite: lolday-jobs NetworkPolicies (build-egress + job-egress)
+templates:
+  - templates/build-networkpolicy.yaml
+  - templates/job-networkpolicy.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # ---- job-networkpolicy.yaml (lolday-job-egress, vcjob detector pods) ----
+  - it: job-egress NP renders in lolday-jobs ns with default jobs.networkPolicy.enabled
+    template: templates/job-networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: lolday-job-egress
+      - equal:
+          path: metadata.namespace
+          value: lolday-jobs
+
+  - it: job-egress NP is gated off when jobs.networkPolicy.enabled=false
+    template: templates/job-networkpolicy.yaml
+    set:
+      jobs.networkPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: job-egress NP targets vcjob pods and locks down ingress
+    # Reason: Detector vcjob pods carry the
+    # `app.kubernetes.io/name: lolday-job` label set by the backend
+    # k8s service when it builds the Volcano Job spec. Ingress is
+    # an explicit empty list (not omitted), enforcing the deny-all
+    # invariant: nothing in the cluster — including the backend —
+    # can reach a running detector pod. Re-adding any `from:` clause
+    # here regresses the Phase 1 isolation contract.
+    template: templates/job-networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/name"]
+          value: lolday-job
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - equal:
+          path: spec.ingress
+          value: []
+
+  - it: job-egress NP allows DNS to kube-system (UDP + TCP 53)
+    template: templates/job-networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - { protocol: UDP, port: 53 }
+              - { protocol: TCP, port: 53 }
+
+  - it: job-egress NP allows MLflow cross-ns (port 5000) and backend (port 8000)
+    # Reason: Detector container POSTs runs/metrics to MLflow on 5000,
+    # the event-tailer sidecar POSTs callbacks to backend on 8000.
+    # These are the only two cluster-internal egresses vcjobs need;
+    # widening the port list silently expands the attack surface.
+    template: templates/job-networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: lolday
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: mlflow
+            ports:
+              - { protocol: TCP, port: 5000 }
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: lolday
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: backend
+            ports:
+              - { protocol: TCP, port: 8000 }
+
+  - it: job-egress NP does NOT allow Harbor or arbitrary internet (vcjob isolation)
+    # Reason: vcjob detector containers must NOT be able to push to
+    # Harbor (only build pods do) or reach the public internet
+    # (Phase 1 isolation: training data + model artefacts stay
+    # MLflow-internal, no exfiltration path). Build pods use
+    # lolday-build-egress (sister template) which intentionally
+    # opens both. A regression that adds a Harbor or 0.0.0.0/0
+    # clause here breaks the deploy-platform invariant.
+    template: templates/job-networkpolicy.yaml
+    asserts:
+      - notContains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: lolday
+                podSelector:
+                  matchLabels:
+                    app: harbor
+      - lengthEqual:
+          path: spec.egress
+          count: 3
+
+  # ---- build-networkpolicy.yaml (lolday-build-egress, BuildKit build pods) ----
+  - it: build-egress NP renders in lolday-jobs ns with backend.enabled
+    template: templates/build-networkpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: lolday-build-egress
+      - equal:
+          path: metadata.namespace
+          value: lolday-jobs
+
+  - it: build-egress NP is gated off when backend.enabled=false
+    template: templates/build-networkpolicy.yaml
+    set:
+      backend.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: build-egress NP targets BuildKit build pods (egress-only policyTypes)
+    # Reason: Build pods receive no in-cluster traffic; the backend
+    # reads their progress via watch on the parent Job object, not
+    # by dialing the pod. Adding `Ingress` here is dead policy and
+    # signals confusion about how BuildKit is supervised.
+    template: templates/build-networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: lolday-build
+      - equal:
+          path: spec.policyTypes
+          value: [Egress]
+
+  - it: build-egress NP allows Harbor (cross-ns) — intentionally distinct from job-egress
+    # Reason: BuildKit pushes the freshly-built detector image to
+    # the in-cluster Harbor. This is the ONE egress that diverges
+    # from job-egress; pinning the Harbor clause here makes any
+    # accidental copy-paste from job-egress (which omits Harbor)
+    # fail loudly.
+    template: templates/build-networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: lolday
+                podSelector:
+                  matchLabels:
+                    app: harbor
+
+  - it: build-egress NP allows public internet but EXCLUDES cluster-internal CIDRs
+    # Reason: BuildKit needs to git-clone detector source from
+    # github.com / GitLab and pull base images from Docker Hub,
+    # so 0.0.0.0/0 is required. The `except:` block is the
+    # critical security gate — without it, build pods could
+    # bypass NamespaceSelector NPs by dialing pod IPs directly
+    # via the cluster pod/svc CIDRs. K3s ranges are 10.42.0.0/16
+    # (pod) and 10.43.0.0/16 (svc); the two RFC1918 + link-local
+    # entries cover host-network paths.
+    template: templates/build-networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+                  except:
+                    - 10.42.0.0/16
+                    - 10.43.0.0/16
+                    - 192.168.0.0/16
+                    - 172.16.0.0/12
+                    - 169.254.0.0/16
