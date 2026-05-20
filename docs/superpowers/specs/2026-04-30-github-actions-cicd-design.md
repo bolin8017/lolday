@@ -41,6 +41,7 @@ No breaking changes to existing developer flow:
 
 - Production deploy automation. Harbor push, `scripts/deploy.sh` invocation, K3s rollout — all stay manual, run on server30 only.
 - Playwright E2E on PR. A `playwright-e2e` job slot is left commented-out in `frontend.yml` with a TODO comment pointing at this spec; future phase activates it.
+  > **Footnote — status update (2026-05-17 frontend-slow stub layer).** Playwright E2E on PR is now **live** in `.github/workflows/frontend-slow.yml`, gated by the `SPEC_LANE_STUBS=true` lifespan hook so uvicorn + vite boot without a real K8s cluster / MLflow / Postgres. See `docs/superpowers/specs/2026-05-17-frontend-slow-stub-layer-design.md` and `docs/architecture.md` §10 #34 for the design. The "service-container layout (Postgres / Redis / mocked CF Access)" deferral in §4.3 below is also closed by the same stub layer.
 - `mlflow-server` and `pytorch-cu12-base` helper image CI build. Their tags carry external semantic meaning, body sizes are large (CUDA base ~5 GB), and update frequency is low. Operator continues manual build.
 - Coverage upload (codecov / coveralls). Not blocked by this spec; can be a 3-line follow-up.
 - Container image signing (cosign / sigstore). ISLab internal use case does not require it now.
@@ -232,6 +233,8 @@ Steps:
 4. `pnpm --dir frontend test` (vitest, `--passWithNoTests` already in `package.json`).
 
 A second job slot `playwright-e2e` is **kept as commented-out YAML** with a TODO referencing this spec — future phase activates after deciding service-container layout (Postgres / Redis / mocked CF Access).
+
+> **Footnote — status update (2026-05-17).** Playwright E2E is now **live** in `.github/workflows/frontend-slow.yml`. The service-container layout question was resolved by the §10 #34 frontend-slow stub layer: `SPEC_LANE_STUBS=true` installs in-memory K8s + MLflow stubs in the lifespan hook, so uvicorn boots without Postgres / Redis / a real CF Access app. Design: `docs/superpowers/specs/2026-05-17-frontend-slow-stub-layer-design.md`.
 
 ### 4.4 `helm.yml`
 
