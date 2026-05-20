@@ -312,6 +312,43 @@ async def test_cf_access_user_dev_mode_bypasses_jwt(db_session, monkeypatch):
     assert user.role.value == "user"
 
 
+async def test_auth_failure_total_increments_on_jwks_lookup_failure(monkeypatch):
+    """A JWKS-server outage (DNS error, 5xx, certificate expiry) surfaces as
+    `pyjwt.PyJWKClientError` out of `get_signing_key_from_jwt`. Must
+    increment `AUTH_FAILURE_TOTAL{reason="jwks_lookup_failed"}` so the
+    `LoldayBackendErrorRateElevated` alert pages the operator rather
+    than silently 500-ing every request.
+
+    Covers lines 256-258 in `app/auth/cf_access.py::resolve_user_from_jwt`.
+    Distinct from the existing `invalid_signature` test which bypasses the
+    JWKS lookup with a FakeJwksClient that succeeds and only the verify
+    step fails."""
+    import jwt as pyjwt
+    from app.auth import cf_access
+    from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", False)
+    monkeypatch.setattr(settings, "CF_ACCESS_TEAM_DOMAIN", "test.cloudflareaccess.com")
+    monkeypatch.setattr(settings, "CF_ACCESS_APP_AUD", "test-app-uid")
+
+    class _FailingJwksClient:
+        def get_signing_key_from_jwt(self, _token):
+            raise pyjwt.PyJWKClientError("simulated JWKS endpoint unreachable")
+
+    monkeypatch.setattr(cf_access, "_get_jwks_client", lambda: _FailingJwksClient())
+
+    before = _read_counter("lolday_auth_failure_total", reason="jwks_lookup_failed")
+
+    with pytest.raises(CfAccessAuthError, match="jwks lookup failed"):
+        await resolve_user_from_jwt(
+            session=None, token="any-token", log_context="jwks-outage"
+        )
+
+    after = _read_counter("lolday_auth_failure_total", reason="jwks_lookup_failed")
+    assert after - before == pytest.approx(1.0)
+
+
 async def test_resolve_user_dev_mode_with_empty_email_raises(db_session, monkeypatch):
     """`AUTH_DEV_MODE=true` + empty `AUTH_DEV_EMAIL` is a misconfiguration —
     must raise `CfAccessAuthError` rather than silently fall through to a
