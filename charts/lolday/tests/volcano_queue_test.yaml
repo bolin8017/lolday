@@ -1,0 +1,88 @@
+suite: Volcano fallback Queue (lolday-training)
+templates:
+  - templates/volcano-queue.yaml
+values:
+  - ../values-test.yaml
+set:
+  # values-test.yaml ships volcano.enabled=false (sub-chart skipped for unit
+  # tests); enable it here so the templated Queue actually renders. The
+  # Queue is cluster-scoped CRD and does not require the sub-chart pods to
+  # exist for helm-template rendering.
+  volcano.enabled: true
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a cluster-scoped Volcano Queue named lolday-training
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Queue
+      - equal:
+          path: apiVersion
+          value: scheduling.volcano.sh/v1beta1
+      - equal:
+          path: metadata.name
+          value: lolday-training
+      - notExists:
+          path: metadata.namespace
+
+  - it: is gated off when volcano.enabled=false
+    set:
+      volcano.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ships as a post-install/post-upgrade helm hook with delete-then-create policy
+    # Reason: Creating a Queue calls the Volcano `mutatequeue.volcano.sh`
+    # mutating webhook, which needs the admission Deployment + Service to
+    # already be Ready. Running this in the main helm wave races against
+    # admission pod startup and fails with "no endpoints available for
+    # service ...-admission-service". Re-running helm upgrade idempotently
+    # requires `before-hook-creation` (delete-then-create) — without it, the
+    # second helm upgrade hits "Queue already exists" and fails. Pinning
+    # the hook + weight + delete-policy keeps a refactor from regressing
+    # the install path silently.
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "10"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation
+
+  - it: capability cap matches per-user queue cap (cpu=8, memory=30Gi, 2 GPUs)
+    # Reason: Phase 2 (spec 2026-05-05 §7) hard-codes the same capability
+    # cap on the fallback queue as on every lazily-created per-user queue
+    # (services/k8s.ensure_user_queue). DRF + proportion plugin scheduling
+    # depends on consistent caps across queues to deliver multi-user
+    # fair-share without explicit PriorityClass. A regression that bumps
+    # this cap would let pre-cutover / non-user job paths starve the
+    # cluster by escaping the per-user cap. weight=1 + reclaimable=true
+    # are also pinned: weight imbalance breaks the DRF invariant, and
+    # reclaimable=false would prevent GPU rebalancing across queues when
+    # other (future) queues finish.
+    asserts:
+      - equal:
+          path: spec.weight
+          value: 1
+      - equal:
+          path: spec.reclaimable
+          value: true
+      - equal:
+          path: spec.capability.cpu
+          value: "8"
+      - equal:
+          path: spec.capability.memory
+          value: 30Gi
+      - equal:
+          path: spec.capability["nvidia.com/gpu"]
+          value: "2"
