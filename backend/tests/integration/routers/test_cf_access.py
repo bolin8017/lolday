@@ -374,6 +374,72 @@ async def test_resolve_user_dev_mode_with_empty_email_raises(db_session, monkeyp
         )
 
 
+async def test_claims_peek_succeeds_on_validly_shaped_but_wrong_signed_token(
+    monkeypatch, rsa_keypair, caplog
+):
+    """A JWT signed by an attacker's key but otherwise well-formed: the
+    signature verification fails BUT `pyjwt.decode(..., verify_signature=False)`
+    parses successfully, so the claims-peek branch of the warning-log path
+    populates a structured `peek` dict (not the `"unparseable"` fallback).
+
+    Distinct from the existing claims-peek test which passes the literal
+    string `"not-a-real-jwt"` — that hits the `except Exception` arm of
+    the peek try-block. This one exercises the dict-construction arm
+    (lines 282-287), the only path that produces actionable structured
+    information in the operator-facing warning log.
+    """
+    import io
+    import logging
+
+    from app.auth import cf_access
+    from app.auth.cf_access import CfAccessAuthError, resolve_user_from_jwt
+    from app.config import settings
+    from cryptography.hazmat.primitives.asymmetric import rsa as rsa_mod
+
+    monkeypatch.setattr(settings, "AUTH_DEV_MODE", False)
+    monkeypatch.setattr(settings, "CF_ACCESS_TEAM_DOMAIN", "test.cloudflareaccess.com")
+    monkeypatch.setattr(settings, "CF_ACCESS_APP_AUD", "test-app-uid")
+
+    # Attacker signs a perfectly-shaped JWT but with a key that doesn't
+    # match the JWKS-published key. JWT decode passes; signature check
+    # fails on verify_cf_token.
+    attacker_priv = rsa_mod.generate_private_key(public_exponent=65537, key_size=2048)
+    attacker_token = _sign(attacker_priv, _valid_claims())
+
+    class _VictimJwksClient:
+        def get_signing_key_from_jwt(self, _token):
+            class _K:
+                key = rsa_keypair.public_key()  # the WRONG key for this token
+
+            return _K()
+
+    monkeypatch.setattr(cf_access, "_get_jwks_client", lambda: _VictimJwksClient())
+
+    # Logger handler capture (same pattern as test_claims_peek_redacts_email
+    # — avoids the alembic `disable_existing_loggers` interaction).
+    logger_obj = logging.getLogger("app.auth.cf_access")
+    saved_disabled = logger_obj.disabled
+    logger_obj.disabled = False
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setLevel(logging.WARNING)
+    logger_obj.addHandler(handler)
+    try:
+        with pytest.raises(CfAccessAuthError):
+            await resolve_user_from_jwt(
+                session=None, token=attacker_token, log_context="peek-test"
+            )
+    finally:
+        logger_obj.removeHandler(handler)
+        logger_obj.disabled = saved_disabled
+
+    output = buf.getvalue()
+    # Structured peek landed (not the "unparseable" fallback).
+    assert "unparseable" not in output
+    assert "test-app-uid" in output  # aud from the well-formed token's claims
+    assert "a***@example.com" in output  # email was redacted into the peek
+
+
 async def test_resolve_user_rejects_jwt_without_email_or_common_name(
     db_session, monkeypatch, rsa_keypair
 ):
