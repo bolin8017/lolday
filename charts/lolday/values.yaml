@@ -461,6 +461,28 @@ kps:
   nodeExporter:
     enabled: true
 
+  # Defense-in-depth hardening for the prometheus-node-exporter DaemonSet
+  # (kps sub-sub-chart `prometheus-node-exporter`, NOT `kps.nodeExporter`
+  # which is the kps wrapper for ServiceMonitor / Prometheus rule generation).
+  # The pod cannot meet PSS `restricted` because metric collection needs
+  # `hostNetwork` / `hostPID` / `hostPort` + the `/host/{proc,sys,root}`
+  # hostPath volumes (intrinsic, see `docs/architecture.md` §10 #36 —
+  # parallel to lolday-alloy). The chart already runs as non-root
+  # (`runAsNonRoot: true` + uid 65534) and read-only-root-fs is set; this
+  # block fills the remaining PSS baseline-plus gap: pod-level seccomp +
+  # container-level priv-esc / capability drop / seccomp.
+  prometheus-node-exporter:
+    securityContext:
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
+
   # K3s embeds controller-manager / scheduler / kube-proxy / etcd as goroutines
   # inside the k3s server binary and only exposes their /metrics on
   # 127.0.0.1:10257/10259 — unreachable by Prometheus from a pod. Disable those
