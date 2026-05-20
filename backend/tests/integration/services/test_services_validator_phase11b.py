@@ -82,6 +82,29 @@ def test_rejects_mismatched_dataset_contract() -> None:
         )
 
 
+def test_rejects_unsupported_dataset_contract_when_manifest_agrees() -> None:
+    """Detector author + platform-side caller both agree on a contract name
+    that the platform doesn't yet support — must still 400, not silently
+    accept. Covers the second `if dataset_contract not in
+    SUPPORTED_DATASET_CONTRACTS` guard, distinct from the "platform vs
+    detector mismatch" path above.
+    """
+    m = _manifest(
+        input={
+            "binary_format": "elf",
+            "required_sections": [],
+            "dataset_contract": "sample_parquet",
+        }
+    )
+    with pytest.raises(JobSubmissionError, match="not supported by the platform"):
+        validate_job_submission(
+            manifest=m,
+            resource_profile=ResourceProfile.STANDARD,
+            dataset_contract="sample_parquet",
+            stage="train",
+        )
+
+
 def test_rejects_stage_not_declared() -> None:
     m = _manifest(
         lifecycle={
