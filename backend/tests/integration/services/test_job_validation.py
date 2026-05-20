@@ -628,3 +628,55 @@ async def test_validate_submission_predict_with_own_model_passes(
     validated = await validate_submission(db_session, seed_user, body)
     assert validated.source_model_version is not None
     assert validated.source_model_version.id == mv.id
+
+
+@pytest.mark.asyncio
+async def test_validate_submission_dataset_integrity_failed_422(
+    db_session,
+    seed_user,
+    seed_detector_version,
+    seed_dataset,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """spot-check raises DatasetIntegrityError → 422 dataset_integrity_failed.
+
+    Default test env has SAMPLES_LOCAL_ROOT=/data (typically missing) so
+    the spot-check block is skipped and lines 230-244 of job_validation.py
+    stay uncovered. This test points the setting at a tmp_path that does
+    exist, ensures SPEC_LANE_STUBS is off, and mocks spot_check_samples
+    to raise — verifying the wrapping converts to ValidationError with
+    code='dataset_integrity_failed' and status_code 422.
+    """
+    from app.services.dataset import DatasetIntegrityError
+
+    dv_id = await seed_detector_version()
+    ds_id = await seed_dataset()
+
+    # Force `samples_root.exists()` true + SPEC_LANE_STUBS false so the
+    # spot-check branch is reachable, then mock the spot-check itself to
+    # raise — populating a real union-mount fixture would require
+    # SHA-named files for every CSV row in the seed dataset.
+    monkeypatch.setattr(
+        "app.services.job_validation.settings.SAMPLES_LOCAL_ROOT", str(tmp_path)
+    )
+    monkeypatch.setattr("app.services.job_validation.settings.SPEC_LANE_STUBS", False)
+
+    def _raise(*args, **kwargs):
+        raise DatasetIntegrityError("missing 30/3 spot-check samples on disk")
+
+    monkeypatch.setattr("app.services.job_validation.spot_check_samples", _raise)
+
+    body = JobCreate(
+        type=JobType.TRAIN,
+        detector_version_id=uuid.UUID(dv_id),
+        train_dataset_id=uuid.UUID(ds_id),
+        resource_profile=ResourceProfile.STANDARD,
+        params={},
+    )
+
+    with pytest.raises(ValidationError) as exc:
+        await validate_submission(db_session, seed_user, body)
+    assert exc.value.code == "dataset_integrity_failed"
+    assert exc.value.status_code == 422
+    assert "spot-check samples" in str(exc.value)
