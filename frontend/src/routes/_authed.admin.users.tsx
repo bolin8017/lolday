@@ -22,7 +22,13 @@ export const handle = { breadcrumb: "Admin / Users" };
 
 const ROLES: Role[] = ["user", "developer", "admin"];
 
-function RoleCell({ user, selfId }: { user: User; selfId: string | null }) {
+export function RoleCell({
+  user,
+  selfId,
+}: {
+  user: User;
+  selfId: string | null;
+}) {
   const mut = useUpdateUserRole();
   const isSelf = selfId === user.id;
   const demotingSelf = isSelf;
