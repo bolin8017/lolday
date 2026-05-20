@@ -1,0 +1,177 @@
+suite: alembic upgrade pre-upgrade Job
+templates:
+  - templates/alembic-upgrade-hook.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a single Helm pre-install/pre-upgrade Job
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Job
+      - equal:
+          path: metadata.name
+          value: alembic-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "5"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation,hook-succeeded
+
+  - it: is gated off when backend.enabled=false
+    set:
+      backend.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: bounds retries and pod lifetime
+    asserts:
+      - equal:
+          path: spec.backoffLimit
+          value: 2
+      - equal:
+          path: spec.ttlSecondsAfterFinished
+          value: 300
+      - equal:
+          path: spec.template.spec.restartPolicy
+          value: Never
+
+  - it: pulls the backend image with imagePullPolicy=Always
+    # Reason: a tag re-pushed in place (e.g. a phase hotfix) must not
+    # silently apply stale migrations under IfNotPresent semantics.
+    set:
+      backend.image: ghcr.io/bolin8017/lolday-backend:vtest@sha256:abc
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ".*lolday-backend:vtest"
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+
+  - it: runs alembic upgrade head via uv
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: ["uv", "run", "alembic", "upgrade", "head"]
+
+  - it: pod-level securityContext is PSS-restricted compliant
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: container-level securityContext drops ALL caps with readOnlyRootFilesystem
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: disables ServiceAccount token auto-mount
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: redirects uv cache to /tmp emptyDir to support ro rootfs
+    # Reason: H-7 + H-10 — readOnlyRootFilesystem=true + UID 1000 with
+    # HOME=/home/lolday leaves uv with no writable cache root.
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: UV_CACHE_DIR
+            value: /tmp/uv-cache
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: UV_NO_SYNC
+            value: "1"
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
+
+  - it: opts out of the SSO/CF_ACCESS validator via ENVIRONMENT=migration
+    # Reason: importing app.config triggers validate_sso_config, which would
+    # reject the migration Job's lack of CF_ACCESS_* credentials.
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ENVIRONMENT
+            value: migration
+
+  - it: passes through SSO_ADMIN_EMAIL when set
+    set:
+      backend.env.SSO_ADMIN_EMAIL: "owner@example.com"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SSO_ADMIN_EMAIL
+            value: "owner@example.com"
+
+  - it: omits SSO_ADMIN_EMAIL when not set (no-op migration is safe)
+    set:
+      backend.env.SSO_ADMIN_EMAIL: ""
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SSO_ADMIN_EMAIL
+            value: ""
+
+  - it: renders DATABASE_URL from postgresql values
+    set:
+      postgresql.auth.username: dbuser
+      postgresql.auth.password: dbpw
+      postgresql.auth.database: dbname
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_URL
+            value: "postgresql+asyncpg://dbuser:dbpw@postgresql:5432/dbname"
+
+  - it: caps memory below the default kube-reserved threshold
+    # Reason: keeps the hook from competing with the steady-state pods on
+    # node-pressure-eviction (kube-reserved memory: 2Gi per CLAUDE.md §10
+    # gotcha 13).
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 128Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 256Mi
