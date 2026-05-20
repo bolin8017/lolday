@@ -2,6 +2,7 @@
 
 import contextlib
 import inspect
+import logging
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -102,6 +103,92 @@ def test_query_prometheus_raises_on_non_success_status_field(mock_http_client):
 
     with pytest.raises(gpu_signal.PrometheusUnavailable):
         gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+
+def test_query_prometheus_raises_on_non_json_body(mock_http_client):
+    """A non-JSON response body must surface as PrometheusUnavailable.
+
+    Hits the ``except ValueError`` branch in ``_query_prometheus`` — covers
+    a captive-portal / proxy-error scenario where Prom returns text/html
+    with a 200 status code, which would otherwise raise raw ValueError
+    out of the FIFO scheduler tick and bypass the fail-safe path.
+    """
+    mock_response = MagicMock()
+    mock_response.json.side_effect = ValueError("not JSON")
+    mock_response.raise_for_status.return_value = None
+    mock_http_client.get.return_value = mock_response
+
+    with pytest.raises(gpu_signal.PrometheusUnavailable, match="non-JSON"):
+        gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+
+def test_query_prometheus_skips_malformed_samples(mock_http_client, caplog):
+    """Samples missing ``metric``/``value`` are skipped with a warning, not raised.
+
+    Covers the defensive ``except (KeyError, IndexError, ValueError, TypeError)``
+    in the per-sample loop. The healthy sample alongside the malformed ones
+    must still be returned so a single bad row in DCGM's series does not
+    blank out the GPU signal.
+    """
+    mock_response = MagicMock()
+    mock_response.json.return_value = _prom_response(
+        [
+            {"metric": {"gpu": "0"}, "value": [1730000000, "87.5"]},  # ok
+            {"value": [1730000000, "1.0"]},  # missing "metric" -> KeyError
+            {"metric": {"gpu": "1"}, "value": [1730000000]},  # IndexError
+            {
+                "metric": {"gpu": "2"},
+                "value": [1730000000, "not-a-float"],
+            },  # ValueError
+        ]
+    )
+    mock_response.raise_for_status.return_value = None
+    mock_http_client.get.return_value = mock_response
+
+    with caplog.at_level(logging.WARNING, logger="app.services.gpu_signal"):
+        samples = gpu_signal._query_prometheus("DCGM_FI_DEV_GPU_UTIL")
+
+    assert len(samples) == 1
+    assert samples[0]["metric"]["gpu"] == "0"
+    assert samples[0]["value"] == 87.5
+    assert any("malformed Prom sample skipped" in m for m in caplog.messages)
+
+
+def test_reduce_threshold_samples_skips_non_int_gpu_labels():
+    """Samples with missing / non-int ``metric.gpu`` are silently skipped.
+
+    Covers the defensive ``except (KeyError, ValueError, TypeError)`` in
+    ``_reduce_threshold_samples``. ``_query_prometheus`` has already logged
+    these upstream, so the helper must continue without raising.
+    """
+    samples = [
+        {"metric": {"gpu": "0"}, "value": 80.0},  # ok, above threshold
+        {"metric": {}, "value": 50.0},  # missing "gpu" -> KeyError
+        {"metric": {"gpu": "not-an-int"}, "value": 70.0},  # ValueError
+        {"metric": {"gpu": None}, "value": 60.0},  # TypeError on int(None)
+    ]
+    by_gpu, busy = gpu_signal._reduce_threshold_samples(samples, threshold=5.0)
+    assert by_gpu == {0: 80.0}
+    assert busy == {0}
+
+
+def test_gpu_ids_from_samples_skips_non_int_gpu_labels():
+    """Same defensive skip as `_reduce_threshold_samples`, on the id-only helper.
+
+    Covers the second copy of the ``except (KeyError, ValueError, TypeError)``
+    pattern in ``_gpu_ids_from_samples``. Without it, a malformed k8s-query
+    response would crash the FIFO scheduler tick instead of degrading to
+    a fail-safe-quiet "no k8s GPUs detected".
+    """
+    samples = [
+        {"metric": {"gpu": "0"}, "value": 1.0},
+        {"metric": {"gpu": "1"}, "value": 1.0},
+        {"metric": {}, "value": 1.0},
+        {"metric": {"gpu": "abc"}, "value": 1.0},
+        {"metric": {"gpu": None}, "value": 1.0},
+    ]
+    ids = gpu_signal._gpu_ids_from_samples(samples)
+    assert ids == {0, 1}
 
 
 def test_module_level_http_client_exists():
