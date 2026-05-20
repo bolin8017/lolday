@@ -1,0 +1,187 @@
+suite: deadmans-switch ConfigMap + CronJob
+templates:
+  - templates/monitoring/deadmans-switch.yaml
+values:
+  - ../values-test.yaml
+set:
+  monitoring.enabled: true
+  monitoring.grafana.adminPassword: "fake-grafana-pw"
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders the check.py ConfigMap + the CronJob
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentIndex: 0
+        isKind:
+          of: ConfigMap
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: deadmans-switch-script
+      - documentIndex: 0
+        equal:
+          path: metadata.namespace
+          value: monitoring
+      - documentIndex: 1
+        isKind:
+          of: CronJob
+      - documentIndex: 1
+        equal:
+          path: metadata.name
+          value: deadmans-switch
+      - documentIndex: 1
+        equal:
+          path: metadata.namespace
+          value: monitoring
+
+  - it: is gated off when monitoring.enabled=false
+    set:
+      monitoring.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ConfigMap carries the check.py body (Watchdog identifier present)
+    # Reason: check.py is the Watchdog signal verifier. The literal
+    # alertname Watchdog must appear in the embedded body — otherwise the
+    # script is mismatched against the alert and the dead-man's switch
+    # cannot trigger.
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: data["check.py"]
+          pattern: Watchdog
+
+  - it: CronJob fires every 5 minutes with concurrencyPolicy=Forbid
+    # Reason: Phase 9.1 spec — */5 * * * * is the documented cadence,
+    # and concurrent runs are pointless because each pulls the same
+    # Watchdog signal.
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "*/5 * * * *"
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+
+  - it: bounds retries and pod lifetime
+    # Reason: a 60s activeDeadlineSeconds keeps a stuck check.py from
+    # masking the next firing; backoffLimit=0 makes failures land on
+    # the Captain Hook channel immediately via KubeJobFailed (no
+    # silent retry).
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.backoffLimit
+          value: 0
+      - equal:
+          path: spec.jobTemplate.spec.activeDeadlineSeconds
+          value: 60
+      - equal:
+          path: spec.jobTemplate.spec.ttlSecondsAfterFinished
+          value: 3600
+      - equal:
+          path: spec.successfulJobsHistoryLimit
+          value: 1
+      - equal:
+          path: spec.failedJobsHistoryLimit
+          value: 3
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.restartPolicy
+          value: Never
+
+  - it: pod securityContext is PSS-restricted compliant
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.runAsGroup
+          value: 65534
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: container securityContext drops ALL with read-only rootfs
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  - it: disables ServiceAccount token auto-mount
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: wires DISCORD_URL (REQUIRED) to webhook-url-critical
+    # Reason: missing webhook-url-critical causes check.py to fail-fast
+    # with RuntimeError — the operator sees CrashLoopBackOff and notices
+    # the misconfig instead of silently shipping a broken dead-man's
+    # switch.
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: DISCORD_URL
+            valueFrom:
+              secretKeyRef:
+                name: alertmanager-discord
+                key: webhook-url-critical
+
+  - it: wires DISCORD_HEARTBEAT_URL as OPTIONAL (graceful degrade)
+    # Reason: §10 #31 follow-up to PR #201 — when the operator hasn't
+    # populated webhook-url-heartbeat, the env binding is `optional: true`
+    # so the pod stays healthy; check.py logs "skipped" instead of
+    # crashing.
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: DISCORD_HEARTBEAT_URL
+            valueFrom:
+              secretKeyRef:
+                name: alertmanager-discord
+                key: webhook-url-heartbeat
+                optional: true
+
+  - it: mounts the check.py ConfigMap read-only at /scripts
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+          content:
+            name: scripts
+            mountPath: /scripts
+            readOnly: true
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          content:
+            name: scripts
+            configMap:
+              name: deadmans-switch-script
+              defaultMode: 292
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].command
+          value: [python, /scripts/check.py]
