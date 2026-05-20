@@ -1,0 +1,155 @@
+suite: postgres-exporter-init helm-hook Job (postgres_exporter role bootstrap)
+templates:
+  - templates/monitoring/postgres-exporter-initjob.yaml
+values:
+  - ../values-test.yaml
+set:
+  monitoring.enabled: true
+  monitoring.postgresExporter.enabled: true
+  monitoring.postgresExporter.password: "fake-pg-exporter-pw"
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders a batch/v1 Job in the lolday ns
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Job
+      - equal:
+          path: apiVersion
+          value: batch/v1
+      - equal:
+          path: metadata.name
+          value: postgres-exporter-init
+      - equal:
+          path: metadata.namespace
+          value: lolday
+
+  - it: is gated off when monitoring.enabled=false
+    set:
+      monitoring.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: is gated off when monitoring.postgresExporter.enabled=false
+    # Reason: AND-gate on TWO switches (companion to the same gate on
+    # servicemonitor-postgres.yaml). Operator can disable JUST the
+    # postgres-exporter path without losing the rest of kps.
+    set:
+      monitoring.postgresExporter.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ships as helm post-install/post-upgrade hook with delete-then-create + on-success cleanup
+    # Reason: Bootstrap-as-helm-hook with weight 5 keeps the Job from
+    # racing against the postgresql StatefulSet readiness — Postgres must
+    # be Ready before the Job opens a connection. before-hook-creation
+    # makes re-runs idempotent (drop the prior Job first); hook-succeeded
+    # garbage-collects after a green run so kubectl get jobs stays clean.
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "5"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation,hook-succeeded
+
+  - it: backoffLimit=3 + restartPolicy=OnFailure
+    asserts:
+      - equal:
+          path: spec.backoffLimit
+          value: 3
+      - equal:
+          path: spec.template.spec.restartPolicy
+          value: OnFailure
+
+  - it: pod labels include app.kubernetes.io/name=postgres-exporter-init
+    # Reason: the postgresql ingress NP (netpol-lolday-default-deny.yaml)
+    # specifically allows `app.kubernetes.io/name: postgres-exporter-init`
+    # past the default-deny. A regression that renames this label here
+    # turns the Job into a silent victim of the deny-all NP (auto-memory
+    # [[project_k3s_np_enforcement_reject]] — "connection refused" pattern).
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: postgres-exporter-init
+
+  - it: PGPASSWORD and EXPORTER_PW are sourced from Secrets, never inlined
+    # Reason: This is the load-bearing security comment in the template —
+    # "EXPORTER_PW comes from the postgres-exporter-db Secret's `password`
+    # key — NOT inlined in this Job manifest (anyone with RBAC on jobs
+    # could otherwise read the plaintext password from the Job spec)".
+    # A regression that switches either env var to `value:` would leak
+    # the password to any caller with `get jobs` RBAC. Pin both envs to
+    # secretKeyRef explicitly.
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGPASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgresql
+                key: POSTGRES_PASSWORD
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EXPORTER_PW
+            valueFrom:
+              secretKeyRef:
+                name: postgres-exporter-db
+                key: password
+
+  - it: PGHOST targets the in-ns postgresql Service FQDN
+    # Reason: Resolving postgresql via FQDN within the lolday ns avoids
+    # accidental cross-ns drift and keeps the NP allow-list (which uses
+    # the in-ns podSelector) consistent. A regression that switches to
+    # a `postgres.lolday.svc.cluster.local` form or a different ns
+    # would either fail DNS resolution or trip the NP.
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGHOST
+            value: postgresql.lolday.svc
+
+  - it: SQL command is idempotent (CREATE-or-ALTER USER + GRANT pg_monitor)
+    # Reason: The Job runs on every helm upgrade. CREATE USER on the
+    # second run would error with "role already exists" and trip the
+    # backoffLimit. The DO block's `IF NOT EXISTS` -> CREATE / ELSE ->
+    # ALTER pattern is the idempotency contract. GRANT pg_monitor is
+    # the least-privilege exporter role (not SUPERUSER, not pg_read_all_*).
+    # A regression that swaps to plain CREATE USER or upgrades the GRANT
+    # would either break upgrades or over-privilege the exporter.
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "CREATE USER postgres_exporter WITH PASSWORD"
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "ALTER USER postgres_exporter WITH PASSWORD"
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "GRANT pg_monitor TO postgres_exporter"
+
+  - it: container uses the same postgres image as the postgresql StatefulSet
+    # Reason: The Job needs psql with a compatible client version. Using
+    # the same image pin avoids a "client/server mismatch" surprise
+    # (would need a fresh sha256 bump every time postgresql.image is
+    # bumped). The `default` fallback in the template guards against an
+    # empty postgresql.image; values-test.yaml supplies the actual pin so
+    # the assert reads the explicit value.
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
