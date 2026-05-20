@@ -59,9 +59,11 @@ def parse_csv(content: str) -> ParsedCsv:
         raise DatasetValidationError("CSV is empty")
 
     reader = csv.DictReader(io.StringIO(content))
-    if reader.fieldnames is None:
-        raise DatasetValidationError("CSV has no header")
-
+    # Type narrowing for mypy: `fieldnames` is Sequence[str] | None upstream;
+    # only None when the input is empty, which the `not content.strip()`
+    # guard above already rejects. Asserting here keeps the type story
+    # clean without an unreachable defensive raise.
+    assert reader.fieldnames is not None
     required = {"file_name", "label"}
     missing_cols = required - set(reader.fieldnames)
     if missing_cols:

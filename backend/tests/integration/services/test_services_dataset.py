@@ -57,6 +57,64 @@ def test_parse_empty_csv_rejected():
         parse_csv("file_name,label\n")
 
 
+def test_parse_blank_input_rejected():
+    """Whitespace-only or empty input hits the early `not content.strip()` guard.
+
+    Distinct from `test_parse_empty_csv_rejected` (which carries a header
+    but no data rows and hits the late `no data rows` guard).
+    """
+    with pytest.raises(DatasetValidationError, match="empty"):
+        parse_csv("")
+    with pytest.raises(DatasetValidationError, match="empty"):
+        parse_csv("   \n\t  ")
+
+
+def test_parse_csv_rejects_empty_file_name_value():
+    """An explicitly-empty file_name in a data row must be rejected.
+
+    Distinct from the "missing file_name column" case (header-level) —
+    here the column exists but the row's value is blank.
+    """
+    bad = (
+        "file_name,label\n"
+        ",Malware\n"  # empty file_name, valid label
+    )
+    with pytest.raises(DatasetValidationError, match="empty file_name"):
+        parse_csv(bad)
+
+
+def test_parse_csv_rejects_invalid_label_value():
+    """A row whose label is not in VALID_LABELS must be rejected.
+
+    Distinct from "missing label column" (header-level) — column exists,
+    value is just out-of-vocabulary.
+    """
+    bad = (
+        "file_name,label\n"
+        "0000002158d35c2bb5e7d96a39ff464ea4c83de8c5fd72094736f79125aaca11,NotARealLabel\n"
+    )
+    with pytest.raises(DatasetValidationError, match="label must be one of"):
+        parse_csv(bad)
+
+
+def test_parse_csv_skips_malware_row_with_empty_family():
+    """`family` column present + label=Malware + family empty → row counted,
+    no family entry added.
+
+    Covers the branch `101->77` in `parse_csv` (the `if family:` inner check
+    that skips the family_counts increment when the field is whitespace-only).
+    """
+    content = (
+        "file_name,label,family\n"
+        "0000002158d35c2bb5e7d96a39ff464ea4c83de8c5fd72094736f79125aaca11,Malware,\n"
+        "00000391058cf784a3e1a3f4babfb2e02b74857178cfdc39a7f833631c0a5a35,Malware,xorddos\n"
+    )
+    result = parse_csv(content)
+    assert result.sample_count == 2
+    # Only the second row contributes a family
+    assert result.family_distribution == {"xorddos": 1}
+
+
 def test_parse_malformed_csv_rejected():
     bad = "file_name,label\nabc\n"  # too few columns
     with pytest.raises(DatasetValidationError):
@@ -148,6 +206,22 @@ def test_spot_check_rejects_unknown_label(tmp_path):
         spot_check_samples(
             file_names=names,
             labels=labels,
+            samples_root=samples_root,
+            sample_count=1,
+            missing_threshold=1,
+        )
+
+
+def test_spot_check_rejects_length_mismatch(tmp_path):
+    """`file_names` and `labels` arrive parallel from parse_csv; any mismatch
+    here means a caller-side bug, surfaced as DatasetValidationError before
+    the random spot-check loop runs.
+    """
+    samples_root = tmp_path / "samples"
+    with pytest.raises(DatasetValidationError, match="length mismatch"):
+        spot_check_samples(
+            file_names=["0" * 64, "1" * 64],
+            labels=["Malware"],  # 1 != 2
             samples_root=samples_root,
             sample_count=1,
             missing_threshold=1,
