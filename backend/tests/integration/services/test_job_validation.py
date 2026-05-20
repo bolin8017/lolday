@@ -265,6 +265,46 @@ async def test_validate_submission_stage_block_missing_400(
 
 
 # ---------------------------------------------------------------------------
+# stage_invalid: validate_job_submission raises JobSubmissionError before
+# stage_spec lookup runs. Deterministic trigger — GPU2 against a manifest
+# with supports_distributed=false (the minimal-manifest default) raises
+# JobSubmissionError on the multi-GPU opt-in check; the wrapper surfaces it
+# as a stage_invalid ValidationError. Complements the looser
+# `stage_block_missing_400` test above, which intentionally accepts either
+# code and currently hits the stage_block_missing branch.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_validate_submission_stage_invalid_gpu2_without_distributed_400(
+    db_session, seed_user, seed_detector_version, seed_dataset
+) -> None:
+    """GPU2 + supports_distributed=false must surface as stage_invalid/400.
+
+    The minimal manifest declares `lifecycle.supports_distributed: false`
+    and `resources.supports: ["cpu", "gpu2"]` — a GPU2 submission therefore
+    passes the supports-list check but fails the distributed opt-in check
+    in `validate_job_submission`, the only path that deterministically
+    raises `JobSubmissionError` without also tripping an earlier guard.
+    """
+    dv_id = await seed_detector_version()
+    ds_id = await seed_dataset()
+
+    body = JobCreate(
+        type=JobType.TRAIN,
+        detector_version_id=uuid.UUID(dv_id),
+        train_dataset_id=uuid.UUID(ds_id),
+        resource_profile=ResourceProfile.GPU2,
+        params={},
+    )
+    with pytest.raises(ValidationError) as exc:
+        await validate_submission(db_session, seed_user, body)
+    assert exc.value.code == "stage_invalid"
+    assert exc.value.status_code == 400
+    assert "supports_distributed" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
 # Detector FK invariant: dv.detector_id references a row that was deleted
 # without cascading. The early FK in the row protects the prod path, but the
 # 500 catch is defensive — pin its contract.
