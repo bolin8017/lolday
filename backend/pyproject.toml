@@ -68,6 +68,26 @@ markers = [
 # branch outcomes, which mainstream Python projects (Django / FastAPI /
 # SQLAlchemy itself) enable by default. See PR description for the
 # coverage diff that motivated this change.
+#
+# Known artifact (2026-05-20, do not chase numbers blindly):
+# `branch = true` forces the CTracer (sys.settrace) collector because
+# the sys.monitoring core (PEP 669) does not yet support branch coverage
+# on Python 3.12.x — see https://coverage.readthedocs.io/en/7.13.5/messages.html#warning-no-sysmon
+# CTracer significantly under-reports async-coroutine bodies because
+# settrace does not reliably re-attach on event-loop coroutine resume.
+# Measured on `app/routers/models_registry.py` against the same 50-test
+# subset (`tests/integration/services/test_models_*.py`):
+#     CTracer + branch=true  →  42%  (94/184 statements reported missed)
+#     sysmon  + branch=false →  95%  (10/184 statements reported missed)
+# The 53-percentage-point delta is tooling noise, not real test gaps;
+# the 50 tests pass under both engines and cover the same source paths.
+# Before chasing a low coverage number on a router module, re-run with
+# `COVERAGE_CORE=sysmon --cov-config=...` (branch off) and use the
+# delta to separate real gaps from this artifact. Status quo keeps
+# branch coverage because the if-arm coverage signal on sync helper
+# code (`_summary_query_for_rm`, `_model_version_to_read`, etc.) is
+# more valuable than the async-route headline number — once Python
+# 3.14 ships sys.monitoring branch support, switch this off.
 branch = true
 
 [tool.mutmut]

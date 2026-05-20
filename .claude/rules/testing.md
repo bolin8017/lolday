@@ -135,3 +135,35 @@ The `SPEC_LANE_STUBS` flag is refused in production
 `_install_spec_lane_stubs(app)` outside the lifespan path.
 
 Spec: `docs/superpowers/specs/2026-05-17-frontend-slow-stub-layer-design.md`.
+
+## 14. Async-route coverage artifact
+
+Coverage numbers on FastAPI router modules under
+`backend/app/routers/*.py` are **dramatically under-reported** by the
+current pytest-cov setup. `[tool.coverage.run] branch = true` in
+`backend/pyproject.toml` forces the CTracer (sys.settrace) collector
+because the sys.monitoring core (PEP 669) does not yet support branch
+coverage on Python 3.12.x. CTracer cannot reliably re-attach on
+event-loop coroutine resume, so most async-handler statements come
+back marked missed even when the test executes them.
+
+Measured 2026-05-20 on the same 50-test subset for
+`app/routers/models_registry.py`:
+
+| Engine                  | Cover |
+| ----------------------- | ----- |
+| CTracer + `branch=true` | 42%   |
+| sysmon + `branch=false` | 95%   |
+
+Before adding tests against a router's reported gap, re-run with
+`COVERAGE_CORE=sysmon --cov-config=<branch-off>.cfg` and diff the
+two reports. If the gap shrinks under sysmon, it is the artifact —
+do not write tests for already-covered code paths. Real gaps are
+the lines still missed by sysmon. Status quo retains `branch=true`
+because the if-arm signal on the sync helpers
+(`_summary_query_for_rm`, `_model_version_to_read`, etc.) is more
+useful than the async-route headline number; flip the switch once
+Python 3.14 ships sys.monitoring branch support.
+
+Full reasoning + recipe: `backend/pyproject.toml` comment above
+`branch = true`.
