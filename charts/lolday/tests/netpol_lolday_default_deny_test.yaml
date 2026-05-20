@@ -1,0 +1,297 @@
+suite: lolday infra-ns default-deny + per-service allow NetworkPolicies
+templates:
+  - templates/netpol-lolday-default-deny.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  - it: renders 7 NetworkPolicy documents (1 default-deny + 6 per-service allows)
+    asserts:
+      - hasDocuments:
+          count: 7
+
+  # ---- 0: lolday-default-deny-ingress ----
+  - it: default-deny catch-all selects all pods with no ingress rules
+    # Reason: H-12 default-deny is the contract. `podSelector: {}` selects
+    # every pod; the absence of an `ingress:` block (NOT `ingress: []`) is
+    # the K8s spec for "deny all ingress". Re-introducing an `ingress:`
+    # key here defeats the deny-all baseline.
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: lolday-default-deny-ingress
+      - equal:
+          path: metadata.namespace
+          value: lolday
+      - equal:
+          path: spec.podSelector
+          value: {}
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress]
+      - notExists:
+          path: spec.ingress
+
+  # ---- 1: postgresql-ingress-allow ----
+  - it: postgres allow-list includes the three transient Job hooks + pg-backup
+    # Reason: 2026-05-12 P3 deploy was bitten by the kube-router REJECT
+    # semantics (auto-memory [[project_k3s_np_enforcement_reject]]) — the
+    # alembic / mlflow-db-init / postgres-exporter-init Job hooks looked
+    # like "connection refused" because the default-deny rule above silently
+    # blocked them. The pg-backup CronJob hit the same trap (#172). If any
+    # of these podSelector entries gets dropped, deploys regress to silent
+    # failure.
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: postgresql-ingress-allow
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: postgresql
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: alembic
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: mlflow-db-init
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: postgres-exporter-init
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: pg-backup
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            port: 5432
+            protocol: TCP
+
+  # ---- 2: redis-ingress-allow ----
+  - it: redis NP excludes harbor's redis via matchExpressions NotIn
+    # Reason: Harbor's sub-chart ships its OWN redis pod with the same
+    # `app.kubernetes.io/component: redis` label inside the lolday ns.
+    # The lolday backend should only reach the lolday-managed redis, not
+    # Harbor's internal one. matchExpressions with `NotIn [harbor]` is the
+    # only way to scope this. Switching to a plain matchLabels (= redis)
+    # selector would silently grant backend access to Harbor's redis too —
+    # a privilege creep that a hand reviewer might not catch.
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: redis-ingress-allow
+      - contains:
+          path: spec.podSelector.matchExpressions
+          content:
+            key: app.kubernetes.io/component
+            operator: In
+            values: [redis]
+      - contains:
+          path: spec.podSelector.matchExpressions
+          content:
+            key: app
+            operator: NotIn
+            values: [harbor]
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: backend
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            port: 6379
+            protocol: TCP
+
+  # ---- 3: frontend-ingress-allow ----
+  - it: frontend NP pins POD-side port 8080 (not the Service port 80)
+    # Reason: auto-memory [[k8s_np_port_is_pod_side]] — kube-proxy DNATs
+    # Service -> Pod before NetworkPolicy enforcement. The frontend Service
+    # exposes port 80 mapping to POD targetPort 8080 (nginx-unprivileged).
+    # Using port 80 here would silently fail to match any pod traffic and
+    # block the cloudflared -> traefik -> frontend path. Pin 8080 in stone.
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: frontend-ingress-allow
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: frontend
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 8080
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: traefik
+
+  # ---- 4: mlflow-ingress-allow ----
+  - it: mlflow NP allows backend + kube-system Traefik only (jobs ns blocked)
+    # Reason: jobs ns must use Traefik's ForwardAuth-gated /mlflow/ route
+    # (NOT a direct cluster-internal dial to the MLflow Service). A regression
+    # that adds `namespaceSelector: lolday-jobs` here would bypass the
+    # ForwardAuth check entirely and let unauthenticated job pods write to
+    # any user's MLflow runs.
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: metadata.name
+          value: mlflow-ingress-allow
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: mlflow
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: backend
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: traefik
+      - notContains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: lolday-jobs
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 5000
+
+  - it: mlflow NP port follows the chart values mlflow.service.port
+    # Reason: when the operator bumps `mlflow.service.port` in values.yaml
+    # (e.g. to silence a port-conflict with a future addition), the NP must
+    # follow or MLflow traffic gets silently dropped. Pin the int-cast so a
+    # YAML string -> int regression doesn't slip through.
+    documentIndex: 4
+    set:
+      mlflow.service.port: 5001
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 5001
+
+  # ---- 5: harbor-nginx-ingress-allow ----
+  - it: harbor-nginx NP pins POD-side port 8080 (Harbor 2.x non-root)
+    # Reason: Same POD-vs-Service port trap as frontend (above) — Harbor 2.x
+    # nginx runs as a non-root container on POD port 8080 even though the
+    # Service is `port: 80`. auto-memory [[k8s_np_port_is_pod_side]] also
+    # documents this Harbor variant. Allows backend (build orchestration)
+    # and any pod in the jobs ns (image pull at runtime).
+    documentIndex: 5
+    asserts:
+      - equal:
+          path: metadata.name
+          value: harbor-nginx-ingress-allow
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: harbor
+      - equal:
+          path: spec.podSelector.matchLabels.component
+          value: nginx
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 8080
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/component: backend
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: lolday-jobs
+
+  # ---- 6: harbor-internal-ingress-allow ----
+  - it: harbor intra-component NP grants pod-to-pod within the harbor app
+    # Reason: Harbor's 10 components (core, portal, registry, jobservice,
+    # registryctl, database, redis, trivy, exporter, nginx) all carry the
+    # shared `app: harbor` label and must reach each other unrestricted.
+    # Removing this NP would default-deny rule-trap every internal harbor
+    # call and break the entire registry.
+    documentIndex: 6
+    asserts:
+      - equal:
+          path: metadata.name
+          value: harbor-internal-ingress-allow
+      - equal:
+          path: spec.podSelector.matchLabels.app
+          value: harbor
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            podSelector:
+              matchLabels:
+                app: harbor
+
+  - it: every per-service NP is namespace-scoped to the lolday infra ns
+    # Reason: All seven NPs live in the lolday namespace. A regression that
+    # moves any of them to lolday-jobs or monitoring breaks the default-deny
+    # contract by silently dropping the allow rule from the right ns.
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: lolday
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: lolday
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: lolday
+        documentIndex: 2
+      - equal:
+          path: metadata.namespace
+          value: lolday
+        documentIndex: 3
+      - equal:
+          path: metadata.namespace
+          value: lolday
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: lolday
+        documentIndex: 5
+      - equal:
+          path: metadata.namespace
+          value: lolday
+        documentIndex: 6
