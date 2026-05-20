@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 type User = {
   id: string;
   email: string;
+  handle: string;
   display_name: string | null;
   role: "user" | "developer" | "admin";
   created_at: string | null;
@@ -139,6 +140,7 @@ describe("_authed.admin.users.tsx (AdminUsersPage)", () => {
       {
         id: "u-self",
         email: "me@test",
+        handle: "me",
         display_name: "Me",
         role: "admin",
         created_at: "2026-01-01T00:00:00Z",
@@ -146,6 +148,7 @@ describe("_authed.admin.users.tsx (AdminUsersPage)", () => {
       {
         id: "u-2",
         email: "other@test",
+        handle: "other",
         display_name: null,
         role: "user",
         created_at: null,
@@ -165,6 +168,7 @@ describe("_authed.admin.users.tsx (RoleCell)", () => {
     return {
       id: "u-other",
       email: "other@test",
+      handle: "other",
       display_name: null,
       role: "user",
       created_at: "2026-01-01T00:00:00Z",
