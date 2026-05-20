@@ -1,0 +1,185 @@
+suite: Prometheus ServiceMonitors (backend / dcgm / postgres / traefik / trivy)
+templates:
+  - templates/monitoring/servicemonitor-backend.yaml
+  - templates/monitoring/servicemonitor-dcgm.yaml
+  - templates/monitoring/servicemonitor-postgres.yaml
+  - templates/monitoring/servicemonitor-traefik.yaml
+  - templates/monitoring/servicemonitor-trivy.yaml
+values:
+  - ../values-test.yaml
+set:
+  # values-test.yaml disables monitoring.enabled (kps sub-chart skipped).
+  # Enable here so each ServiceMonitor renders for assertion. The CRD
+  # apiVersion `monitoring.coreos.com/v1` is supplied by kps in real
+  # deploys; helm-template treats it as a regular custom resource at
+  # render time, no CRD pre-install required for unit tests.
+  monitoring.enabled: true
+  monitoring.namespace: monitoring
+  monitoring.postgresExporter.enabled: true
+  monitoring.postgresExporter.password: "fake-pg-pw"
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # ---- backend ----
+  - it: backend ServiceMonitor renders in monitoring ns and targets backend pod port 8000
+    template: templates/monitoring/servicemonitor-backend.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: apiVersion
+          value: monitoring.coreos.com/v1
+      - equal:
+          path: metadata.name
+          value: backend
+      - equal:
+          path: metadata.namespace
+          value: monitoring
+      - equal:
+          path: spec.namespaceSelector.matchNames
+          value: [lolday]
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: backend
+      - equal:
+          path: spec.endpoints[0].targetPort
+          value: 8000
+      - equal:
+          path: spec.endpoints[0].path
+          value: /metrics
+
+  - it: backend SM is gated off when monitoring.enabled=false
+    template: templates/monitoring/servicemonitor-backend.yaml
+    set:
+      monitoring.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ---- dcgm ----
+  - it: DCGM SM cross-ns-selects the gpu-operator ns with port NAME gpu-metrics
+    # Reason: Phase 7.1.1 wires DCGM_FI_* metrics into Prometheus. The SM
+    # selects pods in the `gpu-operator` ns (where the nvidia-gpu-operator
+    # sub-chart deploys the exporter DaemonSet) via cross-ns
+    # `namespaceSelector.matchNames`. Endpoints uses port NAME `gpu-metrics`
+    # (not a number) so an upstream port-number bump doesn't silently break
+    # scraping. Without this SM the DCGMXIDError + DCGMThrottleReasonsPersistent
+    # alerts in alertmanager-rules.yaml never fire and dcgm.json stays empty —
+    # a regression that drops the SM is a silent monitoring-gap.
+    template: templates/monitoring/servicemonitor-dcgm.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: nvidia-dcgm-exporter
+      - equal:
+          path: spec.namespaceSelector.matchNames
+          value: [gpu-operator]
+      - equal:
+          path: spec.selector.matchLabels.app
+          value: nvidia-dcgm-exporter
+      - equal:
+          path: spec.endpoints[0].port
+          value: gpu-metrics
+      - equal:
+          path: spec.endpoints[0].path
+          value: /metrics
+
+  # ---- postgres-exporter ----
+  - it: postgres-exporter SM uses port NAME `metrics` and same-ns selection
+    template: templates/monitoring/servicemonitor-postgres.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: postgres-exporter
+      - equal:
+          path: spec.namespaceSelector.matchNames
+          value: [lolday]
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: postgres-exporter
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics
+
+  - it: postgres-exporter SM is gated off when monitoring.postgresExporter.enabled=false
+    # Reason: postgres-exporter has TWO gating switches (monitoring.enabled
+    # AND monitoring.postgresExporter.enabled). The second gate exists so
+    # the operator can disable just the PG metrics path without losing the
+    # whole kps stack. Pin the AND-gate so a refactor that collapses to a
+    # single switch doesn't silently re-enable the exporter in an environment
+    # where the operator turned it off.
+    template: templates/monitoring/servicemonitor-postgres.yaml
+    set:
+      monitoring.postgresExporter.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ---- traefik ----
+  - it: traefik SM cross-ns-selects kube-system on POD-side port 9100
+    # Reason: K3s ships Traefik in `kube-system`; metrics live on POD port
+    # 9100 (Traefik default). Using a different ns or port silently drops
+    # the traefik.json dashboard. cross-ns selection follows the same
+    # pattern as DCGM (Phase 7.1.1) — the comment in servicemonitor-trivy.yaml
+    # explicitly references it.
+    template: templates/monitoring/servicemonitor-traefik.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: traefik
+      - equal:
+          path: spec.namespaceSelector.matchNames
+          value: [kube-system]
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: traefik
+      - equal:
+          path: spec.endpoints[0].targetPort
+          value: 9100
+
+  # ---- trivy-operator ----
+  - it: trivy-operator SM cross-ns-selects trivy-system with port NAME metrics
+    # Reason: Phase 7.2 — the trivy-operator sub-chart deploys to its own ns
+    # (`trivy-system`) and exposes a Service with port-name `metrics`.
+    # Cross-ns selection from the monitoring ns is the same Phase 7.1.1
+    # pattern. This SM is what makes the `TrivyCriticalCVE` warning alert
+    # (alertmanager-rules.yaml) and the trivy-security.json dashboard work.
+    template: templates/monitoring/servicemonitor-trivy.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: trivy-operator
+      - equal:
+          path: spec.namespaceSelector.matchNames
+          value: [trivy-system]
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: trivy-operator
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics
+
+  # ---- collective invariants ----
+  - it: every ServiceMonitor lives in the monitoring namespace with /metrics path + 30s interval
+    # Reason: kps deploys Prometheus in the monitoring ns; per its default
+    # `serviceMonitorNamespaceSelector`, only SMs in monitoring ns get
+    # picked up. The /metrics path + 30s interval are the global lolday
+    # convention (matches dashboards + alert rule windows). A regression
+    # that moves any SM out of monitoring ns or shortens the interval to
+    # 5-10s would either drop the scrape entirely or burn cardinality.
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: monitoring
+      - equal:
+          path: spec.endpoints[0].path
+          value: /metrics
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 30s
