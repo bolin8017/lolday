@@ -1,0 +1,168 @@
+suite: cloudflared egress + lolday-jobs default-deny ingress NetworkPolicies
+templates:
+  - templates/netpol-cloudflared.yaml
+  - templates/netpol-lolday-jobs-default-deny-ingress.yaml
+values:
+  - ../values-test.yaml
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # ---- netpol-cloudflared.yaml ----
+  - it: cloudflared-egress NP renders in lolday ns when cloudflare.enabled
+    template: templates/netpol-cloudflared.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: cloudflared-egress
+      - equal:
+          path: metadata.namespace
+          value: lolday
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: cloudflared
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+
+  - it: cloudflared-egress NP is gated off when cloudflare.enabled=false
+    template: templates/netpol-cloudflared.yaml
+    set:
+      cloudflare.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: cloudflared ingress only allows Prometheus from monitoring ns on :2000
+    # Reason: The cloudflared sidecar exposes a `/metrics` endpoint on
+    # :2000 that Prometheus scrapes. No other in-cluster client should be
+    # able to dial cloudflared (its purpose is OUTBOUND tunnel). A regression
+    # that widens this — e.g. adding `namespaceSelector: {}` — turns the
+    # ingress section into "all-pod allow-list" and exposes the tunnel
+    # process to lateral movement.
+    template: templates/netpol-cloudflared.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.ingress
+          count: 1
+      - contains:
+          path: spec.ingress[0].from
+          content:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: prometheus
+      - contains:
+          path: spec.ingress[0].ports
+          content:
+            port: 2000
+            protocol: TCP
+
+  - it: cloudflared egress DNS targets kube-dns by k8s-app label (cluster-wide)
+    # Reason: DNS resolution must work even if kube-system has not been
+    # mounted into the cluster's metadata.name selector cache yet (the
+    # `namespaceSelector: {}` form means "any ns"; the pod label
+    # `k8s-app: kube-dns` is the upstream-standard selector).
+    template: templates/netpol-cloudflared.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector: {}
+                podSelector:
+                  matchLabels:
+                    k8s-app: kube-dns
+            ports:
+              - { protocol: UDP, port: 53 }
+              - { protocol: TCP, port: 53 }
+
+  - it: cloudflared egress to Traefik uses POD-side ports 8000/8443 (not 80/443)
+    # Reason: K3s ships Traefik rootless on POD ports 8000 (web) and 8443
+    # (websecure); the kube-proxy DNAT happens before NetworkPolicy filter
+    # so the NP must name the POD-side port. Using 80/443 here would
+    # silently break the cloudflared -> Traefik -> backend/frontend path
+    # because the NP rule would never match. Auto-memory
+    # [[k8s_np_port_is_pod_side]] flagged this gotcha in P3 deploy.
+    template: templates/netpol-cloudflared.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: traefik
+            ports:
+              - { protocol: TCP, port: 8000 }
+              - { protocol: TCP, port: 8443 }
+
+  - it: cloudflared public egress allows 443 + 7844 quic tunnel, excludes RFC1918
+    # Reason: 7844 is the cloudflared QUIC tunnel control-plane port to
+    # Cloudflare's edge — dropping the UDP/TCP 7844 entry breaks tunnel
+    # establishment silently (cloudflared falls back to HTTP/2 over 443
+    # but loses session resumption). The `except:` RFC1918 list pins the
+    # "no in-cluster bypass" invariant; the NP must NOT degrade to
+    # "0.0.0.0/0 with no exceptions".
+    template: templates/netpol-cloudflared.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+                  except:
+                    - 10.0.0.0/8
+                    - 172.16.0.0/12
+                    - 192.168.0.0/16
+            ports:
+              - { protocol: TCP, port: 443 }
+              - { protocol: TCP, port: 7844 }
+              - { protocol: UDP, port: 7844 }
+
+  # ---- netpol-lolday-jobs-default-deny-ingress.yaml ----
+  - it: lolday-jobs default-deny ingress NP renders in lolday-jobs ns
+    template: templates/netpol-lolday-jobs-default-deny-ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: lolday-jobs-default-deny-ingress
+      - equal:
+          path: metadata.namespace
+          value: lolday-jobs
+
+  - it: lolday-jobs default-deny selects every pod with no ingress key
+    # Reason: This NP closes CIS 5.3.2 by widening the per-pod NPs in
+    # build-networkpolicy.yaml + job-networkpolicy.yaml to cover every
+    # pod in the ns — including non-labeled stragglers (helm hooks,
+    # debug pods). The deny-all semantic is encoded by OMITTING the
+    # `ingress:` key entirely (NOT `ingress: []`); rendering an empty
+    # list here would technically also deny but obscure intent and
+    # diverge from the upstream pattern in netpol-lolday-default-deny.yaml.
+    template: templates/netpol-lolday-jobs-default-deny-ingress.yaml
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value: {}
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress]
+      - notExists:
+          path: spec.ingress
