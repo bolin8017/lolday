@@ -592,7 +592,29 @@ alloy:
   enabled: true
   controller:
     type: daemonset
+  # Defense-in-depth pod-level seccomp filter (PSS baseline-plus). The
+  # DaemonSet cannot meet PSS `restricted` because log collection requires
+  # hostPath volumes for /var/log and /var/lib/docker/containers (see
+  # `docs/architecture.md` §10 #36 — intrinsic, parallel to node-exporter),
+  # but the syscall-filter + container-level capability drop below still
+  # narrow the blast radius if a future Alloy CVE drops a sandbox escape.
+  global:
+    podSecurityContext:
+      seccompProfile:
+        type: RuntimeDefault
   alloy:
+    # Container-level hardening for the `alloy` container. `runAsNonRoot`
+    # is deliberately not set: the upstream `grafana/alloy` image reads
+    # /var/log/pods/*.log which are root-owned on standard K3s + Docker
+    # nodes, so flipping to non-root would break log collection. Capability
+    # drop + no privilege escalation + RuntimeDefault seccomp deliver the
+    # achievable hardening at our intrinsic `baseline` PSS profile.
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
     configMap:
       create: true
       content: |
@@ -686,6 +708,18 @@ alloy:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { cpu: 200m, memory: 256Mi }
+  # Defense-in-depth for the prometheus-config-reloader sidecar. The
+  # sidecar has no host volumes (it only watches the ConfigMap and POSTs
+  # to localhost) so it could in principle run as non-root; we keep the
+  # change minimal here and let a follow-up flip `runAsNonRoot` if/when
+  # the host /var/log path moves to API-based scraping.
+  configReloader:
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
   serviceMonitor:
     enabled: true
 
