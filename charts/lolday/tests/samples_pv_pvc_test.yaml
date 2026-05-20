@@ -1,0 +1,199 @@
+suite: Detector samples PV/PVC pair (lolday + lolday-jobs)
+templates:
+  - templates/samples-pv.yaml
+  - templates/samples-pvc.yaml
+values:
+  - ../values-test.yaml
+set:
+  # values-test.yaml ships samples.enabled=false (hostPath does not exist
+  # in CI); enable here so the four documents (2 PVs + 2 PVCs) render.
+  # The hostPath/storage/nodeHostname stubs in values-test are picked up.
+  samples.enabled: true
+release:
+  name: lolday
+  namespace: lolday
+chart:
+  version: 0.0.0
+  appVersion: test
+tests:
+  # ---- samples-pv.yaml (2 PVs: samples + samples-jobs) ----
+  - it: samples-pv.yaml renders TWO PVs (one per consuming namespace)
+    template: templates/samples-pv.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentIndex: 0
+        isKind:
+          of: PersistentVolume
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: samples
+      - documentIndex: 1
+        isKind:
+          of: PersistentVolume
+      - documentIndex: 1
+        equal:
+          path: metadata.name
+          value: samples-jobs
+
+  - it: both PVs are gated off when samples.enabled=false
+    template: templates/samples-pv.yaml
+    set:
+      samples.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: both PVs are ReadOnlyMany + Retain + manual binding (storageClassName="")
+    # Reason: detector datasets are read-only by design (the deploy-platform
+    # invariant — detectors consume, never mutate samples). ROX + Retain +
+    # empty storageClassName together prevent (a) accidental sample mutation
+    # by a detector pod, (b) PV reclamation on PVC delete, (c) silent
+    # rebinding to a different storageClass on cluster reconfigure. A
+    # regression that switches to ReadWriteOnce or Delete reclaim-policy
+    # would break the deploy-platform stance documented in
+    # docs/architecture.md §1.2.
+    template: templates/samples-pv.yaml
+    asserts:
+      - documentIndex: 0
+        equal:
+          path: spec.accessModes
+          value: [ReadOnlyMany]
+      - documentIndex: 0
+        equal:
+          path: spec.persistentVolumeReclaimPolicy
+          value: Retain
+      - documentIndex: 0
+        equal:
+          path: spec.storageClassName
+          value: ""
+      - documentIndex: 1
+        equal:
+          path: spec.accessModes
+          value: [ReadOnlyMany]
+      - documentIndex: 1
+        equal:
+          path: spec.persistentVolumeReclaimPolicy
+          value: Retain
+      - documentIndex: 1
+        equal:
+          path: spec.storageClassName
+          value: ""
+
+  - it: both PVs share the same hostPath + node affinity (mergerfs union mount)
+    # Reason: both PVs point at the SAME on-disk directory under
+    # /mnt/lolday-samples (mergerfs union of 2025/2024/benignware NFS
+    # mounts per docs/operations.md §NFS dataset sources). Splitting the
+    # hostPath between the two PVs would let the lolday backend see a
+    # different sample set than the detector vcjob — silent dataset drift.
+    # nodeAffinity pinning to the named node is required because hostPath
+    # is host-local: a regression that drops the affinity would let the
+    # scheduler bind the PVC to a node without /mnt/lolday-samples and the
+    # detector pod would crash at first sample read.
+    template: templates/samples-pv.yaml
+    asserts:
+      - documentIndex: 0
+        equal:
+          path: spec.hostPath.path
+          value: /tmp/test-samples
+      - documentIndex: 0
+        equal:
+          path: spec.hostPath.type
+          value: Directory
+      - documentIndex: 0
+        contains:
+          path: spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions
+          content:
+            key: kubernetes.io/hostname
+            operator: In
+            values: [test-node]
+      - documentIndex: 1
+        equal:
+          path: spec.hostPath.path
+          value: /tmp/test-samples
+      - documentIndex: 1
+        contains:
+          path: spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions
+          content:
+            key: kubernetes.io/hostname
+            operator: In
+            values: [test-node]
+
+  - it: each PV claimRef points to the matching PVC namespace (binder safety)
+    # Reason: without an explicit claimRef on each PV, the K8s PV binder
+    # may pair the wrong PV with the wrong PVC on fresh deploy (both PVCs
+    # are also named "samples", differing only by namespace). Explicit
+    # claimRef makes the pairing deterministic. A regression that drops
+    # the claimRef on either PV (or points them at the same namespace)
+    # would break the deploy on the second helm install.
+    template: templates/samples-pv.yaml
+    asserts:
+      - documentIndex: 0
+        equal:
+          path: spec.claimRef.name
+          value: samples
+      - documentIndex: 0
+        equal:
+          path: spec.claimRef.namespace
+          value: lolday
+      - documentIndex: 1
+        equal:
+          path: spec.claimRef.name
+          value: samples
+      - documentIndex: 1
+        equal:
+          path: spec.claimRef.namespace
+          value: lolday-jobs
+
+  # ---- samples-pvc.yaml (2 PVCs: lolday + lolday-jobs) ----
+  - it: samples-pvc.yaml renders TWO PVCs (one per consuming namespace)
+    template: templates/samples-pvc.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentIndex: 0
+        isKind:
+          of: PersistentVolumeClaim
+      - documentIndex: 0
+        equal:
+          path: metadata.namespace
+          value: lolday
+      - documentIndex: 1
+        equal:
+          path: metadata.namespace
+          value: lolday-jobs
+
+  - it: each PVC's volumeName pairs with the matching PV
+    # Reason: ROX PVs are picked from the cluster pool by the binder; the
+    # explicit volumeName forces the binding to the intended PV instead of
+    # whichever-PV-the-binder-prefers. The lolday-ns PVC binds to "samples"
+    # PV; the jobs-ns PVC binds to "samples-jobs" PV. Swapping these would
+    # cross-bind the namespaces and confuse the claimRef-based safety on
+    # the PVs.
+    template: templates/samples-pvc.yaml
+    asserts:
+      - documentIndex: 0
+        equal:
+          path: spec.volumeName
+          value: samples
+      - documentIndex: 0
+        equal:
+          path: spec.accessModes
+          value: [ReadOnlyMany]
+      - documentIndex: 1
+        equal:
+          path: spec.volumeName
+          value: samples-jobs
+      - documentIndex: 1
+        equal:
+          path: spec.accessModes
+          value: [ReadOnlyMany]
+
+  - it: both PVCs are gated off when samples.enabled=false
+    template: templates/samples-pvc.yaml
+    set:
+      samples.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
