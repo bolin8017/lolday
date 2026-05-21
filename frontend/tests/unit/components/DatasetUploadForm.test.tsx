@@ -106,4 +106,59 @@ describe("<DatasetUploadForm>", () => {
     // Form is still mounted (no programmatic redirect on cancel within tests).
     expect(cancel).toBeInTheDocument();
   });
+
+  it("toggles Visibility from Public to Private via the Radix Select onValueChange (L122-126)", async () => {
+    renderForm();
+    // pointerEventsCheck:0 because Radix Select sets pointer-events:none
+    // on body while the listbox is open; userEvent v14 strict mode rejects
+    // clicks under that state otherwise.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const trigger = screen.getByRole("combobox");
+    // Default value is "public" per defaultValues; confirm before change.
+    expect(trigger).toHaveTextContent(/Public/);
+    await user.click(trigger);
+    await user.click(await screen.findByRole("option", { name: /Private/ }));
+    // setValue("visibility", "private", { shouldValidate: true }) — the
+    // trigger reflects the new value once react-hook-form's watch() emits.
+    expect(trigger).toHaveTextContent(/Private/);
+  });
+
+  it("file picker change populates csv_content + preview from File.text() (L56-62)", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    // The "file picker" tab is the default; the Input rendered there is the
+    // only role=textbox with type=file. Use the html-input directly.
+    const sha = "b".repeat(64);
+    const csv = `file_name,label\n${sha},Malware\n`;
+    const file = new File([csv], "tiny.csv", { type: "text/csv" });
+    // userEvent.upload is the documented File-input flow.
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    await user.upload(fileInput, file);
+    // Preview should appear once File.text() resolves and runPreview runs;
+    // findByText handles the async tick.
+    expect(
+      await screen.findByText(/Preview \(1 of 1 rows\)/),
+    ).toBeInTheDocument();
+  });
+
+  it("file picker change with an oversize CSV surfaces the size-limit Alert (L66-70)", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    // Build an oversize CSV that triggers runPreview → checkCsvSize → return
+    // path (sizeErr set, preview cleared); the Alert text comes from the
+    // returned error string.
+    const oversize = "a,b\n" + "x,y\n".repeat(Math.ceil(MAX_CSV_BYTES / 4));
+    const file = new File([oversize], "big.csv", { type: "text/csv" });
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    await user.upload(fileInput, file);
+    // checkCsvSize returns "CSV size X.XX MB exceeds limit of 10 MB" —
+    // that string flows into setParseError and renders inside the Alert.
+    expect(
+      await screen.findByText(/exceeds limit of 10 MB/i),
+    ).toBeInTheDocument();
+  });
 });
