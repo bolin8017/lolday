@@ -153,6 +153,30 @@ async def test_reconcile_job_marks_running(db_session, seed_job):
 
 
 @pytest.mark.asyncio
+async def test_reconcile_job_returns_early_when_no_k8s_job_name(
+    db_session, seed_job
+) -> None:
+    """`reconcile_job` is a no-op on jobs that haven't been dispatched yet
+    (status=queued_backend, no vcjob created). The L83-84 guard prevents the
+    reconciler from calling `get_namespaced_custom_object(name=None)` which
+    would 400 against the Volcano API. The guard short-circuits before any
+    K8s call, so the test stubs nothing — a stubbed K8s call would otherwise
+    surface as `_VolcanoStub` not being installed."""
+    j = await seed_job(status=JobStatus.QUEUED_BACKEND)
+    j.k8s_job_name = None
+    await db_session.commit()
+
+    pre_status = j.status
+    # No _patched_k8s wrapper — if the guard fails to short-circuit, the
+    # real Volcano API call will raise a clear "no kubeconfig" error which
+    # the test would surface.
+    await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    # No state change — the early return left the job untouched.
+    assert j.status == pre_status
+
+
+@pytest.mark.asyncio
 async def test_reconcile_job_marks_succeeded_and_registers_model(
     db_session, seed_job, mlflow_stub
 ):
