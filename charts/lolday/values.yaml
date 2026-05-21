@@ -730,16 +730,25 @@ alloy:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { cpu: 200m, memory: 256Mi }
-  # Defense-in-depth for the prometheus-config-reloader sidecar. The
-  # sidecar has no host volumes (it only watches the ConfigMap and POSTs
-  # to localhost) so it could in principle run as non-root; we keep the
-  # change minimal here and let a follow-up flip `runAsNonRoot` if/when
-  # the host /var/log path moves to API-based scraping.
+  # Defense-in-depth for Alloy's config-reloader sidecar (the upstream Alloy
+  # chart reuses `quay.io/prometheus-operator/prometheus-config-reloader`).
+  # The sidecar has no host volumes — it only watches the `/etc/alloy`
+  # ConfigMap mount and POSTs `/-/reload` to localhost — so it can run as
+  # non-root with a read-only root filesystem. The upstream image's
+  # Dockerfile sets `USER nobody` (UID/GID 65534); we make that explicit
+  # here so the PodSecurity admission has a numeric `runAsUser` to evaluate
+  # against PSS `restricted` invariants (the parent ns is `baseline` today
+  # but this sidecar would pass `restricted` regardless of the host-coupled
+  # `alloy` container). Closes the §10 #36 alloy config-reloader follow-up.
   configReloader:
     securityContext:
       allowPrivilegeEscalation: false
       capabilities:
         drop: ["ALL"]
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
       seccompProfile:
         type: RuntimeDefault
   serviceMonitor:
