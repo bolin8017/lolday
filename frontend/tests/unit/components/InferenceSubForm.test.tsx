@@ -127,6 +127,123 @@ describe("InferenceSubForm", () => {
     expect(screen.queryByText(/derived from model/i)).toBeNull();
   });
 
+  it("derives detector_id + version_tag when sourceModelVersionId is set (useEffect)", () => {
+    // Mock returns mv1 → detector_id=det-rf, detector_version_tag=v1.0.0.
+    // Mounting with sourceModelVersionId="mv1" pre-selected must invoke the
+    // two derived setters with those values (covers L74-77).
+    useModelVersionsImpl = () => ({
+      data: [
+        {
+          id: "mv1",
+          mlflow_version: 1,
+          current_stage: "Production",
+          detector_id: "det-rf",
+          detector_version_tag: "v1.0.0",
+          is_runnable: true,
+        },
+      ],
+    });
+    const setDerivedDetectorId = vi.fn();
+    const setDerivedDetectorVersionTag = vi.fn();
+    wrap(
+      <InferenceSubForm
+        type="predict"
+        sourceModelOwner="alice"
+        setSourceModelOwner={() => {}}
+        sourceModelName="elf-rf"
+        setSourceModelName={() => {}}
+        sourceModelVersionId="mv1"
+        setSourceModelVersionId={() => {}}
+        derivedDetectorId=""
+        setDerivedDetectorId={setDerivedDetectorId}
+        derivedDetectorVersionTag=""
+        setDerivedDetectorVersionTag={setDerivedDetectorVersionTag}
+        predictDatasetId=""
+        setPredictDatasetId={() => {}}
+        testDatasetId=""
+        setTestDatasetId={() => {}}
+        config={{}}
+        setConfig={() => {}}
+      />,
+    );
+    expect(setDerivedDetectorId).toHaveBeenCalledWith("det-rf");
+    expect(setDerivedDetectorVersionTag).toHaveBeenCalledWith("v1.0.0");
+  });
+
+  it("source-model change cascades clear of version + derived detector (L105-110)", async () => {
+    useModelVersionsImpl = () => ({ data: [] });
+    const setSourceModelOwner = vi.fn();
+    const setSourceModelName = vi.fn();
+    const setSourceModelVersionId = vi.fn();
+    const setDerivedDetectorId = vi.fn();
+    const setDerivedDetectorVersionTag = vi.fn();
+    wrap(
+      <InferenceSubForm
+        type="predict"
+        sourceModelOwner=""
+        setSourceModelOwner={setSourceModelOwner}
+        sourceModelName=""
+        setSourceModelName={setSourceModelName}
+        sourceModelVersionId="mv-stale"
+        setSourceModelVersionId={setSourceModelVersionId}
+        derivedDetectorId="det-stale"
+        setDerivedDetectorId={setDerivedDetectorId}
+        derivedDetectorVersionTag="v-stale"
+        setDerivedDetectorVersionTag={setDerivedDetectorVersionTag}
+        predictDatasetId=""
+        setPredictDatasetId={() => {}}
+        testDatasetId=""
+        setTestDatasetId={() => {}}
+        config={{}}
+        setConfig={() => {}}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("combobox", { name: /source model/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("option", { name: /alice\/elf-rf/i }),
+    );
+    expect(setSourceModelOwner).toHaveBeenCalledWith("alice");
+    expect(setSourceModelName).toHaveBeenCalledWith("elf-rf");
+    expect(setSourceModelVersionId).toHaveBeenCalledWith("");
+    expect(setDerivedDetectorId).toHaveBeenCalledWith("");
+    expect(setDerivedDetectorVersionTag).toHaveBeenCalledWith("");
+  });
+
+  it('type="evaluate" renders the Test dataset Select with dataset items (L184)', async () => {
+    useModelVersionsImpl = () => ({ data: [] });
+    wrap(
+      <InferenceSubForm
+        type="evaluate"
+        sourceModelOwner=""
+        setSourceModelOwner={() => {}}
+        sourceModelName=""
+        setSourceModelName={() => {}}
+        sourceModelVersionId=""
+        setSourceModelVersionId={() => {}}
+        derivedDetectorId=""
+        setDerivedDetectorId={() => {}}
+        derivedDetectorVersionTag=""
+        setDerivedDetectorVersionTag={() => {}}
+        predictDatasetId=""
+        setPredictDatasetId={() => {}}
+        testDatasetId=""
+        setTestDatasetId={() => {}}
+        config={{}}
+        setConfig={() => {}}
+      />,
+    );
+    // The predict dataset Select must not render in evaluate mode.
+    expect(screen.queryByText(/predict dataset/i)).toBeNull();
+    await userEvent.click(
+      screen.getByRole("combobox", { name: /test dataset/i }),
+    );
+    expect(
+      screen.getByRole("option", { name: /samples-x/i }),
+    ).toBeInTheDocument();
+  });
+
   it("disables model versions whose training detector version was retired (§10 #22)", async () => {
     // Two versions: v1 runnable, v2 retired. Retired option must be
     // disabled and carry the localised hint so the user knows why.
