@@ -39,16 +39,23 @@ vi.mock("@/api/queries/datasets", () => ({
 }));
 
 // DataTable + PageHeader each pull their own deep tree (column rendering,
-// row-click handler, action slot). Stub them so this file exercises only
-// the list-page's loading / filter / data-shaping / row-click-wiring
-// logic. Both have their own unit suites.
+// row-click handler, action slot). The stub renders each `col.cell` per
+// row into a stable testid so the visibility-Badge and created-at-cell
+// branches can be asserted. Without invoking the cells those branches
+// would be structurally unreachable from this suite.
 vi.mock("@/components/tables/DataTable", () => ({
   DataTable: <TRow,>({
     data,
+    columns,
     emptyMessage,
     onRowClick,
   }: {
     data: TRow[];
+    columns: {
+      id?: string;
+      accessorKey?: string;
+      cell?: (ctx: { row: { original: TRow } }) => React.ReactNode;
+    }[];
     emptyMessage: string;
     onRowClick?: (row: TRow) => void;
   }) => (
@@ -56,14 +63,23 @@ vi.mock("@/components/tables/DataTable", () => ({
       <span data-testid="stub-empty-message">{emptyMessage}</span>
       <span data-testid="stub-row-count">{data.length}</span>
       {data.map((row, i) => (
-        <button
-          key={i}
-          type="button"
-          data-testid={`stub-row-${i}`}
-          onClick={() => onRowClick?.(row)}
-        >
-          row-{i}
-        </button>
+        <div key={i} data-testid={`stub-row-wrap-${i}`}>
+          <button
+            type="button"
+            data-testid={`stub-row-${i}`}
+            onClick={() => onRowClick?.(row)}
+          >
+            row-{i}
+          </button>
+          {columns.map((col, j) => (
+            <span
+              key={j}
+              data-testid={`stub-cell-${i}-${col.id ?? col.accessorKey}`}
+            >
+              {col.cell ? col.cell({ row: { original: row } }) : null}
+            </span>
+          ))}
+        </div>
       ))}
     </div>
   ),
@@ -197,5 +213,66 @@ describe("_authed.datasets._index.tsx (DatasetsListPage)", () => {
 
   it("exports the 'Datasets' breadcrumb handle", () => {
     expect(datasetsHandle).toEqual({ breadcrumb: "Datasets" });
+  });
+
+  it("visibility cell renders a Badge with the visibility text for public + private rows", () => {
+    queryState.data = {
+      items: [
+        {
+          id: "ds-pub",
+          name: "Pub",
+          visibility: "public",
+          sample_count: 1,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+        {
+          id: "ds-prv",
+          name: "Prv",
+          visibility: "private",
+          sample_count: 1,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    };
+    const { getByTestId } = renderPage();
+    // The cell branches on visibility === "public" to pick the Badge
+    // variant; pin so a swap of public/private styling is loud.
+    expect(getByTestId("stub-cell-0-visibility")).toHaveTextContent("public");
+    expect(getByTestId("stub-cell-1-visibility")).toHaveTextContent("private");
+  });
+
+  it("created_at cell renders the formatRelative output", () => {
+    queryState.data = {
+      items: [
+        {
+          id: "ds-1",
+          name: "Recent",
+          visibility: "public",
+          sample_count: 5,
+          // formatRelative returns a non-empty string for any valid ISO
+          // timestamp; assert non-empty rather than a brittle locale-
+          // dependent string so the test doesn't break under en/zh-TW.
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    };
+    const { getByTestId } = renderPage();
+    expect(getByTestId("stub-cell-0-created_at").textContent ?? "").not.toBe(
+      "",
+    );
+  });
+
+  it("changing the visibility filter Select re-runs the query with the new scope", async () => {
+    queryState.data = { items: [] };
+    const userEvent = (await import("@testing-library/user-event")).default;
+    const { getByLabelText, getByRole } = renderPage();
+    const trigger = getByLabelText("Filter by visibility");
+    const user = userEvent.setup();
+    await user.click(trigger);
+    // The Radix Select listbox renders options as menuitems; pick "Public".
+    await user.click(getByRole("option", { name: "Public" }));
+    // setVisibility(v) flips the next render; useDatasets sees the new
+    // scope. Pins the L66 onValueChange wiring.
+    expect(queryState.lastVisibility).toBe("public");
   });
 });
