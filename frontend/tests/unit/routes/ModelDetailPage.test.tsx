@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -272,5 +273,160 @@ describe("_authed.models.$owner.$name.tsx (ModelDetailPage)", () => {
 
   it("exports the 'Model' breadcrumb handle", () => {
     expect(modelDetailHandle).toEqual({ breadcrumb: "Model" });
+  });
+
+  describe("header dropdown actions (owner / admin only)", () => {
+    // Radix DropdownMenu sets pointer-events: none on the body while open;
+    // userEvent v14's pointerEventsCheck rejects clicks under that state.
+    // Disable the check to drive the menuitem → dialog open flow.
+    const ownerUser: CurrentUser = { handle: "alice", role: "user" };
+
+    it("clicking 'Edit description' menuitem opens the description editor stub", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      // The header dropdown trigger has aria-label="more". Version-row
+      // dropdowns share the label, but with no versions the header is the
+      // only "more" button in the DOM (meState owner → header dropdown
+      // mounts; versionsState empty → no row dropdowns).
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[0]);
+      await user.click(await screen.findByText("models.description.edit"));
+      expect(screen.getByTestId("stub-desc-editor")).toBeInTheDocument();
+    });
+
+    it("clicking 'Edit tags' menuitem opens the tags editor stub", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[0]);
+      await user.click(await screen.findByText("models.tags.edit"));
+      expect(screen.getByTestId("stub-tags-editor")).toBeInTheDocument();
+    });
+
+    it("clicking 'Transfer owner' menuitem opens the transfer dialog stub", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[0]);
+      await user.click(await screen.findByText("models.transfer.title"));
+      expect(screen.getByTestId("stub-transfer")).toBeInTheDocument();
+    });
+
+    it("clicking 'Delete model' menuitem opens the delete-model dialog stub", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[0]);
+      await user.click(await screen.findByText("models.delete.title"));
+      expect(screen.getByTestId("stub-delete-model")).toBeInTheDocument();
+    });
+  });
+
+  describe("version-row dropdown actions", () => {
+    const ownerUser: CurrentUser = { handle: "alice", role: "user" };
+    const versions: ModelVersion[] = [
+      {
+        id: "mv-1",
+        mlflow_version: 1,
+        current_stage: "None",
+        visibility: "public",
+        mlflow_run_id: "abcdef1234567890",
+        created_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+
+    it("clicking 'Transition stage…' opens ModelTransitionDialog with hasExistingProd flag from versions list", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      // Add a Production version so hasExistingProd evaluates true; the
+      // dialog stub captures the prop and we assert on it.
+      versionsState.data = [
+        ...versions,
+        {
+          id: "mv-prod",
+          mlflow_version: 2,
+          current_stage: "Production",
+          visibility: "public",
+          mlflow_run_id: "deadbeef" + "0".repeat(8),
+          created_at: "2026-05-10T00:00:00Z",
+        },
+      ];
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      // Two "more" buttons per row + 1 in header = 3 total. The first
+      // version row dropdown is index 1 (after the header).
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[1]);
+      await user.click(await screen.findByText("Transition stage…"));
+      expect(screen.getByTestId("stub-transition")).toBeInTheDocument();
+      expect(capturedTransitionProps.current?.hasExistingProd).toBe(true);
+    });
+
+    it("public-visibility row's menuitem reads 'Make private' (i18n key)", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = versions; // visibility: "public"
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[1]);
+      // The visibility-toggle label flips on v.visibility === "public".
+      expect(
+        await screen.findByText("models.visibility.makePrivate"),
+      ).toBeInTheDocument();
+    });
+
+    it("private-visibility row's menuitem reads 'Make public' (i18n key)", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = [{ ...versions[0], visibility: "private" }];
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[1]);
+      expect(
+        await screen.findByText("models.visibility.makePublic"),
+      ).toBeInTheDocument();
+    });
+
+    it("clicking 'Make private' opens the ModelVisibilityDialog stub", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = versions;
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[1]);
+      await user.click(
+        await screen.findByText("models.visibility.makePrivate"),
+      );
+      expect(screen.getByTestId("stub-visibility-dialog")).toBeInTheDocument();
+    });
+
+    it("clicking 'Delete version…' opens the inline DeleteVersionDialog", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = versions;
+      renderAt();
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[1]);
+      await user.click(await screen.findByText("Delete version…"));
+      // The inline DeleteVersionDialog uses Radix Dialog → role=dialog +
+      // a "Delete" button in the footer; assert both as the open-state
+      // signal.
+      const dialog = await screen.findByRole("dialog");
+      expect(
+        within(dialog).getByRole("button", { name: /^Delete$/ }),
+      ).toBeInTheDocument();
+    });
   });
 });
