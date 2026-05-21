@@ -13,14 +13,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def _make_terminal_job(
-    session: AsyncSession, type: JobType = JobType.TRAIN
+    session: AsyncSession,
+    *,
+    owner_id: _uuid.UUID,
+    detector_version_id: _uuid.UUID,
+    type: JobType = JobType.TRAIN,
 ) -> Job:
+    """Build a SUCCEEDED Job row. owner_id + detector_version_id are FKs
+    that must come from the `reconciler_owner` + `reconciler_detector_version`
+    fixtures (#530)."""
     job = Job(
         id=_uuid.uuid4(),
         type=type,
         status=JobStatus.SUCCEEDED,
-        owner_id=_uuid.uuid4(),
-        detector_version_id=_uuid.uuid4(),
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
         resource_profile=ResourceProfile.STANDARD,
         resolved_config={},
         idempotency_key="test-" + _uuid.uuid4().hex,
@@ -32,8 +39,14 @@ async def _make_terminal_job(
 
 
 @pytest.mark.asyncio
-async def test_projection_takes_last_metric_per_name(db_session: AsyncSession) -> None:
-    job = await _make_terminal_job(db_session)
+async def test_projection_takes_last_metric_per_name(
+    db_session: AsyncSession, reconciler_owner, reconciler_detector_version
+) -> None:
+    job = await _make_terminal_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
     base = _dt.datetime.now(_dt.UTC)
     db_session.add(
         JobEvent(
@@ -75,8 +88,14 @@ async def test_projection_takes_last_metric_per_name(db_session: AsyncSession) -
 
 
 @pytest.mark.asyncio
-async def test_projection_empty_when_no_metric_events(db_session: AsyncSession) -> None:
-    job = await _make_terminal_job(db_session)
+async def test_projection_empty_when_no_metric_events(
+    db_session: AsyncSession, reconciler_owner, reconciler_detector_version
+) -> None:
+    job = await _make_terminal_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
     await _project_summary_metrics(db_session, job.id)
     await db_session.refresh(job)
     assert job.summary_metrics == {
@@ -87,8 +106,14 @@ async def test_projection_empty_when_no_metric_events(db_session: AsyncSession) 
 
 
 @pytest.mark.asyncio
-async def test_projection_idempotent(db_session: AsyncSession) -> None:
-    job = await _make_terminal_job(db_session)
+async def test_projection_idempotent(
+    db_session: AsyncSession, reconciler_owner, reconciler_detector_version
+) -> None:
+    job = await _make_terminal_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
     base = _dt.datetime.now(_dt.UTC)
     db_session.add(
         JobEvent(
@@ -113,9 +138,15 @@ async def test_projection_idempotent(db_session: AsyncSession) -> None:
 @pytest.mark.asyncio
 async def test_projection_takes_latest_confusion_matrix(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """If multiple confusion_matrix events appear (rerun), keep the latest by ts."""
-    job = await _make_terminal_job(db_session)
+    job = await _make_terminal_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
     base = _dt.datetime.now(_dt.UTC)
     db_session.add(
         JobEvent(
@@ -148,9 +179,15 @@ async def test_projection_takes_latest_confusion_matrix(
 @pytest.mark.asyncio
 async def test_projection_skips_malformed_metric_payload(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """Defensive: a metric event with non-numeric value or missing name is skipped, not crashed."""
-    job = await _make_terminal_job(db_session)
+    job = await _make_terminal_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
     base = _dt.datetime.now(_dt.UTC)
     db_session.add(
         JobEvent(
@@ -189,9 +226,16 @@ async def test_projection_skips_malformed_metric_payload(
 @pytest.mark.asyncio
 async def test_projects_per_class_event_into_summary_metrics(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """Phase 13b B1: per_class event flows into summary_metrics.per_class."""
-    job = await _make_terminal_job(db_session, type=JobType.EVALUATE)
+    job = await _make_terminal_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+        type=JobType.EVALUATE,
+    )
     base = _dt.datetime.now(_dt.UTC)
     db_session.add(
         JobEvent(
@@ -239,9 +283,15 @@ async def test_projects_per_class_event_into_summary_metrics(
 @pytest.mark.asyncio
 async def test_projection_skips_confusion_matrix_missing_required_keys(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """Defensive: a confusion_matrix event missing `labels` or `matrix` is skipped, not crashed."""
-    job = await _make_terminal_job(db_session)
+    job = await _make_terminal_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
     base = _dt.datetime.now(_dt.UTC)
     db_session.add(
         JobEvent(
@@ -271,9 +321,16 @@ async def test_projection_skips_confusion_matrix_missing_required_keys(
 @pytest.mark.asyncio
 async def test_projection_skips_non_dict_per_class_payload(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """Defensive: a per_class event whose `per_class` field is not a dict is skipped."""
-    job = await _make_terminal_job(db_session, type=JobType.EVALUATE)
+    job = await _make_terminal_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+        type=JobType.EVALUATE,
+    )
     base = _dt.datetime.now(_dt.UTC)
     db_session.add(
         JobEvent(
@@ -303,6 +360,8 @@ async def test_projection_skips_non_dict_per_class_payload(
 @pytest.mark.asyncio
 async def test_projection_raises_when_job_disappears(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """FK invariant violation: calling the projector with a non-existent job_id
     raises RuntimeError so the reconciler outer except attributes the failure

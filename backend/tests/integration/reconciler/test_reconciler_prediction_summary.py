@@ -23,16 +23,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 async def _make_predict_job(
     session: AsyncSession,
+    *,
+    owner_id: _uuid.UUID,
+    detector_version_id: _uuid.UUID,
     mlflow_run_id: str | None = "run-123",
     started_at: _dt.datetime | None = None,
     finished_at: _dt.datetime | None = None,
 ) -> Job:
+    """Build a SUCCEEDED predict Job row. owner_id + detector_version_id
+    are FKs that must come from the `reconciler_owner` +
+    `reconciler_detector_version` fixtures (#530)."""
     job = Job(
         id=_uuid.uuid4(),
         type=JobType.PREDICT,
         status=JobStatus.SUCCEEDED,
-        owner_id=_uuid.uuid4(),
-        detector_version_id=_uuid.uuid4(),
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
         resource_profile=ResourceProfile.STANDARD,
         resolved_config={},
         idempotency_key="test-" + _uuid.uuid4().hex,
@@ -49,10 +55,18 @@ async def _make_predict_job(
 @pytest.mark.asyncio
 async def test_project_prediction_summary_writes_to_summary_metrics(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     started = _dt.datetime.now(_dt.UTC)
     finished = started + _dt.timedelta(seconds=12)
-    job = await _make_predict_job(db_session, started_at=started, finished_at=finished)
+    job = await _make_predict_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+        started_at=started,
+        finished_at=finished,
+    )
 
     csv = "file_name,pred_label\nA,Malware\nB,Benign\nC,Malware\nD,Malware\n"
     with patch(
@@ -73,8 +87,14 @@ async def test_project_prediction_summary_writes_to_summary_metrics(
 @pytest.mark.asyncio
 async def test_project_prediction_summary_handles_missing_csv(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
-    job = await _make_predict_job(db_session)
+    job = await _make_predict_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
     with patch(
         "app.reconciler.projections._read_mlflow_artifact",
         new=AsyncMock(side_effect=FileNotFoundError("no predictions.csv")),
@@ -91,10 +111,17 @@ async def test_project_prediction_summary_handles_missing_csv(
 @pytest.mark.asyncio
 async def test_project_prediction_summary_skips_when_mlflow_run_id_missing(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """A predict job without an mlflow_run_id (e.g. the run wasn't created
     yet at finalize) returns early — no artifact fetch, no summary written."""
-    job = await _make_predict_job(db_session, mlflow_run_id=None)
+    job = await _make_predict_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+        mlflow_run_id=None,
+    )
     from app.reconciler import _project_prediction_summary
 
     # No patch on _read_mlflow_artifact — the early return must not reach it.
@@ -107,13 +134,19 @@ async def test_project_prediction_summary_skips_when_mlflow_run_id_missing(
 @pytest.mark.asyncio
 async def test_project_prediction_summary_swallows_artifact_read_error(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """A non-404 failure (e.g. HTTP 500, network error) increments the
     `prediction_summary_artifact_read` BACKEND_ERRORS stage and returns
     without writing prediction_summary."""
     from prometheus_client import REGISTRY
 
-    job = await _make_predict_job(db_session)
+    job = await _make_predict_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
 
     def _get(stage: str) -> float:
         return (
@@ -139,6 +172,8 @@ async def test_project_prediction_summary_swallows_artifact_read_error(
 @pytest.mark.asyncio
 async def test_project_prediction_summary_swallows_csv_parse_error(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """A `csv.Error` while iterating predictions.csv increments the
     `prediction_summary_csv_parse` BACKEND_ERRORS stage and returns without
@@ -149,7 +184,11 @@ async def test_project_prediction_summary_swallows_csv_parse_error(
 
     from prometheus_client import REGISTRY
 
-    job = await _make_predict_job(db_session)
+    job = await _make_predict_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
 
     def _get(stage: str) -> float:
         return (
@@ -185,10 +224,16 @@ async def test_project_prediction_summary_swallows_csv_parse_error(
 @pytest.mark.asyncio
 async def test_project_prediction_summary_skips_csv_without_pred_label_column(
     db_session: AsyncSession,
+    reconciler_owner,
+    reconciler_detector_version,
 ) -> None:
     """A CSV whose header lacks `pred_label` is silently skipped — better to
     render no card than wrong counts."""
-    job = await _make_predict_job(db_session)
+    job = await _make_predict_job(
+        db_session,
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+    )
     # Header has file_name + score but no pred_label column.
     csv_text = "file_name,score\nA,0.91\nB,0.42\n"
     with patch(

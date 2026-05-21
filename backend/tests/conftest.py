@@ -41,8 +41,15 @@ test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
 from sqlalchemy import event  # noqa: E402  # must come after test_engine is created
 
 
-@event.listens_for(test_engine.sync_engine, "connect")
-def _set_sqlite_fk_pragma(dbapi_connection, connection_record):
+# Why: connection-pool checkout (not connect) is the upstream SQLAlchemy
+# pattern for SQLite FK enforcement. The connect listener fires only on
+# first DBAPI handshake, leaving subsequent pool checkouts with whatever
+# state the previous test left (the setup_db teardown sets FK=OFF for
+# drop_all). Per-checkout reset guarantees every test starts with FK ON
+# regardless of pool state. Closes the pool-FK pragma leak in #530.
+# Ref: https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#foreign-key-support
+@event.listens_for(test_engine.sync_engine, "checkout")
+def _set_sqlite_fk_pragma(dbapi_connection, connection_record, connection_proxy):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()

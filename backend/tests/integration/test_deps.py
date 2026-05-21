@@ -78,19 +78,25 @@ async def test_load_detector_raises_404_for_soft_deleted(db_session, seed_user):
 def _make_job(
     *,
     owner_id: uuid.UUID,
+    detector_version_id: uuid.UUID,
     status: JobStatus = JobStatus.RUNNING,
     token_hash: str | None = None,
 ) -> Job:
-    """Build a minimal Job row for require_job_token coverage."""
+    """Build a minimal Job row for require_job_token coverage.
+
+    ``detector_version_id`` is a FK to detector_version.id and must come
+    from a seeded fixture (e.g. ``seed_detector_version``) — see #530.
+    Dataset FKs are left nullable; this helper does not seed datasets.
+    """
     from datetime import UTC, datetime
 
     return Job(
         id=uuid.uuid4(),
         type=JobType.TRAIN,
         status=status,
-        detector_version_id=uuid.uuid4(),
-        train_dataset_id=uuid.uuid4(),
-        test_dataset_id=uuid.uuid4(),
+        detector_version_id=detector_version_id,
+        train_dataset_id=None,
+        test_dataset_id=None,
         owner_id=owner_id,
         resolved_config={},
         mlflow_experiment_id="42",
@@ -103,11 +109,16 @@ def _make_job(
 
 
 @pytest.mark.asyncio
-async def test_require_job_token_missing_bearer_returns_401(db_session, seed_user):
+async def test_require_job_token_missing_bearer_returns_401(
+    db_session, seed_user, seed_detector_version
+):
     """No `Authorization: Bearer ...` header → 401. Covers the format-check
     at deps.py:79-80.
     """
-    job = _make_job(owner_id=seed_user.id, token_hash="a" * 64)
+    dv_id = uuid.UUID(await seed_detector_version())
+    job = _make_job(
+        owner_id=seed_user.id, detector_version_id=dv_id, token_hash="a" * 64
+    )
     db_session.add(job)
     await db_session.commit()
     with pytest.raises(HTTPException) as exc:
@@ -117,11 +128,16 @@ async def test_require_job_token_missing_bearer_returns_401(db_session, seed_use
 
 
 @pytest.mark.asyncio
-async def test_require_job_token_malformed_authz_returns_401(db_session, seed_user):
+async def test_require_job_token_malformed_authz_returns_401(
+    db_session, seed_user, seed_detector_version
+):
     """Authz header without the `Bearer ` prefix → 401. Same branch as
     missing header (deps.py:79-80), different shape.
     """
-    job = _make_job(owner_id=seed_user.id, token_hash="a" * 64)
+    dv_id = uuid.UUID(await seed_detector_version())
+    job = _make_job(
+        owner_id=seed_user.id, detector_version_id=dv_id, token_hash="a" * 64
+    )
     db_session.add(job)
     await db_session.commit()
     with pytest.raises(HTTPException) as exc:
@@ -145,12 +161,15 @@ async def test_require_job_token_missing_job_returns_404(db_session):
 
 
 @pytest.mark.asyncio
-async def test_require_job_token_null_token_hash_returns_404(db_session, seed_user):
+async def test_require_job_token_null_token_hash_returns_404(
+    db_session, seed_user, seed_detector_version
+):
     """A job whose `token_hash` was cleared on terminal transition (H-20
     invalidation) MUST surface as 404 — never accept a stale token even
     if it'd otherwise verify. Covers the second clause of deps.py:83.
     """
-    job = _make_job(owner_id=seed_user.id, token_hash=None)
+    dv_id = uuid.UUID(await seed_detector_version())
+    job = _make_job(owner_id=seed_user.id, detector_version_id=dv_id, token_hash=None)
     db_session.add(job)
     await db_session.commit()
     with pytest.raises(HTTPException) as exc:
@@ -161,15 +180,19 @@ async def test_require_job_token_null_token_hash_returns_404(db_session, seed_us
 
 
 @pytest.mark.asyncio
-async def test_require_job_token_terminal_status_returns_404(db_session, seed_user):
+async def test_require_job_token_terminal_status_returns_404(
+    db_session, seed_user, seed_detector_version
+):
     """A job in a terminal status (SUCCEEDED / FAILED / etc.) MUST be
     rejected as 404 even with a still-populated `token_hash`. Defence
     in depth on top of the H-20 token clear. Covers deps.py:85-86.
     """
     token = "tok-value"
     token_hash = hashlib.sha256(token.encode()).hexdigest()
+    dv_id = uuid.UUID(await seed_detector_version())
     job = _make_job(
         owner_id=seed_user.id,
+        detector_version_id=dv_id,
         status=JobStatus.SUCCEEDED,
         token_hash=token_hash,
     )
@@ -185,14 +208,18 @@ async def test_require_job_token_terminal_status_returns_404(db_session, seed_us
 
 
 @pytest.mark.asyncio
-async def test_require_job_token_wrong_token_returns_403(db_session, seed_user):
+async def test_require_job_token_wrong_token_returns_403(
+    db_session, seed_user, seed_detector_version
+):
     """Valid bearer header + active job + token that doesn't verify → 403.
     Covers deps.py:87-88.
     """
     real_token = "the-right-token"
     real_hash = hashlib.sha256(real_token.encode()).hexdigest()
+    dv_id = uuid.UUID(await seed_detector_version())
     job = _make_job(
         owner_id=seed_user.id,
+        detector_version_id=dv_id,
         status=JobStatus.RUNNING,
         token_hash=real_hash,
     )
@@ -208,15 +235,19 @@ async def test_require_job_token_wrong_token_returns_403(db_session, seed_user):
 
 
 @pytest.mark.asyncio
-async def test_require_job_token_happy_path_returns_job(db_session, seed_user):
+async def test_require_job_token_happy_path_returns_job(
+    db_session, seed_user, seed_detector_version
+):
     """Valid bearer + active job + matching token → returns the Job row.
     Covers deps.py:89 (the success-path return).
     """
     from app.services.job_tokens import hash_token
 
     token = "tok-good"
+    dv_id = uuid.UUID(await seed_detector_version())
     job = _make_job(
         owner_id=seed_user.id,
+        detector_version_id=dv_id,
         status=JobStatus.RUNNING,
         token_hash=hash_token(token),
     )
