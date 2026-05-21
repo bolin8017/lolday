@@ -469,3 +469,281 @@ async def test_malformed_label_increments_metric(db_session):
     assert delete_calls == [], delete_calls
     after = counter._value.get() if hasattr(counter, "_value") else 0
     assert after == before + 1, (before, after)
+
+
+# ---------------------------------------------------------------------------
+# Defensive paths — _extract_vcjob_label, malformed timestamps,
+# secret-delete non-404, list_namespaced_secret object shape
+# ---------------------------------------------------------------------------
+
+
+def test_extract_vcjob_label_returns_none_for_empty_vcjob():
+    """A vcjob with no metadata.labels and no spec.tasks falls through to
+    `return None` (covers L55)."""
+    from app.reconciler.orphans import _extract_vcjob_label
+
+    assert _extract_vcjob_label({}) is None
+    assert _extract_vcjob_label({"metadata": {}, "spec": {}}) is None
+    # spec.tasks empty list also returns None.
+    assert _extract_vcjob_label({"spec": {"tasks": []}}) is None
+
+
+@pytest.mark.asyncio
+async def test_malformed_creation_timestamp_treated_as_unknown_age(db_session):
+    """A vcjob whose `creationTimestamp` is not ISO-8601 cannot be aged —
+    the parse falls into `created_at = None` and the age guard is skipped
+    (the orphan is deleted on the assumption the bad timestamp is itself
+    a sign of foreign data). Covers L116-117 + L118->121 branch."""
+    orphan_uuid = str(uuid.uuid4())
+    bad_ts_vjob = _vcjob("job-train-badts", orphan_uuid)
+    bad_ts_vjob["metadata"]["creationTimestamp"] = "not-a-timestamp"
+
+    delete_calls: list[str] = []
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": [bad_ts_vjob]}
+
+        def delete_namespaced_custom_object(self, *a, **kw):
+            delete_calls.append(kw["name"])
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):
+            pass
+
+    with (
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_orphan_vcjobs(db_session)
+
+    # Age guard was bypassed (timestamp unparseable) → vcjob deleted.
+    assert delete_calls == ["job-train-badts"], delete_calls
+
+
+@pytest.mark.asyncio
+async def test_secret_non_404_apiexception_increments_metric(db_session):
+    """If the orphan token-Secret delete fails with a non-404 ApiException
+    (e.g. 5xx from K8s), increment `orphan_secret_delete` and continue —
+    the vcjob delete already succeeded so the orphan is partially cleaned."""
+    from kubernetes.client import ApiException
+    from prometheus_client import REGISTRY
+
+    def _get(stage: str) -> float:
+        return (
+            REGISTRY.get_sample_value("lolday_backend_errors_total", {"stage": stage})
+            or 0.0
+        )
+
+    before = _get("orphan_secret_delete")
+    orphan_uuid = str(uuid.uuid4())
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": [_vcjob("job-train-orphan", orphan_uuid)]}
+
+        def delete_namespaced_custom_object(self, *a, **kw):
+            return None  # vcjob delete succeeds
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):
+            raise ApiException(status=500, reason="server error")
+
+    with (
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
+    ):
+        # Must not raise — non-404 on secret delete is logged + counted.
+        await reconcile_orphan_vcjobs(db_session)
+
+    assert _get("orphan_secret_delete") == before + 1.0
+
+
+@pytest.mark.asyncio
+async def test_orphan_token_sweep_skips_vcjobs_without_label_or_bad_uuid(
+    db_session, monkeypatch
+):
+    """`reconcile_orphan_token_secrets` must tolerate vcjobs that have no
+    `lolday.job-id` label (skip silently) AND vcjobs whose label is not a
+    valid UUID (skip via ValueError). Covers L224->222 + L227-228."""
+    from app.config import settings
+    from app.reconciler.orphans import reconcile_orphan_token_secrets
+
+    monkeypatch.setattr(settings, "JOB_NAMESPACE", "lolday-jobs")
+    monkeypatch.setattr(settings, "JOB_TOKEN_LEGACY_NAMESPACES", [])
+    monkeypatch.setattr(settings, "JOB_TTL_SECONDS_AFTER_FINISHED", 60)
+
+    # Two vcjobs: one with no labels, one with a non-UUID label.
+    no_label = _vcjob("job-train-nolabel", None)
+    bad_label = _vcjob("job-train-badlabel", "not-a-uuid")
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": [no_label, bad_label]}
+
+    class _CoreStub:
+        def list_namespaced_secret(self, namespace, **kw):
+            # No secrets to delete; the goal is the label-iteration coverage.
+            return _NsResult([])
+
+    with (
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
+    ):
+        deleted = await reconcile_orphan_token_secrets(db_session)
+
+    assert deleted == 0
+
+
+@pytest.mark.asyncio
+async def test_orphan_token_sweep_handles_object_secret_shape(db_session, monkeypatch):
+    """`_sweep_orphan_token_secrets_in_namespace` accepts both dict-shaped
+    Secrets (the stub default) and object-shaped Secrets (real K8s).
+    Covers L269 (the `else: meta = {...}` object-path branch) + L279
+    (creationTimestamp as a datetime object)."""
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace
+
+    from app.config import settings
+    from app.reconciler.orphans import reconcile_orphan_token_secrets
+
+    monkeypatch.setattr(settings, "JOB_NAMESPACE", "lolday-jobs")
+    monkeypatch.setattr(settings, "JOB_TOKEN_LEGACY_NAMESPACES", [])
+    monkeypatch.setattr(settings, "JOB_TTL_SECONDS_AFTER_FINISHED", 60)
+
+    old_dt = datetime.now(UTC) - timedelta(seconds=300)
+    obj_secret = SimpleNamespace(
+        metadata=SimpleNamespace(
+            name="job-token-aaaaaaaaaaaaaaaa", creation_timestamp=old_dt
+        )
+    )
+
+    delete_calls: list[tuple[str, str]] = []
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": []}
+
+    class _CoreStub:
+        def list_namespaced_secret(self, namespace, **kw):
+            return _NsResult([obj_secret])
+
+        def delete_namespaced_secret(self, name, namespace, **kw):
+            delete_calls.append((namespace, name))
+
+    with (
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
+    ):
+        deleted = await reconcile_orphan_token_secrets(db_session)
+
+    assert deleted == 1
+    assert delete_calls == [("lolday-jobs", "job-token-aaaaaaaaaaaaaaaa")]
+
+
+@pytest.mark.asyncio
+async def test_orphan_token_sweep_skips_malformed_or_unknown_timestamp(
+    db_session, monkeypatch
+):
+    """Secrets whose `creationTimestamp` is unparseable (bad ISO string)
+    or of an unexpected type (e.g. int) are skipped — never aged, never
+    deleted. Covers L283-286."""
+    from app.config import settings
+    from app.reconciler.orphans import reconcile_orphan_token_secrets
+
+    monkeypatch.setattr(settings, "JOB_NAMESPACE", "lolday-jobs")
+    monkeypatch.setattr(settings, "JOB_TOKEN_LEGACY_NAMESPACES", [])
+    monkeypatch.setattr(settings, "JOB_TTL_SECONDS_AFTER_FINISHED", 60)
+
+    bad_ts_dict = {
+        "metadata": {
+            "name": "job-token-1111111111111111",
+            "creationTimestamp": "not-iso",
+        }
+    }
+    unknown_type_dict = {
+        "metadata": {
+            "name": "job-token-2222222222222222",
+            "creationTimestamp": 1234567890,  # int, not str or datetime
+        }
+    }
+
+    delete_calls: list[tuple[str, str]] = []
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": []}
+
+    class _CoreStub:
+        def list_namespaced_secret(self, namespace, **kw):
+            return _NsResult([bad_ts_dict, unknown_type_dict])
+
+        def delete_namespaced_secret(self, name, namespace, **kw):
+            delete_calls.append((namespace, name))
+
+    with (
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
+    ):
+        deleted = await reconcile_orphan_token_secrets(db_session)
+
+    assert deleted == 0
+    assert delete_calls == []
+
+
+@pytest.mark.asyncio
+async def test_orphan_token_secret_delete_non_404_increments_metric(
+    db_session, monkeypatch
+):
+    """A non-404 ApiException on token-Secret delete increments
+    `orphan_token_secret_delete` and continues the sweep (does not abort).
+    Covers L308-311."""
+    from datetime import timedelta
+
+    from app.config import settings
+    from app.reconciler.orphans import reconcile_orphan_token_secrets
+    from kubernetes.client import ApiException
+    from prometheus_client import REGISTRY
+
+    def _get(stage: str) -> float:
+        return (
+            REGISTRY.get_sample_value("lolday_backend_errors_total", {"stage": stage})
+            or 0.0
+        )
+
+    monkeypatch.setattr(settings, "JOB_NAMESPACE", "lolday-jobs")
+    monkeypatch.setattr(settings, "JOB_TOKEN_LEGACY_NAMESPACES", [])
+    monkeypatch.setattr(settings, "JOB_TTL_SECONDS_AFTER_FINISHED", 60)
+
+    from datetime import datetime
+
+    old_ts = (datetime.now(UTC) - timedelta(seconds=300)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sec_dict = {
+        "metadata": {
+            "name": "job-token-3333333333333333",
+            "creationTimestamp": old_ts,
+        }
+    }
+
+    before = _get("orphan_token_secret_delete")
+
+    class _VolcanoStub:
+        def list_namespaced_custom_object(self, *a, **kw):
+            return {"items": []}
+
+    class _CoreStub:
+        def list_namespaced_secret(self, namespace, **kw):
+            return _NsResult([sec_dict])
+
+        def delete_namespaced_secret(self, name, namespace, **kw):
+            raise ApiException(status=500, reason="server error")
+
+    with (
+        patch("app.reconciler.orphans.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.orphans.core_v1", return_value=_CoreStub()),
+    ):
+        deleted = await reconcile_orphan_token_secrets(db_session)
+
+    # delete attempted but failed → not counted as deleted, but counter incremented.
+    assert deleted == 0
+    assert _get("orphan_token_secret_delete") == before + 1.0
