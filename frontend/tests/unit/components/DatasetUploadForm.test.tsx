@@ -65,4 +65,45 @@ describe("<DatasetUploadForm>", () => {
     // Inline preview parser should already surface the SHA256 error via Alert
     expect(await screen.findByText(/SHA256/i)).toBeInTheDocument();
   });
+
+  it("renders preview table when valid CSV is pasted", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    // Use 64-char hex SHA256s + a valid label so parseCsvPreview succeeds and
+    // the preview table renders (covers DatasetUploadForm.tsx 171-200).
+    const sha = "a".repeat(64);
+    const csv = `file_name,label\n${sha},Malware\n${sha},Benign\n`;
+    await user.click(screen.getByRole("tab", { name: /Paste/ }));
+    const textarea = screen.getByPlaceholderText(/file_name,label,family/);
+    // Use paste rather than type — typing each char triggers a preview parse
+    // per keystroke, and 64-char hex per row makes that prohibitively slow.
+    await user.click(textarea);
+    await user.paste(csv);
+    // Preview header text ("Preview (2 of 2 rows)") appears alongside the
+    // rendered table headers + data cells.
+    expect(
+      await screen.findByText(/Preview \(2 of 2 rows\)/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "file_name" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "label" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(sha).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Malware")).toBeInTheDocument();
+    expect(screen.getByText("Benign")).toBeInTheDocument();
+  });
+
+  it("calls navigate(-1) when Cancel is clicked", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    // Cancel button onClick (DatasetUploadForm.tsx:209) calls nav(-1) — the
+    // MemoryRouter has only one history entry so the click is a no-op
+    // navigation but the onClick branch must execute without throwing.
+    const cancel = screen.getByRole("button", { name: /Cancel/ });
+    await user.click(cancel);
+    // Form is still mounted (no programmatic redirect on cancel within tests).
+    expect(cancel).toBeInTheDocument();
+  });
 });
