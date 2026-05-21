@@ -211,3 +211,18 @@ def test_main_check_no_path_exits_two(capsys: pytest.CaptureFixture) -> None:
     out = capsys.readouterr()
     assert rc == 2
     assert "usage" in out.err
+
+
+def test_main_yaml_parse_error_exits_two(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """Malformed YAML (unterminated quote here) surfaces a YAMLError → exit 2
+    with a parse-error message. Covers the `except (yaml.YAMLError, ValueError)`
+    branch in `_dispatch` (L125-127)."""
+    f = tmp_path / "broken.yaml"
+    # Unterminated quoted scalar — yaml parser raises YAMLError.
+    f.write_text('metadata:\n  name: "unterminated\n', encoding="utf-8")
+    rc = np_check.main(["check", str(f)])
+    out = capsys.readouterr()
+    assert rc == 2
+    assert "failed to parse rendered YAML" in out.err
