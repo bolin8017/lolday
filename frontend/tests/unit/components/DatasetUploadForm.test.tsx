@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -8,6 +8,25 @@ import {
   MAX_CSV_BYTES,
 } from "@/components/forms/DatasetUploadForm.logic";
 import { DatasetUploadForm } from "@/components/forms/DatasetUploadForm";
+import { LoldayApiError } from "@/api/errors";
+
+const { createDatasetMock, navigateMock } = vi.hoisted(() => ({
+  createDatasetMock: vi.fn(),
+  navigateMock: vi.fn(),
+}));
+
+vi.mock("react-router", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router")>("react-router");
+  return { ...actual, useNavigate: () => navigateMock };
+});
+
+vi.mock("@/api/queries/datasets", () => ({
+  useCreateDataset: () => ({
+    mutateAsync: createDatasetMock,
+    isPending: false,
+  }),
+}));
 
 function renderForm() {
   const qc = new QueryClient({
@@ -21,6 +40,11 @@ function renderForm() {
     </MemoryRouter>,
   );
 }
+
+beforeEach(() => {
+  createDatasetMock.mockReset();
+  navigateMock.mockReset();
+});
 
 describe("checkCsvSize", () => {
   it("accepts small CSV", () => {
@@ -160,5 +184,77 @@ describe("<DatasetUploadForm>", () => {
     expect(
       await screen.findByText(/exceeds limit of 10 MB/i),
     ).toBeInTheDocument();
+  });
+
+  describe("onSubmit body (L80-99)", () => {
+    // Fill the form with a valid name + a single-row CSV that passes both
+    // checkCsvSize and parseCsvPreview, leaving the form in the "submittable"
+    // state. Used by every onSubmit-path test.
+    async function fillValidForm(user: ReturnType<typeof userEvent.setup>) {
+      await user.type(screen.getByLabelText("Name"), "ds-1");
+      await user.click(screen.getByRole("tab", { name: /Paste/ }));
+      const textarea = screen.getByPlaceholderText(/file_name,label,family/);
+      const sha = "c".repeat(64);
+      await user.click(textarea);
+      await user.paste(`file_name,label\n${sha},Malware\n`);
+    }
+
+    it("submit success: posts the form values via useCreateDataset and navigates to the new dataset detail page", async () => {
+      const user = userEvent.setup();
+      createDatasetMock.mockResolvedValueOnce({ id: "ds-new-id" });
+      renderForm();
+      await fillValidForm(user);
+      // Wait for the preview to land so the Upload button is enabled.
+      await screen.findByText(/Preview \(1 of 1 rows\)/);
+      await user.click(screen.getByRole("button", { name: /Upload dataset/ }));
+      await waitFor(() => {
+        expect(createDatasetMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            name: "ds-1",
+            visibility: "public",
+            csv_content: expect.stringContaining("file_name,label"),
+          }),
+        );
+      });
+      expect(navigateMock).toHaveBeenCalledWith("/datasets/ds-new-id");
+    });
+
+    it("submit with LoldayApiError 422 fieldErrors wires each error onto the matching form field", async () => {
+      const user = userEvent.setup();
+      // applyFieldErrorsToForm walks err.fieldErrors and calls setError per
+      // field; the "name" message must appear next to the Name input.
+      createDatasetMock.mockRejectedValueOnce(
+        new LoldayApiError(422, "validation failed", [
+          { field: "name", message: "dataset name already exists" },
+        ]),
+      );
+      renderForm();
+      await fillValidForm(user);
+      await screen.findByText(/Preview \(1 of 1 rows\)/);
+      await user.click(screen.getByRole("button", { name: /Upload dataset/ }));
+      await waitFor(() => {
+        expect(
+          screen.getByText(/dataset name already exists/),
+        ).toBeInTheDocument();
+      });
+      // Failed submit must NOT navigate away.
+      expect(navigateMock).not.toHaveBeenCalled();
+    });
+
+    it("submit disabled while parseError is set: oversize CSV blocks Upload button so the create mutation is never dispatched", async () => {
+      const user = userEvent.setup();
+      renderForm();
+      const oversize = "a,b\n" + "x,y\n".repeat(Math.ceil(MAX_CSV_BYTES / 4));
+      await user.type(screen.getByLabelText("Name"), "ds-big");
+      await user.click(screen.getByRole("tab", { name: /Paste/ }));
+      const textarea = screen.getByPlaceholderText(/file_name,label,family/);
+      await user.click(textarea);
+      await user.paste(oversize);
+      await screen.findByText(/exceeds limit of 10 MB/i);
+      expect(
+        screen.getByRole("button", { name: /Upload dataset/ }),
+      ).toBeDisabled();
+      expect(createDatasetMock).not.toHaveBeenCalled();
+    });
   });
 });
