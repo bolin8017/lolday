@@ -272,3 +272,79 @@ async def test_reconcile_job_timeout(db_session, seed_job, monkeypatch):
         await reconcile_job(db_session, j)
     await db_session.refresh(j)
     assert j.status == JobStatus.TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_timeout_swallows_volcano_delete_500(
+    db_session, seed_job, monkeypatch
+):
+    """Volcano delete on timeout that returns a non-404 ApiException must
+    NOT propagate — it bumps `BACKEND_ERRORS{stage="k8s_cleanup"}` and the
+    job still transitions to TIMEOUT.
+
+    The 404-case (Volcano GC won the race) is the silent-swallow side of
+    the same except block and was already implicitly covered by the
+    happy-path test_reconcile_job_timeout. This pins the diagnostic-error
+    side so a regression that re-raises the 500 (or drops the metric bump)
+    flips this test red.
+    """
+    from app.config import settings
+    from app.metrics import BACKEND_ERRORS
+    from kubernetes.client import ApiException
+    from prometheus_client import REGISTRY
+
+    monkeypatch.setattr(settings, "JOB_ACTIVE_DEADLINE_TRAIN_SECONDS", 1)
+    j = await seed_job(
+        status=JobStatus.RUNNING,
+        started_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+
+    vjob = {
+        "apiVersion": "batch.volcano.sh/v1alpha1",
+        "kind": "Job",
+        "metadata": {"name": "job-xxx"},
+        "status": {"state": {"phase": "Running"}},
+    }
+
+    class _VolcanoStub:
+        def get_namespaced_custom_object(self, *a, **kw):
+            return vjob
+
+        def delete_namespaced_custom_object(self, *a, **kw):
+            raise ApiException(status=500, reason="server error")
+
+    class _CoreStub:
+        def list_namespaced_pod(self, namespace, **kw):
+            class _R:
+                items: list = []  # noqa: RUF012  # stub class
+
+            return _R()
+
+        def read_namespaced_pod_log(self, **kw):
+            return ""
+
+        def delete_namespaced_secret(self, *a, **kw):
+            pass
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total", {"stage": "k8s_cleanup"}
+            )
+            or 0.0
+        )
+
+    before = _get_metric()
+    with (
+        patch("app.reconciler.jobs.volcano_v1alpha1", return_value=_VolcanoStub()),
+        patch("app.reconciler.jobs.core_v1", return_value=_CoreStub()),
+    ):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.status == JobStatus.TIMEOUT
+    assert j.failure_reason == "detector_timeout"
+    # +1 from the volcano delete 500 inside the timeout block (the secret
+    # delete in _cleanup_job_secret is a no-op here so it does not bump).
+    assert _get_metric() >= before + 1.0
+    # Sanity: BACKEND_ERRORS labelset matches what app/metrics declares.
+    assert BACKEND_ERRORS.labels(stage="k8s_cleanup") is not None
