@@ -200,6 +200,64 @@ describe("CardList", () => {
     expect(rowHandler).not.toHaveBeenCalled();
   });
 
+  it("falls back to header string when cardLabel meta is absent on a body cell", () => {
+    const noLabelColumns: ColumnDef<Job>[] = [
+      {
+        accessorKey: "type",
+        header: "Type",
+        meta: { cardSlot: "title" },
+      },
+      {
+        accessorKey: "status",
+        // No cardLabel — labelOf() falls through to columnDef.header.
+        header: "Pipeline Status",
+        meta: { cardSlot: "body" },
+      },
+    ];
+    function NoLabelHarness() {
+      const table = useReactTable({
+        data,
+        columns: noLabelColumns,
+        getCoreRowModel: getCoreRowModel(),
+      });
+      return <CardList table={table} emptyMessage="empty" />;
+    }
+    const { getAllByText } = render(<NoLabelHarness />);
+    expect(getAllByText("Pipeline Status").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("renders an empty <dt> when both cardLabel and string header are absent", () => {
+    const noLabelNoStringHeader: ColumnDef<Job>[] = [
+      {
+        accessorKey: "type",
+        header: "Type",
+        meta: { cardSlot: "title" },
+      },
+      {
+        accessorKey: "status",
+        // Header is a function (renders JSX) — typeof header !== "string"
+        // so labelOf() returns null and the <dt> is empty.
+        header: () => <span data-testid="custom-h">custom</span>,
+        meta: { cardSlot: "body" },
+        cell: () => <span data-testid="body-val">x</span>,
+      },
+    ];
+    function CustomHeaderHarness() {
+      const table = useReactTable({
+        data,
+        columns: noLabelNoStringHeader,
+        getCoreRowModel: getCoreRowModel(),
+      });
+      return <CardList table={table} emptyMessage="empty" />;
+    }
+    const { getAllByTestId, container } = render(<CustomHeaderHarness />);
+    // Body slot rendered, but the <dt> next to it has no text.
+    expect(getAllByTestId("body-val").length).toBeGreaterThanOrEqual(1);
+    const dts = container.querySelectorAll("dt");
+    expect(dts.length).toBeGreaterThanOrEqual(1);
+    expect(dts[0]!.textContent).toBe("");
+  });
+
   it("respects cardOrder ascending for body cells", () => {
     const orderedColumns: ColumnDef<Job>[] = [
       {
