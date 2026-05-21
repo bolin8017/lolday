@@ -7,7 +7,7 @@ from app.models.detector import DetectorBuild, DetectorBuildStatus
 
 
 @pytest.mark.asyncio
-async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
+async def test_reconcile_succeeded_job_moves_to_scanning(db_session, reconciler_owner):
     from app.models.detector import Detector
     from app.reconciler import reconcile_build
 
@@ -15,7 +15,7 @@ async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
         name="testdet",
         display_name="Test",
         git_url="https://github.com/x/y.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
@@ -23,7 +23,7 @@ async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-foo-abc",
         status=DetectorBuildStatus.BUILDING,
     )
@@ -51,7 +51,7 @@ async def test_reconcile_succeeded_job_moves_to_scanning(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_cve_blocked(db_session):
+async def test_reconcile_cve_blocked(db_session, reconciler_owner):
     from app.models.detector import Detector
     from app.reconciler import reconcile_build
 
@@ -59,7 +59,7 @@ async def test_reconcile_cve_blocked(db_session):
         name="testdet2",
         display_name="Test2",
         git_url="https://github.com/x/z.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
@@ -67,7 +67,7 @@ async def test_reconcile_cve_blocked(db_session):
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-foo-xyz",
         status=DetectorBuildStatus.BUILDING,
     )
@@ -102,15 +102,15 @@ async def test_reconcile_cve_blocked(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_timeout(db_session):
+async def test_reconcile_timeout(db_session, reconciler_detector):
     from datetime import datetime, timedelta
 
     from app.reconciler import reconcile_build
 
     build = DetectorBuild(
-        detector_id=uuid4(),
+        detector_id=reconciler_detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_detector.owner_id,
         k8s_job_name="build-foo-timeout",
         status=DetectorBuildStatus.BUILDING,
     )
@@ -137,7 +137,7 @@ async def test_reconcile_timeout(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_not_scanned_triggers_trivy_scan(db_session):
+async def test_reconcile_not_scanned_triggers_trivy_scan(db_session, reconciler_owner):
     """Phase 8.1: Harbor does not auto-scan on push. Reconciler must call
     trigger_scan() when status=NotScanned and flip build to SCANNING.
     A regression to the old `{PENDING, RUNNING, NOT_SCANNED}` branch
@@ -152,14 +152,14 @@ async def test_reconcile_not_scanned_triggers_trivy_scan(db_session):
         name="tds1",
         display_name="tds1",
         git_url="https://github.com/x/s1.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-tds1",
         status=DetectorBuildStatus.BUILDING,
     )
@@ -195,7 +195,7 @@ async def test_reconcile_not_scanned_triggers_trivy_scan(db_session):
 
 @pytest.mark.asyncio
 async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metric(
-    db_session,
+    db_session, reconciler_owner
 ):
     """If Harbor is unreachable or 500s, trigger_scan raises httpx.HTTPError.
     Reconciler must log + increment metric + RETURN WITHOUT flipping
@@ -212,14 +212,14 @@ async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metr
         name="tds2",
         display_name="tds2",
         git_url="https://github.com/x/s2.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-tds2",
         status=DetectorBuildStatus.BUILDING,
     )
@@ -260,7 +260,9 @@ async def test_reconcile_trigger_scan_failure_keeps_build_status_and_counts_metr
 
 
 @pytest.mark.asyncio
-async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_session):
+async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(
+    db_session, reconciler_owner
+):
     """Regression: scan_status=Error must retrigger (not promote).
 
     Prior code treated Error as Success-with-0-CVEs — a false-negative caused
@@ -279,14 +281,14 @@ async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_ses
         name="tds-err",
         display_name="tds-err",
         git_url="https://github.com/x/err.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-tds-err",
         status=DetectorBuildStatus.BUILDING,
     )
@@ -341,7 +343,9 @@ async def test_reconcile_build_scan_error_retriggers_and_does_not_promote(db_ses
 
 
 @pytest.mark.asyncio
-async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
+async def test_reconcile_persistent_scan_error_eventually_times_out(
+    db_session, reconciler_owner
+):
     """Bound on the Phase 9.5 Error-retry loop.
 
     reconcile_build dispatches on `job.status.succeeded` FIRST, so a build
@@ -363,14 +367,14 @@ async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
         name="tds-err-to",
         display_name="tds-err-to",
         git_url="https://github.com/x/errto.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-tds-err-to",
         status=DetectorBuildStatus.SCANNING,
     )
@@ -419,7 +423,9 @@ async def test_reconcile_persistent_scan_error_eventually_times_out(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
+async def test_reconcile_dedup_on_existing_version_no_unbound_local(
+    db_session, reconciler_owner
+):
     """Replay: a stale stuck-scanning build finishes after a newer build
     already produced the DetectorVersion row. Must mark SUCCEEDED
     without UnboundLocalError, preserve the existing row, and fire the
@@ -434,7 +440,7 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
         name="tds3",
         display_name="tds3",
         git_url="https://github.com/x/s3.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
@@ -451,7 +457,7 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-tds3",
         status=DetectorBuildStatus.SCANNING,
     )
@@ -496,7 +502,7 @@ async def test_reconcile_dedup_on_existing_version_no_unbound_local(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_dedup_rejects_digest_divergence(db_session):
+async def test_reconcile_dedup_rejects_digest_divergence(db_session, reconciler_owner):
     """Force-pushed tag: existing row's digest differs from new build's.
     Must FAIL the new build with a clear reason rather than silently
     accept the stale existing image as authoritative.
@@ -510,7 +516,7 @@ async def test_reconcile_dedup_rejects_digest_divergence(db_session):
         name="tds4",
         display_name="tds4",
         git_url="https://github.com/x/s4.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
@@ -527,7 +533,7 @@ async def test_reconcile_dedup_rejects_digest_divergence(db_session):
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-tds4",
         status=DetectorBuildStatus.SCANNING,
     )
@@ -947,7 +953,6 @@ async def test_cleanup_build_secret_non_404_increments_metric():
     and log a warning — without re-raising so the failing-state commit
     upstream stays terminal.
     """
-    from uuid import uuid4
 
     from app.metrics import BACKEND_ERRORS
     from app.reconciler.builds import _cleanup_build_secret
@@ -980,7 +985,6 @@ async def test_cleanup_build_secret_404_is_silent():
     must NOT bump the cleanup metric (otherwise normal reconcile cycles
     would inflate the BACKEND_ERRORS counter).
     """
-    from uuid import uuid4
 
     from app.reconciler.builds import _cleanup_build_secret
     from kubernetes.client import ApiException
