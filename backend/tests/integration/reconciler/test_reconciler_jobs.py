@@ -515,3 +515,151 @@ async def test_reconcile_job_failed_swallows_summary_projection_failure(
     assert j.finished_at is not None
     assert _get_metric() >= before + 1.0
     assert BACKEND_ERRORS.labels(stage="summary_projection") is not None
+
+
+# ---------------------------------------------------------------------------
+# `_extract_job_failure_reason` branch coverage (jobs.py 438-468).
+#
+# Direct unit tests on the helper rather than full end-to-end via
+# `reconcile_job`. The helper is pure — it reads pod state from
+# `core_v1().list_namespaced_pod(...)` and returns a reason string — so
+# stubbing the K8s call is sufficient. The end-to-end happy path is
+# already covered by `test_reconcile_job_marks_failed` (detector_exit_nonzero)
+# and `test_reconcile_job_marks_oom` (detector_oom).
+# ---------------------------------------------------------------------------
+
+
+def _make_pod(
+    init_container_statuses=None,
+    container_statuses=None,
+):
+    """Build a minimal V1Pod-shaped stub for `_extract_job_failure_reason`."""
+
+    class _Pod:
+        class _Meta:
+            name = "pod-xxx"
+
+        metadata = _Meta()
+
+        class _St:
+            pass
+
+        status = _St()
+
+    p = _Pod()
+    p.status.init_container_statuses = init_container_statuses
+    p.status.container_statuses = container_statuses
+    return p
+
+
+def _patched_failure_reason_core(pod=None, raise_api=False):
+    """Patch `app.reconciler.jobs.core_v1` so its `list_namespaced_pod`
+    returns the supplied pod list (or raises ApiException when `raise_api`).
+    """
+    from kubernetes.client import ApiException
+
+    class _CoreStub:
+        def list_namespaced_pod(self, namespace, **kw):
+            if raise_api:
+                raise ApiException(status=500, reason="server error")
+
+            class _R:
+                items = [pod] if pod is not None else []  # stub class
+
+            return _R()
+
+    return patch("app.reconciler.jobs.core_v1", return_value=_CoreStub())
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_k8s_api_error_returns_reason(seed_job):
+    """ApiException on the pods-list call must be swallowed and return
+    `"k8s_api_error"` so the FAILED transition still carries a typed reason.
+    Covers jobs.py 445-446.
+    """
+    from app.reconciler.jobs import _extract_job_failure_reason
+
+    j = await seed_job(status=JobStatus.RUNNING)
+    with _patched_failure_reason_core(raise_api=True):
+        reason = await _extract_job_failure_reason(j)
+    assert reason == "k8s_api_error"
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_pod_missing_returns_reason(seed_job):
+    """Empty pods list (Volcano GC raced the pod) returns `"pod_missing"`.
+    Covers jobs.py 447-448.
+    """
+    from app.reconciler.jobs import _extract_job_failure_reason
+
+    j = await seed_job(status=JobStatus.RUNNING)
+    with _patched_failure_reason_core(pod=None):
+        reason = await _extract_job_failure_reason(j)
+    assert reason == "pod_missing"
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_model_fetcher_init_failure(seed_job):
+    """A `model-fetcher` init container failing returns the dedicated
+    `"source_model_not_found"` reason (more actionable than generic init).
+    Covers jobs.py 457-458.
+    """
+    from app.reconciler.jobs import _extract_job_failure_reason
+
+    j = await seed_job(status=JobStatus.RUNNING)
+
+    class _Term:
+        exit_code = 1
+
+    class _State:
+        terminated = _Term()
+
+    class _IC:
+        name = "model-fetcher"
+        state = _State()
+
+    pod = _make_pod(init_container_statuses=[_IC()])
+    with _patched_failure_reason_core(pod=pod):
+        reason = await _extract_job_failure_reason(j)
+    assert reason == "source_model_not_found"
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_other_init_failure(seed_job):
+    """A non-`model-fetcher` init container failing returns
+    `"init_{name}_failed"`. Covers jobs.py 459.
+    """
+    from app.reconciler.jobs import _extract_job_failure_reason
+
+    j = await seed_job(status=JobStatus.RUNNING)
+
+    class _Term:
+        exit_code = 2
+
+    class _State:
+        terminated = _Term()
+
+    class _IC:
+        name = "secrets-fetcher"
+        state = _State()
+
+    pod = _make_pod(init_container_statuses=[_IC()])
+    with _patched_failure_reason_core(pod=pod):
+        reason = await _extract_job_failure_reason(j)
+    assert reason == "init_secrets-fetcher_failed"
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_unknown_failure_fallback(seed_job):
+    """No init-container failure AND no terminated detector container falls
+    back to `"unknown_failure"` (e.g. node-evicted pod). Covers jobs.py 468.
+    """
+    from app.reconciler.jobs import _extract_job_failure_reason
+
+    j = await seed_job(status=JobStatus.RUNNING)
+    # init_container_statuses=None → loop doesn't execute the if branch.
+    # container_statuses=None → loop doesn't execute either.
+    pod = _make_pod(init_container_statuses=None, container_statuses=None)
+    with _patched_failure_reason_core(pod=pod):
+        reason = await _extract_job_failure_reason(j)
+    assert reason == "unknown_failure"
