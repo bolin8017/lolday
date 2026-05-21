@@ -25,35 +25,103 @@ type CurrentUser = {
   role: "user" | "developer" | "admin";
 } | null;
 
-const { detailState, versionsState, meState, capturedTransitionProps } =
-  vi.hoisted(() => ({
-    detailState: {
-      data: undefined as ModelDetail | undefined,
-      isLoading: false,
-      isError: false,
-    },
-    versionsState: {
-      data: undefined as ModelVersion[] | undefined,
-      isLoading: false,
-    },
-    meState: {
-      data: null as CurrentUser,
-      isLoading: false,
-    },
-    capturedTransitionProps: {
-      current: undefined as { hasExistingProd?: boolean } | undefined,
-    },
-  }));
+type DescDialogProps = {
+  open: boolean;
+  initialValue: string | null;
+  onClose: () => void;
+  onSubmit: (description: string) => Promise<void>;
+};
+type TagsDialogProps = {
+  open: boolean;
+  initialValue: Record<string, string>;
+  onClose: () => void;
+  onSubmit: (tags: Record<string, string>) => Promise<void>;
+};
+type TransferDialogProps = {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (newOwner: string, comment: string) => Promise<void>;
+};
+type DeleteDialogProps = {
+  open: boolean;
+  owner: string;
+  name: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+};
+type VisibilityDialogProps = {
+  open: boolean;
+  current: "public" | "private";
+  onClose: () => void;
+  onSubmit: (
+    visibility: "public" | "private",
+    comment: string,
+  ) => Promise<void>;
+};
+
+const {
+  detailState,
+  versionsState,
+  meState,
+  capturedTransitionProps,
+  capturedDialogProps,
+  upDescMock,
+  upTagsMock,
+  transferMock,
+  delMock,
+  upVisMock,
+  delVerMock,
+  navigateMock,
+  toastMock,
+} = vi.hoisted(() => ({
+  detailState: {
+    data: undefined as ModelDetail | undefined,
+    isLoading: false,
+    isError: false,
+  },
+  versionsState: {
+    data: undefined as ModelVersion[] | undefined,
+    isLoading: false,
+  },
+  meState: {
+    data: null as CurrentUser,
+    isLoading: false,
+  },
+  capturedTransitionProps: {
+    current: undefined as { hasExistingProd?: boolean } | undefined,
+  },
+  capturedDialogProps: {
+    desc: null as DescDialogProps | null,
+    tags: null as TagsDialogProps | null,
+    transfer: null as TransferDialogProps | null,
+    deleteModel: null as DeleteDialogProps | null,
+    visibility: null as VisibilityDialogProps | null,
+  },
+  upDescMock: vi.fn(),
+  upTagsMock: vi.fn(),
+  transferMock: vi.fn(),
+  delMock: vi.fn(),
+  upVisMock: vi.fn(),
+  delVerMock: vi.fn(),
+  navigateMock: vi.fn(),
+  toastMock: vi.fn(),
+}));
+
+vi.mock("react-router", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router")>("react-router");
+  return { ...actual, useNavigate: () => navigateMock };
+});
 
 vi.mock("@/api/queries/models", () => ({
   useModelDetail: () => detailState,
   useModelVersions: () => versionsState,
-  useUpdateModelDescription: () => ({ mutateAsync: vi.fn() }),
-  useUpdateModelTags: () => ({ mutateAsync: vi.fn() }),
-  useTransferOwner: () => ({ mutateAsync: vi.fn() }),
-  useDeleteModel: () => ({ mutateAsync: vi.fn() }),
-  useDeleteVersion: () => ({ mutateAsync: vi.fn() }),
-  useUpdateVisibility: () => ({ mutateAsync: vi.fn() }),
+  useUpdateModelDescription: () => ({ mutateAsync: upDescMock }),
+  useUpdateModelTags: () => ({ mutateAsync: upTagsMock }),
+  useTransferOwner: () => ({ mutateAsync: transferMock }),
+  useDeleteModel: () => ({ mutateAsync: delMock }),
+  useDeleteVersion: () => ({ mutateAsync: delVerMock }),
+  useUpdateVisibility: () => ({ mutateAsync: upVisMock }),
 }));
 
 vi.mock("@/api/queries/auth", () => ({
@@ -64,7 +132,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 
-vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
+vi.mock("@/hooks/use-toast", () => ({ toast: toastMock }));
 
 // Heavy children — keep the shell test fast and focused on branching.
 vi.mock("@/components/common/MarkdownView", () => ({
@@ -82,25 +150,38 @@ vi.mock("@/components/models/VisibilityBadge", () => ({
     <span data-testid="stub-visibility-badge">{visibility}</span>
   ),
 }));
+// Each dialog stub captures its prop set while open so tests can drive
+// the onSubmit / onConfirm / onClose callbacks directly (and assert the
+// hook side-effects: mutateAsync args, navigate target, toast title).
 vi.mock("@/components/forms/ModelDescriptionEditor", () => ({
-  ModelDescriptionEditor: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="stub-desc-editor" /> : null,
+  ModelDescriptionEditor: (props: DescDialogProps) => {
+    if (props.open) capturedDialogProps.desc = props;
+    return props.open ? <div data-testid="stub-desc-editor" /> : null;
+  },
 }));
 vi.mock("@/components/forms/ModelTagsEditor", () => ({
-  ModelTagsEditor: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="stub-tags-editor" /> : null,
+  ModelTagsEditor: (props: TagsDialogProps) => {
+    if (props.open) capturedDialogProps.tags = props;
+    return props.open ? <div data-testid="stub-tags-editor" /> : null;
+  },
 }));
 vi.mock("@/components/forms/OwnerTransferDialog", () => ({
-  OwnerTransferDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="stub-transfer" /> : null,
+  OwnerTransferDialog: (props: TransferDialogProps) => {
+    if (props.open) capturedDialogProps.transfer = props;
+    return props.open ? <div data-testid="stub-transfer" /> : null;
+  },
 }));
 vi.mock("@/components/forms/DeleteModelDialog", () => ({
-  DeleteModelDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="stub-delete-model" /> : null,
+  DeleteModelDialog: (props: DeleteDialogProps) => {
+    if (props.open) capturedDialogProps.deleteModel = props;
+    return props.open ? <div data-testid="stub-delete-model" /> : null;
+  },
 }));
 vi.mock("@/components/forms/ModelVisibilityDialog", () => ({
-  ModelVisibilityDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="stub-visibility-dialog" /> : null,
+  ModelVisibilityDialog: (props: VisibilityDialogProps) => {
+    if (props.open) capturedDialogProps.visibility = props;
+    return props.open ? <div data-testid="stub-visibility-dialog" /> : null;
+  },
 }));
 vi.mock("@/components/forms/ModelTransitionDialog", () => ({
   ModelTransitionDialog: (props: {
@@ -135,6 +216,19 @@ beforeEach(() => {
   meState.data = null;
   meState.isLoading = false;
   capturedTransitionProps.current = undefined;
+  capturedDialogProps.desc = null;
+  capturedDialogProps.tags = null;
+  capturedDialogProps.transfer = null;
+  capturedDialogProps.deleteModel = null;
+  capturedDialogProps.visibility = null;
+  upDescMock.mockReset();
+  upTagsMock.mockReset();
+  transferMock.mockReset();
+  delMock.mockReset();
+  upVisMock.mockReset();
+  delVerMock.mockReset();
+  navigateMock.mockReset();
+  toastMock.mockReset();
 });
 
 const baseModel: ModelDetail = {
@@ -427,6 +521,160 @@ describe("_authed.models.$owner.$name.tsx (ModelDetailPage)", () => {
       expect(
         within(dialog).getByRole("button", { name: /^Delete$/ }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe("dialog onSubmit / onConfirm side-effects", () => {
+    const ownerUser: CurrentUser = { handle: "alice", role: "user" };
+    const oneVersion: ModelVersion[] = [
+      {
+        id: "mv-1",
+        mlflow_version: 1,
+        current_stage: "None",
+        visibility: "public",
+        mlflow_run_id: "abcdef1234567890",
+        created_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+
+    async function openHeaderMenu() {
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[0]);
+      return user;
+    }
+    async function openRowMenu() {
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[1]);
+      return user;
+    }
+
+    it("ModelDescriptionEditor.onSubmit dispatches the update mutation and fires the success toast", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      upDescMock.mockResolvedValueOnce(undefined);
+      renderAt();
+      const user = await openHeaderMenu();
+      await user.click(await screen.findByText("models.description.edit"));
+      expect(capturedDialogProps.desc).not.toBeNull();
+      await capturedDialogProps.desc!.onSubmit("## new docs");
+      expect(upDescMock).toHaveBeenCalledWith({
+        owner: "alice",
+        name: "elf-rf",
+        description: "## new docs",
+      });
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "models.description.successToast",
+      });
+    });
+
+    it("ModelTagsEditor.onSubmit dispatches the tags mutation and fires the success toast", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      upTagsMock.mockResolvedValueOnce(undefined);
+      renderAt();
+      const user = await openHeaderMenu();
+      await user.click(await screen.findByText("models.tags.edit"));
+      expect(capturedDialogProps.tags).not.toBeNull();
+      await capturedDialogProps.tags!.onSubmit({ framework: "torch" });
+      expect(upTagsMock).toHaveBeenCalledWith({
+        owner: "alice",
+        name: "elf-rf",
+        tags: { framework: "torch" },
+      });
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "models.tags.successToast",
+      });
+    });
+
+    it("OwnerTransferDialog.onSubmit transfers ownership, navigates to the new owner path, and fires the toast", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      transferMock.mockResolvedValueOnce(undefined);
+      renderAt();
+      const user = await openHeaderMenu();
+      await user.click(await screen.findByText("models.transfer.title"));
+      expect(capturedDialogProps.transfer).not.toBeNull();
+      await capturedDialogProps.transfer!.onSubmit("bob", "handing over");
+      expect(transferMock).toHaveBeenCalledWith({
+        owner: "alice",
+        name: "elf-rf",
+        newOwner: "bob",
+        comment: "handing over",
+      });
+      expect(navigateMock).toHaveBeenCalledWith("/models/bob/elf-rf");
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "models.transfer.successToast",
+      });
+    });
+
+    it("DeleteModelDialog.onConfirm deletes the model, navigates back to /models, and fires the toast", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      delMock.mockResolvedValueOnce(undefined);
+      renderAt();
+      const user = await openHeaderMenu();
+      await user.click(await screen.findByText("models.delete.title"));
+      expect(capturedDialogProps.deleteModel).not.toBeNull();
+      await capturedDialogProps.deleteModel!.onConfirm();
+      expect(delMock).toHaveBeenCalledWith({
+        owner: "alice",
+        name: "elf-rf",
+      });
+      expect(navigateMock).toHaveBeenCalledWith("/models");
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "models.delete.successToast",
+      });
+    });
+
+    it("ModelVisibilityDialog.onSubmit dispatches the visibility mutation and fires the changed toast", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = oneVersion;
+      upVisMock.mockResolvedValueOnce(undefined);
+      renderAt();
+      const user = await openRowMenu();
+      await user.click(
+        await screen.findByText("models.visibility.makePrivate"),
+      );
+      expect(capturedDialogProps.visibility).not.toBeNull();
+      await capturedDialogProps.visibility!.onSubmit(
+        "private",
+        "internal only",
+      );
+      expect(upVisMock).toHaveBeenCalledWith({
+        owner: "alice",
+        name: "elf-rf",
+        version: 1,
+        visibility: "private",
+        comment: "internal only",
+      });
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "models.visibility.changedToast",
+      });
+    });
+
+    it("DeleteVersionDialog Delete-button click dispatches the delete-version mutation and fires the toast", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = oneVersion;
+      delVerMock.mockResolvedValueOnce(undefined);
+      renderAt();
+      const user = await openRowMenu();
+      await user.click(await screen.findByText("Delete version…"));
+      const dialog = await screen.findByRole("dialog");
+      await user.click(
+        within(dialog).getByRole("button", { name: /^Delete$/ }),
+      );
+      expect(delVerMock).toHaveBeenCalledWith({
+        owner: "alice",
+        name: "elf-rf",
+        version: 1,
+      });
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "models.deleteVersion.successToast",
+      });
     });
   });
 });
