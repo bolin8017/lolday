@@ -9,8 +9,36 @@ import { JobSubmitForm } from "@/components/forms/JobSubmitForm";
 import { useDetectorVersions } from "@/api/queries/detectors";
 
 // ─── mocks for JobSubmitForm rendering tests ──────────────────────────────────
-const { submitMutate } = vi.hoisted(() => ({
+type AuthRole = "admin" | "developer" | "user";
+type AuthState = {
+  currentUser: { email: string; role: AuthRole } | null;
+  isLoading: boolean;
+  isUnauthenticated: boolean;
+  logout: () => void;
+};
+const {
+  submitMutate,
+  navigateMock,
+  authState,
+  useJobMock,
+  useModelVersionMock,
+} = vi.hoisted(() => ({
   submitMutate: vi.fn().mockResolvedValue({ id: "new-job-id" }),
+  navigateMock: vi.fn(),
+  authState: {
+    current: {
+      currentUser: { email: "admin@test", role: "admin" },
+      isLoading: false,
+      isUnauthenticated: false,
+      logout: vi.fn(),
+    } as AuthState,
+  },
+  useJobMock: vi.fn(
+    (..._args: unknown[]) => ({ data: null }) as { data: unknown },
+  ),
+  useModelVersionMock: vi.fn(
+    (..._args: unknown[]) => ({ data: null }) as { data: unknown },
+  ),
 }));
 
 vi.mock("react-router", async () => {
@@ -18,17 +46,12 @@ vi.mock("react-router", async () => {
     await vi.importActual<typeof import("react-router")>("react-router");
   return {
     ...actual,
-    useNavigate: () => vi.fn(),
+    useNavigate: () => navigateMock,
   };
 });
 
 vi.mock("@/hooks/useAuth", () => ({
-  useAuth: () => ({
-    currentUser: { email: "admin@test", role: "admin" },
-    isLoading: false,
-    isUnauthenticated: false,
-    logout: vi.fn(),
-  }),
+  useAuth: () => authState.current,
 }));
 
 vi.mock("@/api/queries/jobs", async () => {
@@ -42,7 +65,7 @@ vi.mock("@/api/queries/jobs", async () => {
       mutateAsync: submitMutate,
       isPending: false,
     })),
-    useJob: vi.fn(() => ({ data: null })),
+    useJob: (...args: unknown[]) => useJobMock(...args),
   };
 });
 
@@ -61,7 +84,7 @@ vi.mock("@/api/queries/detectors", () => ({
 }));
 
 vi.mock("@/api/queries/models", () => ({
-  useModelVersion: vi.fn(() => ({ data: null })),
+  useModelVersion: (...args: unknown[]) => useModelVersionMock(...args),
 }));
 
 // HelpHint with popover=true renders a Radix Popover which triggers an
@@ -100,8 +123,39 @@ vi.mock("@/components/forms/TrainSubForm", () => ({
   ),
 }));
 
+// InferenceSubForm stub mirrors the TrainSubForm pattern: a "fill required
+// inference" button that calls the four setter props so non-train submit
+// paths are reachable. The stub also captures the props so tests can assert
+// on prefill behaviour (source-model fields populated by Effect 2).
+const inferenceCapture = { current: null as Record<string, unknown> | null };
 vi.mock("@/components/forms/InferenceSubForm", () => ({
-  InferenceSubForm: () => <div data-testid="inference-sub-form" />,
+  InferenceSubForm: (props: {
+    setSourceModelOwner: (v: string) => void;
+    setSourceModelName: (v: string) => void;
+    setSourceModelVersionId: (v: string) => void;
+    setDerivedDetectorId: (v: string) => void;
+    setDerivedDetectorVersionTag: (v: string) => void;
+    setPredictDatasetId: (v: string) => void;
+    setTestDatasetId: (v: string) => void;
+    [k: string]: unknown;
+  }) => {
+    inferenceCapture.current = props;
+    return (
+      <button
+        data-testid="fill-inference-required"
+        onClick={() => {
+          props.setSourceModelOwner("alice");
+          props.setSourceModelName("elf-rf");
+          props.setSourceModelVersionId("mv-1");
+          props.setDerivedDetectorId("det-1");
+          props.setDerivedDetectorVersionTag("v1.0.0");
+          props.setPredictDatasetId("ds-pred");
+        }}
+      >
+        fill inference required
+      </button>
+    );
+  },
 }));
 
 vi.mock("@/components/forms/StageExplainer", () => ({
@@ -375,5 +429,124 @@ describe("JobSubmitForm — race-condition fallback (§10 #22)", () => {
     await waitFor(() => {
       expect(screen.getByText(/submit failed/i)).toBeInTheDocument();
     });
+  });
+});
+
+describe("JobSubmitForm — Cancel + role + type-switch + prefill paths", () => {
+  it("Cancel button click navigates back one step via nav(-1)", async () => {
+    navigateMock.mockClear();
+    renderForm();
+    await userEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(navigateMock).toHaveBeenCalledWith(-1);
+  });
+
+  it("non-admin role hides the PriorityToggle card and omits priority from the submit body", async () => {
+    authState.current = {
+      currentUser: { email: "user@test", role: "user" },
+      isLoading: false,
+      isUnauthenticated: false,
+      logout: vi.fn(),
+    } as AuthState;
+    submitMutate.mockClear();
+    renderForm();
+    expect(
+      screen.queryByRole("button", { name: /^priority$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^normal$/i }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("fill-required"));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /submit job/i }),
+      ).not.toBeDisabled();
+    });
+    await userEvent.click(screen.getByRole("button", { name: /submit job/i }));
+    await waitFor(() => {
+      const call = submitMutate.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(call.priority).toBeUndefined();
+    });
+    // Restore admin for subsequent tests in this describe block.
+    authState.current = {
+      currentUser: { email: "admin@test", role: "admin" },
+      isLoading: false,
+      isUnauthenticated: false,
+      logout: vi.fn(),
+    } as AuthState;
+  });
+
+  it("switching job type to 'predict' renders InferenceSubForm and submits with type=predict + predict_dataset_id", async () => {
+    submitMutate.mockClear();
+    renderForm();
+    // Switch from train → predict — the route uses Title-cased button labels
+    // (Predict). The InferenceSubForm stub takes over rendering.
+    await userEvent.click(screen.getByRole("button", { name: /^predict$/i }));
+    expect(screen.getByTestId("fill-inference-required")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("fill-inference-required"));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /submit job/i }),
+      ).not.toBeDisabled();
+    });
+    await userEvent.click(screen.getByRole("button", { name: /submit job/i }));
+
+    await waitFor(() => {
+      expect(submitMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "predict",
+          detector_version_id: "ver-1",
+          source_model_version_id: "mv-1",
+          predict_dataset_id: "ds-pred",
+          // train fields are nulled out for non-train submits
+          train_dataset_id: null,
+        }),
+      );
+    });
+  });
+
+  it("prefill effect: when ?from=<predict-job> + useModelVersion resolves, the source-model fields are populated on the InferenceSubForm", async () => {
+    inferenceCapture.current = null;
+    // useJob returns a previously-submitted predict job carrying a
+    // source_model_version_id so JobSubmitForm enables the useModelVersion
+    // hook (lines 64-68) and Effect 2 fires.
+    useJobMock.mockReturnValue({
+      data: {
+        type: "predict",
+        train_dataset_id: null,
+        test_dataset_id: null,
+        predict_dataset_id: "ds-pred-prefill",
+        source_model_version_id: "mv-prefill",
+      },
+    });
+    useModelVersionMock.mockReturnValue({
+      data: {
+        id: "mv-prefill",
+        owner: "alice",
+        name: "elf-rf",
+        detector_id: "det-prefill",
+        detector_version_tag: "v2.0.0",
+      },
+    });
+    renderForm();
+    // Switch to predict so InferenceSubForm mounts.
+    await userEvent.click(screen.getByRole("button", { name: /^predict$/i }));
+    // After the prefillVersion effect runs, InferenceSubForm receives the
+    // populated source-model props (lines 92-100 in JobSubmitForm).
+    await waitFor(() => {
+      expect(inferenceCapture.current).not.toBeNull();
+      expect(inferenceCapture.current?.sourceModelOwner).toBe("alice");
+      expect(inferenceCapture.current?.sourceModelName).toBe("elf-rf");
+      expect(inferenceCapture.current?.sourceModelVersionId).toBe("mv-prefill");
+      expect(inferenceCapture.current?.derivedDetectorId).toBe("det-prefill");
+      expect(inferenceCapture.current?.derivedDetectorVersionTag).toBe(
+        "v2.0.0",
+      );
+    });
+    // Reset for following tests in the same module (vitest does not isolate
+    // across describes within a file).
+    useJobMock.mockReturnValue({ data: null });
+    useModelVersionMock.mockReturnValue({ data: null });
   });
 });
