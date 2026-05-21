@@ -159,6 +159,61 @@ describe("_authed.jobs._index.tsx (PriorityCell)", () => {
     });
   });
 
+  it("renders the saveFailed fallback when patch.isError and error has no detail (L86-89)", async () => {
+    // Source: `{(patch.error as { detail?: string } | null)?.detail ?? t("jobs.priority.saveFailed")}` —
+    // the ?? fallback fires when the mutation surfaced an error without a
+    // structured `detail` body (e.g. a network drop). Pin so a refactor
+    // doesn't drop the fallback and leave the popover silent on error.
+    patchState.isError = true;
+    patchState.error = null;
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<PriorityCell job={makeJob({ priority: 0 })} />);
+    await user.click(
+      screen.getByRole("button", { name: "jobs.priority.label" }),
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("jobs.priority.saveFailed");
+  });
+
+  it("renders the error.detail message when patch.isError and detail is provided (L88)", async () => {
+    // Source: `(patch.error as { detail?: string } | null)?.detail ?? ...` —
+    // when the backend returns a structured 4xx with `detail`, the popover
+    // shows that string verbatim instead of the generic fallback. Pin so a
+    // change to the API error shape doesn't silently swallow the message.
+    patchState.isError = true;
+    patchState.error = { detail: "priority too high" };
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<PriorityCell job={makeJob({ priority: 0 })} />);
+    await user.click(
+      screen.getByRole("button", { name: "jobs.priority.label" }),
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("priority too high");
+  });
+
+  it("disables the PriorityToggle buttons when patch.isPending (L83)", async () => {
+    // Source: `<PriorityToggle ... disabled={patch.isPending} />` — while
+    // the mutation is in flight, both bucket buttons must be disabled so
+    // the admin can't double-fire a PATCH. Pin so a refactor doesn't drop
+    // the disabled wiring.
+    patchState.isPending = true;
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<PriorityCell job={makeJob({ priority: 0 })} />);
+    await user.click(
+      screen.getByRole("button", { name: "jobs.priority.label" }),
+    );
+    const toggles = await screen.findAllByRole("button", {
+      name: /jobs\.priority\.(normal|high)/,
+    });
+    const pressableToggles = toggles.filter((b) =>
+      b.hasAttribute("aria-pressed"),
+    );
+    expect(pressableToggles).toHaveLength(2);
+    for (const btn of pressableToggles) {
+      expect(btn).toBeDisabled();
+    }
+  });
+
   it("onChange short-circuits when next === current (L63 early return)", async () => {
     // Click the badge that matches the current priority — no toggle, no
     // mutation. Guards the `if (next === current) return;` short-circuit
