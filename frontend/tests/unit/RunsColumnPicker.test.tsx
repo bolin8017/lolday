@@ -57,4 +57,35 @@ describe("RunsColumnPicker", () => {
     );
     expect(loadColumnsFromStorage("bad", ["fallback"])).toEqual(["fallback"]);
   });
+
+  it("loadColumnsFromStorage returns fallback when JSON.parse throws", () => {
+    // Covers the `catch { return fallback }` branch (L96-97) — a
+    // localStorage value persisted by an older version (or hand-edited)
+    // that no longer parses as JSON must not crash the page.
+    localStorage.setItem("lolday.runs.columns.malformed", "not-json{[}");
+    expect(loadColumnsFromStorage("malformed", ["fallback"])).toEqual([
+      "fallback",
+    ]);
+  });
+
+  it("calls onChange when a param is toggled", async () => {
+    // Covers the params loop's `onCheckedChange={() => toggle(key)}` at
+    // L70 — the existing metrics-toggle test exercises the symmetric
+    // metrics branch only; without this assertion a typo in the params
+    // toggle handler would silently no-op param-checkbox clicks.
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <RunsColumnPicker
+        experimentId="2"
+        availableMetrics={[]}
+        availableParams={["lr", "batch_size"]}
+        selected={["params.lr"]}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /columns/i }));
+    await user.click(screen.getByText("batch_size"));
+    expect(onChange).toHaveBeenCalledWith(["params.lr", "params.batch_size"]);
+  });
 });
