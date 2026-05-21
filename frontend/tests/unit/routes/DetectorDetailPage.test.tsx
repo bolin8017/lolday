@@ -114,6 +114,11 @@ vi.mock("@/components/common/DeleteConfirmDialog", () => ({
   DeleteConfirmDialog: ({ open, title }: { open: boolean; title: string }) =>
     open ? <div data-testid="stub-delete-dialog">{title}</div> : null,
 }));
+// Stub lifts every `col.cell` per row into a testid so versionsCols /
+// buildsCols cell branches (commit truncation, StatusBadge, formatRelative,
+// formatDuration, View-manifest button, Cancel button, Logs Sheet, the
+// VersionDeleteButton) are reachable. Without invoking the cells the JSX
+// is structurally unreachable from this suite.
 vi.mock("@/components/tables/DataTable", () => ({
   DataTable: <TRow,>({
     data,
@@ -128,6 +133,28 @@ vi.mock("@/components/tables/DataTable", () => ({
       <span data-testid="stub-row-count">{data.length}</span>
       <span data-testid="stub-col-count">{columns.length}</span>
       <span data-testid="stub-empty-msg">{emptyMessage}</span>
+      {data.map((row, i) => (
+        <div key={i} data-testid={`stub-row-wrap-${i}`}>
+          {columns.map((col, j) => {
+            // ColumnDef.id is optional; accessorKey is the fallback identifier
+            // ColumnDefBase has cell?; cast via the ColumnDef union we accept.
+            type C = ColumnDef<TRow> & {
+              id?: string;
+              accessorKey?: string;
+              cell?: (ctx: { row: { original: TRow } }) => React.ReactNode;
+            };
+            const c = col as C;
+            return (
+              <span
+                key={j}
+                data-testid={`stub-cell-${i}-${c.id ?? c.accessorKey}`}
+              >
+                {c.cell ? c.cell({ row: { original: row } }) : null}
+              </span>
+            );
+          })}
+        </div>
+      ))}
     </div>
   ),
 }));
@@ -283,5 +310,150 @@ describe("_authed.detectors.$id.tsx (DetectorDetailPage)", () => {
 
   it("exports the 'Detector' breadcrumb handle", () => {
     expect(detectorDetailHandle).toEqual({ breadcrumb: "Detector" });
+  });
+
+  it("versions cell renders truncate the git_sha to 10 chars and route status through StatusBadge", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-1",
+        git_tag: "v1.0.0",
+        git_sha: "abcdef1234567890",
+        status: "ready",
+        built_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    // git_sha cell: 10-char prefix
+    expect(screen.getByTestId("stub-cell-0-git_sha")).toHaveTextContent(
+      "abcdef1234",
+    );
+    // status cell: StatusBadge stub echoes the status string
+    const statusBadges = screen.getAllByTestId("stub-status-badge");
+    expect(statusBadges[0]).toHaveTextContent("ready");
+    // built_at cell: formatRelative returns a non-empty string
+    expect(
+      screen.getByTestId("stub-cell-0-built_at").textContent ?? "",
+    ).not.toBe("");
+  });
+
+  it("versions actions cell renders the View-manifest button and clicking it opens the manifest sheet", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-1",
+        git_tag: "v1.0.0",
+        git_sha: "abcdef1234567890",
+        status: "ready",
+        built_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    queryState.versionDetail = { manifest: { foo: "bar" } };
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    // The actions cell renders the "View manifest" button; click it to open
+    // the manifest Sheet so the L131 setOpenManifestTag wiring is exercised.
+    await user.click(screen.getByRole("button", { name: /View manifest/ }));
+    // ManifestView sees manifest != null → JsonTreeView stub captures the value.
+    expect(capturedManifestProp.current).toEqual({ foo: "bar" });
+  });
+
+  it("builds actions cell renders Logs button + Cancel button when status is in-progress", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.builds = [
+      {
+        id: "b-pending",
+        git_tag: "v1.0.0",
+        status: "building",
+        started_at: "2026-05-01T00:00:00Z",
+        finished_at: null,
+        log_tail: "log line",
+      },
+      {
+        id: "b-done",
+        git_tag: "v1.0.0",
+        status: "succeeded",
+        started_at: "2026-05-01T00:00:00Z",
+        finished_at: "2026-05-01T00:05:00Z",
+        log_tail: null,
+      },
+    ];
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Builds/ }));
+    // Both rows have a Logs button (SheetTrigger). The first row also has
+    // a Cancel button because status === "building"; the second row's
+    // status === "succeeded" → Cancel button is NOT rendered.
+    const logsButtons = screen.getAllByRole("button", { name: /^Logs$/ });
+    expect(logsButtons).toHaveLength(2);
+    const cancelButtons = screen.getAllByRole("button", { name: /^Cancel$/ });
+    expect(cancelButtons).toHaveLength(1);
+    // Click Cancel and verify the mutate hook fires with the build id.
+    await user.click(cancelButtons[0]);
+    expect(cancelBuildMock).toHaveBeenCalledWith("b-pending");
+  });
+
+  it("ManifestView shows the legacy-build copy when manifest is null", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-legacy",
+        git_tag: "v0.9.0",
+        git_sha: "deadbeef" + "0".repeat(32),
+        status: "ready",
+        built_at: "2026-04-01T00:00:00Z",
+      },
+    ];
+    queryState.versionDetail = { manifest: null };
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    await user.click(screen.getByRole("button", { name: /View manifest/ }));
+    expect(
+      screen.getByText(/Version has no manifest \(legacy build\)/),
+    ).toBeInTheDocument();
+  });
+
+  it("ManifestView shows the loading line while the version detail query is in flight", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-1",
+        git_tag: "v1.0.0",
+        git_sha: "abcdef1234567890",
+        status: "ready",
+        built_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    queryState.versionDetailLoading = true;
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    await user.click(screen.getByRole("button", { name: /View manifest/ }));
+    // Two "Loading…" texts may be present (main-page + ManifestView);
+    // assert at least the sheet has the muted-foreground loading.
+    expect(screen.getAllByText(/Loading…/).length).toBeGreaterThan(0);
+  });
+
+  it("ManifestView shows the error line when the version detail query errored", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-1",
+        git_tag: "v1.0.0",
+        git_sha: "abcdef1234567890",
+        status: "ready",
+        built_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    queryState.versionDetailError = new Error("boom");
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    await user.click(screen.getByRole("button", { name: /View manifest/ }));
+    expect(screen.getByText(/Failed to load manifest\./)).toBeInTheDocument();
   });
 });
