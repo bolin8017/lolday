@@ -227,6 +227,36 @@ describe("useJobEvents", () => {
     await waitFor(() => expect(result.current.error).not.toBeNull());
     expect(result.current.error).toContain("ECONNREFUSED");
   });
+
+  it("uses wss:// when the page is served over https://", async () => {
+    // Stub window.location.protocol to "https:" so the hook picks the
+    // wss scheme. Mirrors the useAuth.test.ts override pattern.
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, protocol: "https:", host: "lolday.local" },
+    });
+    try {
+      const fetchMock = global.fetch as MockFetch;
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ events: [], next_since: null, next_id: null }),
+      });
+
+      const { result } = renderHook(() => useJobEvents("job-1", true));
+      await waitFor(() => expect(wsInstances.length).toBe(1));
+      expect(wsInstances[0]!.url).toBe(
+        "wss://lolday.local/api/v1/jobs/job-1/events",
+      );
+      // Keep an event-loop tick reference so the linter sees `result` used.
+      expect(result.current.error).toBeNull();
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
 });
 
 describe("useJobEvents -- L-ws-origin-check", () => {
