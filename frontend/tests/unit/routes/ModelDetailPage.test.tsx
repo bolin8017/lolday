@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -674,6 +674,152 @@ describe("_authed.models.$owner.$name.tsx (ModelDetailPage)", () => {
       });
       expect(toastMock).toHaveBeenCalledWith({
         title: "models.deleteVersion.successToast",
+      });
+    });
+  });
+
+  describe("dialog onClose callbacks (setX(false) / setActiveVersion(null))", () => {
+    const ownerUser: CurrentUser = { handle: "alice", role: "user" };
+    const oneVersion: ModelVersion[] = [
+      {
+        id: "mv-1",
+        mlflow_version: 1,
+        current_stage: "None",
+        visibility: "public",
+        mlflow_run_id: "abcdef1234567890",
+        created_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+
+    async function openHeaderMenu() {
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[0]);
+      return user;
+    }
+    async function openRowMenu() {
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const triggers = screen.getAllByRole("button", { name: "more" });
+      await user.click(triggers[1]);
+      return user;
+    }
+
+    it("ModelDescriptionEditor.onClose unmounts the editor (setEditDesc(false))", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      renderAt();
+      const user = await openHeaderMenu();
+      await user.click(await screen.findByText("models.description.edit"));
+      expect(screen.getByTestId("stub-desc-editor")).toBeInTheDocument();
+      capturedDialogProps.desc!.onClose();
+      await waitFor(() => {
+        expect(screen.queryByTestId("stub-desc-editor")).toBeNull();
+      });
+    });
+
+    it("ModelTagsEditor.onClose unmounts the editor (setEditTags(false))", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      renderAt();
+      const user = await openHeaderMenu();
+      await user.click(await screen.findByText("models.tags.edit"));
+      expect(screen.getByTestId("stub-tags-editor")).toBeInTheDocument();
+      capturedDialogProps.tags!.onClose();
+      await waitFor(() => {
+        expect(screen.queryByTestId("stub-tags-editor")).toBeNull();
+      });
+    });
+
+    it("OwnerTransferDialog.onClose unmounts the transfer dialog (setTransferOpen(false))", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      renderAt();
+      const user = await openHeaderMenu();
+      await user.click(await screen.findByText("models.transfer.title"));
+      expect(screen.getByTestId("stub-transfer")).toBeInTheDocument();
+      capturedDialogProps.transfer!.onClose();
+      await waitFor(() => {
+        expect(screen.queryByTestId("stub-transfer")).toBeNull();
+      });
+    });
+
+    it("DeleteModelDialog.onClose unmounts the dialog (setDeleteOpen(false))", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      renderAt();
+      const user = await openHeaderMenu();
+      await user.click(await screen.findByText("models.delete.title"));
+      expect(screen.getByTestId("stub-delete-model")).toBeInTheDocument();
+      capturedDialogProps.deleteModel!.onClose();
+      await waitFor(() => {
+        expect(screen.queryByTestId("stub-delete-model")).toBeNull();
+      });
+    });
+
+    it("ModelVisibilityDialog.onClose clears activeVersion (setActiveVersion(null))", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = oneVersion;
+      renderAt();
+      const user = await openRowMenu();
+      await user.click(
+        await screen.findByText("models.visibility.makePrivate"),
+      );
+      expect(screen.getByTestId("stub-visibility-dialog")).toBeInTheDocument();
+      capturedDialogProps.visibility!.onClose();
+      await waitFor(() => {
+        expect(screen.queryByTestId("stub-visibility-dialog")).toBeNull();
+      });
+    });
+
+    it("ModelTransitionDialog.onClose clears activeVersion (setActiveVersion(null))", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = oneVersion;
+      renderAt();
+      const user = await openRowMenu();
+      await user.click(await screen.findByText("Transition stage…"));
+      expect(screen.getByTestId("stub-transition")).toBeInTheDocument();
+      // ModelTransitionDialog is the only dialog without a hoisted capturedDialogProps
+      // slot (it has its own capturedTransitionProps for hasExistingProd). Drive its
+      // onClose via the captured props instead.
+      const closeFn = capturedTransitionProps.current as unknown as {
+        onClose?: () => void;
+      };
+      closeFn.onClose?.();
+      await waitFor(() => {
+        expect(screen.queryByTestId("stub-transition")).toBeNull();
+      });
+    });
+
+    it("Inline DeleteVersionDialog onOpenChange(false): Cancel button click closes the Radix dialog (setActiveVersion(null) via Dialog.onOpenChange(!o))", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = oneVersion;
+      renderAt();
+      const user = await openRowMenu();
+      await user.click(await screen.findByText("Delete version…"));
+      const dialog = await screen.findByRole("dialog");
+      // The footer Cancel button calls onClose directly; it also exercises
+      // L362 (`onClose={() => setActiveVersion(null)}`).
+      await user.click(within(dialog).getByRole("button", { name: /Cancel/ }));
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
+      expect(delVerMock).not.toHaveBeenCalled();
+    });
+
+    it("Inline DeleteVersionDialog Dialog.onOpenChange(false): Escape key closes the dialog via L397 (`(o) => !o && onClose()`)", async () => {
+      detailState.data = baseModel;
+      meState.data = ownerUser;
+      versionsState.data = oneVersion;
+      renderAt();
+      const user = await openRowMenu();
+      await user.click(await screen.findByText("Delete version…"));
+      await screen.findByRole("dialog");
+      await user.keyboard("{Escape}");
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).toBeNull();
       });
     });
   });
