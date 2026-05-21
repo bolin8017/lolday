@@ -1,4 +1,5 @@
-import { render } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { JobSummary, JobStatus } from "@/api/queries/jobs";
 
@@ -134,5 +135,53 @@ describe("_authed.jobs._index.tsx (PriorityCell)", () => {
     );
     expect(getByText("jobs.priority.normal")).toBeInTheDocument();
     expect(queryByRole("button", { name: "jobs.priority.label" })).toBeNull();
+  });
+
+  it("onChange dispatches patch.mutate with the new priority when next !== current (L64)", async () => {
+    // pointerEventsCheck:0 — Radix Popover sets pointer-events:none on body
+    // while open; userEvent v14 strict mode rejects subsequent clicks
+    // otherwise. Same gotcha as the dropdown-menu tests upstream.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<PriorityCell job={makeJob({ priority: 0 })} />);
+    await user.click(
+      screen.getByRole("button", { name: "jobs.priority.label" }),
+    );
+    // The PriorityToggle inside the popover exposes two buttons whose
+    // names are jobs.priority.normal / jobs.priority.high (under the
+    // identity t() mock these are the literal i18n keys). Clicking
+    // "high" flips priority 0 → 1, so onChange(1) fires patch.mutate.
+    const highButton = await screen.findByRole("button", {
+      name: "jobs.priority.high",
+    });
+    await user.click(highButton);
+    await waitFor(() => {
+      expect(mutateMock).toHaveBeenCalledWith({ id: "job-x", priority: 1 });
+    });
+  });
+
+  it("onChange short-circuits when next === current (L63 early return)", async () => {
+    // Click the badge that matches the current priority — no toggle, no
+    // mutation. Guards the `if (next === current) return;` short-circuit
+    // against a regression that fires a no-op PATCH every time.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<PriorityCell job={makeJob({ priority: 0 })} />);
+    await user.click(
+      screen.getByRole("button", { name: "jobs.priority.label" }),
+    );
+    // Click the "normal" button — same as current value, so patch.mutate
+    // must NOT be called. Use findAllByRole because the trigger badge
+    // also exposes 'jobs.priority.normal' in its rendered chip text;
+    // pick the popover's PriorityToggle (the role=button with aria-pressed).
+    const normalButtons = await screen.findAllByRole("button", {
+      name: /jobs\.priority\.normal/,
+    });
+    // Find the one with aria-pressed (the PriorityToggle button)
+    const toggle = normalButtons.find((b) => b.hasAttribute("aria-pressed"));
+    expect(toggle).toBeDefined();
+    await user.click(toggle!);
+    // Brief settle window so any async mutation would have a chance to
+    // fire — then assert it didn't.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mutateMock).not.toHaveBeenCalled();
   });
 });
