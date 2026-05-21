@@ -141,6 +141,19 @@ describe("requiredFieldsForType", () => {
       "source_model_version_id",
     ]);
   });
+  it("returns [] for an unknown job type (default branch — defensive)", () => {
+    // The function's default branch (JobSubmitForm.logic.ts:11-12) returns
+    // [] for any non-{train,evaluate,predict} value. Pin so an exhaustive
+    // refactor (e.g. switching to a Record<JobType, string[]> lookup table
+    // without a fallback) flips this red instead of silently 500'ing on a
+    // newly-added JobType variant that the form layer hasn't been updated
+    // for. Cast through unknown so TS doesn't enforce the union.
+    expect(
+      requiredFieldsForType(
+        "unknown" as unknown as Parameters<typeof requiredFieldsForType>[0],
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("phase 11e — JSON textarea path removed", () => {
