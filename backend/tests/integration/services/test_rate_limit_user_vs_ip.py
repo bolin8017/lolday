@@ -103,3 +103,30 @@ async def test_rate_limit_ip_keys_on_client_host(fake_redis) -> None:
     key = f"rl:login:{_FakeClient.host}"
     val = await fake_redis.get(key)
     assert int(val) >= 3
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_ip_rejects_missing_client_with_400(fake_redis) -> None:
+    """`request.client is None` means a misconfigured proxy / malformed
+    request — reject with 400 rather than bucket everyone under "unknown"
+    (that shared bucket is trivially DoS-able). The 400 must NOT increment
+    `RATE_LIMIT_HITS_TOTAL` — the counter is reserved for actual 429
+    outcomes (see ratelimit-metric design)."""
+    from app.metrics import RATE_LIMIT_HITS_TOTAL
+
+    dep = rl_module.rate_limit_ip("login", limit=2, window_seconds=60)
+
+    class _FakeReq:
+        client = None
+
+    req = _FakeReq()  # type: ignore[assignment]  # adequate quack for the helper
+
+    before = RATE_LIMIT_HITS_TOTAL.labels(prefix="login")._value.get()
+    with pytest.raises(Exception) as exc:
+        await dep(req)
+    after = RATE_LIMIT_HITS_TOTAL.labels(prefix="login")._value.get()
+
+    assert getattr(exc.value, "status_code", None) == 400
+    assert "client address required" in str(getattr(exc.value, "detail", ""))
+    # Counter MUST NOT increment — proxy-misconfig is not a 429 event.
+    assert after == before
