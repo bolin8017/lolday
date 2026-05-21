@@ -334,3 +334,166 @@ async def test_reconcile_fails_when_manifest_label_malformed(db_session):
 
     after = BACKEND_ERRORS.labels(stage="manifest_invalid")._value.get()
     assert after == before + 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_fails_when_harbor_labels_fetch_raises(db_session, seed_user):
+    """`harbor.get_image_labels` raising any Exception (network blip /
+    Harbor 5xx / parse failure) must fail-close the build with
+    ``failure_reason="harbor_labels_fetch_failed"`` and bump
+    ``BACKEND_ERRORS{stage="harbor_labels_fetch"}`` — never silently
+    promote a build whose label-fetch is unreliable.
+
+    Covers build_finalize.py 108-118 (the generic-Exception except path
+    on the `get_image_labels` call).
+    """
+    from app.metrics import BACKEND_ERRORS
+    from app.reconciler import reconcile_build
+    from app.services.harbor import ScanResult, ScanStatus
+
+    detector = Detector(
+        name="labels-blip",
+        display_name="labels-blip",
+        git_url="https://github.com/x/lblip.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-labels-blip",
+        status=DetectorBuildStatus.SCANNING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    fake_job = MagicMock()
+    fake_job.status.succeeded = 1
+    fake_job.status.failed = 0
+
+    before = BACKEND_ERRORS.labels(stage="harbor_labels_fetch")._value.get()
+
+    with (
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
+    ):
+        bv.return_value.read_namespaced_job.return_value = fake_job
+        hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:lblip")
+        hc.return_value.get_scan = AsyncMock(
+            return_value=ScanResult(ScanStatus.SUCCESS, 0, 0, 0, 0)
+        )
+        hc.return_value.get_image_labels = AsyncMock(
+            side_effect=RuntimeError("harbor unreachable")
+        )
+        await reconcile_build(db_session, build)
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.FAILED
+    assert build.failure_reason == "harbor_labels_fetch_failed"
+    assert build.finished_at is not None
+
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == []
+
+    after = BACKEND_ERRORS.labels(stage="harbor_labels_fetch")._value.get()
+    assert after == before + 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_succeeded_swallows_log_capture_failure(db_session, seed_user):
+    """The SUCCEEDED path captures `log_tail` for green builds (Phase 13a A2
+    follow-up) — symmetric with `_handle_job_succeeded` for vcjobs. A
+    `_capture_log_tail` failure must NOT block the terminal commit; it
+    must bump `BACKEND_ERRORS{stage="log_capture_build"}` and let the
+    DetectorVersion finalize cleanly (otherwise the build would spin in
+    SCANNING until BUILD_TIMEOUT marks it TIMEOUT).
+
+    Covers build_finalize.py 240-242.
+    """
+    from app.metrics import BACKEND_ERRORS
+    from app.reconciler import reconcile_build
+    from app.services.harbor import ScanResult, ScanStatus
+
+    detector = Detector(
+        name="lblip-success",
+        display_name="lblip-success",
+        git_url="https://github.com/x/lblip-s.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-lblip-s",
+        status=DetectorBuildStatus.SCANNING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    fake_job = MagicMock()
+    fake_job.status.succeeded = 1
+    fake_job.status.failed = 0
+
+    labels = {
+        "io.maldet.manifest": _b64_manifest(),
+        "org.opencontainers.image.revision": "abc123def456",
+    }
+
+    before = BACKEND_ERRORS.labels(stage="log_capture_build")._value.get()
+
+    with (
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
+        # `_capture_log_tail` lives in app.reconciler.log_capture; the
+        # `_finalize_clean_scan` function imports it via `from .log_capture
+        # import _capture_log_tail`, so we patch the imported name on the
+        # build_finalize module (where the call site lives).
+        patch(
+            "app.reconciler.build_finalize._capture_log_tail",
+            new=AsyncMock(side_effect=RuntimeError("pod log read 500")),
+        ),
+    ):
+        bv.return_value.read_namespaced_job.return_value = fake_job
+        hc.return_value.get_artifact_digest = AsyncMock(return_value="sha256:lblips")
+        hc.return_value.get_scan = AsyncMock(
+            return_value=ScanResult(ScanStatus.SUCCESS, 0, 0, 0, 0)
+        )
+        hc.return_value.get_image_labels = AsyncMock(return_value=labels)
+        await reconcile_build(db_session, build)
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.SUCCEEDED
+    assert build.finished_at is not None
+    # The DetectorVersion was promoted despite the log-capture failure.
+    rows = (
+        (
+            await db_session.execute(
+                select(DetectorVersion).where(
+                    DetectorVersion.detector_id == detector.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    # log_tail is None because the capture raised; the metric bumped.
+    assert build.log_tail is None
+    after = BACKEND_ERRORS.labels(stage="log_capture_build")._value.get()
+    assert after == before + 1
