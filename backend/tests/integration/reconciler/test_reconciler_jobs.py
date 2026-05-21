@@ -348,3 +348,86 @@ async def test_reconcile_job_timeout_swallows_volcano_delete_500(
     assert _get_metric() >= before + 1.0
     # Sanity: BACKEND_ERRORS labelset matches what app/metrics declares.
     assert BACKEND_ERRORS.labels(stage="k8s_cleanup") is not None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_succeeded_swallows_summary_projection_failure(
+    db_session, seed_job, mlflow_stub
+):
+    """`_project_summary_metrics` is an opportunistic read-model refresh that
+    runs AFTER the terminal-status commit (jobs.py:261). A failure inside
+    must NOT roll back the SUCCEEDED transition — the except at 268-272
+    bumps `BACKEND_ERRORS{stage="summary_projection"}` and continues.
+
+    Pins the diagnostic-error side of the projection safety net so any
+    regression that re-raises (or drops the metric bump) flips this test red.
+    """
+    from app.metrics import BACKEND_ERRORS
+    from prometheus_client import REGISTRY
+
+    j = await seed_job(status=JobStatus.RUNNING, job_type=JobType.TRAIN)
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total", {"stage": "summary_projection"}
+            )
+            or 0.0
+        )
+
+    before = _get_metric()
+    with (
+        _patched_k8s(pod_phase=None, job_succeeded=1, job_failed=None),
+        patch(
+            "app.reconciler.jobs._project_summary_metrics",
+            new=AsyncMock(side_effect=RuntimeError("projection blew up")),
+        ),
+    ):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    # Terminal transition completed despite the projection failure.
+    assert j.status == JobStatus.SUCCEEDED
+    assert j.finished_at is not None
+    assert _get_metric() >= before + 1.0
+    # Sanity: BACKEND_ERRORS labelset matches what app/metrics declares.
+    assert BACKEND_ERRORS.labels(stage="summary_projection") is not None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_predict_swallows_prediction_summary_failure(
+    db_session, seed_job, mlflow_stub
+):
+    """The PREDICT-only `_project_prediction_summary` block (jobs.py 274-282)
+    is a sibling safety net to summary_projection — a failure inside must
+    bump `BACKEND_ERRORS{stage="prediction_summary_projection"}` and leave
+    the job at SUCCEEDED. _project_summary_metrics is left intact here so
+    the test isolates the prediction branch.
+    """
+    from app.metrics import BACKEND_ERRORS
+    from prometheus_client import REGISTRY
+
+    j = await seed_job(status=JobStatus.RUNNING, job_type=JobType.PREDICT)
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total",
+                {"stage": "prediction_summary_projection"},
+            )
+            or 0.0
+        )
+
+    before = _get_metric()
+    with (
+        _patched_k8s(pod_phase=None, job_succeeded=1, job_failed=None),
+        patch(
+            "app.reconciler.jobs._project_prediction_summary",
+            new=AsyncMock(side_effect=RuntimeError("predict projection blew up")),
+        ),
+    ):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.status == JobStatus.SUCCEEDED
+    assert j.finished_at is not None
+    assert _get_metric() >= before + 1.0
+    assert BACKEND_ERRORS.labels(stage="prediction_summary_projection") is not None
