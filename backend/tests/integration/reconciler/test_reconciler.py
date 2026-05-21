@@ -1002,3 +1002,302 @@ async def test_cleanup_build_secret_404_is_silent():
     with patch("app.reconciler.builds.core_v1", return_value=_CoreStub()):
         await _cleanup_build_secret(uuid4())
     assert _get_metric() == before
+
+
+# ---------------------------------------------------------------------------
+# `_extract_failure_reason` (builds.py:243-262) — pure helper that maps
+# build pod state to a typed failure-reason string consumed by
+# `_handle_failed` → `_fail_build_with_notify`. Five reasons emitted.
+# ---------------------------------------------------------------------------
+
+
+def _make_build_pod_with_statuses(init_statuses=None, container_statuses=None):
+    """Build a minimal V1Pod-shaped stub for `_extract_failure_reason`."""
+
+    class _Pod:
+        class _Meta:
+            name = "build-pod-xxx"
+
+        metadata = _Meta()
+
+        class _St:
+            pass
+
+        status = _St()
+
+    p = _Pod()
+    p.status.init_container_statuses = init_statuses
+    p.status.container_statuses = container_statuses
+    return p
+
+
+def _patched_extract_reason_core(pod=None, raise_api=False):
+    """Patch `app.reconciler.builds.core_v1` for `_extract_failure_reason`."""
+    from kubernetes.client import ApiException
+
+    class _CoreStub:
+        def list_namespaced_pod(self, namespace, **kw):
+            if raise_api:
+                raise ApiException(status=500, reason="server error")
+
+            class _R:
+                items = [pod] if pod is not None else []  # stub class
+
+            return _R()
+
+    return patch("app.reconciler.builds.core_v1", return_value=_CoreStub())
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_pod_missing(db_session, seed_user):
+    """No pod (build Job created but never produced a pod) → `pod_missing`.
+    Covers builds.py:251-252.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _extract_failure_reason
+
+    detector = Detector(
+        name="tds-efr-nopod",
+        display_name="tds-efr-nopod",
+        git_url="https://github.com/x/sefrnp.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-efr-nopod",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    with _patched_extract_reason_core(pod=None):
+        reason = await _extract_failure_reason(build)
+    assert reason == "pod_missing"
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_init_container_failure(db_session, seed_user):
+    """A failed init container (clone / validate) reports
+    `{name}_failed: exit={code}` so the user sees which pipeline stage
+    crashed. Covers builds.py:254-256.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _extract_failure_reason
+
+    detector = Detector(
+        name="tds-efr-init",
+        display_name="tds-efr-init",
+        git_url="https://github.com/x/sefri.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-efr-init",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    class _Term:
+        exit_code = 7
+
+    class _State:
+        terminated = _Term()
+
+    class _IC:
+        name = "clone"
+        state = _State()
+
+    pod = _make_build_pod_with_statuses(init_statuses=[_IC()])
+    with _patched_extract_reason_core(pod=pod):
+        reason = await _extract_failure_reason(build)
+    assert reason == "clone_failed: exit=7"
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_container_failure(db_session, seed_user):
+    """A failed (non-init) container — e.g. BuildKit `build` step itself
+    crashed mid-build — reports `{name}_failed: exit={code}`.
+    Covers builds.py:257-259.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _extract_failure_reason
+
+    detector = Detector(
+        name="tds-efr-cont",
+        display_name="tds-efr-cont",
+        git_url="https://github.com/x/sefrc.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-efr-cont",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    class _Term:
+        exit_code = 1
+
+    class _State:
+        terminated = _Term()
+
+    class _CS:
+        name = "buildkit"
+        state = _State()
+
+    pod = _make_build_pod_with_statuses(init_statuses=[], container_statuses=[_CS()])
+    with _patched_extract_reason_core(pod=pod):
+        reason = await _extract_failure_reason(build)
+    assert reason == "buildkit_failed: exit=1"
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_unknown_failure_fallback(db_session, seed_user):
+    """No init / container failure (e.g. pod evicted before any container
+    terminated cleanly) → `unknown_failure`. Covers builds.py:260.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _extract_failure_reason
+
+    detector = Detector(
+        name="tds-efr-unk",
+        display_name="tds-efr-unk",
+        git_url="https://github.com/x/sefru.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-efr-unk",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    pod = _make_build_pod_with_statuses(init_statuses=None, container_statuses=None)
+    with _patched_extract_reason_core(pod=pod):
+        reason = await _extract_failure_reason(build)
+    assert reason == "unknown_failure"
+
+
+@pytest.mark.asyncio
+async def test_extract_failure_reason_k8s_api_error(db_session, seed_user):
+    """ApiException on the pods-list call must be swallowed and return
+    `k8s_api_error` so the FAILED transition still carries a typed reason.
+    Covers builds.py:261-262.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _extract_failure_reason
+
+    detector = Detector(
+        name="tds-efr-api",
+        display_name="tds-efr-api",
+        git_url="https://github.com/x/sefra.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-efr-api",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    with _patched_extract_reason_core(raise_api=True):
+        reason = await _extract_failure_reason(build)
+    assert reason == "k8s_api_error"
+
+
+@pytest.mark.asyncio
+async def test_handle_failed_swallows_log_capture_failure(db_session, seed_user):
+    """`_handle_failed` (builds.py:182-190) protects the log_tail capture
+    so a K8s-side blip during pod-log read doesn't keep the build
+    oscillating in BUILDING. Failure must bump
+    `BACKEND_ERRORS{stage="log_capture_build"}` and the build must still
+    flip to FAILED via `_fail_build_with_notify`.
+
+    Symmetric to the `_handle_succeeded` log_tail protection (PR review
+    EH-1, Phase 13a).
+    """
+    from app.metrics import BACKEND_ERRORS
+    from app.models.detector import Detector
+    from app.reconciler.builds import _handle_failed
+    from prometheus_client import REGISTRY
+
+    detector = Detector(
+        name="tds-hf-log",
+        display_name="tds-hf-log",
+        git_url="https://github.com/x/shflog.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-hf-log",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total", {"stage": "log_capture_build"}
+            )
+            or 0.0
+        )
+
+    before = _get_metric()
+    with (
+        # Stub _extract_failure_reason to return a typed reason without
+        # needing core_v1; the test is about log-capture failure only.
+        patch(
+            "app.reconciler.builds._extract_failure_reason",
+            new=AsyncMock(return_value="detector_failed"),
+        ),
+        patch(
+            "app.reconciler.builds._capture_log_tail",
+            new=AsyncMock(side_effect=RuntimeError("pod log read 500")),
+        ),
+        # _fail_build_with_notify reads owner / commits + spawns notify;
+        # let it run for the FAILED-transition assertion. Stub
+        # `_cleanup_build_secret` so we don't need the secret API.
+        patch(
+            "app.reconciler.builds._cleanup_build_secret",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        await _handle_failed(db_session, build, job=MagicMock())
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.FAILED
+    assert build.failure_reason == "detector_failed"
+    # log_tail is None because the capture raised — the build still
+    # transitioned and the metric bumped.
+    assert build.log_tail is None
+    assert _get_metric() >= before + 1.0
+    assert BACKEND_ERRORS.labels(stage="log_capture_build") is not None
