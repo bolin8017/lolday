@@ -1,8 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ColumnDef } from "@tanstack/react-table";
+import type { ReactNode } from "react";
+import { LoldayApiError } from "@/api/errors";
 
 type Detector = {
   id: string;
@@ -36,13 +38,25 @@ type VersionDetail = {
   manifest: Record<string, unknown> | null;
 } | null;
 
+type CapturedDialogProps = {
+  open: boolean;
+  title: string;
+  onOpenChange: (o: boolean) => void;
+  onConfirm: () => void | Promise<void>;
+  confirmText: string;
+  errorBanner: { code?: string; message?: ReactNode } | null;
+  pending: boolean;
+};
+
 const {
   queryState,
   capturedManifestProp,
+  capturedDialogProps,
   triggerBuildMock,
   cancelBuildMock,
   deleteDetectorMock,
   deleteVersionMock,
+  navigateMock,
 } = vi.hoisted(() => ({
   queryState: {
     detector: undefined as Detector | undefined,
@@ -54,11 +68,19 @@ const {
     versionDetailError: null as Error | null,
   },
   capturedManifestProp: { current: undefined as unknown },
+  capturedDialogProps: { current: null as CapturedDialogProps | null },
   triggerBuildMock: vi.fn(),
   cancelBuildMock: vi.fn(),
   deleteDetectorMock: vi.fn(),
   deleteVersionMock: vi.fn(),
+  navigateMock: vi.fn(),
 }));
+
+vi.mock("react-router", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router")>("react-router");
+  return { ...actual, useNavigate: () => navigateMock };
+});
 
 vi.mock("@/api/queries/detectors", () => ({
   useDetector: () => ({ data: queryState.detector }),
@@ -110,9 +132,25 @@ vi.mock("@/components/common/StatusBadge", () => ({
     <span data-testid="stub-status-badge">{status}</span>
   ),
 }));
+// Stub captures the currently-open dialog's props so tests can drive the
+// onConfirm / onOpenChange callbacks directly. Multiple Delete dialogs may
+// mount simultaneously (detector header + per-version row); only the one
+// with open=true wins, since closed dialogs do not refresh the ref.
 vi.mock("@/components/common/DeleteConfirmDialog", () => ({
-  DeleteConfirmDialog: ({ open, title }: { open: boolean; title: string }) =>
-    open ? <div data-testid="stub-delete-dialog">{title}</div> : null,
+  DeleteConfirmDialog: (props: CapturedDialogProps) => {
+    if (props.open) capturedDialogProps.current = props;
+    return props.open ? (
+      <div data-testid="stub-delete-dialog">
+        <span data-testid="stub-dialog-title">{props.title}</span>
+        {props.errorBanner ? (
+          <span
+            data-testid="stub-dialog-error"
+            data-error-code={props.errorBanner.code ?? ""}
+          />
+        ) : null}
+      </div>
+    ) : null;
+  },
 }));
 // Stub lifts every `col.cell` per row into a testid so versionsCols /
 // buildsCols cell branches (commit truncation, StatusBadge, formatRelative,
@@ -182,10 +220,12 @@ beforeEach(() => {
   queryState.versionDetailLoading = false;
   queryState.versionDetailError = null;
   capturedManifestProp.current = undefined;
+  capturedDialogProps.current = null;
   triggerBuildMock.mockReset();
   cancelBuildMock.mockReset();
   deleteDetectorMock.mockReset();
   deleteVersionMock.mockReset();
+  navigateMock.mockReset();
 });
 
 const baseDetector: Detector = {
@@ -455,5 +495,118 @@ describe("_authed.detectors.$id.tsx (DetectorDetailPage)", () => {
     await user.click(screen.getByRole("tab", { name: /Versions/ }));
     await user.click(screen.getByRole("button", { name: /View manifest/ }));
     expect(screen.getByText(/Failed to load manifest\./)).toBeInTheDocument();
+  });
+
+  it("DetectorDeleteButton confirm success: deletes the detector and navigates to /detectors", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    deleteDetectorMock.mockResolvedValueOnce(undefined);
+    renderAt();
+    await user.click(screen.getByRole("button", { name: /^Delete$/ }));
+    expect(capturedDialogProps.current?.title).toBe("Delete detector elf-rf?");
+    await capturedDialogProps.current!.onConfirm();
+    expect(deleteDetectorMock).toHaveBeenCalledWith("det-1");
+    expect(navigateMock).toHaveBeenCalledWith("/detectors");
+  });
+
+  it("DetectorDeleteButton confirm error: renders the error banner with the structuredDetail code", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    const apiErr = new LoldayApiError(409, "in-flight", [], {
+      code: "detector_has_in_flight_jobs",
+      message: "Cancel running jobs first.",
+    });
+    deleteDetectorMock.mockRejectedValueOnce(apiErr);
+    renderAt();
+    await user.click(screen.getByRole("button", { name: /^Delete$/ }));
+    await capturedDialogProps.current!.onConfirm();
+    await waitFor(() => {
+      expect(screen.getByTestId("stub-dialog-error")).toHaveAttribute(
+        "data-error-code",
+        "detector_has_in_flight_jobs",
+      );
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("DetectorDeleteButton onOpenChange(false): closes the dialog and clears any prior error", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    // Seed an error banner first so the close path's setError(null) is observable.
+    deleteDetectorMock.mockRejectedValueOnce(new LoldayApiError(500, "boom"));
+    renderAt();
+    await user.click(screen.getByRole("button", { name: /^Delete$/ }));
+    await capturedDialogProps.current!.onConfirm();
+    await waitFor(() => {
+      expect(screen.getByTestId("stub-dialog-error")).toBeInTheDocument();
+    });
+    capturedDialogProps.current!.onOpenChange(false);
+    await waitFor(() => {
+      expect(screen.queryByTestId("stub-delete-dialog")).toBeNull();
+    });
+    // Re-open and confirm the banner is gone (i.e. setError(null) ran on close).
+    await user.click(screen.getByRole("button", { name: /^Delete$/ }));
+    expect(screen.queryByTestId("stub-dialog-error")).toBeNull();
+  });
+
+  it("VersionDeleteButton confirm success: deletes the version by git_tag and closes the dialog", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-1",
+        git_tag: "v1.2.3",
+        git_sha: "abcdef1234567890",
+        status: "ready",
+        built_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    deleteVersionMock.mockResolvedValueOnce(undefined);
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    const actionsCell = screen.getByTestId("stub-cell-0-actions");
+    await user.click(
+      within(actionsCell).getByRole("button", { name: /^Delete$/ }),
+    );
+    expect(capturedDialogProps.current?.title).toBe("Delete version v1.2.3?");
+    await capturedDialogProps.current!.onConfirm();
+    expect(deleteVersionMock).toHaveBeenCalledWith("v1.2.3");
+    // Success path calls setOpen(false), so the dialog disappears.
+    await waitFor(() => {
+      expect(screen.queryByTestId("stub-delete-dialog")).toBeNull();
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("VersionDeleteButton confirm error: renders the error banner with the structuredDetail code", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-1",
+        git_tag: "v1.2.3",
+        git_sha: "abcdef1234567890",
+        status: "ready",
+        built_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    const apiErr = new LoldayApiError(409, "in-flight", [], {
+      code: "version_has_in_flight_jobs",
+      message: "Cancel running jobs first.",
+    });
+    deleteVersionMock.mockRejectedValueOnce(apiErr);
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    const actionsCell = screen.getByTestId("stub-cell-0-actions");
+    await user.click(
+      within(actionsCell).getByRole("button", { name: /^Delete$/ }),
+    );
+    await capturedDialogProps.current!.onConfirm();
+    await waitFor(() => {
+      expect(screen.getByTestId("stub-dialog-error")).toHaveAttribute(
+        "data-error-code",
+        "version_has_in_flight_jobs",
+      );
+    });
   });
 });
