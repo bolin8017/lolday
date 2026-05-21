@@ -54,4 +54,25 @@ describe("ModelVisibilityDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("forwards the typed comment to onSubmit", () => {
+    const { onSubmit } = setup({ current: "public" });
+    fireEvent.change(screen.getByPlaceholderText(/optional comment/i), {
+      target: { value: "rotating ownership" },
+    });
+    const buttons = screen.getAllByRole("button");
+    const submitBtn = buttons.find(
+      (b) =>
+        b.textContent?.match(/private/i) && !b.textContent?.match(/cancel/i),
+    );
+    if (!submitBtn) throw new Error("Submit button not found");
+    fireEvent.click(submitBtn);
+    expect(onSubmit).toHaveBeenCalledWith("private", "rotating ownership");
+  });
+
+  it("Radix close (X) invokes onClose via onOpenChange(false)", () => {
+    const { onClose } = setup();
+    fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });
