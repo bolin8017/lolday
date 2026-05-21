@@ -234,3 +234,79 @@ async def test_projects_per_class_event_into_summary_metrics(
     assert job.summary_metrics["metrics"]["accuracy"] == pytest.approx(0.9)
     assert job.summary_metrics["per_class"]["Malware"]["f1"] == pytest.approx(0.94)
     assert job.summary_metrics["per_class"]["Benign"]["support"] == 470
+
+
+@pytest.mark.asyncio
+async def test_projection_skips_confusion_matrix_missing_required_keys(
+    db_session: AsyncSession,
+) -> None:
+    """Defensive: a confusion_matrix event missing `labels` or `matrix` is skipped, not crashed."""
+    job = await _make_terminal_job(db_session)
+    base = _dt.datetime.now(_dt.UTC)
+    db_session.add(
+        JobEvent(
+            id=_uuid.uuid4(),
+            job_id=job.id,
+            ts=base,
+            kind="confusion_matrix",
+            payload={"matrix": [[1, 0], [0, 1]]},  # missing 'labels'
+        )
+    )
+    db_session.add(
+        JobEvent(
+            id=_uuid.uuid4(),
+            job_id=job.id,
+            ts=base + _dt.timedelta(seconds=1),
+            kind="confusion_matrix",
+            payload={"labels": ["a", "b"]},  # missing 'matrix'
+        )
+    )
+    await db_session.commit()
+
+    await _project_summary_metrics(db_session, job.id)
+    await db_session.refresh(job)
+    assert job.summary_metrics["confusion_matrix"] is None
+
+
+@pytest.mark.asyncio
+async def test_projection_skips_non_dict_per_class_payload(
+    db_session: AsyncSession,
+) -> None:
+    """Defensive: a per_class event whose `per_class` field is not a dict is skipped."""
+    job = await _make_terminal_job(db_session, type=JobType.EVALUATE)
+    base = _dt.datetime.now(_dt.UTC)
+    db_session.add(
+        JobEvent(
+            id=_uuid.uuid4(),
+            job_id=job.id,
+            ts=base,
+            kind="per_class",
+            payload={"per_class": "not-a-dict"},
+        )
+    )
+    db_session.add(
+        JobEvent(
+            id=_uuid.uuid4(),
+            job_id=job.id,
+            ts=base + _dt.timedelta(seconds=1),
+            kind="per_class",
+            payload={},  # missing 'per_class' entirely → .get returns None
+        )
+    )
+    await db_session.commit()
+
+    await _project_summary_metrics(db_session, job.id)
+    await db_session.refresh(job)
+    assert job.summary_metrics["per_class"] is None
+
+
+@pytest.mark.asyncio
+async def test_projection_raises_when_job_disappears(
+    db_session: AsyncSession,
+) -> None:
+    """FK invariant violation: calling the projector with a non-existent job_id
+    raises RuntimeError so the reconciler outer except attributes the failure
+    via BACKEND_ERRORS{stage=reconcile_job} (not a silent miss)."""
+    unknown = _uuid.uuid4()
+    with pytest.raises(RuntimeError, match="FK invariant violated"):
+        await _project_summary_metrics(db_session, unknown)
