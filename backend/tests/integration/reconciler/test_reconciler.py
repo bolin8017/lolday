@@ -735,3 +735,270 @@ async def test_reconcile_timeout_swallows_k8s_delete_500(db_session, seed_user):
     # The 500 path bumps `k8s_cleanup` once (404 silent-swallows).
     assert _get_metric() >= before + 1.0
     assert BACKEND_ERRORS.labels(stage="k8s_cleanup") is not None
+
+
+# ---------------------------------------------------------------------------
+# `_update_progress` happy paths — drives DetectorBuildStatus transitions
+# based on which build-pod init container has terminated.
+# ---------------------------------------------------------------------------
+
+
+def _make_build_pod(finished_init_names: list[str]):
+    """Build a minimal V1Pod-shaped stub for `_update_progress`.
+
+    `finished_init_names` are the init-container names whose `.state.terminated`
+    is non-None (treated as "finished" by builds.py:233).
+    """
+
+    class _Term:
+        pass
+
+    class _State:
+        def __init__(self, finished: bool):
+            self.terminated = _Term() if finished else None
+
+    class _IC:
+        def __init__(self, name: str, finished: bool):
+            self.name = name
+            self.state = _State(finished)
+
+    class _Pod:
+        class _Meta:
+            name = "build-pod-xxx"
+
+        metadata = _Meta()
+
+        class _St:
+            pass
+
+        status = _St()
+
+    p = _Pod()
+    # Order matches the build pipeline: clone → validate → build.
+    p.status.init_container_statuses = [
+        _IC("clone", "clone" in finished_init_names),
+        _IC("validate", "validate" in finished_init_names),
+        _IC("build", "build" in finished_init_names),
+    ]
+    return p
+
+
+def _patched_update_progress_pods(pods):
+    """Patch `app.reconciler.builds.core_v1` to return the supplied pod list."""
+
+    class _CoreStub:
+        def list_namespaced_pod(self, namespace, **kw):
+            class _R:
+                items = pods  # stub class
+
+            return _R()
+
+    return patch("app.reconciler.builds.core_v1", return_value=_CoreStub())
+
+
+@pytest.mark.asyncio
+async def test_update_progress_no_pod_yet_returns_early(db_session, seed_user):
+    """`_update_progress` is called once per reconcile tick while the build's
+    K8s Job is in-flight. Before the pod is admitted, `list_namespaced_pod`
+    returns an empty `items` list. The early-return at builds.py:229-230
+    must leave the status unchanged.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _update_progress
+
+    detector = Detector(
+        name="tds-up-nopod",
+        display_name="tds-up-nopod",
+        git_url="https://github.com/x/snopod.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-up-nopod",
+        status=DetectorBuildStatus.PENDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    with _patched_update_progress_pods([]):
+        await _update_progress(db_session, build, MagicMock())
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_update_progress_validate_finished_sets_building(db_session, seed_user):
+    """When the `validate` init container is finished, the build has cleared
+    clone + validate stages and is currently executing `build`. builds.py:234.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _update_progress
+
+    detector = Detector(
+        name="tds-up-val",
+        display_name="tds-up-val",
+        git_url="https://github.com/x/sval.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-up-val",
+        status=DetectorBuildStatus.VALIDATING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    pod = _make_build_pod(finished_init_names=["clone", "validate"])
+    with _patched_update_progress_pods([pod]):
+        await _update_progress(db_session, build, MagicMock())
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.BUILDING
+
+
+@pytest.mark.asyncio
+async def test_update_progress_clone_finished_sets_validating(db_session, seed_user):
+    """When only `clone` is finished, the build is currently executing
+    `validate`. builds.py:236.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _update_progress
+
+    detector = Detector(
+        name="tds-up-clone",
+        display_name="tds-up-clone",
+        git_url="https://github.com/x/sclone.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-up-clone",
+        status=DetectorBuildStatus.CLONING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    pod = _make_build_pod(finished_init_names=["clone"])
+    with _patched_update_progress_pods([pod]):
+        await _update_progress(db_session, build, MagicMock())
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.VALIDATING
+
+
+@pytest.mark.asyncio
+async def test_update_progress_no_init_finished_sets_cloning(db_session, seed_user):
+    """When no init container has finished yet, the build is in the clone
+    stage. builds.py:238-239 fallback.
+    """
+    from app.models.detector import Detector
+    from app.reconciler.builds import _update_progress
+
+    detector = Detector(
+        name="tds-up-none",
+        display_name="tds-up-none",
+        git_url="https://github.com/x/snone.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-up-none",
+        status=DetectorBuildStatus.PENDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    pod = _make_build_pod(finished_init_names=[])
+    with _patched_update_progress_pods([pod]):
+        await _update_progress(db_session, build, MagicMock())
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.CLONING
+
+
+# ---------------------------------------------------------------------------
+# `_cleanup_build_secret` failure-metric path (builds.py:272-275).
+# Same diagnostic-error / silent-swallow shape as `_cleanup_job_secret` for
+# vcjobs (`test_cleanup_non_404_increments_metric` in test_reconciler_jobs_cleanup_secret.py).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cleanup_build_secret_non_404_increments_metric():
+    """`_cleanup_build_secret` swallows 404 (Volcano GC won the race) silently,
+    but a non-404 ApiException must bump `BACKEND_ERRORS{stage="k8s_cleanup"}`
+    and log a warning — without re-raising so the failing-state commit
+    upstream stays terminal.
+    """
+    from uuid import uuid4
+
+    from app.metrics import BACKEND_ERRORS
+    from app.reconciler.builds import _cleanup_build_secret
+    from kubernetes.client import ApiException
+    from prometheus_client import REGISTRY
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total", {"stage": "k8s_cleanup"}
+            )
+            or 0.0
+        )
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):
+            raise ApiException(status=500, reason="server error")
+
+    before = _get_metric()
+    with patch("app.reconciler.builds.core_v1", return_value=_CoreStub()):
+        await _cleanup_build_secret(uuid4())
+    # +1 from the 500 path; 404 would be silent.
+    assert _get_metric() >= before + 1.0
+    assert BACKEND_ERRORS.labels(stage="k8s_cleanup") is not None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_build_secret_404_is_silent():
+    """404 means the Secret was already GC'd — the cleanup is a no-op and
+    must NOT bump the cleanup metric (otherwise normal reconcile cycles
+    would inflate the BACKEND_ERRORS counter).
+    """
+    from uuid import uuid4
+
+    from app.reconciler.builds import _cleanup_build_secret
+    from kubernetes.client import ApiException
+    from prometheus_client import REGISTRY
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total", {"stage": "k8s_cleanup"}
+            )
+            or 0.0
+        )
+
+    class _CoreStub:
+        def delete_namespaced_secret(self, *a, **kw):
+            raise ApiException(status=404, reason="not found")
+
+    before = _get_metric()
+    with patch("app.reconciler.builds.core_v1", return_value=_CoreStub()):
+        await _cleanup_build_secret(uuid4())
+    assert _get_metric() == before
