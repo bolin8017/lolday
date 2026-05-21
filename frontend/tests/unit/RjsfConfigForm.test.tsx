@@ -3,6 +3,63 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { RjsfConfigForm } from "@/components/forms/RjsfConfigForm";
 
 describe("RjsfConfigForm", () => {
+  it("normalizeSchema wraps `$ref` + behavioural sibling in `allOf` so RJSF renders without crashing (L35-40)", () => {
+    // RJSF v5's production bundle crashes when a `$ref` carries siblings
+    // beyond the documentation set (title, description). The normalizeSchema
+    // workaround moves the `$ref` under `allOf` and keeps the siblings.
+    // Without the wrap, this schema throws inside `<Form>` during render.
+    const schema = {
+      type: "object",
+      $defs: {
+        Pct: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
+      },
+      properties: {
+        threshold: {
+          $ref: "#/$defs/Pct",
+          // `default` is the canonical "behavioural sibling" trigger.
+          // After the wrap, RJSF resolves the $ref + applies the default.
+          default: 0.7,
+        },
+      },
+    };
+    const onChange = vi.fn();
+    render(<RjsfConfigForm schema={schema} value={{}} onChange={onChange} />);
+    // The Reset button always renders once the form mounts; its presence is
+    // proof that the form survived the normalizeSchema pass + RJSF render.
+    expect(
+      screen.getByRole("button", { name: /Reset all to defaults/ }),
+    ).toBeInTheDocument();
+    // The wrapped default reaches the controlled state via fillDefaults +
+    // useEffect(onChange) — the inner schema's default (0.5) takes precedence
+    // over the outer sibling's default per fillDefaults's $ref resolution.
+    expect(onChange).toHaveBeenCalled();
+  });
+
+  it("normalizeSchema recurses into arrays and primitives without altering them (L10 + L31 passthroughs)", () => {
+    // The array branch (L31) is hit when a schema property carries an array
+    // value like `enum`. The primitive branch (L10) is hit by any leaf string
+    // / number / null value during the recursive walk. Pin so a refactor that
+    // forgets the Array.isArray guard doesn't silently coerce array values to
+    // {} (which would be invisible from the rendered form).
+    const schema = {
+      type: "object",
+      properties: {
+        mode: {
+          type: "string",
+          enum: ["fast", "balanced", "thorough"],
+          default: "balanced",
+          description: "Inference mode",
+        },
+      },
+    };
+    const onChange = vi.fn();
+    render(<RjsfConfigForm schema={schema} value={{}} onChange={onChange} />);
+    // The default flows through useEffect(onChange).
+    expect(onChange).toHaveBeenCalledWith({ mode: "balanced" });
+    // The description renders (proof that nested string values survived).
+    expect(screen.getByText(/Inference mode/)).toBeInTheDocument();
+  });
+
   it("renders schema description exactly once (no help-block duplication)", () => {
     const schema = {
       type: "object",
