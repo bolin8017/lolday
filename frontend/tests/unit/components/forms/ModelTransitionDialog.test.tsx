@@ -110,6 +110,25 @@ describe("ModelTransitionDialog", () => {
     expect(transitionMock).not.toHaveBeenCalled();
   });
 
+  it("Radix close (X) invokes onClose via onOpenChange(false)", () => {
+    renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
+    expect(onCloseMock).toHaveBeenCalled();
+    expect(transitionMock).not.toHaveBeenCalled();
+  });
+
+  it("changes target stage via Select and submits with the chosen target", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    // The Select trigger is labelled "Target stage"; open it and pick Archived.
+    await user.click(screen.getByRole("combobox", { name: /target stage/i }));
+    await user.click(screen.getByRole("option", { name: /Archived/ }));
+    await user.click(screen.getByRole("button", { name: /Confirm/ }));
+    expect(transitionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ toStage: "Archived" }),
+    );
+  });
+
   it("resets the comment to empty when the dialog re-opens", () => {
     const { rerender } = renderDialog({ open: true });
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
