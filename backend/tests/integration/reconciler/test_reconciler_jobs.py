@@ -431,3 +431,87 @@ async def test_reconcile_job_predict_swallows_prediction_summary_failure(
     assert j.finished_at is not None
     assert _get_metric() >= before + 1.0
     assert BACKEND_ERRORS.labels(stage="prediction_summary_projection") is not None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_succeeded_swallows_model_registration_failure(
+    db_session, seed_job, mlflow_stub
+):
+    """TRAIN-success path calls `_register_model_from_job` (jobs.py 252-256).
+    Failure inside must bump `BACKEND_ERRORS{stage="model_registration"}` and
+    leave the job at SUCCEEDED — the terminal transition is committed
+    AFTER this try/except (jobs.py:261), but the safety net is what keeps
+    the controller from re-entering the same FAILED path on next iteration
+    if MLflow happens to be unreachable.
+    """
+    from app.metrics import BACKEND_ERRORS
+    from prometheus_client import REGISTRY
+
+    j = await seed_job(status=JobStatus.RUNNING, job_type=JobType.TRAIN)
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total", {"stage": "model_registration"}
+            )
+            or 0.0
+        )
+
+    before = _get_metric()
+    with (
+        _patched_k8s(pod_phase=None, job_succeeded=1, job_failed=None),
+        patch(
+            "app.reconciler.jobs._register_model_from_job",
+            new=AsyncMock(side_effect=RuntimeError("mlflow create model 500")),
+        ),
+    ):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.status == JobStatus.SUCCEEDED
+    assert j.finished_at is not None
+    assert _get_metric() >= before + 1.0
+    assert BACKEND_ERRORS.labels(stage="model_registration") is not None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_failed_swallows_summary_projection_failure(
+    db_session, seed_job
+):
+    """The FAILED path also projects early-stage metrics (jobs.py 426-432)
+    so the UI summary card surfaces what's available even when the job
+    didn't finish cleanly. A projection failure must bump
+    `BACKEND_ERRORS{stage="summary_projection"}` (sibling to the SUCCEEDED
+    path) and the job must still transition to FAILED.
+
+    Sibling to `test_reconcile_job_succeeded_swallows_summary_projection_failure`
+    — same stage label, different caller (`_handle_job_failed` vs.
+    `_handle_job_succeeded`).
+    """
+    from app.metrics import BACKEND_ERRORS
+    from prometheus_client import REGISTRY
+
+    j = await seed_job(status=JobStatus.RUNNING, job_type=JobType.TRAIN)
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total", {"stage": "summary_projection"}
+            )
+            or 0.0
+        )
+
+    before = _get_metric()
+    with (
+        _patched_k8s(pod_phase=None, job_succeeded=None, job_failed=1, exit_code=1),
+        patch(
+            "app.reconciler.jobs._project_summary_metrics",
+            new=AsyncMock(side_effect=RuntimeError("projection blew up")),
+        ),
+    ):
+        await reconcile_job(db_session, j)
+    await db_session.refresh(j)
+    assert j.status == JobStatus.FAILED
+    assert j.failure_reason == "detector_exit_nonzero"
+    assert j.finished_at is not None
+    assert _get_metric() >= before + 1.0
+    assert BACKEND_ERRORS.labels(stage="summary_projection") is not None
