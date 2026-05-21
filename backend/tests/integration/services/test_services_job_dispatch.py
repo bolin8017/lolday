@@ -175,10 +175,15 @@ async def test_dispatch_handles_deleted_source_model_version_gracefully(
     Covers branch 98->101 in `dispatch_job_to_volcano`: `mv is None` after
     the FK lookup.
     """
+    import sqlalchemy as sa
     from app.models.job import Job, JobStatus, JobType
     from app.services.job_dispatch import dispatch_job_to_volcano
 
     dv_id = await seed_detector_version()
+    # Simulates a "deleted between submission and dispatch" race; SQLite
+    # per-checkout FK enforcement (#530) would block the dangling
+    # source_model_version_id insert, so disable just for this connection.
+    await db_session.execute(sa.text("PRAGMA foreign_keys=OFF"))
     job = Job(
         type=JobType.PREDICT,
         status=JobStatus.QUEUED_BACKEND,

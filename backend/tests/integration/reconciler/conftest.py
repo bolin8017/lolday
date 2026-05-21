@@ -2,7 +2,7 @@ import uuid
 
 import pytest_asyncio
 from app.models import Role, User
-from app.models.detector import Detector
+from app.models.detector import Detector, DetectorVersion, DetectorVersionStatus
 
 from tests.conftest import test_session_maker
 
@@ -50,3 +50,30 @@ async def reconciler_detector(reconciler_owner: uuid.UUID) -> Detector:
         await session.commit()
         await session.refresh(detector)
         return detector
+
+
+@pytest_asyncio.fixture
+async def reconciler_detector_version(
+    reconciler_detector: Detector,
+) -> DetectorVersion:
+    """Seed a DetectorVersion row for the `reconciler_detector` fixture.
+
+    Job rows FK to `detector_version.id`. Tests that build a Job in the
+    reconciler integration tier need this fixture in their signature so
+    the Job insert satisfies SQLite FK enforcement after the pool-leak
+    fix in `tests/conftest.py` (`connect` → `checkout` listener).
+    """
+    suffix = uuid.uuid4().hex[:8]
+    async with test_session_maker() as session:
+        dv = DetectorVersion(
+            detector_id=reconciler_detector.id,
+            git_tag=f"v0.0.{suffix[:4]}",
+            git_sha=suffix * 5,
+            harbor_image=f"harbor/{reconciler_detector.name}:{suffix}",
+            image_digest=f"sha256:{suffix}{suffix}",
+            status=DetectorVersionStatus.ACTIVE,
+        )
+        session.add(dv)
+        await session.commit()
+        await session.refresh(dv)
+        return dv

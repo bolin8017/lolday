@@ -34,19 +34,26 @@ from app.models.job import Job, JobStatus, JobType, ResourceProfile
 
 def _make_job(
     *,
+    owner_id: uuid.UUID,
+    detector_version_id: uuid.UUID,
     resource_profile: ResourceProfile = ResourceProfile.GPU1,
     priority: int = 0,
     submitted_at: datetime | None = None,
     k8s_job_name: str | None = None,
 ) -> Job:
-    """Build an unsaved Job ORM instance with status=queued_backend."""
+    """Build an unsaved Job ORM instance with status=queued_backend.
+
+    Caller must thread `owner_id` and `detector_version_id` from the
+    `reconciler_owner` + `reconciler_detector_version` fixtures so the
+    insert satisfies SQLite FK enforcement (issue #530).
+    """
     if submitted_at is None:
         submitted_at = datetime.now(UTC)
     job = Job(
         type=JobType.TRAIN,
         status=JobStatus.QUEUED_BACKEND,
-        detector_version_id=uuid.uuid4(),
-        owner_id=uuid.uuid4(),
+        detector_version_id=detector_version_id,
+        owner_id=owner_id,
         resolved_config={},
         idempotency_key=uuid.uuid4().hex,
         resource_profile=resource_profile,
@@ -91,12 +98,18 @@ async def test_empty_queue_no_submit(db_session, mock_dispatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_single_job_fits_submits(db_session, mock_dispatch):
+async def test_single_job_fits_submits(
+    db_session, mock_dispatch, reconciler_owner, reconciler_detector_version
+):
     """A single queued_backend GPU1 job submits when free_gpu >= 1."""
     from app.reconciler.fifo_scheduler import reconcile_fifo_queue
     from app.services.gpu_signal import GPUState
 
-    job = _make_job(resource_profile=ResourceProfile.GPU1)
+    job = _make_job(
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+        resource_profile=ResourceProfile.GPU1,
+    )
     db_session.add(job)
     await db_session.commit()
 
@@ -130,12 +143,18 @@ async def test_single_job_fits_submits(db_session, mock_dispatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_single_job_not_fit_no_submit(db_session, mock_dispatch):
+async def test_single_job_not_fit_no_submit(
+    db_session, mock_dispatch, reconciler_owner, reconciler_detector_version
+):
     """A GPU2 job does NOT submit when only 1 GPU is free."""
     from app.reconciler.fifo_scheduler import reconcile_fifo_queue
     from app.services.gpu_signal import GPUState
 
-    job = _make_job(resource_profile=ResourceProfile.GPU2)
+    job = _make_job(
+        owner_id=reconciler_owner,
+        detector_version_id=reconciler_detector_version.id,
+        resource_profile=ResourceProfile.GPU2,
+    )
     db_session.add(job)
     await db_session.commit()
 
@@ -167,16 +186,28 @@ async def test_single_job_not_fit_no_submit(db_session, mock_dispatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_same_priority_fifo_order(db_session, mock_dispatch):
+async def test_same_priority_fifo_order(
+    db_session, mock_dispatch, reconciler_owner, reconciler_detector_version
+):
     """Two queued_backend jobs at same priority: older submitted_at is submitted first."""
     from app.reconciler.fifo_scheduler import reconcile_fifo_queue
     from app.services.gpu_signal import GPUState
 
     now = datetime.now(UTC)
+    owner_id = reconciler_owner
+    detector_version_id = reconciler_detector_version.id
     older = _make_job(
-        resource_profile=ResourceProfile.GPU1, submitted_at=now - timedelta(minutes=5)
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
+        resource_profile=ResourceProfile.GPU1,
+        submitted_at=now - timedelta(minutes=5),
     )
-    newer = _make_job(resource_profile=ResourceProfile.GPU1, submitted_at=now)
+    newer = _make_job(
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
+        resource_profile=ResourceProfile.GPU1,
+        submitted_at=now,
+    )
     db_session.add_all([older, newer])
     await db_session.commit()
 
@@ -211,21 +242,31 @@ async def test_same_priority_fifo_order(db_session, mock_dispatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_higher_priority_submits_first(db_session, mock_dispatch):
+async def test_higher_priority_submits_first(
+    db_session, mock_dispatch, reconciler_owner, reconciler_detector_version
+):
     """Higher-priority job submits before a lower-priority older job."""
     from app.reconciler.fifo_scheduler import reconcile_fifo_queue
     from app.services.gpu_signal import GPUState
 
     now = datetime.now(UTC)
+    owner_id = reconciler_owner
+    detector_version_id = reconciler_detector_version.id
     # older but priority=0
     low_prio = _make_job(
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
         resource_profile=ResourceProfile.GPU1,
         priority=0,
         submitted_at=now - timedelta(minutes=10),
     )
     # newer but priority=5
     high_prio = _make_job(
-        resource_profile=ResourceProfile.GPU1, priority=5, submitted_at=now
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
+        resource_profile=ResourceProfile.GPU1,
+        priority=5,
+        submitted_at=now,
     )
     db_session.add_all([low_prio, high_prio])
     await db_session.commit()
@@ -260,21 +301,31 @@ async def test_higher_priority_submits_first(db_session, mock_dispatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_head_not_fit_halts_iteration(db_session, mock_dispatch):
+async def test_head_not_fit_halts_iteration(
+    db_session, mock_dispatch, reconciler_owner, reconciler_detector_version
+):
     """When HEAD doesn't fit, the loop breaks — smaller later jobs are NOT submitted."""
     from app.reconciler.fifo_scheduler import reconcile_fifo_queue
     from app.services.gpu_signal import GPUState
 
     now = datetime.now(UTC)
+    owner_id = reconciler_owner
+    detector_version_id = reconciler_detector_version.id
     # HEAD: GPU2 job (needs 2 GPUs) — older, higher priority → will be first
     head = _make_job(
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
         resource_profile=ResourceProfile.GPU2,
         priority=0,
         submitted_at=now - timedelta(minutes=5),
     )
     # Tail: GPU1 job (needs 1 GPU) — newer
     tail = _make_job(
-        resource_profile=ResourceProfile.GPU1, priority=0, submitted_at=now
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
+        resource_profile=ResourceProfile.GPU1,
+        priority=0,
+        submitted_at=now,
     )
     db_session.add_all([head, tail])
     await db_session.commit()
@@ -308,7 +359,9 @@ async def test_head_not_fit_halts_iteration(db_session, mock_dispatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_dispatch_error_keeps_queued_backend(db_session):
+async def test_dispatch_error_keeps_queued_backend(
+    db_session, reconciler_owner, reconciler_detector_version
+):
     """When dispatch_job_to_volcano raises, the job's status stays queued_backend.
 
     Also asserts strict-FIFO-on-error: only ONE dispatch attempt is made —
@@ -318,10 +371,20 @@ async def test_dispatch_error_keeps_queued_backend(db_session):
     from app.services.gpu_signal import GPUState
 
     now = datetime.now(UTC)
+    owner_id = reconciler_owner
+    detector_version_id = reconciler_detector_version.id
     job_a = _make_job(
-        resource_profile=ResourceProfile.GPU1, submitted_at=now - timedelta(minutes=1)
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
+        resource_profile=ResourceProfile.GPU1,
+        submitted_at=now - timedelta(minutes=1),
     )
-    job_b = _make_job(resource_profile=ResourceProfile.GPU1, submitted_at=now)
+    job_b = _make_job(
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
+        resource_profile=ResourceProfile.GPU1,
+        submitted_at=now,
+    )
     db_session.add_all([job_a, job_b])
     await db_session.commit()
 
@@ -365,7 +428,9 @@ async def test_dispatch_error_keeps_queued_backend(db_session):
 # ---------------------------------------------------------------------------
 
 
-async def test_dispatch_error_halts_iteration(db_session):
+async def test_dispatch_error_halts_iteration(
+    db_session, reconciler_owner, reconciler_detector_version
+):
     """When HEAD dispatch raises, subsequent queued jobs are NOT submitted.
 
     Regression test for the continue→break fix: the old `continue` would
@@ -377,14 +442,20 @@ async def test_dispatch_error_halts_iteration(db_session):
     from app.services.gpu_signal import GPUState
 
     now = datetime.now(UTC)
+    owner_id = reconciler_owner
+    detector_version_id = reconciler_detector_version.id
     # job_a is HEAD (older, same priority) — its dispatch will fail
     job_a = _make_job(
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
         resource_profile=ResourceProfile.GPU1,
         priority=0,
         submitted_at=now - timedelta(minutes=5),
     )
     # job_b would fit if we tried it — but strict FIFO means we must NOT
     job_b = _make_job(
+        owner_id=owner_id,
+        detector_version_id=detector_version_id,
         resource_profile=ResourceProfile.GPU1,
         priority=0,
         submitted_at=now,

@@ -315,13 +315,16 @@ async def test_validate_submission_stage_invalid_gpu2_without_distributed_400(
 async def test_validate_submission_detector_fk_invariant_500(
     db_session, seed_user, seed_detector_version, seed_dataset
 ) -> None:
+    import sqlalchemy as sa
     from app.models import DetectorVersion
 
     dv_id = await seed_detector_version()
     ds_id = await seed_dataset()
     dv = await db_session.get(DetectorVersion, uuid.UUID(dv_id))
-    # Force the FK to point at a non-existent detector — emulating prod-side
-    # row removal that should never happen but is defended against.
+    # This test simulates a "should-never-happen" prod state by writing a
+    # dangling FK; SQLite per-checkout FK enforcement (#530) would block
+    # the deliberate corruption, so disable just for this connection.
+    await db_session.execute(sa.text("PRAGMA foreign_keys=OFF"))
     dv.detector_id = uuid.uuid4()
     await db_session.commit()
 
