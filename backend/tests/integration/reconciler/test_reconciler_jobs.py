@@ -176,6 +176,24 @@ async def test_reconcile_job_returns_early_when_no_k8s_job_name(
     assert j.status == pre_status
 
 
+def test_job_timed_out_invariant_violation_raises() -> None:
+    """`_job_timed_out` is private to the reconciler's events loop, which
+    pre-checks `j.started_at is not None` at L109. If a future refactor
+    drops that gate, the helper's defensive guard (L170-173) surfaces a
+    RuntimeError with the job id — pin that behaviour so the contract is
+    explicit in tests, not implicit in code review."""
+    from unittest.mock import MagicMock
+
+    from app.reconciler.jobs import _job_timed_out
+
+    job = MagicMock()
+    job.id = uuid.uuid4()
+    job.started_at = None
+
+    with pytest.raises(RuntimeError, match="caller invariant violated"):
+        _job_timed_out(job, vjob={})
+
+
 @pytest.mark.asyncio
 async def test_reconcile_job_marks_succeeded_and_registers_model(
     db_session, seed_job, mlflow_stub
