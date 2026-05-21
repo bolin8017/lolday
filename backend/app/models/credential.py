@@ -7,12 +7,12 @@ from sqlalchemy import (
     ForeignKey,
     LargeBinary,
     String,
+    Uuid,
     func,
 )
 from sqlalchemy import (
     Enum as SAEnum,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.user import Base
@@ -27,7 +27,7 @@ class UserGitCredential(Base):
     __tablename__ = "user_git_credential"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+        Uuid(as_uuid=True), ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
     )
     provider: Mapped[GitProvider] = mapped_column(
         SAEnum(

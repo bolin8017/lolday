@@ -16,7 +16,6 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 from app.models.detector import (
@@ -37,7 +36,9 @@ def _b64_manifest() -> str:
 
 
 @pytest.mark.asyncio
-async def test_reconcile_populates_manifest_from_image_labels(db_session):
+async def test_reconcile_populates_manifest_from_image_labels(
+    db_session, reconciler_owner
+):
     """Happy path: scan Success 0 CVEs + valid manifest label → DetectorVersion
     created with manifest column populated from the decoded label."""
     from app.reconciler import reconcile_build
@@ -47,7 +48,7 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
         name="elfrfdet",
         display_name="elfrfdet",
         git_url="https://github.com/bolin8017/elfrfdet.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
@@ -55,7 +56,7 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v2.0.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-elfrfdet-1",
         status=DetectorBuildStatus.SCANNING,
     )
@@ -118,7 +119,9 @@ async def test_reconcile_populates_manifest_from_image_labels(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_fails_when_manifest_label_missing(db_session):
+async def test_reconcile_fails_when_manifest_label_missing(
+    db_session, reconciler_owner
+):
     """Fail-closed: scan Success 0 CVEs but the image has no
     ``io.maldet.manifest`` label → build FAILED with
     ``failure_reason="manifest_label_missing"`` and NO DetectorVersion row.
@@ -131,14 +134,14 @@ async def test_reconcile_fails_when_manifest_label_missing(db_session):
         name="nolabel",
         display_name="nolabel",
         git_url="https://github.com/x/nolabel.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-nolabel",
         status=DetectorBuildStatus.SCANNING,
     )
@@ -190,7 +193,9 @@ async def test_reconcile_fails_when_manifest_label_missing(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_fails_when_revision_label_missing(db_session):
+async def test_reconcile_fails_when_revision_label_missing(
+    db_session, reconciler_owner
+):
     """C2 fix: scan Success 0 CVEs + valid manifest label, but the image is
     missing ``org.opencontainers.image.revision`` → build FAILED with
     ``failure_reason="git_sha_label_missing"``. Without this fail-close, a
@@ -205,14 +210,14 @@ async def test_reconcile_fails_when_revision_label_missing(db_session):
         name="norev",
         display_name="norev",
         git_url="https://github.com/x/norev.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.2.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-norev",
         status=DetectorBuildStatus.SCANNING,
     )
@@ -265,7 +270,9 @@ async def test_reconcile_fails_when_revision_label_missing(db_session):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_fails_when_manifest_label_malformed(db_session):
+async def test_reconcile_fails_when_manifest_label_malformed(
+    db_session, reconciler_owner
+):
     """Fail-closed: ``io.maldet.manifest`` present but not valid base64 →
     ``ManifestDecodeError`` → build FAILED with
     ``failure_reason="manifest_invalid"`` and NO DetectorVersion row."""
@@ -277,14 +284,14 @@ async def test_reconcile_fails_when_manifest_label_malformed(db_session):
         name="badmfst",
         display_name="badmfst",
         git_url="https://github.com/x/badmfst.git",
-        owner_id=uuid4(),
+        owner_id=reconciler_owner,
     )
     db_session.add(detector)
     await db_session.commit()
     build = DetectorBuild(
         detector_id=detector.id,
         git_tag="v0.1.0",
-        triggered_by_id=uuid4(),
+        triggered_by_id=reconciler_owner,
         k8s_job_name="build-badmfst",
         status=DetectorBuildStatus.SCANNING,
     )

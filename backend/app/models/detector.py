@@ -11,12 +11,13 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy import (
     Enum as SAEnum,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.user import Base
@@ -57,14 +58,14 @@ class Detector(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     git_url: Mapped[str] = mapped_column(String(500), nullable=False)
     owner_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -79,10 +80,10 @@ class DetectorVersion(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     detector_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("detector.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -114,17 +115,17 @@ class DetectorBuild(Base):
     __tablename__ = "detector_build"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     detector_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         ForeignKey("detector.id", ondelete="CASCADE"),
         nullable=False,
     )
     git_tag: Mapped[str] = mapped_column(String(100), nullable=False)
     git_sha: Mapped[str | None] = mapped_column(String(40))
     triggered_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+        Uuid(as_uuid=True), ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
     )
     k8s_job_name: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[DetectorBuildStatus] = mapped_column(
