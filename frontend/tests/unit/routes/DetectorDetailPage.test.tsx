@@ -665,4 +665,40 @@ describe("_authed.detectors.$id.tsx (DetectorDetailPage)", () => {
       );
     });
   });
+
+  it("VersionDeleteButton onOpenChange(false): closes the dialog and clears any prior error (L437-440)", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-1",
+        git_tag: "v1.2.3",
+        git_sha: "abcdef1234567890",
+        status: "ready",
+        built_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    // Seed an error first so the close path's setError(null) is observable.
+    deleteVersionMock.mockRejectedValueOnce(new LoldayApiError(500, "boom"));
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    const actionsCell = screen.getByTestId("stub-cell-0-actions");
+    await user.click(
+      within(actionsCell).getByRole("button", { name: /^Delete$/ }),
+    );
+    await capturedDialogProps.current!.onConfirm();
+    await waitFor(() => {
+      expect(screen.getByTestId("stub-dialog-error")).toBeInTheDocument();
+    });
+    capturedDialogProps.current!.onOpenChange(false);
+    await waitFor(() => {
+      expect(screen.queryByTestId("stub-delete-dialog")).toBeNull();
+    });
+    // Re-open and confirm the error banner is gone — the L439 `if (!o)
+    // setError(null)` branch cleared it.
+    await user.click(
+      within(actionsCell).getByRole("button", { name: /^Delete$/ }),
+    );
+    expect(screen.queryByTestId("stub-dialog-error")).toBeNull();
+  });
 });
