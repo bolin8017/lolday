@@ -43,4 +43,10 @@ describe("ModelDescriptionEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("Radix close (X) invokes onClose via onOpenChange(false)", () => {
+    const { onClose } = setup({ initialValue: "hello" });
+    fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });
