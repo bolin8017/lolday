@@ -126,3 +126,119 @@ async def test_reconcile_noop_when_robot_missing(monkeypatch):
 
     assert rotated is False
     mock_client.rotate_robot_secret.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_noop_when_harbor_password_missing(monkeypatch):
+    """If `HARBOR_ADMIN_PASSWORD` is unset (test envs without Harbor), the
+    rotation is a no-op — neither HarborClient nor the K8s Secret writer
+    is touched."""
+    monkeypatch.setattr("app.config.settings.HARBOR_ADMIN_PASSWORD", "")
+    from app.reconciler import harbor_rotate
+
+    with (
+        patch(
+            "app.reconciler.harbor_rotate.HarborClient",
+            side_effect=AssertionError("HarborClient should not be constructed"),
+        ),
+        patch(
+            "app.reconciler.harbor_rotate._write_docker_config_secret",
+            side_effect=AssertionError("Secret writer should not be invoked"),
+        ),
+    ):
+        rotated = await harbor_rotate.reconcile_harbor_robot()
+
+    assert rotated is False
+
+
+@pytest.mark.asyncio
+async def test_reconcile_rotate_api_failure_increments_counter(monkeypatch):
+    """When the Harbor rotate-secret API call raises (e.g. 5xx, network
+    error), the `harbor_robot_rotate_api` BACKEND_ERRORS stage is
+    incremented and the exception propagates to the reconciler loop's
+    outer except (`reconcile_harbor_robot` stage)."""
+    from prometheus_client import REGISTRY
+
+    monkeypatch.setattr("app.config.settings.HARBOR_ADMIN_PASSWORD", "x")
+    from app.reconciler import harbor_rotate
+
+    def _get(stage: str) -> float:
+        return (
+            REGISTRY.get_sample_value("lolday_backend_errors_total", {"stage": stage})
+            or 0.0
+        )
+
+    before = _get("harbor_robot_rotate_api")
+
+    mock_client = MagicMock()
+    mock_client.get_robot = AsyncMock(
+        return_value={
+            "id": 11,
+            "name": "robot$build-pusher",
+            "duration": -1,
+            "expires_at": -1,
+        }
+    )
+    mock_client.update_robot_duration = AsyncMock()
+    mock_client.rotate_robot_secret = AsyncMock(
+        side_effect=RuntimeError("synthetic Harbor 5xx")
+    )
+
+    with (
+        patch("app.reconciler.harbor_rotate.HarborClient", return_value=mock_client),
+        patch(
+            "app.reconciler.harbor_rotate._write_docker_config_secret",
+            side_effect=AssertionError("Secret writer should not be reached"),
+        ),
+        pytest.raises(RuntimeError, match="synthetic Harbor 5xx"),
+    ):
+        await harbor_rotate.reconcile_harbor_robot()
+
+    assert _get("harbor_robot_rotate_api") == before + 1.0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_secret_write_failure_increments_counter(monkeypatch):
+    """When the in-cluster `harbor-push-cred` Secret write fails after a
+    successful Harbor rotate, the `harbor_robot_rotate_k8s` BACKEND_ERRORS
+    stage is incremented and the exception propagates. The next reconciler
+    tick retries from the now-rotated Harbor state."""
+    from prometheus_client import REGISTRY
+
+    monkeypatch.setattr("app.config.settings.HARBOR_ADMIN_PASSWORD", "x")
+    from app.reconciler import harbor_rotate
+
+    def _get(stage: str) -> float:
+        return (
+            REGISTRY.get_sample_value("lolday_backend_errors_total", {"stage": stage})
+            or 0.0
+        )
+
+    before = _get("harbor_robot_rotate_k8s")
+
+    mock_client = MagicMock()
+    mock_client.get_robot = AsyncMock(
+        return_value={
+            "id": 11,
+            "name": "robot$build-pusher",
+            "duration": -1,
+            "expires_at": -1,
+        }
+    )
+    mock_client.update_robot_duration = AsyncMock()
+    mock_client.rotate_robot_secret = AsyncMock(return_value="fresh-secret")
+
+    failing_writer = AsyncMock(side_effect=RuntimeError("synthetic K8s 403"))
+
+    with (
+        patch("app.reconciler.harbor_rotate.HarborClient", return_value=mock_client),
+        patch(
+            "app.reconciler.harbor_rotate._write_docker_config_secret",
+            failing_writer,
+        ),
+        pytest.raises(RuntimeError, match="synthetic K8s 403"),
+    ):
+        await harbor_rotate.reconcile_harbor_robot()
+
+    failing_writer.assert_awaited_once_with("robot$build-pusher", "fresh-secret")
+    assert _get("harbor_robot_rotate_k8s") == before + 1.0
