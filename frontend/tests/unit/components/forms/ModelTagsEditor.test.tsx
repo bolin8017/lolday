@@ -59,4 +59,16 @@ describe("ModelTagsEditor", () => {
     expect(toastSpy).toHaveBeenCalledOnce();
     expect(onSubmit).not.toHaveBeenCalled();
   });
+
+  it("Cancel button invokes onClose", () => {
+    const { onClose } = setup();
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("Radix close (X) invokes onClose via onOpenChange(false)", () => {
+    const { onClose } = setup();
+    fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });
