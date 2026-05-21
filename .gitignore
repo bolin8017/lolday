@@ -9,6 +9,19 @@ __pycache__/
 dist/
 .venv/
 
+# Python tool runtime artefacts — coverage data files, pytest cache,
+# hypothesis examples DB, mypy / ruff caches. None of these are
+# reproducible across runs; an accidental `git add .` would balloon
+# the repo and leak local test state.
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.hypothesis/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
 # Node (future phases)
 node_modules/
 .next/
