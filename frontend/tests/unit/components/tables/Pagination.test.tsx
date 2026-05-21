@@ -69,4 +69,24 @@ describe("Pagination", () => {
     expect(screen.getByRole("button", { name: /prev|上一頁/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /next|下一頁/i })).toBeDisabled();
   });
+
+  it("Prev click goes back one page", async () => {
+    // Covers L18 `onClick={() => table.previousPage()}` — the existing
+    // tests assert disabled-on-first-page + Next-advances but never
+    // exercise the prev handler. A typo (e.g. accidentally calling
+    // `nextPage` from both buttons) would leave Prev as a forward
+    // navigation without surfacing in any existing test.
+    const user = userEvent.setup();
+    const Harness = buildHarness({ rows: 30, pageSize: 10 });
+    render(<Harness />);
+    // Advance to page 2 so Prev becomes enabled.
+    await user.click(screen.getByRole("button", { name: /next|下一頁/i }));
+    expect(
+      screen.getByText(/page 2 of 3|第 2 頁 \/ 共 3 頁/i),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /prev|上一頁/i }));
+    expect(
+      screen.getByText(/page 1 of 3|第 1 頁 \/ 共 3 頁/i),
+    ).toBeInTheDocument();
+  });
 });
