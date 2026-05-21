@@ -24,6 +24,17 @@ const { queryState, capturedTableProps, capturedColumnPickerProps } =
       rows: undefined as Row[] | undefined,
       emptyMessage: undefined as string | undefined,
       columnIds: undefined as (string | undefined)[] | undefined,
+      // Expose the full columns array so tests can invoke specific
+      // ColumnDef.cell callbacks against synthetic rows. Used to pin
+      // the pickValue branches + cell-rendering fallbacks (#530-era
+      // route-shell coverage gap).
+      columns: undefined as
+        | {
+            id?: string;
+            accessorKey?: string;
+            cell?: (ctx: { row: { original: Row } }) => unknown;
+          }[]
+        | undefined,
     },
     capturedColumnPickerProps: {
       availableMetrics: undefined as string[] | undefined,
@@ -58,6 +69,8 @@ vi.mock("@/components/tables/DataTable", () => ({
         (c as { id?: string; accessorKey?: string }).id ??
         (c as { accessorKey?: string }).accessorKey,
     );
+    capturedTableProps.columns =
+      columns as unknown as typeof capturedTableProps.columns;
     return (
       <div data-testid="stub-data-table">
         <span data-testid="stub-row-count">{data.length}</span>
@@ -155,6 +168,7 @@ beforeEach(() => {
   capturedTableProps.rows = undefined;
   capturedTableProps.emptyMessage = undefined;
   capturedTableProps.columnIds = undefined;
+  capturedTableProps.columns = undefined;
   capturedColumnPickerProps.availableMetrics = undefined;
   capturedColumnPickerProps.availableParams = undefined;
   capturedColumnPickerProps.selected = undefined;
@@ -302,5 +316,98 @@ describe("_authed.runs.\\$expId.tsx (RunsListPage)", () => {
 
   it("exports the 'Experiment' breadcrumb handle", () => {
     expect(runsHandle).toEqual({ breadcrumb: "Experiment" });
+  });
+
+  // pickValue branches + extra-column cell renderer fallbacks (#530 era
+  // route-shell coverage gap, lines 42-44 + 150 of _authed.runs.\$expId.tsx).
+  it("extra-column metrics cell renders numeric metric formatted to 4 decimals", () => {
+    localStorage.setItem(
+      "lolday.runs.columns.exp-1",
+      JSON.stringify(["metrics.f1"]),
+    );
+    queryState.data = [
+      {
+        run_id: "r-1",
+        status: "FINISHED",
+        metrics: { f1: 0.123456789 },
+      },
+    ];
+    renderAt();
+    const col = capturedTableProps.columns!.find((c) => c.id === "metrics.f1");
+    expect(col).toBeDefined();
+    const out = col!.cell!({
+      row: { original: queryState.data![0] },
+    });
+    expect(out).toBe("0.1235");
+  });
+
+  it("extra-column params cell renders the param string via pickValue('params', ...)", () => {
+    localStorage.setItem(
+      "lolday.runs.columns.exp-1",
+      JSON.stringify(["params.lr"]),
+    );
+    queryState.data = [
+      {
+        run_id: "r-1",
+        status: "FINISHED",
+        // params are strings on the backend; pickValue's params branch
+        // (L42) returns the raw string and the cell renderer falls
+        // through to String(v) (L150).
+        params: { lr: "0.001" },
+      },
+    ];
+    renderAt();
+    const col = capturedTableProps.columns!.find((c) => c.id === "params.lr");
+    expect(col).toBeDefined();
+    const out = col!.cell!({
+      row: { original: queryState.data![0] },
+    });
+    expect(out).toBe("0.001");
+  });
+
+  it("extra-column tags cell renders the tag string via pickValue('tags', ...)", () => {
+    localStorage.setItem(
+      "lolday.runs.columns.exp-1",
+      JSON.stringify(["tags.maldet_version"]),
+    );
+    queryState.data = [
+      {
+        run_id: "r-1",
+        status: "FINISHED",
+        // Tags branch (L43) — string output flows through L150 fallback.
+        tags: { maldet_version: "2.2.1" },
+      },
+    ];
+    renderAt();
+    const col = capturedTableProps.columns!.find(
+      (c) => c.id === "tags.maldet_version",
+    );
+    expect(col).toBeDefined();
+    const out = col!.cell!({
+      row: { original: queryState.data![0] },
+    });
+    expect(out).toBe("2.2.1");
+  });
+
+  it("extra-column cell renders em-dash when the looked-up value is missing", () => {
+    localStorage.setItem(
+      "lolday.runs.columns.exp-1",
+      JSON.stringify(["metrics.f1"]),
+    );
+    queryState.data = [
+      {
+        run_id: "r-1",
+        status: "FINISHED",
+        // No metrics key → pickValue('metrics', 'f1') returns undefined →
+        // cell renderer hits the `v == null` branch and prints "—".
+        metrics: {},
+      },
+    ];
+    renderAt();
+    const col = capturedTableProps.columns!.find((c) => c.id === "metrics.f1");
+    const out = col!.cell!({
+      row: { original: queryState.data![0] },
+    });
+    expect(out).toBe("—");
   });
 });
