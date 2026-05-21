@@ -531,3 +531,90 @@ async def test_compute_cluster_free_gpu_falls_back_to_k8s_when_escape_hatch(
         )
     # 2 physical - 1 running pod GPU = 1 free
     assert free == 1
+
+
+@pytest.mark.asyncio
+async def test_compute_free_gpu_k8s_only_skips_terminated_and_statusless_pods(
+    db_session,
+):
+    """`_compute_free_gpu_k8s_only` ignores pods whose phase is not
+    Running/Pending and pods with no status field (defensive). Only
+    Running/Pending pods contribute to the GPU accounting."""
+    from types import SimpleNamespace
+
+    pods = SimpleNamespace(
+        items=[
+            # Succeeded pod — should NOT count even though it has a GPU limit.
+            SimpleNamespace(
+                status=SimpleNamespace(phase="Succeeded"),
+                spec=SimpleNamespace(
+                    containers=[
+                        SimpleNamespace(
+                            resources=SimpleNamespace(limits={"nvidia.com/gpu": "1"})
+                        )
+                    ]
+                ),
+            ),
+            # Pod with no status at all — defensive guard kicks in.
+            SimpleNamespace(
+                status=None,
+                spec=SimpleNamespace(
+                    containers=[
+                        SimpleNamespace(
+                            resources=SimpleNamespace(limits={"nvidia.com/gpu": "2"})
+                        )
+                    ]
+                ),
+            ),
+            # Running pod — should count.
+            SimpleNamespace(
+                status=SimpleNamespace(phase="Running"),
+                spec=SimpleNamespace(
+                    containers=[
+                        SimpleNamespace(
+                            resources=SimpleNamespace(limits={"nvidia.com/gpu": "1"})
+                        )
+                    ]
+                ),
+            ),
+        ]
+    )
+    stub = MagicMock()
+    stub.list_namespaced_pod.return_value = pods
+
+    with (
+        patch.object(fifo_scheduler.settings, "CLUSTER_PHYSICAL_GPU_COUNT", 4),
+        patch.object(fifo_scheduler.settings, "JOB_NAMESPACE", "lolday-jobs"),
+    ):
+        free = await fifo_scheduler._compute_free_gpu_k8s_only(db_session, k8s=stub)
+    # 4 physical - 1 running pod GPU (Succeeded + statusless skipped) = 3.
+    assert free == 3
+
+
+@pytest.mark.asyncio
+async def test_compute_free_gpu_k8s_only_returns_0_on_pod_list_failure(db_session):
+    """When the K8s pod-list call raises (slow API, kubeconfig miss, RBAC),
+    `_compute_free_gpu_k8s_only` increments the `fifo_scheduler_pod_list`
+    BACKEND_ERRORS stage and returns 0 (fail-closed) so the scheduler does
+    not over-commit on absent accounting."""
+    from prometheus_client import REGISTRY
+
+    def _get(stage: str) -> float:
+        return (
+            REGISTRY.get_sample_value("lolday_backend_errors_total", {"stage": stage})
+            or 0.0
+        )
+
+    before = _get("fifo_scheduler_pod_list")
+
+    stub = MagicMock()
+    stub.list_namespaced_pod.side_effect = RuntimeError("synthetic K8s 503")
+
+    with (
+        patch.object(fifo_scheduler.settings, "CLUSTER_PHYSICAL_GPU_COUNT", 4),
+        patch.object(fifo_scheduler.settings, "JOB_NAMESPACE", "lolday-jobs"),
+    ):
+        free = await fifo_scheduler._compute_free_gpu_k8s_only(db_session, k8s=stub)
+
+    assert free == 0
+    assert _get("fifo_scheduler_pod_list") == before + 1.0
