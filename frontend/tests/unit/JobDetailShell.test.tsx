@@ -1,10 +1,33 @@
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobDetailShell } from "@/components/jobs/JobDetailShell";
 import type { components } from "@/api/schema";
+
+const cancelMutate = vi.fn();
+vi.mock("@/api/queries/jobs", async () => {
+  const mod =
+    await vi.importActual<typeof import("@/api/queries/jobs")>(
+      "@/api/queries/jobs",
+    );
+  return {
+    ...mod,
+    useCancelJob: vi.fn(() => ({ mutate: cancelMutate, isPending: false })),
+    usePatchJob: vi.fn(() => ({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    })),
+  };
+});
+
+vi.mock("@/api/queries/cluster", () => ({
+  useJobQueuePosition: vi.fn(() => ({ data: null })),
+}));
 
 type JobRead = components["schemas"]["JobRead"];
 
@@ -46,6 +69,10 @@ const renderShell = (job: JobRead) => {
 };
 
 describe("JobDetailShell", () => {
+  beforeEach(() => {
+    cancelMutate.mockClear();
+  });
+
   it("renders Open in MLflow button when run id and experiment id are set", () => {
     renderShell(baseJob);
     // i18n key matches "Open in MLflow" in en (default fallbackLng).
@@ -74,5 +101,50 @@ describe("JobDetailShell", () => {
       "/mlflow/#/experiments/exp-1/runs/run-abc",
     );
     expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("hides Cancel button for terminal job status", () => {
+    renderShell(baseJob);
+    expect(screen.queryByRole("button", { name: /cancel/i })).toBeNull();
+  });
+
+  it("shows Cancel button for non-terminal job status and dispatches mutate on click", async () => {
+    const job = { ...baseJob, status: "running" } as JobRead;
+    renderShell(job);
+    const cancelBtn = screen.getByRole("button", { name: /cancel/i });
+    expect(cancelBtn).toBeInTheDocument();
+    await userEvent.click(cancelBtn);
+    expect(cancelMutate).toHaveBeenCalledWith(job.id);
+  });
+
+  it("Clone button navigates to /jobs/new with from=<jobId>", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let captured = "";
+    function LocationProbe() {
+      const loc = useLocation();
+      captured = `${loc.pathname}${loc.search}`;
+      return null;
+    }
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/jobs/x"]}>
+          <Routes>
+            <Route
+              path="/jobs/x"
+              element={
+                <JobDetailShell job={baseJob}>
+                  <div data-testid="children" />
+                </JobDetailShell>
+              }
+            />
+            <Route path="/jobs/new" element={<LocationProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /clone/i }));
+    expect(captured).toBe(`/jobs/new?from=${baseJob.id}`);
   });
 });
