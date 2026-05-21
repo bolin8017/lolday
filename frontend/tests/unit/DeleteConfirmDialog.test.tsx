@@ -85,4 +85,27 @@ describe("DeleteConfirmDialog", () => {
     });
     expect(onOpenChange).not.toHaveBeenCalled();
   });
+
+  it("Cancel button calls onOpenChange(false)", () => {
+    const { onOpenChange } = setup();
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("Radix close (X) propagates to parent onOpenChange when not pending", () => {
+    const { onOpenChange } = setup();
+    // shadcn DialogContent ships a DialogPrimitive.Close marked with the
+    // sr-only "Close" label; clicking it fires Radix's onOpenChange(false).
+    fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("Radix close is suppressed while pending — parent onOpenChange not called", () => {
+    // pending=true blocks the `if (!pending) onOpenChange(o)` branch.
+    // The internal `setTyped("")` reset on close still runs (state-only,
+    // observed indirectly: Delete remains disabled after re-open).
+    const { onOpenChange } = setup({ pending: true });
+    fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
 });
