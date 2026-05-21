@@ -108,4 +108,38 @@ describe("JsonTreeView", () => {
     });
     expect(screen.getByTestId("json-tree-view")).toBeInTheDocument();
   });
+
+  it("copy click is a no-op when navigator.clipboard is unavailable", async () => {
+    // Pins L38 `if (!navigator.clipboard) return;` — older Safari and a
+    // few embedded browsers ship without the Clipboard API; the handler
+    // must not crash (no `await null.writeText(...)` TypeError) and the
+    // "Copied" UI state must NOT advance.
+    const user = userEvent.setup();
+    const origClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      await act(async () => {
+        render(<JsonTreeView value={{ a: 1 }} />);
+      });
+      const button = screen.getByRole("button", {
+        name: /Copy JSON to clipboard/,
+      });
+      // Must not throw, must not advance to "Copied" since the handler
+      // returned early without setting copied=true.
+      await act(async () => {
+        await user.click(button);
+      });
+      expect(
+        screen.queryByRole("button", { name: /Copied/ }),
+      ).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: origClipboard,
+      });
+    }
+  });
 });
