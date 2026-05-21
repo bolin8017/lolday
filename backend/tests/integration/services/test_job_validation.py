@@ -720,3 +720,49 @@ async def test_validate_submission_dataset_integrity_failed_422(
     assert exc.value.code == "dataset_integrity_failed"
     assert exc.value.status_code == 422
     assert "spot-check samples" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_validate_submission_skips_spot_check_for_none_datasets(
+    db_session,
+    seed_user,
+    seed_detector_version,
+    seed_dataset,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """For a TRAIN job, only `train_ds` is non-null — the `(train_ds,
+    test_ds, predict_ds)` loop must `continue` past the two None entries
+    (job_validation.py L233-234). This pins the otherwise-unreachable
+    `if ds is None: continue` branch in the existing spot-check block."""
+    spot_check_calls: list = []
+
+    def _spot_check(*args, **kwargs):
+        # Capture inputs so we can prove only the train_ds CSV reached us.
+        spot_check_calls.append(kwargs.get("file_names"))
+
+    dv_id = await seed_detector_version()
+    ds_id = await seed_dataset()
+
+    monkeypatch.setattr(
+        "app.services.job_validation.settings.SAMPLES_LOCAL_ROOT", str(tmp_path)
+    )
+    monkeypatch.setattr("app.services.job_validation.settings.SPEC_LANE_STUBS", False)
+    monkeypatch.setattr("app.services.job_validation.spot_check_samples", _spot_check)
+
+    body = JobCreate(
+        type=JobType.TRAIN,
+        detector_version_id=uuid.UUID(dv_id),
+        train_dataset_id=uuid.UUID(ds_id),
+        resource_profile=ResourceProfile.STANDARD,
+        params={},
+    )
+
+    validated = await validate_submission(db_session, seed_user, body)
+
+    # spot_check_samples ran exactly once (for train_ds). The None test_ds
+    # and predict_ds were each skipped via the `continue` on L234.
+    assert len(spot_check_calls) == 1
+    assert validated.train_dataset is not None
+    assert validated.test_dataset is None
+    assert validated.predict_dataset is None
