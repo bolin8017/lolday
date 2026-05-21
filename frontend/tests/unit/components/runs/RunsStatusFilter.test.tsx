@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import {
   isRunsStatus,
   RUNS_STATUSES,
@@ -63,5 +64,24 @@ describe("RunsStatusFilter", () => {
     render(<RunsStatusFilter value="FINISHED" onChange={() => {}} />);
     // The trigger label shows the value verbatim (uppercase MLflow status).
     expect(screen.getByText("FINISHED")).toBeInTheDocument();
+  });
+
+  it("invokes onChange with the selected status (covers L34 onValueChange guard)", async () => {
+    // Pins the L34 `if (isRunsStatus(v)) onChange(v)` happy path. Without
+    // this assertion an `onChange` regression (e.g. typo dropping the call)
+    // would still let the trigger render correctly while silently no-op-ing
+    // user selections.
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<RunsStatusFilter value="all" onChange={onChange} />);
+
+    await user.click(
+      screen.getByRole("combobox", { name: /filter by run status/i }),
+    );
+    // SelectContent renders in a portal; query by role inside the document.
+    const finished = await screen.findByRole("option", { name: "FINISHED" });
+    await user.click(finished);
+
+    expect(onChange).toHaveBeenCalledWith("FINISHED");
   });
 });
