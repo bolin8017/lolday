@@ -60,6 +60,35 @@ async def test_update_run_kwargs_only_with_end_time_ms(
 
 
 @pytest.mark.asyncio
+async def test_update_run_with_no_optional_kwargs_omits_them(
+    client: MlflowClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`update_run(run_id)` without status / end_time_ms must only emit
+    `{"run_id": ...}` — the two `if` guards on lines 185 / 187 keep the
+    payload clean so MLflow doesn't get null-coerced fields."""
+    mock = AsyncMock(return_value={})
+    monkeypatch.setattr(client, "_request", mock)
+    await client.update_run("run-abc")
+    kwargs = mock.call_args.kwargs
+    assert kwargs["json"] == {"run_id": "run-abc"}
+
+
+@pytest.mark.asyncio
+async def test_search_model_versions_without_filter_omits_filter_param(
+    client: MlflowClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`search_model_versions()` without a filter string emits only
+    `max_results` — the conditional on L264 keeps `filter=` out of the
+    query string (MLflow 2.x rejects empty filter values)."""
+    mock = AsyncMock(return_value={"model_versions": []})
+    monkeypatch.setattr(client, "_request", mock)
+    await client.search_model_versions(max_results=10)
+    kwargs = mock.call_args.kwargs
+    assert kwargs["params"] == {"max_results": 10}
+    assert "filter" not in kwargs["params"]
+
+
+@pytest.mark.asyncio
 async def test_set_experiment_tag_posts_correct_payload(
     client: MlflowClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
