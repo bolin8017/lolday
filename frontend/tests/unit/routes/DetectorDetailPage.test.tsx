@@ -339,6 +339,62 @@ describe("_authed.detectors.$id.tsx (DetectorDetailPage)", () => {
     expect(screen.getAllByTestId("stub-row-count")[0]).toHaveTextContent("1");
   });
 
+  it("Trigger build dialog: picking a tag enables the Build button and clicking it dispatches the build mutation with the selected git_tag", async () => {
+    // pointerEventsCheck:0 — Radix Dialog/Select set pointer-events:none on
+    // body while a popover is open; userEvent v14 rejects clicks under that
+    // state otherwise. Same pattern as the version-row dropdown tests.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    queryState.detector = baseDetector;
+    queryState.tags = [
+      { name: "v1.0.0", commit_sha: "abcdef1234567890" },
+      { name: "v1.1.0", commit_sha: "fedcba0987654321" },
+    ];
+    triggerBuildMock.mockResolvedValueOnce(undefined);
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Builds/ }));
+    await user.click(
+      screen.getByRole("button", { name: /^\+ Trigger build$/ }),
+    );
+    // Dialog mounts; the Build confirm button is disabled until a tag is picked.
+    const buildButton = await screen.findByRole("button", { name: /^Build$/ });
+    expect(buildButton).toBeDisabled();
+    // Open the Git-tag Select and pick the second tag.
+    await user.click(screen.getByRole("combobox", { name: /Git tag/ }));
+    await user.click(await screen.findByRole("option", { name: /v1\.1\.0/ }));
+    // setPickedTag flips the gate; Build button enables.
+    await waitFor(() => {
+      expect(buildButton).not.toBeDisabled();
+    });
+    await user.click(buildButton);
+    expect(triggerBuildMock).toHaveBeenCalledWith({ git_tag: "v1.1.0" });
+  });
+
+  it("Manifest sheet onOpenChange(false): closes the sheet and clears the openManifestTag state", async () => {
+    const user = userEvent.setup();
+    queryState.detector = baseDetector;
+    queryState.versions = [
+      {
+        id: "v-1",
+        git_tag: "v1.0.0",
+        git_sha: "abcdef1234567890",
+        status: "ready",
+        built_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    queryState.versionDetail = { manifest: { foo: "bar" } };
+    renderAt();
+    await user.click(screen.getByRole("tab", { name: /Versions/ }));
+    await user.click(screen.getByRole("button", { name: /View manifest/ }));
+    // The sheet opens with the title carrying the selected tag.
+    expect(screen.getByText(/Manifest: v1\.0\.0/)).toBeInTheDocument();
+    // Close via Escape — Radix Sheet's onOpenChange(false) handler at L262-264
+    // clears openManifestTag, which unmounts the title.
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByText(/Manifest: v1\.0\.0/)).toBeNull();
+    });
+  });
+
   it("opens the DeleteConfirmDialog when the Delete button in the header is clicked", async () => {
     const user = userEvent.setup();
     queryState.detector = baseDetector;
