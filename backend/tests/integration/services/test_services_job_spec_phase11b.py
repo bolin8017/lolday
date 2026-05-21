@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import uuid
 
+import pytest
 from app.models.job import JobType, ResourceProfile
 from app.services.job_spec import (
     build_job_token_secret,
@@ -42,6 +43,29 @@ def test_detector_command_is_maldet_run() -> None:
     assert container["name"] == "detector"
     assert container["command"] == ["maldet"]
     assert container["args"] == ["run", "train", "--config", "/mnt/config/config.yaml"]
+
+
+def test_predict_without_source_run_id_raises_value_error() -> None:
+    """EVALUATE / PREDICT jobs must have a `source_run_id` — without it
+    the model-fetcher init container has no MLflow run to pull artifacts
+    from. The dispatch path resolves `source_run_id` from
+    `source_model_version_id`; if both are None the contract guard at
+    `app/services/job_spec.py:294` must raise."""
+    with pytest.raises(ValueError, match="source_run_id required"):
+        build_volcano_job_manifest(
+            job_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+            job_type=JobType.PREDICT,
+            detector_image="harbor/lolday/elfrfdet:v2.0.0",
+            mlflow_experiment_id="e1",
+            mlflow_run_id="r1",
+            mlflow_tracking_uri="http://mlflow:5000",
+            source_run_id=None,  # the misconfiguration
+            source_artifact_path=None,
+            resource_profile=ResourceProfile.STANDARD,
+            internal_events_url="http://backend:8000/internal/jobs/x/events",
+            queue_name="lolday-u-test",
+            gpu_strategy="ddp",
+        )
 
 
 def test_has_event_tailer_sidecar() -> None:
