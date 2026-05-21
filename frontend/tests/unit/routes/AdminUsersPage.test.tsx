@@ -286,6 +286,32 @@ describe("_authed.admin.users.tsx (AdminUsersPage)", () => {
     const { getByLabelText } = render(<AdminUsersPage />);
     expect(getByLabelText("Role for other@test")).toBeInTheDocument();
   });
+
+  it("passes selfId=null to RoleCell when useAuth.currentUser is null (L106 nullish fallback)", () => {
+    // Source: `<RoleCell ... selfId={currentUser?.id ?? null} />` — the
+    // `?? null` arm fires before useAuth's first /users/me resolution
+    // (currentUser is null until the auth context boots). Pin the
+    // fallback so a refactor that drops it can't crash the page with a
+    // selfId=undefined TS error or surface a stale `you` badge.
+    authState.currentUser = null;
+    queryState.data = [
+      {
+        id: "u-other",
+        email: "other@test",
+        handle: "other",
+        display_name: null,
+        role: "user",
+        created_at: null,
+      },
+    ];
+    const { getByLabelText, queryByText } = render(<AdminUsersPage />);
+    // RoleCell still mounts (the cell renderer doesn't gate on selfId).
+    expect(getByLabelText("Role for other@test")).toBeInTheDocument();
+    // The email-column "you" badge (L87 `row.original.id === currentUser?.id`)
+    // must NOT render when currentUser is null — verifies the nullish
+    // chain doesn't accidentally match `undefined === undefined`.
+    expect(queryByText(/^you$/i)).toBeNull();
+  });
 });
 
 describe("_authed.admin.users.tsx (RoleCell)", () => {
