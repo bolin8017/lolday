@@ -173,20 +173,21 @@ Dependabot ecosystem.
 
 ### 4.2 Per-layer responsibility and tool stack
 
-| Layer             | Trigger                 | Target time | Backend                                                                                  | Frontend                                                | Helm / Infra                                                          |
-| ----------------- | ----------------------- | ----------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------- |
-| Static            | pre-commit + `lint.yml` | < 30 s      | ruff, mypy                                                                               | prettier, eslint                                        | helm lint (existing); **kubeconform**, **kyverno-cli validate** (NEW) |
-| Unit              | PR fast                 | < 2 min     | pytest + **hypothesis**; no DB, no HTTP                                                  | vitest + React Testing Library                          | —                                                                     |
-| Integration       | PR fast                 | < 4 min     | pytest + aiosqlite + respx + fakeredis (existing)                                        | vitest + **MSW**                                        | —                                                                     |
-| Contract          | PR fast                 | < 3 min     | **schemathesis** against running FastAPI; respx replay tape for MLflow shape             | openapi-ts schema-drift guard                           | **helm-unittest**, kubeconform, kyverno-cli test                      |
-| Heavy integration | `main` + nightly        | < 15 min    | **testcontainers** (Postgres / MLflow / MinIO); **kubernetes-fake-client** (Volcano CRD) | full vitest including `src/components/` + `src/routes/` | —                                                                     |
-| E2E               | `main` + nightly        | < 25 min    | playwright API checks                                                                    | playwright UI flows                                     | **k3d** ephemeral cluster + `helm install`                            |
-| Smoke             | post-deploy             | manual      | curl `/healthz` `/ready`                                                                 | curl `/`, `kubectl rollout status`                      | existing `tests/phase7/` + new deploy-probe checklist                 |
+| Layer             | Trigger                 | Target time | Backend                                                                                                                   | Frontend                                                | Helm / Infra                                                          |
+| ----------------- | ----------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------- |
+| Static            | pre-commit + `lint.yml` | < 30 s      | ruff, mypy                                                                                                                | prettier, eslint                                        | helm lint (existing); **kubeconform**, **kyverno-cli validate** (NEW) |
+| Unit              | PR fast                 | < 2 min     | pytest + **hypothesis**; no DB, no HTTP                                                                                   | vitest + React Testing Library                          | —                                                                     |
+| Integration       | PR fast                 | < 4 min     | pytest + aiosqlite + respx + fakeredis (existing)                                                                         | vitest + **MSW**                                        | —                                                                     |
+| Contract          | PR fast                 | < 3 min     | **schemathesis** against running FastAPI; respx replay tape for MLflow shape                                              | openapi-ts schema-drift guard                           | **helm-unittest**, kubeconform, kyverno-cli test                      |
+| Heavy integration | `main` + nightly        | < 15 min    | **testcontainers** (Postgres / MLflow / MinIO); ~~**kubernetes-fake-client** (Volcano CRD)~~ — see §10 #35 footnote below | full vitest including `src/components/` + `src/routes/` | —                                                                     |
+| E2E               | `main` + nightly        | < 25 min    | playwright API checks                                                                                                     | playwright UI flows                                     | **k3d** ephemeral cluster + `helm install`                            |
+| Smoke             | post-deploy             | manual      | curl `/healthz` `/ready`                                                                                                  | curl `/`, `kubectl rollout status`                      | existing `tests/phase7/` + new deploy-probe checklist                 |
 
 ### 4.3 Delta from current state
 
 - **Add**: `schemathesis`, `helm-unittest`, `kubeconform`, `kyverno-cli`,
-  `testcontainers-python`, `kubernetes-fake-client`, `hypothesis`, `MSW`,
+  `testcontainers-python`, ~~`kubernetes-fake-client`~~ (see §10 #35
+  footnote — fictional package, retired 2026-05-17), `hypothesis`, `MSW`,
   `k3d`, `bats-core`, `@axe-core/playwright`.
 - **Modify**: `frontend.yml` reactivates playwright; `backend.yml` splits
   into `backend-fast.yml` and `backend-slow.yml`.
@@ -222,7 +223,7 @@ backend/tests/
 │   ├── postgres/
 │   ├── mlflow/
 │   ├── minio/
-│   └── k8s_fake/               # kubernetes-fake-client; full Volcano CRD lifecycle
+│   └── ~~k8s_fake/~~           # retired 2026-05-17 (§10 #35); Volcano CRD lifecycle landed at integration tier (`integration/reconciler/test_volcano_full_lifecycle.py`) using `app/services/_stubs.py` (§10 #34)
 ├── factories/                  # NEW: polyfactory — replaces 850-line inline factories in conftest
 ├── fixtures/                   # static data (existing sample_dataset.csv etc.)
 │   ├── manifests/
@@ -1059,3 +1060,30 @@ and `frontend/package.json`. Dependabot manages bumps weekly per
 | MSW                   | ^2.4                   |
 | @axe-core/playwright  | ^4.10                  |
 | bats-core             | ^1.11                  |
+
+---
+
+## Footnote — status update (2026-05-17, `kubernetes-fake-client` retired)
+
+`kubernetes-fake-client` was named in this spec (§4.2 heavy tier table,
+§4.3 delta, §5.1 / §6.1 plan task 22, and the `heavy/k8s_fake/` directory
+in §6) as the test-side substitute for a real K8s API in heavy-tier
+Volcano-CRD lifecycle tests. **The package does not exist on PyPI** —
+caught during Phase 1 execution and recorded in auto-memory
+`project_kubernetes_fake_client_does_not_exist.md`.
+
+Resolution: the Volcano CRD lifecycle test landed at integration tier
+(`backend/tests/integration/reconciler/test_volcano_full_lifecycle.py`)
+using the in-tree stub classes, which are now shared via
+`backend/app/services/_stubs.py` per `docs/architecture.md` §10 #34.
+The empty `heavy/k8s_fake/` directory was removed; `docs/architecture.md`
+§10 #35 is the canonical retirement record.
+
+Future work that genuinely needs simulated Volcano scheduling behaviour
+(preemption, queue admission, controller state machine) should pursue
+the `KubernetesClient` Protocol refactor (§9.4) rather than reviving the
+package name.
+
+The spec body above is left as-is per the project's "historical spec"
+convention; this footnote layers on top so a reader sees both the
+original plan and the later correction together.
