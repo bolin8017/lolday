@@ -61,6 +61,16 @@ def _get(stage: str) -> float:
     )
 
 
+def _empty_scan_session() -> MagicMock:
+    """Session whose `execute()` returns empty result sets for both the build
+    and job scans. Caller may override side_effect for per-test variation."""
+    empty = MagicMock()
+    empty.scalars.return_value.all.return_value = []
+    session = MagicMock()
+    session.execute = AsyncMock(side_effect=[empty, empty])
+    return session
+
+
 @pytest.mark.asyncio
 async def test_reconcile_build_exception_records_error(monkeypatch):
     """Integration smoke: reconciler_loop increments {stage=reconcile_build} when reconcile_build raises.
@@ -105,6 +115,205 @@ async def test_reconcile_build_exception_records_error(monkeypatch):
     await asyncio.wait_for(rec.reconciler_loop(stop), timeout=5)
 
     assert _get("reconcile_build") == before + 1.0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_exception_records_error(monkeypatch):
+    """`reconciler_loop` increments {stage=reconcile_job} when reconcile_job
+    raises — mirror of the reconcile_build path, but exercising the job
+    reconcile pass's inner except (loop.py L123-129)."""
+    import app.reconciler as rec
+    import app.reconciler.loop as rec_loop
+
+    monkeypatch.setattr(rec_loop, "RECONCILER_WAIT_SECONDS", 0.01)
+
+    before = _get("reconcile_job")
+    stop = asyncio.Event()
+
+    builds_result = MagicMock()
+    builds_result.scalars.return_value.all.return_value = []
+    fake_job = MagicMock()
+    fake_job.id = "jid-probe"
+    jobs_result = MagicMock()
+    jobs_result.scalars.return_value.all.return_value = [fake_job]
+    session = MagicMock()
+    session.execute = AsyncMock(side_effect=[builds_result, jobs_result])
+
+    @asynccontextmanager
+    async def fake_maker():
+        yield session
+
+    async def raising_reconcile_job(_session, _job, _mlflow):
+        stop.set()
+        raise RuntimeError("synthetic reconcile_job failure")
+
+    monkeypatch.setattr(rec_loop, "async_session_maker", fake_maker)
+    monkeypatch.setattr(rec_loop, "reconcile_job", raising_reconcile_job)
+
+    await asyncio.wait_for(rec.reconciler_loop(stop), timeout=5)
+
+    assert _get("reconcile_job") == before + 1.0
+
+
+@pytest.mark.asyncio
+async def test_sync_model_versions_exception_records_error(monkeypatch):
+    """`reconciler_loop` increments {stage=sync_model_versions} when the
+    every-N-iterations sync pass raises (loop.py L132-137)."""
+    import app.reconciler as rec
+    import app.reconciler.loop as rec_loop
+
+    monkeypatch.setattr(rec_loop, "RECONCILER_WAIT_SECONDS", 0.01)
+    # Trigger sync on iteration 1; keep the other periodic gates dormant.
+    monkeypatch.setattr(rec_loop, "SYNC_EVERY_N_ITERATIONS", 1)
+
+    before = _get("sync_model_versions")
+    stop = asyncio.Event()
+    session = _empty_scan_session()
+
+    @asynccontextmanager
+    async def fake_maker():
+        yield session
+
+    async def raising_sync(_session, _mlflow):
+        stop.set()
+        raise RuntimeError("synthetic sync_model_versions failure")
+
+    monkeypatch.setattr(rec_loop, "async_session_maker", fake_maker)
+    monkeypatch.setattr(rec_loop, "sync_model_versions", raising_sync)
+
+    await asyncio.wait_for(rec.reconciler_loop(stop), timeout=5)
+
+    assert _get("sync_model_versions") == before + 1.0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_orphan_vcjobs_exception_records_error(monkeypatch):
+    """`reconciler_loop` increments {stage=reconcile_orphan_vcjobs} when the
+    periodic orphan vcjob scan raises (loop.py L140-145)."""
+    import app.reconciler as rec
+    import app.reconciler.loop as rec_loop
+
+    monkeypatch.setattr(rec_loop, "RECONCILER_WAIT_SECONDS", 0.01)
+    # Trigger orphan scan on iteration 1; keep sync + harbor dormant.
+    monkeypatch.setattr(rec_loop, "ORPHAN_SCAN_EVERY_N_ITERATIONS", 1)
+
+    before = _get("reconcile_orphan_vcjobs")
+    stop = asyncio.Event()
+    session = _empty_scan_session()
+
+    @asynccontextmanager
+    async def fake_maker():
+        yield session
+
+    async def raising_orphans(_session):
+        raise RuntimeError("synthetic reconcile_orphan_vcjobs failure")
+
+    async def passing_token_secrets(_session):
+        stop.set()
+
+    monkeypatch.setattr(rec_loop, "async_session_maker", fake_maker)
+    monkeypatch.setattr(rec_loop, "reconcile_orphan_vcjobs", raising_orphans)
+    monkeypatch.setattr(
+        rec_loop, "reconcile_orphan_token_secrets", passing_token_secrets
+    )
+
+    await asyncio.wait_for(rec.reconciler_loop(stop), timeout=5)
+
+    assert _get("reconcile_orphan_vcjobs") == before + 1.0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_orphan_token_secrets_exception_records_error(monkeypatch):
+    """`reconciler_loop` increments {stage=reconcile_orphan_token_secrets} when
+    the second orphan pass raises after the first succeeds (loop.py L147-153)."""
+    import app.reconciler as rec
+    import app.reconciler.loop as rec_loop
+
+    monkeypatch.setattr(rec_loop, "RECONCILER_WAIT_SECONDS", 0.01)
+    monkeypatch.setattr(rec_loop, "ORPHAN_SCAN_EVERY_N_ITERATIONS", 1)
+
+    before = _get("reconcile_orphan_token_secrets")
+    stop = asyncio.Event()
+    session = _empty_scan_session()
+
+    @asynccontextmanager
+    async def fake_maker():
+        yield session
+
+    async def passing_orphans(_session):
+        # Orphan vcjob scan succeeds — the token-secret pass must still run.
+        return
+
+    async def raising_token_secrets(_session):
+        stop.set()
+        raise RuntimeError("synthetic reconcile_orphan_token_secrets failure")
+
+    monkeypatch.setattr(rec_loop, "async_session_maker", fake_maker)
+    monkeypatch.setattr(rec_loop, "reconcile_orphan_vcjobs", passing_orphans)
+    monkeypatch.setattr(
+        rec_loop, "reconcile_orphan_token_secrets", raising_token_secrets
+    )
+
+    await asyncio.wait_for(rec.reconciler_loop(stop), timeout=5)
+
+    assert _get("reconcile_orphan_token_secrets") == before + 1.0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_harbor_robot_exception_records_error(monkeypatch):
+    """`reconciler_loop` increments {stage=reconcile_harbor_robot} when the
+    24h Harbor-rotate pass raises (loop.py L156-161)."""
+    import app.reconciler as rec
+    import app.reconciler.loop as rec_loop
+
+    monkeypatch.setattr(rec_loop, "RECONCILER_WAIT_SECONDS", 0.01)
+    # Trigger harbor rotate on iteration 1.
+    monkeypatch.setattr(rec_loop, "HARBOR_ROTATE_EVERY_N_ITERATIONS", 1)
+
+    before = _get("reconcile_harbor_robot")
+    stop = asyncio.Event()
+    session = _empty_scan_session()
+
+    @asynccontextmanager
+    async def fake_maker():
+        yield session
+
+    async def raising_harbor():
+        stop.set()
+        raise RuntimeError("synthetic reconcile_harbor_robot failure")
+
+    monkeypatch.setattr(rec_loop, "async_session_maker", fake_maker)
+    monkeypatch.setattr(rec_loop, "reconcile_harbor_robot", raising_harbor)
+
+    await asyncio.wait_for(rec.reconciler_loop(stop), timeout=5)
+
+    assert _get("reconcile_harbor_robot") == before + 1.0
+
+
+@pytest.mark.asyncio
+async def test_reconciler_iteration_outer_exception_records_error(monkeypatch):
+    """`reconciler_loop` increments {stage=reconciler_iteration} when an
+    exception escapes the inner per-pass handlers — e.g. a session-acquire
+    failure (loop.py L162-164)."""
+    import app.reconciler as rec
+    import app.reconciler.loop as rec_loop
+
+    monkeypatch.setattr(rec_loop, "RECONCILER_WAIT_SECONDS", 0.01)
+
+    before = _get("reconciler_iteration")
+    stop = asyncio.Event()
+
+    @asynccontextmanager
+    async def failing_maker():
+        stop.set()
+        raise RuntimeError("synthetic async_session_maker failure")
+        yield  # unreachable; satisfies the contextmanager contract
+
+    monkeypatch.setattr(rec_loop, "async_session_maker", failing_maker)
+
+    await asyncio.wait_for(rec.reconciler_loop(stop), timeout=5)
+
+    assert _get("reconciler_iteration") == before + 1.0
 
 
 async def test_job_logs_fetch_exception_records_without_NameError(monkeypatch):
