@@ -561,3 +561,177 @@ async def test_reconcile_dedup_rejects_digest_divergence(db_session):
     assert "already bound to digest" in (build.failure_reason or "")
     after = BACKEND_ERRORS.labels(stage="detector_version_digest_mismatch")._value.get()
     assert after == before + 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_build_k8s_job_404_marks_failed_with_reason(
+    db_session, seed_user
+):
+    """`read_namespaced_job` returning 404 means the K8s Job has been GC'd
+    (or never created). Builds.py:55-74 marks the build FAILED with
+    `k8s_job_missing` and (if owner is a real user) fires `notify_build_failed`.
+
+    Pins the dedicated reason string for operator triage so a regression
+    that silently keeps the build in BUILDING (the original bug pattern
+    before the 404 branch existed) flips this test red.
+    """
+    from app.models.detector import Detector
+    from app.reconciler import reconcile_build
+    from kubernetes.client import ApiException
+
+    detector = Detector(
+        name="tds-404",
+        display_name="tds-404",
+        git_url="https://github.com/x/s404.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-404",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    with (
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.core_v1"),
+    ):
+        bv.return_value.read_namespaced_job.side_effect = ApiException(
+            status=404, reason="not found"
+        )
+        await reconcile_build(db_session, build)
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.FAILED
+    assert build.failure_reason == "k8s_job_missing"
+    assert build.finished_at is not None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_succeeded_with_missing_digest_marks_failed(
+    db_session, seed_user
+):
+    """Build's K8s Job succeeded but Harbor reports no artifact at the
+    expected (repo, tag) — `_handle_succeeded` (builds.py:112-117) fails the
+    build with `artifact_missing_in_harbor` rather than looping forever
+    asking for a scan of a non-existent digest.
+
+    The scenario shows up when BuildKit's push raced Harbor's GC, or when
+    the project / robot account changed mid-flight. Either way the reason
+    string is the operator's signal to retrigger the build.
+    """
+    from app.models.detector import Detector
+    from app.reconciler import reconcile_build
+
+    detector = Detector(
+        name="tds-no-digest",
+        display_name="tds-no-digest",
+        git_url="https://github.com/x/snod.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-no-digest",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    fake_job = MagicMock()
+    fake_job.status.succeeded = 1
+    fake_job.status.failed = 0
+
+    with (
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.HarborClient") as hc,
+        patch("app.reconciler.builds.core_v1"),
+    ):
+        bv.return_value.read_namespaced_job.return_value = fake_job
+        hc.return_value.get_artifact_digest = AsyncMock(return_value=None)
+        await reconcile_build(db_session, build)
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.FAILED
+    assert build.failure_reason == "artifact_missing_in_harbor"
+    assert build.finished_at is not None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_timeout_swallows_k8s_delete_500(db_session, seed_user):
+    """`_handle_timeout` cleans up the build's K8s Job before flipping
+    DetectorBuildStatus.TIMEOUT. The except block (builds.py:202-208)
+    must bump `BACKEND_ERRORS{stage="k8s_cleanup"}` on a non-404 ApiException
+    and continue — same diagnostic-error vs silent-swallow shape as
+    `test_reconcile_job_timeout_swallows_volcano_delete_500` for vcjobs.
+    """
+    from datetime import datetime, timedelta
+
+    from app.config import settings
+    from app.metrics import BACKEND_ERRORS
+    from app.models.detector import Detector
+    from app.reconciler import reconcile_build
+    from kubernetes.client import ApiException
+    from prometheus_client import REGISTRY
+
+    detector = Detector(
+        name="tds-timeout-500",
+        display_name="tds-timeout-500",
+        git_url="https://github.com/x/sto500.git",
+        owner_id=seed_user.id,
+    )
+    db_session.add(detector)
+    await db_session.commit()
+
+    build = DetectorBuild(
+        detector_id=detector.id,
+        git_tag="v0.1.0",
+        triggered_by_id=seed_user.id,
+        k8s_job_name="build-tds-timeout-500",
+        status=DetectorBuildStatus.BUILDING,
+    )
+    build.started_at = datetime.now(UTC) - timedelta(
+        seconds=settings.BUILD_TIMEOUT_SECONDS + 120
+    )
+    db_session.add(build)
+    await db_session.commit()
+
+    fake_job = MagicMock()
+    fake_job.status.succeeded = 0
+    fake_job.status.failed = 0
+
+    def _get_metric() -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "lolday_backend_errors_total", {"stage": "k8s_cleanup"}
+            )
+            or 0.0
+        )
+
+    before = _get_metric()
+    with (
+        patch("app.reconciler.builds.batch_v1") as bv,
+        patch("app.reconciler.builds.core_v1"),
+    ):
+        bv.return_value.read_namespaced_job.return_value = fake_job
+        bv.return_value.delete_namespaced_job.side_effect = ApiException(
+            status=500, reason="server error"
+        )
+        await reconcile_build(db_session, build)
+
+    await db_session.refresh(build)
+    assert build.status == DetectorBuildStatus.TIMEOUT
+    assert build.finished_at is not None
+    # The 500 path bumps `k8s_cleanup` once (404 silent-swallows).
+    assert _get_metric() >= before + 1.0
+    assert BACKEND_ERRORS.labels(stage="k8s_cleanup") is not None
