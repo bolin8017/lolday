@@ -118,6 +118,32 @@ def test_parse_robot_list_returns_empty_on_bad_json() -> None:
     assert harbor_api.parse_robot_list("not-json") == ""
 
 
+def test_parse_robot_list_returns_empty_on_non_list_payload() -> None:
+    """Harbor occasionally returns a `{"errors": [...]}` envelope on
+    transient API hiccups (HTTP body is JSON but not the array shape).
+    Treat it as "no robot found" rather than crashing with TypeError on
+    iteration."""
+    body = json.dumps({"errors": [{"code": "PRECONDITION_FAILED"}]})
+    assert harbor_api.parse_robot_list(body) == ""
+
+
+def test_auth_header_from_creds_raises_on_toctou_race(monkeypatch) -> None:
+    """`_auth_header_from_creds` re-fetches the Secret after `creds_namespace`
+    picks a ns; if the Secret was deleted between those two calls (TOCTOU race
+    with an operator running `recover-harbor.sh`), surface a clear RuntimeError
+    instead of crashing on `None.json()` downstream. Covers the L153-154
+    defensive guard.
+
+    To distinguish from the `creds_namespace` "Secret not found in any of"
+    path, we stub `creds_namespace` to a successful pick and only the
+    subsequent `_kubectl_get_secret` to return None."""
+    monkeypatch.setattr(harbor_api, "creds_namespace", lambda: "lolday")
+    monkeypatch.setattr(harbor_api, "_kubectl_get_secret", lambda *_a, **_k: None)
+
+    with pytest.raises(RuntimeError, match="harbor-push-cred unexpectedly missing"):
+        harbor_api._auth_header_from_creds()
+
+
 @pytest.mark.parametrize(
     ("perms", "expected"),
     [
