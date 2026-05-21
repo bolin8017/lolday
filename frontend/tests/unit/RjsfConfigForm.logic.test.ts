@@ -58,6 +58,44 @@ describe("deriveUiSchemaFromSchema", () => {
       (ui.mode as Record<string, unknown> | undefined)?.["ui:widget"],
     ).toBeUndefined();
   });
+
+  it("handles nullable union type (`['number', 'null']`) — Pydantic Optional[float]", () => {
+    // The `hasType` helper (RjsfConfigForm.logic.ts:11-14) handles both the
+    // string-type form (`type: "number"`) and the nullable-array form
+    // (`type: ["number", "null"]`) — the latter is what Pydantic exports
+    // for `Optional[float]`. The single-type-string branch is already
+    // covered by the 4 widget-mapping tests above; this pins the
+    // Array.isArray + includes branch so the Optional-aware behaviour
+    // is locked in.
+    const schema = {
+      type: "object",
+      properties: {
+        learning_rate: {
+          type: ["number", "null"],
+          minimum: 0,
+          maximum: 1,
+        },
+      },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
+    const ui = deriveUiSchemaFromSchema(schema as any);
+    // Nullable bounded float → rangeSlider (same as the non-nullable shape).
+    expect((ui.learning_rate as Record<string, unknown>)["ui:widget"]).toBe(
+      "rangeSlider",
+    );
+  });
+
+  it("handles nullable integer (`['integer', 'null']`) → stepper", () => {
+    const schema = {
+      type: "object",
+      properties: { max_depth: { type: ["integer", "null"], minimum: 1 } },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test literal is a partial schema subset
+    const ui = deriveUiSchemaFromSchema(schema as any);
+    expect((ui.max_depth as Record<string, unknown>)["ui:widget"]).toBe(
+      "stepper",
+    );
+  });
 });
 
 describe("fillDefaults", () => {
