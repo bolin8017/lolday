@@ -1,4 +1,5 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -283,5 +284,15 @@ describe("_authed.jobs._index.tsx (JobsListPage)", () => {
 
   it("exports the 'Jobs' breadcrumb handle", () => {
     expect(jobsHandle).toEqual({ breadcrumb: "Jobs" });
+  });
+
+  it("changing the type filter to 'train' narrows useJobs params", async () => {
+    queryState.data = { items: [] };
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByLabelText("Filter by job type"));
+    await user.click(screen.getByRole("option", { name: /^Train$/i }));
+    // Re-render after state change; the new params reflect type=train.
+    expect(lastParams.current).toEqual({ type: "train" });
   });
 });
