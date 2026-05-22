@@ -92,6 +92,27 @@ describe("RegisterDetectorForm", () => {
     expect(navigateMock).toHaveBeenCalledWith("/detectors/det-xyz");
   });
 
+  it("renders the display_name error when display_name is left empty (covers L60 truthy arm)", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(screen.getByLabelText(/Name \(slug\)/), "upxelfdet");
+    // Leave display_name blank — z.string().min(1) rejects.
+    await user.type(
+      screen.getByLabelText(/Git URL/),
+      "https://github.com/bolin8017/upxelfdet.git",
+    );
+    await user.click(screen.getByRole("button", { name: /Register detector/ }));
+    // react-hook-form sets the display_name error on the form state; the
+    // RegisterDetectorForm renders a destructive-styled paragraph under
+    // the Display name input when errors.display_name is set.
+    const displayLabel = screen.getByLabelText(/Display name/);
+    const fieldRoot = displayLabel.closest("div");
+    expect(fieldRoot).not.toBeNull();
+    const errMsg = fieldRoot!.querySelector("p.text-destructive");
+    expect(errMsg).not.toBeNull();
+    expect(registerMock).not.toHaveBeenCalled();
+  });
+
   it("routes server-side validation errors through applyFieldErrorsToForm", async () => {
     const user = userEvent.setup();
     const serverError = new Error("server validation") as Error & {
