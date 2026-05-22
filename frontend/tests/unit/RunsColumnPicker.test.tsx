@@ -26,6 +26,26 @@ describe("RunsColumnPicker", () => {
     expect(onChange).toHaveBeenCalledWith(["metrics.accuracy", "metrics.f1"]);
   });
 
+  it("toggling an already-selected metric removes it (covers toggle's includes-true branch)", async () => {
+    // L36 `if (selected.includes(key))` true arm — the "uncheck a column"
+    // path. Existing "calls onChange when a metric is toggled" picks an
+    // unselected column, so the includes-true branch stayed unhit.
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <RunsColumnPicker
+        experimentId="1"
+        availableMetrics={["accuracy", "f1"]}
+        availableParams={["lr"]}
+        selected={["metrics.accuracy", "metrics.f1"]}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /columns/i }));
+    await user.click(screen.getByText("accuracy"));
+    expect(onChange).toHaveBeenCalledWith(["metrics.f1"]);
+  });
+
   it("persists to localStorage on change", () => {
     render(
       <RunsColumnPicker
