@@ -71,4 +71,70 @@ describe("ModelTagsEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("useEffect re-syncs JSON when dialog re-opens with a new initialValue", () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn();
+    const { rerender } = render(
+      <ModelTagsEditor
+        open={true}
+        initialValue={{ env: "prod" }}
+        onClose={onClose}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue(
+      JSON.stringify({ env: "prod" }, null, 2),
+    );
+    rerender(
+      <ModelTagsEditor
+        open={true}
+        initialValue={{ env: "staging", region: "tw" }}
+        onClose={onClose}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue(
+      JSON.stringify({ env: "staging", region: "tw" }, null, 2),
+    );
+  });
+
+  it("useEffect does NOT re-sync when dialog is closed (covers `if (open)` false branch)", () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn();
+    const { rerender } = render(
+      <ModelTagsEditor
+        open={true}
+        initialValue={{ env: "prod" }}
+        onClose={onClose}
+        onSubmit={onSubmit}
+      />,
+    );
+    // Edit then close; re-open with the now-different initialValue. The
+    // useEffect's open=false render must not have run setValue, so re-opening
+    // is what finally syncs to the new value — proving the closed-branch
+    // skipped the sync.
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: '{"user": "typed"}' },
+    });
+    rerender(
+      <ModelTagsEditor
+        open={false}
+        initialValue={{ env: "staging" }}
+        onClose={onClose}
+        onSubmit={onSubmit}
+      />,
+    );
+    rerender(
+      <ModelTagsEditor
+        open={true}
+        initialValue={{ env: "staging" }}
+        onClose={onClose}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue(
+      JSON.stringify({ env: "staging" }, null, 2),
+    );
+  });
 });
