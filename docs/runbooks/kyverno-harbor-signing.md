@@ -34,13 +34,14 @@ cosign attestor.
 
 ```bash
 # 1. Bootstrap the cosign keypair. Generates ~/.cosign/lolday-harbor.{key,pub},
-#    installs the public half as Secret kyverno/cosign-harbor-pubkey.
+#    installs the public half as Secret lolday/cosign-harbor-pubkey
+#    (release namespace — that's where the Kyverno sub-chart runs).
 bash scripts/cosign-harbor-init.sh
 #    Prompts for a private-key password. Store it in your password manager.
 #    Idempotent — re-running with an existing keypair short-circuits.
 
 # 2. Verify the Secret landed.
-kubectl -n kyverno get secret cosign-harbor-pubkey \
+kubectl -n lolday get secret cosign-harbor-pubkey \
   -o jsonpath='{.data.cosign\.pub}' | base64 -d
 #    Expected: a PEM-encoded P-256 ECDSA public key (-----BEGIN PUBLIC KEY-----).
 
@@ -174,7 +175,7 @@ bash scripts/build-helpers.sh
 #    (see "Manually-pushed Harbor images" above).
 
 # 3. Verify the new pubkey is the one Kyverno is using.
-kubectl -n kyverno get secret cosign-harbor-pubkey \
+kubectl -n lolday get secret cosign-harbor-pubkey \
   -o jsonpath='{.data.cosign\.pub}' | base64 -d \
   | diff - ~/.cosign/lolday-harbor.pub
 #    Expected: no output (identical).
