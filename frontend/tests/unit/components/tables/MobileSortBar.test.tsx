@@ -90,4 +90,59 @@ describe("MobileSortBar", () => {
     const { container } = render(<EmptyHarness />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("uses meta.cardLabel when header is a non-string ReactNode", async () => {
+    const columnsWithFnHeader: ColumnDef<Row>[] = [
+      {
+        accessorKey: "name",
+        header: () => <span>NameFancy</span>,
+        meta: { cardLabel: "Display Name" },
+      },
+      { accessorKey: "age", header: "Age" },
+    ];
+    function FnHarness() {
+      const table = useReactTable({
+        data,
+        columns: columnsWithFnHeader,
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+      });
+      return <MobileSortBar table={table} />;
+    }
+    const user = userEvent.setup();
+    render(<FnHarness />);
+    await user.click(screen.getByLabelText(/sort by|排序依據/i));
+    const options = await screen.findAllByRole("option");
+    const labels = options.map((el) => el.textContent ?? "");
+    expect(labels).toContain("Display Name");
+    expect(labels).not.toContain("NameFancy");
+    expect(labels).toContain("Age");
+  });
+
+  it("falls back to column id when header is a non-string ReactNode and no cardLabel is set", async () => {
+    const columnsNoCardLabel: ColumnDef<Row>[] = [
+      {
+        id: "name",
+        accessorKey: "name",
+        header: () => <span>x</span>,
+      },
+      { accessorKey: "age", header: "Age" },
+    ];
+    function FallbackHarness() {
+      const table = useReactTable({
+        data,
+        columns: columnsNoCardLabel,
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+      });
+      return <MobileSortBar table={table} />;
+    }
+    const user = userEvent.setup();
+    render(<FallbackHarness />);
+    await user.click(screen.getByLabelText(/sort by|排序依據/i));
+    const options = await screen.findAllByRole("option");
+    const labels = options.map((el) => el.textContent ?? "");
+    expect(labels).toContain("name");
+    expect(labels).toContain("Age");
+  });
 });
