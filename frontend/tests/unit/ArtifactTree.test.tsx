@@ -87,4 +87,27 @@ describe("ArtifactTree", () => {
       expect(screen.queryByRole("link", { name: /download/i })).toBeNull(),
     );
   });
+
+  it("propagates the openapi-fetch error so React Query enters the error state", async () => {
+    // openapi-fetch returns `{ data: undefined, error: <ApiError> }` on 4xx/5xx;
+    // the `if (error) throw error;` guard on line 23 must throw so React Query's
+    // error path runs (otherwise the tree would render a permanent "Loading…"
+    // because data stays undefined). With retry off the query lands in `error`
+    // on the first attempt and the loading hint goes away.
+    getMock.mockResolvedValue({
+      data: undefined,
+      error: { status: 500, detail: "boom" },
+    });
+    renderTree();
+    await waitFor(() => {
+      expect(screen.queryByText("Loading…")).toBeNull();
+    });
+    // queryFn threw, useQuery is in `error` state with data=undefined. The
+    // component's `!data || data.length === 0` guard renders the "(empty)"
+    // placeholder; the important contract is that no <li> rows / download
+    // links leak through with stale data.
+    expect(screen.queryByRole("link", { name: /download/i })).toBeNull();
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(getMock).toHaveBeenCalled();
+  });
 });
