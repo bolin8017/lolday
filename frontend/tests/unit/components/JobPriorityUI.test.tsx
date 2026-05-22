@@ -19,7 +19,8 @@ import {
   beforeEach,
   type MockedFunction,
 } from "vitest";
-import { useJobs } from "@/api/queries/jobs";
+import { useJobs, usePatchJob } from "@/api/queries/jobs";
+import { useJobQueuePosition } from "@/api/queries/cluster";
 
 import { JobDetailShell } from "@/components/jobs/JobDetailShell";
 import type { components } from "@/api/schema";
@@ -307,5 +308,60 @@ describe("JobsListPage — priority cell popover", () => {
     expect(
       await screen.findByRole("button", { name: /normal/i }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("JobDetailShell — PriorityEditor error path", () => {
+  beforeEach(() => {
+    authState.role = "admin";
+    vi.clearAllMocks();
+  });
+
+  it("renders patch error detail when usePatchJob reports isError", () => {
+    (usePatchJob as MockedFunction<typeof usePatchJob>).mockReturnValueOnce({
+      mutate: patchMutate,
+      isPending: false,
+      isError: true,
+      error: { detail: "Boom — backend rejected the patch" },
+    } as unknown as ReturnType<typeof usePatchJob>);
+    renderShell(makeJob({ status: "queued_backend", priority: 0 }));
+    expect(
+      screen.getByText(/Boom — backend rejected the patch/),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to translated saveFailed message when error has no detail", () => {
+    (usePatchJob as MockedFunction<typeof usePatchJob>).mockReturnValueOnce({
+      mutate: patchMutate,
+      isPending: false,
+      isError: true,
+      error: null,
+    } as unknown as ReturnType<typeof usePatchJob>);
+    renderShell(makeJob({ status: "queued_backend", priority: 0 }));
+    // i18n key resolves to "Failed to save priority" in en (fallbackLng).
+    expect(screen.getByText(/Failed to save priority/i)).toBeInTheDocument();
+  });
+});
+
+describe("JobDetailShell — queue position", () => {
+  beforeEach(() => {
+    authState.role = "admin";
+    vi.clearAllMocks();
+  });
+
+  it("renders queue position '#5' when job is pending and useJobQueuePosition returns a position", () => {
+    (
+      useJobQueuePosition as MockedFunction<typeof useJobQueuePosition>
+    ).mockReturnValueOnce({
+      data: { position: 5 },
+    } as unknown as ReturnType<typeof useJobQueuePosition>);
+    renderShell(makeJob({ status: "pending" }));
+    expect(screen.getByText("#5")).toBeInTheDocument();
+  });
+
+  it("does not render queue position row when position is null", () => {
+    // Default mock already returns { data: null }; assert the row stays hidden.
+    renderShell(makeJob({ status: "pending" }));
+    expect(screen.queryByText(/queue position/i)).toBeNull();
   });
 });
