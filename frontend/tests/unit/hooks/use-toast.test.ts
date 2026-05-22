@@ -125,6 +125,33 @@ describe("toast() module-scoped queue", () => {
     unmount();
   });
 
+  it("handle.update() is a no-op after the row was replaced by a new toast (TOAST_LIMIT=1)", () => {
+    // L84 ternary false arm — `t.id === action.toast.id` fails to match.
+    // TOAST_LIMIT=1 means a second toast() drops the first row from state.
+    // Calling the original handle.update() then dispatches UPDATE_TOAST with
+    // an id that no longer lives in `state.toasts`, so the .map's ternary
+    // falsy arm runs for the surviving (different-id) row.
+    const { result, unmount } = renderHook(() => useToast());
+    let handleA: ReturnType<typeof toast>;
+    act(() => {
+      handleA = toast({ title: "row-A" });
+    });
+    act(() => {
+      toast({ title: "row-B-replaces-A" });
+    });
+    expect(result.current.toasts).toHaveLength(1);
+    expect(result.current.toasts[0].title).toBe("row-B-replaces-A");
+    // Update against the dropped id is a no-op — row B's title must not flip.
+    act(() => {
+      handleA!.update({
+        id: handleA!.id,
+        title: "should-not-apply",
+      } as unknown as Parameters<typeof handleA.update>[0]);
+    });
+    expect(result.current.toasts[0].title).toBe("row-B-replaces-A");
+    unmount();
+  });
+
   it("useToast subscribes once on mount, unsubscribes on unmount (no listener leak)", () => {
     const r1 = renderHook(() => useToast());
     const r2 = renderHook(() => useToast());
