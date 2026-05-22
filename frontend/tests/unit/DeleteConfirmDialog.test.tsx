@@ -108,4 +108,14 @@ describe("DeleteConfirmDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
     expect(onOpenChange).not.toHaveBeenCalled();
   });
+
+  it("errorBanner with only code falls back to rendering the code", () => {
+    setup({ errorBanner: { code: "version_has_in_flight_jobs" } });
+    expect(screen.getByText("version_has_in_flight_jobs")).toBeInTheDocument();
+  });
+
+  it("errorBanner with neither message nor code falls back to 'Delete failed.'", () => {
+    setup({ errorBanner: {} });
+    expect(screen.getByText("Delete failed.")).toBeInTheDocument();
+  });
 });
