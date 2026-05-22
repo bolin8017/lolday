@@ -77,6 +77,47 @@ describe("PredictionSummaryCard", () => {
     expect(legendItems[2]).toHaveTextContent("suspicious");
   });
 
+  it("sorts purely by descending count when no positiveClass is supplied", () => {
+    // Skipping the positiveClass prop exercises the `if (positiveClass)`
+    // falsy arm on line 41, letting the comparator fall through to the
+    // `bc - ac` count sort. Pins the contract that callers can hand in
+    // an arbitrary distribution and still get a count-ordered legend.
+    render(
+      <PredictionSummaryCard
+        summary={{
+          total: 100,
+          distribution: { benign: 30, malware: 50, suspicious: 20 },
+          duration_seconds: 1,
+        }}
+      />,
+    );
+    const legendItems = screen.getAllByText(/^benign|^suspicious|^malware/);
+    expect(legendItems[0]).toHaveTextContent("malware"); // highest count
+    expect(legendItems[1]).toHaveTextContent("benign");
+    expect(legendItems[2]).toHaveTextContent("suspicious"); // lowest count
+  });
+
+  it("hoists positiveClass when it appears earlier in iteration order than another class", () => {
+    // V8's sort calls comparator(arr[j+1], arr[j]) backwards during insertion
+    // sort, so positiveClass-last inputs only exercise the `a === positiveClass`
+    // branch on line 42. Pinning a positiveClass-first iteration order makes
+    // V8 call `comparator(benign, malware)` with b="malware", exercising the
+    // sibling `b === positiveClass` branch on line 43.
+    render(
+      <PredictionSummaryCard
+        summary={{
+          total: 100,
+          distribution: { malware: 30, benign: 70 },
+          duration_seconds: 1,
+        }}
+        positiveClass="malware"
+      />,
+    );
+    const legendItems = screen.getAllByText(/^benign|^malware/);
+    expect(legendItems[0]).toHaveTextContent("malware");
+    expect(legendItems[1]).toHaveTextContent("benign");
+  });
+
   it("computes 0% bars when total is 0 (no NaN%)", () => {
     const { container } = render(
       <PredictionSummaryCard
