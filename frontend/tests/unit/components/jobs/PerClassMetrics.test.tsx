@@ -75,4 +75,25 @@ describe("PerClassMetrics", () => {
     // Header row only.
     expect(screen.getAllByRole("row")).toHaveLength(1);
   });
+
+  it("hoists positiveClass when it appears earlier in iteration order than another class", () => {
+    // V8's sort calls comparator(arr[j+1], arr[j]) backwards during insertion
+    // sort, so the existing tests (positiveClass last in iteration order) only
+    // exercise the `a === positiveClass` branch on line 24. Pinning a two-entry
+    // case with positiveClass FIRST in iteration order makes V8 call
+    // `comparator(benign, zealot)` with b="zealot" — exercising the
+    // `b === positiveClass` branch on line 25 deterministically.
+    render(
+      <PerClassMetrics
+        positiveClass="zealot"
+        perClass={{
+          zealot: { precision: 1, recall: 1, f1: 1, support: 1 },
+          benign: { precision: 0.9, recall: 0.9, f1: 0.9, support: 1 },
+        }}
+      />,
+    );
+    const rows = screen.getAllByRole("row");
+    expect(within(rows[1]).getByText("zealot")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("benign")).toBeInTheDocument();
+  });
 });
