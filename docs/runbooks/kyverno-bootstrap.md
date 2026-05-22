@@ -17,9 +17,16 @@
 - PSS baseline background audit (folds into the P2 PSS labels —
   Kyverno reports violations without blocking admission).
 
-Kyverno's own controllers run in the `kyverno` namespace and are explicitly
-**excluded from the verifyImages policy** so a Kyverno upgrade cannot reject
-its own image during the rolling restart.
+Kyverno's own controllers run in the lolday release namespace (the same
+ns as the umbrella chart — Helm installs sub-charts into the release ns
+by default, and gotcha #1 below pins them there because the alternative
+required out-of-band CRD ownership outside the release scope). The
+verifyImages policies (GHCR + Harbor) scope their `imageReferences` to
+`ghcr.io/bolin8017/lolday-*` / `harbor.lolday.svc:80/lolday/*` respectively
+— Kyverno's own images (`reg.kyverno.io/kyverno/*`) match neither glob,
+so the policy never evaluates a signature against Kyverno's pods. A
+Kyverno upgrade therefore cannot reject its own image during the rolling
+restart, regardless of namespace scope.
 
 ## The three bootstrap gotchas
 
@@ -75,22 +82,28 @@ Audit-trail: `d93c6a8 fix(charts): disable kyverno crds.install in lolday umbrel
 
 ### 2. `config.excludeKyvernoNamespace: true` (chart default) silently skips admission control
 
-**Symptom:** Pods created in the `kyverno` namespace bypass the verifyImages
-policy even when the policy `match.any.resources.namespaces` includes
-`kyverno`. Or — more dangerously — Kyverno appears to enforce on
-`lolday` / `lolday-jobs` but never logs a single admission event.
+**Symptom:** Pods created in Kyverno's install namespace bypass the
+verifyImages policy even when the policy `match.any.resources.namespaces`
+includes that ns explicitly. Or — more dangerously — Kyverno appears to
+enforce on `lolday-jobs` but never logs a single admission event for
+non-Kyverno pods in `lolday` itself (where Kyverno also runs as a
+sub-chart of the lolday umbrella — see narrative above).
 
 **Root cause.** The upstream Kyverno chart defaults `config.excludeKyvernoNamespace: true`.
 This is **intended** to prevent Kyverno from blocking its own admission
 controller restarts, but the chart-level option also installs an exclusion
-that suppresses admission events from the `kyverno` namespace in the policy
-report. With our verifyImages policy scoped to `[lolday, lolday-jobs]`
-explicitly (D2), the chart-side exclusion adds a confusing second layer that
-silently ate `kyverno`-ns admission events.
+that suppresses admission events from Kyverno's own install ns in the
+policy report. On lolday that install ns is `lolday` itself (sub-chart
+sharing the umbrella release ns), so the chart-side exclusion would
+silently skip admission for **every** lolday-ns pod — including backend,
+frontend, mlflow, and the Harbor sub-chart components.
 
-**Fix.** Override the chart default to `false`. Our policy already excludes
-the `kyverno` namespace via `match.any.resources.namespaces`, so the
-chart-side exclusion is redundant and only obscures the operator's view.
+**Fix.** Override the chart default to `false`. The chart-side exclusion
+is misaligned with our co-resident sub-chart layout, and Kyverno's own
+pods are protected from self-loop verification by image-reference scoping
+(see narrative above): policy `imageReferences` matches GHCR / Harbor
+globs, none of which match `reg.kyverno.io/kyverno/*`, so admission can
+safely apply across the whole release ns.
 
 ```yaml
 # charts/lolday/values.yaml (kyverno sub-chart section)
@@ -156,10 +169,10 @@ Follow these steps in order:
    Should produce a Kyverno admission error referencing the verifyImages
    policy. (The `--dry-run=server` ensures admission is evaluated but no Pod
    is created.)
-8. **Tail kyverno logs for 30 seconds** to confirm policy evaluation events
-   are flowing:
+8. **Tail Kyverno logs for 30 seconds** to confirm policy evaluation events
+   are flowing. Kyverno runs in the lolday release ns (see narrative above):
    ```bash
-   kubectl -n kyverno logs -l app.kubernetes.io/component=admission-controller --tail=20 -f
+   kubectl -n lolday logs -l app.kubernetes.io/component=admission-controller --tail=20 -f
    ```
 
 ## When to act

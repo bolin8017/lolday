@@ -1,4 +1,4 @@
-# lolday/pytorch-cu12-base — CVE-clean CUDA 12.6 + Python 3.12 + torch 2.7
+# lolday/pytorch-cu12-base — CVE-clean CUDA 12.6 + Python 3.12 + torch 2.8
 #
 # Why custom: pytorch/pytorch official runtime images pin Python 3.11 via
 # conda, but lolday's detector framework (maldet) requires Python 3.12+.
@@ -6,9 +6,12 @@
 # CUDA layer and the Python layer upstream-managed.
 #
 # Trivy policy: platform blocks on CRITICAL only. CVE-2025-32434 (torch
-# <2.6.0 RCE via pickle deserialisation) is the driver of the torch
-# version pin — 2.6.0 is the fix; we use 2.7.0 for the CUDA 12.6 wheel
-# set + current maintenance branch.
+# <2.6.0 RCE via pickle deserialisation) drove the original 2.6.0 floor;
+# Dependabot has since bumped through 2.7.0 (PR #139, P4 supply-chain)
+# and 2.8.0 (PR #190, 2026-05-17) — the current pin in
+# requirements-runtime.txt is `torch==2.8.0` with the CUDA 12.6 wheel
+# set. Bumps land via Dependabot against requirements-runtime.txt; this
+# header tracks the floor + active pin rationale, not every patch.
 #
 # Reproducibility: every pip package is pinned. A rebuild a year from
 # now lands on the same resolver set; no floating "latest" that could
@@ -55,8 +58,9 @@ RUN apt-get update \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache/pip
 
-# Torch 2.7.0 with CUDA 12.6 wheel set (matches host driver 560 which
-# caps at CUDA 12.6). torch >=2.6 required for CVE-2025-32434.
+# Torch (current pin in requirements-runtime.txt: 2.8.0) with the CUDA
+# 12.6 wheel set (matches host driver 560 which caps at CUDA 12.6).
+# torch >=2.6 required for CVE-2025-32434.
 #
 # Baseline scientific stack every detector uses, plus:
 # psutil + pynvml — required by MLflow 2.8+ system metrics logging
