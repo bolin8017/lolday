@@ -25,7 +25,13 @@ PUB_KEY="${COSIGN_DIR}/lolday-harbor.pub"
 # cosign 3.0+ replaced `--tlog-upload=false` with a signing-config file.
 # Generate one with no Rekor transparency log so signatures stay private.
 SIGN_CONFIG="${COSIGN_DIR}/lolday-no-tlog.config.json"
-SECRET_NS=kyverno
+# Kyverno is installed as a sub-chart of the `lolday` umbrella into the
+# release namespace (= `lolday`); the admission controller SA has read
+# access to its own ns only. The verify-lolday-harbor-image-signatures
+# ClusterPolicy templates the publicKeys URI as
+# `k8s://{{ .Release.Namespace }}/cosign-harbor-pubkey`, so the Secret
+# must live there. See charts/lolday/values.yaml `kyverno:` block.
+SECRET_NS=lolday
 SECRET_NAME=cosign-harbor-pubkey
 SECRET_FILE_KEY=cosign.pub   # Kyverno requires the key inside the Secret to be exactly `cosign.pub`.
 
@@ -83,7 +89,8 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Public key into the cluster as a Secret in the kyverno namespace.
+# 2. Public key into the cluster as a Secret in the lolday release namespace
+#    (= where the Kyverno sub-chart runs; see SECRET_NS comment above).
 # ---------------------------------------------------------------------------
 if ! kubectl get ns "${SECRET_NS}" >/dev/null 2>&1; then
   echo "[fatal] namespace ${SECRET_NS} not found. Is Kyverno installed?" >&2

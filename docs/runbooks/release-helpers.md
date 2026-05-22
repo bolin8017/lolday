@@ -19,7 +19,7 @@ Spec: `docs/superpowers/specs/2026-04-29-helper-image-versioning-design.md`.
 - `kubectl` context pointing at the lolday cluster.
 - `harbor-push-cred` Secret already in the `lolday` namespace. Create it via `bash scripts/recover-harbor.sh` if missing.
 - `cosign` installed (`bash scripts/install-tools.sh` puts it under `~/.local/bin/`). Required since issue #171 — every Harbor push is signed.
-- Cosign keypair already bootstrapped via `bash scripts/cosign-harbor-init.sh` (one-time, per cluster). Private key at `~/.cosign/lolday-harbor.key` (chmod 600); public key as Secret `kyverno/cosign-harbor-pubkey` (consumed by ClusterPolicy `verify-lolday-harbor-image-signatures`).
+- Cosign keypair already bootstrapped via `bash scripts/cosign-harbor-init.sh` (one-time, per cluster). Private key at `~/.cosign/lolday-harbor.key` (chmod 600); public key as Secret `lolday/cosign-harbor-pubkey` (release namespace — where the Kyverno sub-chart runs; consumed by ClusterPolicy `verify-lolday-harbor-image-signatures`).
 - `COSIGN_PASSWORD` available — either exported in the shell (sourced from your password manager) or supplied interactively when `cosign sign` prompts.
 - A clean working tree on the feature branch — the build script refuses dirty subtrees.
 

@@ -17,8 +17,10 @@ metadata:
       images push through scripts/build-helpers.sh and the operator's
       manual flow, NOT GHA, so the keyless trust root does not apply.
       This policy uses a key-based attestor with the cosign public key
-      held in cluster as Secret kyverno/cosign-harbor-pubkey, key
-      cosign.pub. Issue #171 option 2.
+      held in cluster as Secret <release-ns>/cosign-harbor-pubkey, key
+      cosign.pub (templated as `k8s://{{ .Release.Namespace }}/...` so
+      the lookup tracks the ns where the Kyverno sub-chart actually
+      runs). Issue #171 option 2.
 spec:
   # Default Audit for 7d observation. Promote to Enforce in git by
   # setting `kyverno.harborImageSignatureEnforce: true` in values.yaml.
@@ -65,15 +67,18 @@ spec:
           # elsewhere in the cluster by specifying it in the format
           # k8s://<namespace>/<secret_name>. The named Secret must
           # specify a key cosign.pub containing the public key used for
-          # verification."). Rotation is a single edit to the Secret:
-          # `kubectl create secret generic cosign-harbor-pubkey -n kyverno
+          # verification."). The release namespace ({{ .Release.Namespace }})
+          # is where the Kyverno sub-chart actually runs (see values.yaml
+          # `kyverno:` block) — the admission controller SA has read access
+          # to its own ns only. Rotation is a single edit to the Secret:
+          # `kubectl create secret generic cosign-harbor-pubkey -n {{ .Release.Namespace }}
           # --from-file=cosign.pub=lolday-harbor.pub --dry-run=client -o yaml
           # | kubectl apply -f -` — no chart re-render needed.
           attestors:
             - count: 1
               entries:
                 - keys:
-                    publicKeys: "k8s://kyverno/cosign-harbor-pubkey"
+                    publicKeys: "k8s://{{ .Release.Namespace }}/cosign-harbor-pubkey"
                     # rekor.ignoreTlog: true — Harbor pushes are
                     # operator-private; we do NOT enter signatures into
                     # the public Rekor transparency log (no value, leaks

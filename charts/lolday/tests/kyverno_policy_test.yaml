@@ -200,9 +200,15 @@ tests:
   - it: Harbor ClusterPolicy uses key-based attestor with k8s:// URI + Rekor tlog ignored
     # Reason: Harbor is the in-cluster operator-private registry, so we
     # use key-based verification (the cosign public key held as
-    # Secret kyverno/cosign-harbor-pubkey, key cosign.pub). The
+    # Secret <release-ns>/cosign-harbor-pubkey, key cosign.pub). The
     # `k8s://<ns>/<secret_name>` URI is the canonical Kyverno reference
-    # form — this enables rotation by just re-applying the Secret.
+    # form — this enables rotation by just re-applying the Secret. The
+    # ns is templated as `{{ .Release.Namespace }}` so it tracks the
+    # release ns where the Kyverno sub-chart actually runs; previous
+    # hardcoded `kyverno` was a stale reference (Kyverno's admission SA
+    # has no RBAC to read secrets in that ns and the ns does not even
+    # exist on the cluster — admission verification always failed at
+    # the lookup step, silently in Audit mode).
     # rekor.ignoreTlog=true is intentional: Harbor pushes are private,
     # entering signatures into the public Rekor transparency log would
     # leak internal image names. A regression that flips ignoreTlog to
@@ -219,10 +225,29 @@ tests:
           value: 1
       - equal:
           path: spec.rules[0].verifyImages[0].attestors[0].entries[0].keys.publicKeys
-          value: "k8s://kyverno/cosign-harbor-pubkey"
+          value: "k8s://lolday/cosign-harbor-pubkey"
       - equal:
           path: spec.rules[0].verifyImages[0].attestors[0].entries[0].keys.rekor.ignoreTlog
           value: true
+
+  - it: Harbor ClusterPolicy publicKeys URI tracks release namespace
+    # Reason: The Secret reference is templated from `.Release.Namespace`
+    # so the lookup follows the ns where the Kyverno sub-chart actually
+    # runs. A regression that hardcodes a different ns (e.g. the historical
+    # `kyverno` ns, which was never created on the live cluster) silently
+    # breaks Audit-mode verification — the admission SA has no RBAC to
+    # read secrets cross-ns, so verifyImages fails at the secret-lookup
+    # step. This test simulates an alternate release ns to catch any
+    # accidental string-pinning that would mask the bug under the default
+    # `lolday` ns assumption.
+    template: templates/policies/verify-images-harbor.yaml
+    release:
+      name: lolday-altns
+      namespace: alt-namespace
+    asserts:
+      - equal:
+          path: spec.rules[0].verifyImages[0].attestors[0].entries[0].keys.publicKeys
+          value: "k8s://alt-namespace/cosign-harbor-pubkey"
 
   - it: Harbor ClusterPolicy pins mutateDigest=false + verifyDigest=true + required=true
     # Reason: Same fail-loud-on-unpinned + end-to-end-integrity contract
