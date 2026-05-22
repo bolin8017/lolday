@@ -124,18 +124,15 @@ describe("FieldTemplate", () => {
   });
 
   it("handles classNames=undefined without crashing the className concat", () => {
+    // RJSF's FieldTemplateProps types `classNames?: string` so undefined is
+    // a typed-valid input; the runtime `?? ""` fallback guards against it.
     const { container } = render(
-      <FieldTemplate
-        {...baseProps}
-        // @ts-expect-error — testing the `?? ""` fallback for undefined classNames
-        classNames={undefined}
-        formData={0.5}
-      >
+      <FieldTemplate {...baseProps} classNames={undefined} formData={0.5}>
         <input value="0.5" readOnly />
       </FieldTemplate>,
     );
-    // The wrapper div ends up with `"mb-4 "` (note trailing space). Assert the
-    // mb-4 class is present and nothing exploded.
+    // The wrapper div ends up with `"mb-4 "` (note trailing space). Assert
+    // the mb-4 class is present and nothing exploded.
     const wrapper = container.firstChild as HTMLElement;
     expect(wrapper.className).toMatch(/^mb-4/);
   });
