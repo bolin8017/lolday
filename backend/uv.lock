@@ -326,11 +326,11 @@ wheels = [
 
 [[package]]
 name = "cachetools"
-version = "7.1.3"
+version = "7.1.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8f/c1/67cfb86aa21144796ff51068326d467fbef8ee42f8d08a3a8a926106cf0c/cachetools-7.1.3.tar.gz", hash = "sha256:135cfe944bc3c1e805505f65dae0bef375a2f96261171ab66c79ef77d0bda39d", size = 45780, upload-time = "2026-05-18T18:21:03.819Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/8b/0d3945a13955303b81272f759a0331e54c5c793da455e6f5706b89d2639c/cachetools-7.1.4.tar.gz", hash = "sha256:437f55a4e0c1b01a4f3077cc470e6991d47430970e36fbcb77e2be0df4fc1cd6", size = 40085, upload-time = "2026-05-21T22:40:43.376Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/52/8ff5c1a3b2e821ced9b2998fba3ee29aa4525c0bf51e5ee55dd6f61a4ed5/cachetools-7.1.3-py3-none-any.whl", hash = "sha256:9876787e2346e20584d5cca236cb5d49d04e7193de91646f230725b2e1e8b804", size = 16763, upload-time = "2026-05-18T18:21:02.386Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/7b/1fc1c09cc0756cf25861a3be10565915953876da48bb228fb9a672b20a42/cachetools-7.1.4-py3-none-any.whl", hash = "sha256:323dc4127934744db5b54eb4924482d7edafbf9554e820d1531c2e08c0e4ef54", size = 16761, upload-time = "2026-05-21T22:40:41.845Z" },
 ]
 
 [[package]]
@@ -787,7 +787,7 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.136.1"
+version = "0.136.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
@@ -796,9 +796,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5d/45/c130091c2dfa061bbfe3150f2a5091ef1adf149f2a8d2ae769ecaf6e99a2/fastapi-0.136.1.tar.gz", hash = "sha256:7af665ad7acfa0a3baf8983d393b6b471b9da10ede59c60045f49fbc89a0fa7f", size = 397448, upload-time = "2026-04-23T16:49:44.046Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/2d/ff8d91d7b564d464629a0fd50a4489c97fcb836ac230bf3a7269232a9b1f/fastapi-0.136.3.tar.gz", hash = "sha256:e487fae93ad408e6f47641ee4dfe389864fd7bec92e547ea8498fc13f43e83ab", size = 396410, upload-time = "2026-05-23T18:53:15.192Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/ff/2e4eca3ade2c22fe1dea7043b8ee9dabe47753349eb1b56a202de8af6349/fastapi-0.136.1-py3-none-any.whl", hash = "sha256:a6e9d7eeada96c93a4d69cb03836b44fa34e2854accb7244a1ece36cd4781c3f", size = 117683, upload-time = "2026-04-23T16:49:42.437Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/82/45359b62a067409bd929ae8a56b8ed13e5a8c8a61194b3c236920999ab83/fastapi-0.136.3-py3-none-any.whl", hash = "sha256:3d2a69bdf04b7e9f3afa292c3bc7a98816bbfafa10bc9b45f3f3700d2f761620", size = 117481, upload-time = "2026-05-23T18:53:16.924Z" },
 ]
 
 [[package]]
@@ -1279,14 +1279,14 @@ wheels = [
 
 [[package]]
 name = "hypothesis"
-version = "6.152.7"
+version = "6.152.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/91/dd/19d273652eb20dac15f32bbc484f2f6d51ccd8fe51fdb27da3f85f9017e8/hypothesis-6.152.7.tar.gz", hash = "sha256:741dedcede2ae0f32c32929a5992804b61f2b0400403b6a51a881a2b58482782", size = 468147, upload-time = "2026-05-13T04:19:34.124Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3b/fb/a5651eb0cd03ecee644e8f4d8cd2027b40a08bf1488f46201e794aebe9b5/hypothesis-6.152.9.tar.gz", hash = "sha256:de4711d69ce3a18009047c3b44882810fd0c0348c1558e920a4b0d2c45f59e1e", size = 472009, upload-time = "2026-05-19T17:10:19.586Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/1e/8222edaee03c37350eaa726213614e343a62f1e56396dd000ad9277bfa3d/hypothesis-6.152.7-py3-none-any.whl", hash = "sha256:c0b17dd428fcb6e962f60315f6f4a77816c72fbb281ce9ba73699dabead5ec82", size = 533802, upload-time = "2026-05-13T04:19:30.635Z" },
+    { url = "https://files.pythonhosted.org/packages/79/d9/40ef7ed22f0c45c2316467edb9afb8fc172cd089cb329c0ee6da6b74416c/hypothesis-6.152.9-py3-none-any.whl", hash = "sha256:9c4fdccb1eac0b12ec740c12290d0e6a0bea3526a3f0bf812b7643bb563c2d8b", size = 538148, upload-time = "2026-05-19T17:10:16.131Z" },
 ]
 
 [[package]]
@@ -1727,9 +1727,9 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.15.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
-    { name = "cachetools", specifier = ">=7.1.3" },
+    { name = "cachetools", specifier = ">=7.1.4" },
     { name = "cryptography", specifier = ">=44.0.0" },
-    { name = "fastapi", specifier = ">=0.136.1" },
+    { name = "fastapi", specifier = ">=0.136.3" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "jsonschema", specifier = ">=4.20,<5" },
     { name = "kubernetes", specifier = ">=31.0.0" },
@@ -1738,7 +1738,7 @@ requires-dist = [
     { name = "prometheus-fastapi-instrumentator", specifier = "~=7.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
     { name = "pydantic-settings", specifier = ">=2.14.1" },
-    { name = "pyjwt", specifier = ">=2.0.0" },
+    { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "redis", extras = ["hiredis"], specifier = ">=7.4.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.49" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.47.0" },
@@ -1749,7 +1749,7 @@ dev = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
     { name = "fakeredis", specifier = ">=2.35.1" },
     { name = "freezegun", specifier = ">=1.5,<2" },
-    { name = "hypothesis", specifier = ">=6.114,<7" },
+    { name = "hypothesis", specifier = ">=6.152.9,<7" },
     { name = "mlflow", specifier = ">=2.20,<4" },
     { name = "mutmut", specifier = ">=3,<4" },
     { name = "mypy", specifier = ">=2.1.0" },
@@ -1758,13 +1758,13 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.25.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pytest-randomly", specifier = ">=4.1.0,<5" },
-    { name = "pytest-rerunfailures", specifier = ">=16.2,<17" },
+    { name = "pytest-rerunfailures", specifier = ">=16.3,<17" },
     { name = "pytest-split", specifier = ">=0.9,<1" },
     { name = "pytest-testmon", specifier = ">=2.1,<3" },
     { name = "pytest-timeout", specifier = ">=2.3,<3" },
     { name = "pytest-xdist", specifier = ">=3.6,<4" },
     { name = "respx", specifier = ">=0.21.0" },
-    { name = "schemathesis", specifier = ">=4.18,<5" },
+    { name = "schemathesis", specifier = ">=4.20.0,<5" },
     { name = "testcontainers", extras = ["postgres", "minio"], specifier = ">=4.14.2,<5" },
 ]
 
@@ -2926,11 +2926,11 @@ wheels = [
 
 [[package]]
 name = "pyjwt"
-version = "2.12.1"
+version = "2.13.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c2/27/a3b6e5bf6ff856d2509292e95c8f57f0df7017cf5394921fc4e4ef40308a/pyjwt-2.12.1.tar.gz", hash = "sha256:c74a7a2adf861c04d002db713dd85f84beb242228e671280bf709d765b03672b", size = 102564, upload-time = "2026-03-13T19:27:37.25Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3b/81/58d0ac84e1ef3a3843791d6954d94c0b33d526c75eeb1efbce9d0a4c4077/pyjwt-2.13.0.tar.gz", hash = "sha256:41571c89ca91598c79e8ef18a2d07367d4810fbbd6f637794879baf1b7703423", size = 107515, upload-time = "2026-05-21T19:54:36.618Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/7a/8dd906bd22e79e47397a61742927f6747fe93242ef86645ee9092e610244/pyjwt-2.12.1-py3-none-any.whl", hash = "sha256:28ca37c070cad8ba8cd9790cd940535d40274d22f80ab87f3ac6a713e6e8454c", size = 29726, upload-time = "2026-03-13T19:27:35.677Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/5e/ecf12fdb62546d64385c158514e9b2b671f7832108ef2ecd2020ce0af2d1/pyjwt-2.13.0-py3-none-any.whl", hash = "sha256:66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728", size = 31274, upload-time = "2026-05-21T19:54:35.362Z" },
 ]
 
 [[package]]
@@ -3008,15 +3008,15 @@ wheels = [
 
 [[package]]
 name = "pytest-rerunfailures"
-version = "16.2"
+version = "16.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6b/27/fd0209642f3a1069da3e0be3c7e339f942d052d81ccb1fb4eb9b187d3633/pytest_rerunfailures-16.2.tar.gz", hash = "sha256:5f5a32f15674a3d54f7598388fcd3cc1bc5c37284731a4704a44485dcdda5e23", size = 32121, upload-time = "2026-05-13T08:13:26.998Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/f0/74f8e685be7ecd1572c1256132f18fce3a665d7e07649a3f23b7eb2d3bec/pytest_rerunfailures-16.3.tar.gz", hash = "sha256:37c9b1231c8083e9f4e724f50f7a21241822f9516c15c700ebbf218d6452355c", size = 34148, upload-time = "2026-05-22T06:51:22.292Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/a5/d8c1ad74529b483044b787ead2d24ecc624bca4084a509002102e4bab8cc/pytest_rerunfailures-16.2-py3-none-any.whl", hash = "sha256:c22a53d2827becc76f057d4ded123c0e726523f2f0e5f0bb4efb31fd59e1f14e", size = 14505, upload-time = "2026-05-13T08:13:25.485Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/98/58a71d68d3126d7f6a6ed1944c37ec207a4ff3dc66cad3bed7b59d38df61/pytest_rerunfailures-16.3-py3-none-any.whl", hash = "sha256:6bdfb8ffb46c46072e6c16bdedee38b6c13eac620d9415ed5b63152cbf283170", size = 15396, upload-time = "2026-05-22T06:51:20.547Z" },
 ]
 
 [[package]]
@@ -3349,7 +3349,7 @@ wheels = [
 
 [[package]]
 name = "schemathesis"
-version = "4.18.5"
+version = "4.20.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -3370,9 +3370,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "werkzeug" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/4c/7ea1d8774de5e784a3f4180a9cfb3b3e85c70094788be853853b5b088d80/schemathesis-4.18.5.tar.gz", hash = "sha256:f6f1faf602b75e9ebadc6c08e995e946b122aac553678697e180edd6f2e18c1c", size = 2066697, upload-time = "2026-05-13T17:09:40.905Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/4d/cc7b551a213f7fa18a93d83cadc1764e18ec3dcf68fbc9fb8443c979a7ec/schemathesis-4.20.0.tar.gz", hash = "sha256:2bfe50de029f471b97e5d88b90f416ea328d7732e4c6d2bb76eb32afd414d5a9", size = 2258717, upload-time = "2026-05-24T18:33:51.058Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4b/60/3de6c50da1175cc7b0e628c23f1ec25a947c3406d1c0a231235e53864819/schemathesis-4.18.5-py3-none-any.whl", hash = "sha256:88e3f46d48928416888d0182d5b0317abbff81a248e3e1905222b7c160ca14ab", size = 690227, upload-time = "2026-05-13T17:09:39.105Z" },
+    { url = "https://files.pythonhosted.org/packages/15/0a/c8f2de514c2ff01495882337542c851fd4ebd19e18e1f8386e00a23adf15/schemathesis-4.20.0-py3-none-any.whl", hash = "sha256:e46f3eac74827de8f7d0e1d123eb1740be2895896ad3295f16e6a2dea6bce037", size = 743385, upload-time = "2026-05-24T18:33:48.92Z" },
 ]
 
 [[package]]
