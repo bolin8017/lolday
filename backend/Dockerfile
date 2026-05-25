@@ -1,6 +1,6 @@
 # H-21-img: base image pinned by digest. Dependabot's `docker` ecosystem
 # tracks /backend and auto-PRs digest bumps as upstream republishes the tag.
-FROM python:3.14-slim@sha256:a7185a8e40af01bf891414a4df16ef10fc6000cee460a404a13da9029fe41604 AS base
+FROM python:3.14-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97 AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
