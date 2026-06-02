@@ -6,9 +6,12 @@ decision D1, payloads in before_jsonb / after_jsonb are intentionally
 cherry-picked per call-site rather than full ORM row dumps:
 schema-coupling avoidance + PII control + bounded storage.
 
-The table is append-only: there is no UPDATE or DELETE path in the
-codebase. Operators who need to redact a row (e.g. GDPR right-to-be-
-forgotten) do so out-of-band via psql.
+The table has no UPDATE path. The only DELETE path is the reconciler
+retention sweep (``app/reconciler/audit_retention.py``), which prunes rows
+older than ``settings.AUDIT_LOG_RETENTION_DAYS`` to keep the table bounded
+(spec ``2026-06-02-audit-log-retention-design.md``). Operators who need to
+redact a specific row (e.g. GDPR right-to-be-forgotten) still do so
+out-of-band via psql.
 """
 
 import uuid
@@ -48,4 +51,8 @@ class AuditLog(Base):
     __table_args__ = (
         Index("ix_audit_log_target_ts", "target_type", "target_id", "ts"),
         Index("ix_audit_log_actor_ts", "actor_id", "ts"),
+        # Standalone ts index so the retention sweep's `WHERE ts < cutoff`
+        # range DELETE is index-driven (the two composite indexes above lead
+        # with non-ts columns, so neither serves a ts-only predicate).
+        Index("ix_audit_log_ts", "ts"),
     )

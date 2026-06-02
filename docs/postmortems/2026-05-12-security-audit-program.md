@@ -339,9 +339,15 @@ Concrete follow-ups (none blocking program completion):
    preserving the HTTPException(502) or original setup-error instead of
    letting a transport-side teardown error from httpx shadow it.
 
-2. **Audit-log retention policy** — `pg_partman` monthly partitioning + 365-day
+2. ~~**Audit-log retention policy** — `pg_partman` monthly partitioning + 365-day
    retention. Deferred from P5 (acceptance was "row exists", retention
-   policy is a separate concern).
+   policy is a separate concern).~~ **Done (2026-06-02).** Shipped as a
+   scheduled, indexed retention DELETE driven by the existing reconciler
+   (`app/reconciler/audit_retention.py`, `AUDIT_LOG_RETENTION_DAYS` = 365) +
+   an `ix_audit_log_ts` index. `pg_partman` was re-scoped out: the deployed
+   official `postgres:16-alpine` image does not bundle it, and the table is
+   far below the partitioning break-even. Spec:
+   [`docs/superpowers/specs/2026-06-02-audit-log-retention-design.md`](../superpowers/specs/2026-06-02-audit-log-retention-design.md).
 
 3. ~~**Kyverno bootstrap runbook** — capture the 3 edge cases from the P4
    ship under `docs/runbooks/` so future Kyverno upgrades don't re-discover
