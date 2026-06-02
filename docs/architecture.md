@@ -378,9 +378,11 @@ xattr.
 
 Spec: `docs/superpowers/specs/2026-05-12-nfs-dataset-union-mount-design.md`.
 
-### Tech debt — vcjob TTL
+### vcjob cleanup (TTL)
 
-The `lolday-controllers` Deployment doesn't honor vcjob `ttlSecondsAfterFinished` (no Volcano controller-manager running). Stale vcjobs accumulate, currently cleared manually. **Follow-up spec planned.**
+Finished vcjobs (`batch.volcano.sh/v1alpha1:Job`) are garbage-collected by the Volcano **vc-controller-manager** — deployed by the `volcano` sub-chart as the `lolday-controllers` Deployment in the `lolday` namespace (`vc-controller-manager:v1.14.2`). Its garbage-collector controller honors the `ttlSecondsAfterFinished` field the backend stamps on every vcjob (`services/job_spec.py::build_volcano_job_manifest`, value `JOB_TTL_SECONDS_AFTER_FINISHED` = 604800 = 7d), deleting each job 7 days after it reaches a terminal phase (`Completed` / `Failed` / `Terminated`). This is the upstream OSS mechanism (`volcano-sh/volcano` `pkg/controllers/garbagecollector`); no custom reaper is needed. Jobs that never finish are instead handled by the backend reconciler's timeout path (`reconciler/jobs.py`) and orphan sweep (`reconciler/orphans.py`).
+
+> **History (resolved 2026-06-02):** the 2026-05-11 storage audit logged this as a tech-debt item ("no Volcano controller-manager running; stale vcjobs accumulate, cleared manually"). That was a misdiagnosis. The Volcano sub-chart — including vc-controller-manager with its gc-controller — has been deployed since 2026-04-20 (Deployment `creationTimestamp`), but its pods are release-prefixed (`lolday-controllers` / `lolday-scheduler` / `lolday-admission`), so the audit's `kubectl get pods -A | grep volcano` returned empty. The 12 vcjobs it observed were ~5 days old, still inside the 7-day TTL window, so the gc-controller had correctly not yet reaped them. See the 2026-05-11 spec §5.9 amendment.
 
 ## 7. Build / Test / Release
 

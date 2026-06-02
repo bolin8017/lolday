@@ -347,6 +347,21 @@ MinIO service account 用 `mc admin user svcacct add` 建立,access key / secret
 
 **現在的 mitigation**:本 spec 的 cleanup phase 已手動清掉 12 個累積的 vcjob,接下來透過監控 vcjob 數量觸發 ad-hoc cleanup。**這是 tech debt**,標記在 `docs/architecture.md` §9,等本 spec landed 後另開。
 
+> **Amendment 2026-06-02 (resolved — not a real bug):** This was a
+> misdiagnosis, now corrected in `docs/architecture.md` §6 "vcjob cleanup
+> (TTL)". The Volcano sub-chart — including vc-controller-manager with its
+> garbage-collector controller, which **does** honor `ttlSecondsAfterFinished`
+> on vcjobs (`volcano-sh/volcano` `pkg/controllers/garbagecollector`) — has
+> been deployed as `lolday-controllers` since 2026-04-20 (Deployment
+> `creationTimestamp`), three weeks before this audit. The `grep volcano` check
+> above returned empty only because the sub-chart pods are release-prefixed
+> (`lolday-controllers` / `lolday-scheduler` / `lolday-admission`), not
+> `volcano-*`. The 12 vcjobs the cleanup phase deleted were ~5 days old — still
+> inside the 7-day TTL window — so the gc-controller had correctly not yet
+> reaped them. No follow-up spec is needed; fix options (a)/(b)/(c) above are
+> moot (writing a custom reconciler reaper would duplicate the upstream
+> gc-controller, against the "prefer open-source over custom code" rule).
+
 ### 5.10 Prometheus → Thanos sidecar(future scope)
 
 Prometheus 本地 TSDB retention 設 15 天,對「過去 15 天的告警 / debug」夠用。若未來需要**長期 capacity planning 趨勢圖**(例如「過去 6 個月 GPU 利用率變化」),CNCF 主流是加 **Thanos sidecar**:
@@ -807,7 +822,7 @@ sudo mkfs.xfs /dev/loop10
 
 1. **MinIO operator vs raw Helm chart** — 本 spec 採 raw Helm。MinIO Operator (`minio/operator`) 提供 tenants 抽象 + GUI,但對 single-bucket-per-tenant 模型過重。等多 tenant 時再評估
 2. **Thanos sidecar for Prometheus** — §5.10 預留,follow-up spec
-3. **vcjob TTL bug** — §5.9 follow-up spec
+3. ~~**vcjob TTL bug** — §5.9 follow-up spec~~ — RESOLVED 2026-06-02 (misdiagnosis; see §5.9 amendment + `docs/architecture.md` §6 "vcjob cleanup (TTL)")
 4. **MinIO root credential rotation** — 目前用 K8s secret,沒有自動 rotation。可整合 Vault / Sealed Secrets,等有人寫
 5. **跨 region geo-replication** — 等真有 backup site 才考慮(MinIO 內建 site-replication)
 6. **Application-side S3 retry / circuit breaker tuning** — MLflow / Harbor / Loki 各自的 S3 client 都有 retry,但 timeout 預設可能對 internal MinIO 過長。production-tune 是後續觀測項

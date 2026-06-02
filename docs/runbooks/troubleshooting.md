@@ -110,18 +110,39 @@ Phase 8.2 / 9.6 migrations move PVCs off root LV. See `scripts/migrate-ephemeral
 
 ### Symptom: Volcano scheduling stalled / `lolday_volcano_pending_stale` alert
 
-**Cause hypothesis:** Volcano controller pod crashed, GPU device-plugin lost the node, or queue mis-configured.
+**Cause hypothesis:** Volcano scheduler pod crashed, GPU device-plugin lost the node, or queue mis-configured.
 
 **Action:**
 
 ```bash
-kubectl get vc -n lolday
-kubectl describe vcjob -n lolday <name>
-kubectl get pods -n volcano-system
-kubectl logs -n volcano-system <volcano-controller-pod>
+# vcjobs run in the JOB_NAMESPACE (lolday-jobs), short name is `vcjob`/`vj` (NOT `vc`)
+kubectl get vcjob -n lolday-jobs
+kubectl describe vcjob -n lolday-jobs <name>
+# Volcano runs as a sub-chart in the `lolday` release namespace, NOT `volcano-system`.
+# Its pods are release-prefixed: lolday-scheduler / lolday-controllers / lolday-admission.
+kubectl get pods -n lolday | grep -E 'lolday-(scheduler|controllers|admission)'
+kubectl logs -n lolday deploy/lolday-scheduler
 ```
 
 The alert fires on Pending jobs older than `VOLCANO_STALE_SECONDS` (default 1800s). It's a Gauge alert, not a Counter — it can drop back to 0.
+
+### Symptom: finished vcjobs appear to accumulate in `lolday-jobs` / "vcjob TTL not working"
+
+**Cause hypothesis:** usually a measurement artifact, not a bug. Finished vcjobs are reaped by the Volcano vc-controller-manager's garbage-collector **7 days** (`JOB_TTL_SECONDS_AFTER_FINISHED`) after they reach a terminal phase, so terminal jobs younger than the TTL are _expected_ to still be present. Two recurring traps: (1) Volcano pods are release-prefixed (`lolday-controllers`), so `kubectl get pods -A | grep volcano` returns empty and looks like "no controller running"; (2) vcjobs live in `lolday-jobs`, not `lolday`.
+
+**Action:**
+
+```bash
+# 1. Confirm the gc-controller is actually running (it's lolday-controllers, in the lolday ns)
+kubectl get deploy lolday-controllers -n lolday
+kubectl logs deploy/lolday-controllers -n lolday | grep -i 'garbage collector'   # "Starting garbage collector"
+
+# 2. List terminal vcjobs and their age — anything younger than 7d is correctly retained
+kubectl get vcjob -n lolday-jobs -o json \
+  | jq -r '.items[] | select(.status.state.phase|test("Completed|Failed|Terminated")) | "\(.metadata.name) \(.status.state.phase) \(.metadata.creationTimestamp)"'
+```
+
+If a **terminal** vcjob older than 7 days is still present, that is a real gc-controller fault — check the controller logs and `--worker-threads-for-gc`. See `docs/architecture.md` §6 "vcjob cleanup (TTL)".
 
 ### Symptom: Discord notifications missing
 
