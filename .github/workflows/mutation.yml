@@ -38,6 +38,15 @@ jobs:
       - name: Render Markdown report
         id: render
         working-directory: backend
+        # `scripts.lib.mutation_report` lives at the REPO ROOT (scripts/lib/),
+        # not under backend/. With working-directory: backend the module is
+        # off sys.path, so `python -m scripts.lib.mutation_report` raised
+        # ModuleNotFoundError and silently killed the kill-rate gate + report
+        # PR + below-gate issue. Put the repo root on PYTHONPATH so the
+        # namespace package resolves (same pattern as scripts/recover-harbor.sh
+        # and scripts/check-helpers-lock.sh, which export PYTHONPATH=<repo root>).
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           DATE=$(date -u +%Y-%m-%d)
           mkdir -p ../docs/test-telemetry
