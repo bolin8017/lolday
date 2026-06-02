@@ -100,6 +100,13 @@ class Settings(BaseSettings):
     # interval for a lightweight "what's queued → what's available" scan.
     FIFO_RECONCILER_PERIOD_SECONDS: int = 30
 
+    # Audit-log retention (2026-06-02). The reconciler runs a daily DELETE of
+    # audit_log rows older than this window (app/reconciler/audit_retention.py).
+    # A value <= 0 disables the sweep (escape hatch). Default matches the
+    # security spec's "365-day retention". See spec
+    # docs/superpowers/specs/2026-06-02-audit-log-retention-design.md.
+    AUDIT_LOG_RETENTION_DAYS: int = 365
+
     # Host-aware GPU signal (2026-05-10).
     # Backend reads DCGM via Prometheus to detect non-K8s GPU usage on
     # server30 (a shared lab server).  See
