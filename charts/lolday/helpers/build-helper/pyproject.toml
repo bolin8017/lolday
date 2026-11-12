@@ -4,11 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lolday-build-helper"
-version = "3.1.0"
+version = "3.2.0"
 description = "lolday build-pipeline init-container script (Phase 11e typed-contract aware)"
 requires-python = ">=3.12"
 dependencies = [
-    "maldet[lightning]>=2.0,<3.0",
+    # Only `maldet.manifest` is consumed (DetectorManifest, load_manifest,
+    # ManifestNotFoundError); the [lightning] extra brings torch +
+    # lightning + torchmetrics + ~12 nvidia-cu12-* as transitive deps that
+    # this image never imports. Declare the minimum surface so torch CVE
+    # advisories (GHSA-887c-mr87-cxwp, GHSA-3749-ghw9-m3mg) don't follow
+    # the helper around, and so a `uv lock --upgrade` does not pull GB of
+    # CUDA wheels onto the GHA runner. If maldet.manifest ever starts
+    # importing torch, re-evaluate; today it does not.
+    "maldet>=2.0,<3.0",
 ]
 
 [project.optional-dependencies]
